@@ -6387,7 +6387,8 @@ int dsi_display_prepare(struct dsi_display *display)
 		if (display->is_cont_splash_enabled &&
 		    display->config.panel_mode == DSI_OP_VIDEO_MODE) {
 			pr_err("DMS not supported on first frame\n");
-			return -EINVAL;
+			rc = -EINVAL;
+			goto error;
 		}
 
 		/* update dsi ctrl for new mode */
