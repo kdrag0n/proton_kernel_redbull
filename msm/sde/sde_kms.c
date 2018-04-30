@@ -25,6 +25,7 @@
 #include <linux/dma-buf.h>
 #include <linux/memblock.h>
 #include <linux/bootmem.h>
+#include <linux/msm_drm_notify.h>
 
 #include "msm_drv.h"
 #include "msm_mmu.h"
@@ -786,6 +787,75 @@ static int _sde_kms_unmap_all_splash_regions(struct sde_kms *sde_kms)
 	return ret;
 }
 
+static int _sde_kms_get_blank(struct drm_crtc_state *crtc_state,
+			      struct drm_connector_state *conn_state)
+{
+	int lp_mode, blank;
+
+	if (crtc_state->active)
+		lp_mode = sde_connector_get_property(conn_state,
+						     CONNECTOR_PROP_LP);
+	else
+		lp_mode = SDE_MODE_DPMS_OFF;
+
+	switch (lp_mode) {
+	case SDE_MODE_DPMS_ON:
+		blank = MSM_DRM_BLANK_UNBLANK;
+		break;
+	case SDE_MODE_DPMS_LP1:
+	case SDE_MODE_DPMS_LP2:
+		blank = MSM_DRM_BLANK_LP;
+		break;
+	case SDE_MODE_DPMS_OFF:
+	default:
+		blank = MSM_DRM_BLANK_POWERDOWN;
+		break;
+	}
+
+	return blank;
+}
+
+static void _sde_kms_drm_check_dpms(struct drm_atomic_state *old_state,
+				   unsigned long event)
+{
+	struct drm_connector *connector;
+	struct drm_connector_state *old_conn_state;
+	struct drm_crtc_state *old_crtc_state;
+	int i, old_mode, new_mode, old_fps, new_fps;
+
+	for_each_old_connector_in_state(old_state, connector, old_conn_state, i) {
+		if (!connector->state->crtc)
+			continue;
+
+		new_fps = connector->state->crtc->state->mode.vrefresh;
+		new_mode = _sde_kms_get_blank(connector->state->crtc->state,
+					      connector->state);
+		if (old_conn_state->crtc) {
+			old_crtc_state = drm_atomic_get_existing_crtc_state(
+					old_state, old_conn_state->crtc);
+			old_fps = old_crtc_state->mode.vrefresh;
+			old_mode = _sde_kms_get_blank(old_crtc_state,
+						      old_conn_state);
+		} else {
+			old_fps = 0;
+			old_mode = MSM_DRM_BLANK_POWERDOWN;
+		}
+
+		if ((old_mode != new_mode) || (old_fps != new_fps)) {
+			struct msm_drm_notifier notifier_data;
+
+			pr_debug("change detected (power mode %d->%d, fps %d->%d)\n",
++				 old_mode, new_mode, old_fps, new_fps);
+
+			notifier_data.data = &new_mode;
+			notifier_data.id = connector->state->crtc->index;
+			notifier_data.refresh_rate = new_fps;
+
+			msm_drm_notifier_call_chain(event, &notifier_data);
+		}
+	}
+}
+
 static void sde_kms_prepare_commit(struct msm_kms *kms,
 		struct drm_atomic_state *state)
 {
@@ -835,6 +905,8 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 	 * transitions prepare below if any transtions is required.
 	 */
 	sde_kms_prepare_secure_transition(kms, state);
+
+	_sde_kms_drm_check_dpms(state, MSM_DRM_EARLY_EVENT_BLANK);
 end:
 	SDE_ATRACE_END("prepare_commit");
 }
@@ -973,6 +1045,8 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 					 rc);
 		}
 	}
+
+	_sde_kms_drm_check_dpms(old_state, MSM_DRM_EVENT_BLANK);
 
 	pm_runtime_put_sync(sde_kms->dev->dev);
 

@@ -702,6 +702,7 @@ int msm_atomic_prepare_fb(struct drm_plane *plane,
 void msm_atomic_commit_tail(struct drm_atomic_state *state);
 int msm_atomic_commit(struct drm_device *dev,
 	struct drm_atomic_state *state, bool nonblock);
+int msm_drm_notifier_call_chain(unsigned long val, void *v);
 
 /* callback from wq once fence has passed: */
 struct msm_fence_cb {
