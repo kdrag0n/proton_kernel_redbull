@@ -24,6 +24,7 @@
 #define MAX_TOPOLOGY 5
 
 #define DSI_PANEL_DEFAULT_LABEL  "Default dsi panel"
+#define DSI_PANEL_VENDOR_DEFAULT_LABEL "Undefined vendor"
 
 #define DEFAULT_PANEL_JITTER_NUMERATOR		2
 #define DEFAULT_PANEL_JITTER_DENOMINATOR	1
@@ -998,6 +999,165 @@ static void dsi_panel_parse_split_link_config(struct dsi_host_common_cfg *host,
 	DSI_DEBUG("[%s] Split link is supported %d-%d\n", name,
 		split_link->num_sublinks, split_link->lanes_per_sublink);
 	split_link->split_link_enabled = true;
+}
+
+static int dsi_panel_create_sn_buf(struct dsi_panel *panel)
+{
+	struct dsi_panel_vendor_info *const vendor_info = &panel->vendor_info;
+	struct dsi_panel_sn_location *const location = &vendor_info->location;
+	ssize_t rc = 0;
+	u32 sn_str_size;
+	u8 *tmp_sn_buf;
+
+	if (!panel)
+		return -EINVAL;
+
+	if  (!location->addr || !location->sn_length) {
+		DSI_ERR("[%s] invalid location\n", __func__);
+		return -EINVAL;
+	}
+
+	// prepare buffer for bin2hex()
+	// e.g. buf[0] = 0x01 -> sn[0] = '0' and sn[1] = '1'
+	sn_str_size = location->sn_length * 2;
+	tmp_sn_buf = kmalloc(sn_str_size + 1, GFP_KERNEL);
+	if (!tmp_sn_buf)
+		return -ENOMEM;
+
+	mutex_lock(&panel->panel_lock);
+	if (!vendor_info->sn) {
+		vendor_info->is_sn = false;
+		vendor_info->sn = tmp_sn_buf;
+	} else
+		kfree(tmp_sn_buf);
+
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
+static int dsi_panel_release_sn_buf(struct dsi_panel *panel)
+{
+	struct dsi_panel_vendor_info *const vendor_info = &panel->vendor_info;
+	ssize_t rc = 0;
+
+	if (!panel)
+		return -EINVAL;
+
+	mutex_lock(&panel->panel_lock);
+	kfree(vendor_info->sn);
+	vendor_info->sn = NULL;
+	vendor_info->is_sn = false;
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
+int dsi_panel_get_sn(struct dsi_panel *panel)
+{
+	struct dsi_panel_vendor_info *const vendor_info = &panel->vendor_info;
+	struct dsi_panel_sn_location *const location = &vendor_info->location;
+	ssize_t rc = 0;
+	u32 read_size, read_back_size, sn_str_size;
+	u8 *buf;
+
+	if (!panel || !panel->panel_initialized) {
+		DSI_ERR("panel is not ready\n");
+		return -EINVAL;
+	}
+
+	read_size = location->start_byte + location->sn_length;
+	buf = kmalloc(read_size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&panel->panel_lock);
+
+	if (!panel->vendor_info.sn) {
+		rc = -EINVAL;
+		goto out_mutex;
+	}
+
+	read_back_size = mipi_dsi_dcs_read(&panel->mipi_device, location->addr,
+					   buf, read_size);
+	if (read_back_size == read_size) {
+		bin2hex(vendor_info->sn, &buf[location->start_byte],
+			location->sn_length);
+		// e.g. buf[0] = 0x01 -> sn[0] = '0' and sn[1] = '1'
+		sn_str_size = location->sn_length * 2;
+		vendor_info->sn[sn_str_size] = '\0';
+		vendor_info->is_sn = true;
+	} else {
+		DSI_ERR("failed to read: addr=0x%X, read_back_size=%d, read_size=%d\n",
+		      location->addr, read_back_size, read_size);
+		rc = -EINVAL;
+	}
+
+	kfree(buf);
+out_mutex:
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
+static int dsi_panel_parse_sn_location(struct dsi_panel *panel,
+				       struct device_node *of_node)
+{
+	struct dsi_panel_vendor_info *const vendor_info = &panel->vendor_info;
+	int rc = 0, len = 0;
+	u32 array[3] = {0};
+
+	if (!panel)
+		return -EINVAL;
+
+	len = of_property_count_u32_elems(of_node,
+			"google,mdss-dsi-panel-sn-location");
+	if (len != 3) {
+		DSI_ERR("[%s] invalid format\n", __func__);
+		rc = -EINVAL;
+		goto error;
+	}
+
+	rc = of_property_read_u32_array(of_node,
+			"google,mdss-dsi-panel-sn-location", array, len);
+	if (rc || !array[0] || !array[2]) {
+		DSI_ERR("[%s] invalid format\n", __func__);
+		rc = -EINVAL;
+		goto error;
+	}
+
+	vendor_info->location.addr = array[0];
+	vendor_info->location.start_byte = array[1];
+	vendor_info->location.sn_length = array[2];
+
+	DSI_DEBUG("addr=0x%x, start=%d, length=%d",
+		vendor_info->location.addr, vendor_info->location.start_byte,
+		vendor_info->location.sn_length);
+error:
+	return rc;
+}
+
+static int dsi_panel_parse_vendor_info(struct dsi_panel *panel,
+				       struct device_node *of_node)
+{
+	int rc = 0;
+	struct dsi_panel_vendor_info *const vendor_info = &panel->vendor_info;
+
+	if (!panel)
+		return -EINVAL;
+
+	vendor_info->name = of_get_property(of_node,
+				"google,mdss-dsi-panel-vendor", NULL);
+
+	if (!vendor_info->name) {
+		vendor_info->name = DSI_PANEL_VENDOR_DEFAULT_LABEL;
+		rc = -EINVAL;
+		goto error;
+	}
+	rc = dsi_panel_parse_sn_location(panel, of_node);
+	if (rc) {
+		DSI_ERR("[%s] failed to parse the parameter for SN, rc=%d\n",
+			panel->name, rc);
+	}
+error:
+	return rc;
 }
 
 static int dsi_panel_parse_host_config(struct dsi_panel *panel)
@@ -2916,6 +3076,9 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 				rc);
 		goto error;
 	}
+	rc = dsi_panel_parse_vendor_info(panel, of_node);
+	if (rc)
+		DSI_ERR("failed to parse vendor information, rc=%d\n", rc);
 
 	rc = dsi_panel_parse_panel_mode(panel);
 	if (rc) {
@@ -2996,6 +3159,10 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 
 	mutex_init(&panel->panel_lock);
 
+	rc = dsi_panel_create_sn_buf(panel);
+	if (rc)
+		DSI_ERR("failed to create buffer for SN, rc=%d\n", rc);
+
 	return panel;
 error:
 	kfree(panel);
@@ -3004,6 +3171,8 @@ error:
 
 void dsi_panel_put(struct dsi_panel *panel)
 {
+	dsi_panel_release_sn_buf(panel);
+
 	drm_panel_remove(&panel->drm_panel);
 
 	/* free resources allocated for ESD check */

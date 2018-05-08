@@ -206,6 +206,7 @@ struct dsi_display {
 	struct dsi_panel *panel;
 	struct device_node *panel_node;
 	struct device_node *parser_node;
+	struct device *panel_info_dev;
 
 	/* external bridge */
 	struct dsi_display_ext_bridge ext_bridge[MAX_DSI_CTRLS_PER_DISPLAY];
