@@ -1838,8 +1838,6 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-lp2-command",
 	"qcom,mdss-dsi-nolp-command",
 	"qcom,mdss-dsi-post-nolp-command",
-	"qcom,mdss-dsi-hbm-command",
-	"qcom,mdss-dsi-nohbm-command",
 	"PPS not parsed from DTSI, generated dynamically",
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command",
@@ -1867,8 +1865,6 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-lp2-command-state",
 	"qcom,mdss-dsi-nolp-command-state",
 	"qcom,mdss-dsi-post-nolp-command-state",
-	"qcom,mdss-dsi-hbm-command-state",
-	"qcom,mdss-dsi-nohbm-command-state",
 	"PPS not parsed from DTSI, generated dynamically",
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command-state",
@@ -3600,8 +3596,6 @@ struct {
 	{ "lp2",		DSI_CMD_SET_LP2 },
 	{ "no_lp",		DSI_CMD_SET_NOLP },
 	{ "post_nolp",		DSI_CMD_SET_POST_NOLP },
-	{ "hbm",		DSI_CMD_SET_HBM },
-	{ "nohbm",		DSI_CMD_SET_NOHBM },
 	{ "switch",		DSI_CMD_SET_TIMING_SWITCH },
 	{ "post_switch",	DSI_CMD_SET_POST_TIMING_SWITCH },
 };
@@ -4536,7 +4530,6 @@ static int dsi_panel_update_hbm_locked(struct dsi_panel *panel,
 	bool enable)
 {
 	struct dsi_backlight_config *bl = &panel->bl_config;
-	int rc = 0;
 
 	if (panel->hbm_mode == enable)
 		return 0;
@@ -4547,12 +4540,17 @@ static int dsi_panel_update_hbm_locked(struct dsi_panel *panel,
 		return -EINVAL;
 	}
 
-	rc = dsi_panel_tx_cmd_set(panel, enable ? DSI_CMD_SET_HBM :
-		DSI_CMD_SET_NOHBM);
-	if (rc) {
-		DSI_ERR("[%s] failed to send HBM DSI cmd, rc=%d\n",
-			panel->name, rc);
-		return rc;
+	/* When HBM exit is requested, send HBM exit commands
+	 * immediately to avoid conflict with subsequent backlight ops.
+	 */
+	if (!enable) {
+		int rc = dsi_panel_cmd_set_transfer(panel,
+			&bl->hbm->dsi_hbm_exit_cmd);
+		if (rc) {
+			pr_err("[%s] failed to send HBM DSI cmd, rc=%d\n",
+				panel->name, rc);
+			return rc;
+		}
 	}
 
 	panel->hbm_mode = enable;
