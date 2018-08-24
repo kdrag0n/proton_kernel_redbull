@@ -3844,6 +3844,8 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	dsi_backlight_early_dpms(&panel->bl_config, SDE_MODE_DPMS_LP1);
+
 	mutex_lock(&panel->panel_lock);
 	if (!panel->panel_initialized)
 		goto exit;
@@ -3856,7 +3858,7 @@ exit:
 	mutex_unlock(&panel->panel_lock);
 
 	if (!rc)
-		rc = dsi_backlight_update_dpms(&panel->bl_config,
+		rc = dsi_backlight_late_dpms(&panel->bl_config,
 					       SDE_MODE_DPMS_LP1);
 
 	return rc;
@@ -3871,6 +3873,8 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	dsi_backlight_early_dpms(&panel->bl_config, SDE_MODE_DPMS_LP2);
+
 	mutex_lock(&panel->panel_lock);
 	if (!panel->panel_initialized)
 		goto exit;
@@ -3883,7 +3887,7 @@ exit:
 	mutex_unlock(&panel->panel_lock);
 
 	if (!rc)
-		rc = dsi_backlight_update_dpms(&panel->bl_config,
+		rc = dsi_backlight_late_dpms(&panel->bl_config,
 					       SDE_MODE_DPMS_LP2);
 
 	return rc;
@@ -3898,6 +3902,8 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	dsi_backlight_early_dpms(&panel->bl_config, SDE_MODE_DPMS_ON);
+
 	mutex_lock(&panel->panel_lock);
 	if (!panel->panel_initialized)
 		goto exit;
@@ -3910,7 +3916,7 @@ exit:
 	mutex_unlock(&panel->panel_lock);
 
 	if (!rc)
-		rc = dsi_backlight_update_dpms(&panel->bl_config,
+		rc = dsi_backlight_late_dpms(&panel->bl_config,
 					       SDE_MODE_DPMS_ON);
 	return rc;
 }
@@ -3923,6 +3929,8 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
+
+	dsi_backlight_early_dpms(&panel->bl_config, SDE_MODE_DPMS_ON);
 
 	mutex_lock(&panel->panel_lock);
 
@@ -3947,6 +3955,11 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 
 error:
 	mutex_unlock(&panel->panel_lock);
+
+	if (!rc)
+		rc = dsi_backlight_late_dpms(&panel->bl_config,
+					       SDE_MODE_DPMS_OFF);
+
 	return rc;
 }
 
@@ -4250,8 +4263,9 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	mutex_unlock(&panel->panel_lock);
 
 	if (!rc)
-		rc = dsi_backlight_update_dpms(&panel->bl_config,
+		rc = dsi_backlight_late_dpms(&panel->bl_config,
 					       SDE_MODE_DPMS_ON);
+
 	return rc;
 }
 
@@ -4286,6 +4300,8 @@ int dsi_panel_pre_disable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	dsi_backlight_early_dpms(&panel->bl_config, SDE_MODE_DPMS_OFF);
+
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PRE_OFF);
@@ -4294,10 +4310,6 @@ int dsi_panel_pre_disable(struct dsi_panel *panel)
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
-
-	if (!rc)
-		rc = dsi_backlight_update_dpms(&panel->bl_config,
-					       SDE_MODE_DPMS_OFF);
 
 	return rc;
 }
