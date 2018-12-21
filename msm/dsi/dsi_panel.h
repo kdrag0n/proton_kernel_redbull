@@ -99,6 +99,8 @@ struct dsi_backlight_config {
 	u32 bl_scale;
 	u32 bl_scale_sv;
 	u32 bl_actual;
+	bool bl_update_pending;
+	bool allow_bl_update;
 
 	int en_gpio;
 	/* PWM params */

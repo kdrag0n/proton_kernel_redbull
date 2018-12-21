@@ -446,8 +446,6 @@ struct sde_connector {
 	bool bl_scale_dirty;
 	u32 bl_scale;
 	u32 bl_scale_sv;
-	u32 unset_bl_level;
-	bool allow_bl_update;
 
 	u32 qsync_mode;
 	bool qsync_updated;
@@ -904,10 +902,18 @@ void sde_connector_destroy(struct drm_connector *connector);
 int sde_connector_event_notify(struct drm_connector *connector, uint32_t type,
 		uint32_t len, uint32_t val);
 /**
- * sde_connector_helper_bridge_enable - helper function for drm bridge enable
+ * sde_connector_helper_bridge_pre_enable - helper function for drm bridge
+ *                                          pre enable
  * @connector: Pointer to DRM connector object
  */
-void sde_connector_helper_bridge_enable(struct drm_connector *connector);
+void sde_connector_helper_bridge_pre_enable(struct drm_connector *connector);
+
+/**
+ * sde_connector_helper_bridge_post_enable - helper function for drm bridge
+ *                                           post enable
+ * @connector: Pointer to DRM connector object
+ */
+void sde_connector_helper_bridge_post_enable(struct drm_connector *connector);
 
 /**
  * sde_connector_get_panel_vfp - helper to get panel vfp
