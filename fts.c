@@ -134,6 +134,7 @@ static u8 key_mask;	/* /< store the last update of the key mask
 
 static int fts_init_sensing(struct fts_ts_info *info);
 static int fts_mode_handler(struct fts_ts_info *info, int force);
+static void fts_pinctrl_setup(struct fts_ts_info *info, bool active);
 
 static int fts_chip_initialization(struct fts_ts_info *info, int init_type);
 
@@ -4841,6 +4842,8 @@ static void fts_resume_work(struct work_struct *work)
 
 	fts_set_switch_gpio(info, FTS_SWITCH_GPIO_VALUE_AP_MASTER);
 
+	fts_pinctrl_setup(info, true);
+
 	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
 
 	info->resume_bit = 1;
@@ -4891,6 +4894,8 @@ static void fts_suspend_work(struct work_struct *work)
 	/* Flush any outstanding touch events */
 	fts_system_reset();
 	flushFIFO();
+
+	fts_pinctrl_setup(info, false);
 
 	fts_set_switch_gpio(info, FTS_SWITCH_GPIO_VALUE_SLPI_MASTER);
 
@@ -5229,6 +5234,104 @@ err_gpio_irq:
 	return retval;
 }
 
+/** Set pin state to active or suspend
+  * @param active 1 for active while 0 for suspend
+  */
+static void fts_pinctrl_setup(struct fts_ts_info *info, bool active)
+{
+	int retval;
+
+	if (info->ts_pinctrl) {
+		/*
+		 * Pinctrl setup is optional.
+		 * If pinctrl is found, set pins to active/suspend state.
+		 * Otherwise, go on without showing error messages.
+		 */
+		retval = pinctrl_select_state(info->ts_pinctrl, active ?
+				info->pinctrl_state_active :
+				info->pinctrl_state_suspend);
+		if (retval < 0) {
+			pr_err("Failed to select %s pinstate %d\n", active ?
+				PINCTRL_STATE_ACTIVE : PINCTRL_STATE_SUSPEND,
+				retval);
+		}
+	} else {
+		pr_warn("ts_pinctrl is NULL\n");
+	}
+}
+
+/**
+  * Get/put the touch pinctrl from the specific names. If pinctrl is used, the
+  * active and suspend pin control names and states are necessary.
+  * @param info pointer to fts_ts_info which contains info about the device and
+  * its hw setup
+  * @param get if 1, the pinctrl is get otherwise it is put (released) back to
+  * the system
+  * @return OK if success or an error code which specify the type of error
+  */
+static int fts_pinctrl_get(struct fts_ts_info *info, bool get)
+{
+	int retval;
+
+	if (!get) {
+		retval = 0;
+		goto pinctrl_put;
+	}
+
+	info->ts_pinctrl = devm_pinctrl_get(info->dev);
+	if (IS_ERR_OR_NULL(info->ts_pinctrl)) {
+		retval = PTR_ERR(info->ts_pinctrl);
+		pr_info("Target does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+
+	info->pinctrl_state_active
+		= pinctrl_lookup_state(info->ts_pinctrl, PINCTRL_STATE_ACTIVE);
+	if (IS_ERR_OR_NULL(info->pinctrl_state_active)) {
+		retval = PTR_ERR(info->pinctrl_state_active);
+		pr_err("Can not lookup %s pinstate %d\n",
+			PINCTRL_STATE_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	info->pinctrl_state_suspend
+		= pinctrl_lookup_state(info->ts_pinctrl, PINCTRL_STATE_SUSPEND);
+	if (IS_ERR_OR_NULL(info->pinctrl_state_suspend)) {
+		retval = PTR_ERR(info->pinctrl_state_suspend);
+		pr_err("Can not lookup %s pinstate %d\n",
+			PINCTRL_STATE_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	info->pinctrl_state_release
+		= pinctrl_lookup_state(info->ts_pinctrl, PINCTRL_STATE_RELEASE);
+	if (IS_ERR_OR_NULL(info->pinctrl_state_release)) {
+		retval = PTR_ERR(info->pinctrl_state_release);
+		pr_warn("Can not lookup %s pinstate %d\n",
+			PINCTRL_STATE_RELEASE, retval);
+	}
+
+	return OK;
+
+err_pinctrl_lookup:
+	devm_pinctrl_put(info->ts_pinctrl);
+err_pinctrl_get:
+	info->ts_pinctrl = NULL;
+pinctrl_put:
+	if (info->ts_pinctrl) {
+		if (IS_ERR_OR_NULL(info->pinctrl_state_release)) {
+			devm_pinctrl_put(info->ts_pinctrl);
+			info->ts_pinctrl = NULL;
+		} else {
+			if (pinctrl_select_state(
+					info->ts_pinctrl,
+					info->pinctrl_state_release))
+				pr_warn("Failed to select release pinstate\n");
+		}
+	}
+	return retval;
+}
+
 /**
   * Retrieve and parse the hw information from the device tree node defined in
   * the system.
@@ -5451,6 +5554,11 @@ static int fts_probe(struct spi_device *client)
 		goto ProbeErrorExit_2;
 	}
 	info->client->irq = gpio_to_irq(info->board->irq_gpio);
+
+	pr_info("SET Pinctrl:\n");
+	retval = fts_pinctrl_get(info, true);
+	if (!retval)
+		fts_pinctrl_setup(info, true);
 
 	pr_info("SET Event Handler:\n");
 
@@ -5732,6 +5840,8 @@ ProbeErrorExit_4:
 	/* destroy_workqueue(info->fwu_workqueue); */
 	wakeup_source_trash(&info->wakesrc);
 
+	fts_pinctrl_get(info, false);
+
 	fts_enable_reg(info, false);
 
 ProbeErrorExit_2:
@@ -5803,6 +5913,8 @@ static int fts_remove(struct spi_device *client)
 
 	if (info->fwu_workqueue)
 		destroy_workqueue(info->fwu_workqueue);
+
+	fts_pinctrl_get(info, false);
 
 	fts_enable_reg(info, false);
 	fts_get_reg(info, false);

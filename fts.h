@@ -68,6 +68,10 @@
 #define pr_fmt(fmt) "[ FTS ] " fmt
 #endif
 
+#define PINCTRL_STATE_ACTIVE    "pmx_ts_active"
+#define PINCTRL_STATE_SUSPEND   "pmx_ts_suspend"
+#define PINCTRL_STATE_RELEASE   "pmx_ts_release"
+
 #define DRIVER_TEST	/* /< if defined allow to use and test special functions
 			  * of the driver and fts_lib from command shell
 			  * (useful for enginering/debug operations) */
@@ -426,6 +430,11 @@ struct fts_ts_info {
 	struct fts_hw_platform_data     *board;	/* HW info from device tree */
 	struct regulator        *vdd_reg;	/* DVDD power regulator */
 	struct regulator        *avdd_reg;	/* AVDD power regulator */
+
+	struct pinctrl       *ts_pinctrl;		/* touch pin control state holder */
+	struct pinctrl_state *pinctrl_state_active;	/* Active pin state*/
+	struct pinctrl_state *pinctrl_state_suspend;	/* Suspend pin state*/
+	struct pinctrl_state *pinctrl_state_release;	/* Release pin state*/
 
 	spinlock_t fts_int;	/* Spinlock to protect interrupt toggling */
 	bool irq_enabled;	/* Interrupt state */
