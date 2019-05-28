@@ -51,6 +51,7 @@ struct panel_switch_funcs {
 	void (*perform_switch)(struct panel_switch_data *pdata,
 			       const struct dsi_display_mode *mode);
 	int (*post_enable)(struct panel_switch_data *pdata);
+	int (*send_nolp_cmds)(struct dsi_panel *panel);
 };
 
 struct panel_switch_data {
@@ -277,6 +278,19 @@ static int panel_post_enable(struct dsi_panel *panel)
 	return rc;
 }
 
+static int panel_send_nolp(struct dsi_panel *panel)
+{
+	struct panel_switch_data *pdata = panel->private_data;
+
+	if (unlikely(!pdata || !pdata->funcs))
+		return -EINVAL;
+
+	if (!pdata->funcs->send_nolp_cmds)
+		return -EOPNOTSUPP;
+
+	return pdata->funcs->send_nolp_cmds(panel);
+}
+
 static ssize_t debugfs_panel_switch_mode_write(struct file *file,
 					       const char __user *user_buf,
 					       size_t user_len,
@@ -343,6 +357,7 @@ static const struct dsi_panel_funcs panel_funcs = {
 	.pre_kickoff = panel_pre_kickoff,
 	.post_enable = panel_post_enable,
 	.pre_lp1     = panel_flush_switch_queue,
+	.send_nolp   = panel_send_nolp,
 };
 
 static int panel_switch_data_init(struct dsi_panel *panel,
@@ -456,6 +471,10 @@ struct s6e3hc2_panel_data {
 	u8 *gamma_data[S6E3HC2_NUM_GAMMA_TABLES];
 };
 
+/*
+ * s6e3hc2_gamma_update() expects DD-IC to be in unlocked state, so
+ * to make sure there are unlock/lock commands when calling this func.
+ */
 static void s6e3hc2_gamma_update(struct panel_switch_data *pdata,
 				 const struct dsi_display_mode *mode)
 {
@@ -1000,6 +1019,37 @@ static void s6e3hc2_perform_switch(struct panel_switch_data *pdata,
 	DSI_WRITE_CMD_BUF(dsi, lock_cmd);
 }
 
+int s6e3hc2_send_nolp_cmds(struct dsi_panel *panel)
+{
+	struct panel_switch_data *pdata;
+	struct dsi_display_mode *cur_mode;
+	struct dsi_panel_cmd_set *cmd;
+	int rc = 0;
+
+	if (unlikely(!panel || !panel->cur_mode))
+		return -EINVAL;
+
+	pdata = panel->private_data;
+	cur_mode = panel->cur_mode;
+
+	cmd = &cur_mode->priv_info->cmd_sets[DSI_CMD_SET_NOLP];
+	rc = dsi_panel_cmd_set_transfer(panel, cmd);
+	if (rc) {
+		pr_debug("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
+		       panel->name, rc);
+		return rc;
+	}
+
+	s6e3hc2_gamma_update(pdata, cur_mode);
+
+	cmd = &cur_mode->priv_info->cmd_sets[DSI_CMD_SET_POST_NOLP];
+	rc = dsi_panel_cmd_set_transfer(panel, cmd);
+	if (rc)
+		pr_debug("[%s] failed to send DSI_CMD_SET_POST_NOLP cmd, rc=%d\n",
+		       panel->name, rc);
+	return rc;
+}
+
 static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 {
 	struct s6e3hc2_switch_data *sdata;
@@ -1025,6 +1075,7 @@ const struct panel_switch_funcs s6e3hc2_switch_funcs = {
 	.destroy = s6e3hc2_switch_data_destroy,
 	.perform_switch = s6e3hc2_perform_switch,
 	.post_enable = s6e3hc2_post_enable,
+	.send_nolp_cmds = s6e3hc2_send_nolp_cmds,
 };
 
 static const struct of_device_id panel_switch_dt_match[] = {

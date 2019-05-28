@@ -1818,6 +1818,7 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-lp1-command",
 	"qcom,mdss-dsi-lp2-command",
 	"qcom,mdss-dsi-nolp-command",
+	"qcom,mdss-dsi-post-nolp-command",
 	"qcom,mdss-dsi-hbm-command",
 	"qcom,mdss-dsi-nohbm-command",
 	"PPS not parsed from DTSI, generated dynamically",
@@ -1846,6 +1847,7 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-lp1-command-state",
 	"qcom,mdss-dsi-lp2-command-state",
 	"qcom,mdss-dsi-nolp-command-state",
+	"qcom,mdss-dsi-post-nolp-command-state",
 	"qcom,mdss-dsi-hbm-command-state",
 	"qcom,mdss-dsi-nohbm-command-state",
 	"PPS not parsed from DTSI, generated dynamically",
@@ -3573,6 +3575,7 @@ struct {
 	{ "lp1",		DSI_CMD_SET_LP1 },
 	{ "lp2",		DSI_CMD_SET_LP2 },
 	{ "no_lp",		DSI_CMD_SET_NOLP },
+	{ "post_nolp",		DSI_CMD_SET_POST_NOLP },
 	{ "hbm",		DSI_CMD_SET_HBM },
 	{ "nohbm",		DSI_CMD_SET_NOHBM },
 	{ "switch",		DSI_CMD_SET_TIMING_SWITCH },
@@ -4419,10 +4422,18 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	     panel->power_mode == SDE_MODE_DPMS_LP2))
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_NORMAL);
-	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
-	if (rc)
-		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
-		       panel->name, rc);
+
+	if (panel->funcs && panel->funcs->send_nolp)
+		rc = panel->funcs->send_nolp(panel);
+	else
+		rc = -EOPNOTSUPP;
+
+	if (rc == -EOPNOTSUPP) {
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
+		if (rc)
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
+			       panel->name, rc);
+	}
 exit:
 	mutex_unlock(&panel->panel_lock);
 
