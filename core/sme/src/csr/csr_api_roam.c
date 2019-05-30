@@ -118,6 +118,11 @@
 /* Static Type declarations */
 static struct csr_roam_session csr_roam_roam_session[CSR_ROAM_SESSION_MAX];
 
+/*
+ * To get roam reason from 0 to 3rd bit of roam_synch_data
+ * received from firmware
+ */
+#define ROAM_REASON_MASK 0x0F
 /**
  * csr_get_ielen_from_bss_description() - to get IE length
  *             from tSirBssDescription structure
@@ -842,7 +847,7 @@ static void csr_roam_sort_channel_for_early_stop(tpAniSirGlobal mac_ctx,
 	if (!chan_list_greedy || !chan_list_non_greedy) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "Failed to allocate memory for tSirUpdateChanList");
-		return;
+		goto scan_list_sort_error;
 	}
 	/*
 	 * fixed_greedy_chan_list is an evaluated channel list based on most of
@@ -2816,8 +2821,8 @@ QDF_STATUS csr_change_default_config_param(tpAniSirGlobal pMac,
 	if (pParam) {
 		pMac->roam.configParam.pkt_err_disconn_th =
 			pParam->pkt_err_disconn_th;
-		pMac->roam.configParam.is_force_1x1 =
-			pParam->is_force_1x1;
+		pMac->roam.configParam.is_force_1x1_enable =
+			pParam->is_force_1x1_enable;
 		pMac->roam.configParam.WMMSupportMode = pParam->WMMSupportMode;
 		cfg_set_int(pMac, WNI_CFG_WME_ENABLED,
 			(pParam->WMMSupportMode == eCsrRoamWmmNoQos) ? 0 : 1);
@@ -3426,7 +3431,7 @@ QDF_STATUS csr_get_config_param(tpAniSirGlobal pMac, tCsrConfigParam *pParam)
 		return QDF_STATUS_E_INVAL;
 
 	pParam->pkt_err_disconn_th = cfg_params->pkt_err_disconn_th;
-	pParam->is_force_1x1 = cfg_params->is_force_1x1;
+	pParam->is_force_1x1_enable = cfg_params->is_force_1x1_enable;
 	pParam->WMMSupportMode = cfg_params->WMMSupportMode;
 	pParam->Is11eSupportEnabled = cfg_params->Is11eSupportEnabled;
 	pParam->FragmentationThreshold = cfg_params->FragmentationThreshold;
@@ -15998,14 +16003,18 @@ QDF_STATUS csr_send_join_req_msg(tpAniSirGlobal pMac, uint32_t sessionId,
 				sme_debug("1x1 with 1 Chain AP");
 		}
 
-		if (pMac->roam.configParam.is_force_1x1 &&
-		    pMac->lteCoexAntShare &&
-		    is_vendor_ap_present) {
+		if ((pMac->roam.configParam.is_force_1x1_enable ==
+					FORCE_1X1_ENABLED_FORCED ||
+		     (pMac->roam.configParam.is_force_1x1_enable ==
+					FORCE_1X1_ENABLED_FOR_AS &&
+		     pMac->lteCoexAntShare)) && is_vendor_ap_present) {
 			pSession->supported_nss_1x1 = true;
 			pSession->vdev_nss = 1;
 			pSession->nss = 1;
 			pSession->nss_forced_1x1 = true;
-			sme_debug("For special ap, NSS: %d", pSession->nss);
+			sme_debug("For special ap, NSS: %d force 1x1 %d",
+				  pSession->nss,
+				  pMac->roam.configParam.is_force_1x1_enable);
 		}
 
 		/*
@@ -16033,7 +16042,7 @@ QDF_STATUS csr_send_join_req_msg(tpAniSirGlobal pMac, uint32_t sessionId,
 			ucfg_action_oui_search(pMac->psoc,
 					       &vendor_ap_search_attr,
 					       ACTION_OUI_SWITCH_TO_11N_MODE);
-		if (pMac->roam.configParam.is_force_1x1 &&
+		if (pMac->roam.configParam.is_force_1x1_enable &&
 		    pMac->lteCoexAntShare &&
 		    is_vendor_ap_present &&
 		    (ucDot11Mode == WNI_CFG_DOT11_MODE_ALL ||
@@ -17327,11 +17336,8 @@ QDF_STATUS csr_send_mb_start_bss_req_msg(tpAniSirGlobal pMac, uint32_t
 	pMsg->vht_config.su_beam_formee =
 		(uint8_t)value &&
 		(uint8_t)pMac->roam.configParam.enable_txbf_sap_mode;
-	if (wlan_cfg_get_int(pMac,
-			WNI_CFG_VHT_CSN_BEAMFORMEE_ANT_SUPPORTED,
-			&value) != QDF_STATUS_SUCCESS)
-		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
-				("Failed to get CSN beamformee capability"));
+
+	value = WNI_CFG_VHT_CSN_BEAMFORMEE_ANT_SUPPORTED_FW_DEF;
 	pMsg->vht_config.csnof_beamformer_antSup = (uint8_t)value;
 	pMsg->vht_config.mu_beam_formee = 0;
 
@@ -17467,7 +17473,13 @@ static void csr_store_oce_cfg_flags_in_vdev(tpAniSirGlobal pMac,
 		sme_err("vdev is NULL");
 		return;
 	}
+
 	vdev_mlme = wlan_vdev_mlme_get_priv_obj(vdev);
+	if (!vdev_mlme) {
+		sme_err("vdev_mlme is NULL");
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
+		return;
+	}
 
 	vdev_mlme->sta_dynamic_oce_value =
 	pMac->roam.configParam.oce_feature_bitmap;
@@ -20311,7 +20323,8 @@ csr_roam_offload_scan(tpAniSirGlobal mac_ctx, uint8_t session_id,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	if (command == ROAM_SCAN_OFFLOAD_START &&
+	if ((command == ROAM_SCAN_OFFLOAD_START ||
+	    command == ROAM_SCAN_OFFLOAD_UPDATE_CFG) &&
 	    (session->pCurRoamProfile &&
 	    session->pCurRoamProfile->driver_disabled_roaming)) {
 		if (reason == REASON_DRIVER_ENABLED) {
@@ -20338,8 +20351,7 @@ csr_roam_offload_scan(tpAniSirGlobal mac_ctx, uint8_t session_id,
 		sme_err("isRoamOffloadScanEnabled not set");
 		return QDF_STATUS_E_FAILURE;
 	}
-	if (!csr_is_RSO_cmd_allowed(mac_ctx, command, session_id) &&
-			reason != REASON_ROAM_SET_BLACKLIST_BSSID) {
+	if (!csr_is_RSO_cmd_allowed(mac_ctx, command, session_id)) {
 		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
 			("RSO out-of-sync command %d lastSentCmd %d"),
 			command, roam_info->last_sent_cmd);
@@ -22715,9 +22727,14 @@ static QDF_STATUS csr_process_roam_sync_callback(tpAniSirGlobal mac_ctx,
 	QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
 		FL("LFR3: Copy KCK, KEK(len %d) and Replay Ctr"),
 		roam_info->kek_len);
+	/* bit-4 and bit-5 indicate the subnet status */
 	roam_info->subnet_change_status =
 		CSR_GET_SUBNET_STATUS(roam_synch_data->roamReason);
 
+	/* fetch 4 LSB to get roam reason */
+	roam_info->roam_reason = roam_synch_data->roamReason &
+				 ROAM_REASON_MASK;
+	sme_info("Update roam reason : %d", roam_info->roam_reason);
 	csr_copy_fils_join_rsp_roam_info(roam_info, roam_synch_data);
 
 	csr_roam_call_callback(mac_ctx, session_id, roam_info, 0,

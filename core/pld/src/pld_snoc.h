@@ -95,10 +95,20 @@ static inline int pld_snoc_athdiag_write(struct device *dev, uint32_t offset,
 {
 	return 0;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+static inline void *pld_snoc_smmu_get_domain(struct device *dev)
+{
+	return NULL;
+}
+
+#else
 static inline void *pld_snoc_smmu_get_mapping(struct device *dev)
 {
 	return NULL;
 }
+#endif
+
 static inline int pld_snoc_smmu_map(struct device *dev, phys_addr_t paddr,
 				    uint32_t *iova_addr, size_t size)
 {
@@ -136,10 +146,6 @@ static inline int pld_snoc_is_fw_rejuvenate(void)
 {
 	return 0;
 }
-static inline void pld_snoc_block_shutdown(bool status)
-{
-}
-
 #else
 int pld_snoc_register_driver(void);
 void pld_snoc_unregister_driver(void);
@@ -218,10 +224,20 @@ static inline int pld_snoc_athdiag_write(struct device *dev, uint32_t offset,
 {
 	return icnss_athdiag_write(dev, offset, memtype, datalen, input);
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+static inline void *pld_snoc_smmu_get_domain(struct device *dev)
+{
+	return icnss_smmu_get_domain(dev);
+}
+
+#else
 static inline void *pld_snoc_smmu_get_mapping(struct device *dev)
 {
 	return icnss_smmu_get_mapping(dev);
 }
+#endif
+
 static inline int pld_snoc_smmu_map(struct device *dev, phys_addr_t paddr,
 				    uint32_t *iova_addr, size_t size)
 {
@@ -268,10 +284,14 @@ static inline int pld_snoc_is_fw_rejuvenate(void)
 {
 	return icnss_is_rejuvenate();
 }
-static inline void pld_snoc_block_shutdown(bool status)
+static inline int pld_snoc_idle_restart(struct device *dev)
 {
-	icnss_block_shutdown(status);
+	return icnss_idle_restart(dev);
 }
 
+static inline int pld_snoc_idle_shutdown(struct device *dev)
+{
+	return icnss_idle_shutdown(dev);
+}
 #endif
 #endif

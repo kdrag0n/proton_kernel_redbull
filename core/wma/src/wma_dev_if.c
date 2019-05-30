@@ -674,15 +674,7 @@ out:
 	return status;
 }
 
-/**
- * wma_force_objmgr_vdev_peer_cleanup() - Cleanup ObjMgr Vdev peers during SSR
- * @wma_handle: WMA handle
- * @vdev_id: vdev ID
- *
- * Return: none
- */
-static void wma_force_objmgr_vdev_peer_cleanup(tp_wma_handle wma,
-					       uint8_t vdev_id)
+void wma_force_objmgr_vdev_peer_cleanup(tp_wma_handle wma, uint8_t vdev_id)
 {
 	struct wma_txrx_node *iface = &wma->interfaces[vdev_id];
 	struct wlan_objmgr_vdev *vdev;
@@ -702,10 +694,12 @@ static void wma_force_objmgr_vdev_peer_cleanup(tp_wma_handle wma,
 		return;
 	}
 
+	qdf_spin_lock_bh(&iface->peer_lock);
 	peer_list = &vdev->vdev_objmgr.wlan_peer_list;
 	if (!peer_list) {
 		WMA_LOGE("%s: peer_list is NULL", __func__);
 		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_WMA_ID);
+		qdf_spin_unlock_bh(&iface->peer_lock);
 		return;
 	}
 
@@ -725,7 +719,7 @@ static void wma_force_objmgr_vdev_peer_cleanup(tp_wma_handle wma,
 		wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
 		peer = peer_next;
 	}
-
+	qdf_spin_unlock_bh(&iface->peer_lock);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_WMA_ID);
 
 	/* Force delete all the peers, set the wma interface peer_count to 0 */
@@ -1862,17 +1856,21 @@ QDF_STATUS wma_create_peer(tp_wma_handle wma, struct cdp_pdev *pdev,
 	/* for each remote ibss peer, clear its keys */
 	if (wma_is_vdev_in_ibss_mode(wma, vdev_id) &&
 	    qdf_mem_cmp(peer_addr, mac_addr_raw, IEEE80211_ADDR_LEN)) {
-		tSetStaKeyParams key_info;
+		tpSetStaKeyParams key_info;
 
+		key_info = qdf_mem_malloc(sizeof(*key_info));
+		if (!key_info) {
+			return QDF_STATUS_E_NOMEM;
+		}
 		WMA_LOGD("%s: remote ibss peer %pM key clearing\n", __func__,
 			 peer_addr);
-		qdf_mem_zero(&key_info, sizeof(key_info));
-		key_info.smesessionId = vdev_id;
-		qdf_mem_copy(key_info.peer_macaddr.bytes, peer_addr,
-				IEEE80211_ADDR_LEN);
-		key_info.sendRsp = false;
+		qdf_mem_zero(key_info, sizeof(*key_info));
+		key_info->smesessionId = vdev_id;
+		qdf_mem_copy(key_info->peer_macaddr.bytes, peer_addr,
+			     IEEE80211_ADDR_LEN);
+		key_info->sendRsp = false;
 
-		wma_set_stakey(wma, &key_info);
+		wma_set_stakey(wma, key_info);
 	}
 
 	return QDF_STATUS_SUCCESS;
@@ -3426,11 +3424,12 @@ void wma_hold_req_timer(void *data)
 
 		params->status = QDF_STATUS_E_TIMEOUT;
 		WMA_LOGE(FL("wma delete peer for del bss req timed out"));
+
 		if (wma_crash_on_fw_timeout(wma->fw_timeout_crash))
 			wma_trigger_recovery_assert_on_fw_timeout(
 				WMA_DELETE_STA_REQ);
-		wma_send_msg_high_priority(wma, WMA_DELETE_BSS_RSP,
-					   params, 0);
+
+		wma_send_del_bss_response(wma, tgt_req, tgt_req->vdev_id);
 	} else if ((tgt_req->msg_type == SIR_HAL_PDEV_SET_HW_MODE) &&
 			(tgt_req->type == WMA_PDEV_SET_HW_MODE_RESP)) {
 		struct sir_set_hw_mode_resp *params =
@@ -5403,6 +5402,7 @@ static void wma_del_tdls_sta(tp_wma_handle wma, tpDeleteStaParams del_sta)
 	if (wma_is_roam_synch_in_progress(wma, del_sta->smesessionId)) {
 		WMA_LOGE("%s: roaming in progress, reject del sta!", __func__);
 		del_sta->status = QDF_STATUS_E_PERM;
+		qdf_mem_free(peerStateParams);
 		goto send_del_rsp;
 	}
 

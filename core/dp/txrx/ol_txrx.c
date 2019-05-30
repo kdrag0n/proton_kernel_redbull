@@ -1606,6 +1606,41 @@ void htt_pkt_log_init(struct cdp_pdev *pdev_handle, void *ol_sc) { }
 static void htt_pktlogmod_exit(ol_txrx_pdev_handle handle)  { }
 #endif
 
+#ifdef QCA_LL_PDEV_TX_FLOW_CONTROL
+/**
+ * ol_txrx_pdev_set_threshold() - set pdev pool stop/start threshold
+ * @pdev: txrx pdev
+ *
+ * Return: void
+ */
+static void ol_txrx_pdev_set_threshold(struct ol_txrx_pdev_t *pdev)
+{
+	uint32_t stop_threshold;
+	uint32_t start_threshold;
+	uint16_t desc_pool_size = pdev->tx_desc.pool_size;
+
+	stop_threshold = ol_cfg_get_tx_flow_stop_queue_th(pdev->ctrl_pdev);
+	start_threshold = stop_threshold +
+		ol_cfg_get_tx_flow_start_queue_offset(pdev->ctrl_pdev);
+	pdev->tx_desc.start_th = (start_threshold * desc_pool_size) / 100;
+	pdev->tx_desc.stop_th = (stop_threshold * desc_pool_size) / 100;
+	pdev->tx_desc.stop_priority_th =
+		(TX_PRIORITY_TH * pdev->tx_desc.stop_th) / 100;
+	if (pdev->tx_desc.stop_priority_th >= MAX_TSO_SEGMENT_DESC)
+		pdev->tx_desc.stop_priority_th -= MAX_TSO_SEGMENT_DESC;
+
+	pdev->tx_desc.start_priority_th =
+		(TX_PRIORITY_TH * pdev->tx_desc.start_th) / 100;
+	if (pdev->tx_desc.start_priority_th >= MAX_TSO_SEGMENT_DESC)
+		pdev->tx_desc.start_priority_th -= MAX_TSO_SEGMENT_DESC;
+	pdev->tx_desc.status = FLOW_POOL_ACTIVE_UNPAUSED;
+}
+#else
+static inline void ol_txrx_pdev_set_threshold(struct ol_txrx_pdev_t *pdev)
+{
+}
+#endif
+
 /**
  * ol_txrx_pdev_post_attach() - attach txrx pdev
  * @pdev: txrx pdev
@@ -1626,8 +1661,6 @@ ol_txrx_pdev_post_attach(struct cdp_pdev *ppdev)
 	union ol_tx_desc_list_elem_t *c_element;
 	unsigned int sig_bit;
 	uint16_t desc_per_page;
-	uint32_t stop_threshold;
-	uint32_t start_threshold;
 
 	if (!osc) {
 		ret = -EINVAL;
@@ -1789,21 +1822,8 @@ ol_txrx_pdev_post_attach(struct cdp_pdev *ppdev)
 		   "%s first tx_desc:0x%pK Last tx desc:0x%pK\n", __func__,
 		   (uint32_t *) pdev->tx_desc.freelist,
 		   (uint32_t *) (pdev->tx_desc.freelist + desc_pool_size));
-	stop_threshold = ol_cfg_get_tx_flow_stop_queue_th(pdev->ctrl_pdev);
-	start_threshold = stop_threshold +
-		ol_cfg_get_tx_flow_start_queue_offset(pdev->ctrl_pdev);
-	pdev->tx_desc.start_th = (start_threshold * desc_pool_size) / 100;
-	pdev->tx_desc.stop_th = (stop_threshold * desc_pool_size) / 100;
-	pdev->tx_desc.stop_priority_th =
-		(TX_PRIORITY_TH * pdev->tx_desc.stop_th) / 100;
-	if (pdev->tx_desc.stop_priority_th >= MAX_TSO_SEGMENT_DESC)
-		pdev->tx_desc.stop_priority_th -= MAX_TSO_SEGMENT_DESC;
 
-	pdev->tx_desc.start_priority_th =
-		(TX_PRIORITY_TH * pdev->tx_desc.start_th) / 100;
-	if (pdev->tx_desc.start_priority_th >= MAX_TSO_SEGMENT_DESC)
-		pdev->tx_desc.start_priority_th -= MAX_TSO_SEGMENT_DESC;
-	pdev->tx_desc.status = FLOW_POOL_ACTIVE_UNPAUSED;
+	ol_txrx_pdev_set_threshold(pdev);
 
 	/* check what format of frames are expected to be delivered by the OS */
 	pdev->frame_format = ol_cfg_frame_type(pdev->ctrl_pdev);
@@ -2362,7 +2382,6 @@ static void ol_txrx_pdev_detach(struct cdp_pdev *ppdev, int force)
 
 	htt_pdev_free(pdev->htt_pdev);
 	ol_txrx_peer_find_detach(pdev);
-	qdf_flush_work(&pdev->peer_unmap_timer_work);
 	ol_txrx_tso_stats_deinit(pdev);
 	ol_txrx_fw_stats_desc_pool_deinit(pdev);
 
@@ -3948,16 +3967,6 @@ static QDF_STATUS ol_txrx_clear_peer(struct cdp_pdev *ppdev, uint8_t sta_id)
 	return status;
 }
 
-void peer_unmap_timer_work_function(void *param)
-{
-	WMA_LOGI("Enter: %s", __func__);
-	/* Added for debugging only */
-	ol_txrx_dump_peer_access_list(param);
-	ol_txrx_peer_release_ref(param, PEER_DEBUG_ID_OL_UNMAP_TIMER_WORK);
-	wlan_roam_debug_dump_table();
-	cds_trigger_recovery(QDF_PEER_UNMAP_TIMEDOUT);
-}
-
 /**
  * peer_unmap_timer_handler() - peer unmap timer function
  * @data: peer object pointer
@@ -3967,7 +3976,6 @@ void peer_unmap_timer_work_function(void *param)
 void peer_unmap_timer_handler(void *data)
 {
 	ol_txrx_peer_handle peer = (ol_txrx_peer_handle)data;
-	ol_txrx_pdev_handle txrx_pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 
 	ol_txrx_err("all unmap events not received for peer %pK, ref_cnt %d",
 		    peer, qdf_atomic_read(&peer->ref_cnt));
@@ -3976,15 +3984,13 @@ void peer_unmap_timer_handler(void *data)
 		    peer->mac_addr.raw[0], peer->mac_addr.raw[1],
 		    peer->mac_addr.raw[2], peer->mac_addr.raw[3],
 		    peer->mac_addr.raw[4], peer->mac_addr.raw[5]);
-	if (!cds_is_driver_recovering() && !cds_is_fw_down()) {
-		qdf_create_work(0, &txrx_pdev->peer_unmap_timer_work,
-				peer_unmap_timer_work_function,
-				peer);
-		/* Make sure peer is present before scheduling work */
-		ol_txrx_peer_get_ref(peer, PEER_DEBUG_ID_OL_UNMAP_TIMER_WORK);
-		qdf_sched_work(0, &txrx_pdev->peer_unmap_timer_work);
+	if (cds_is_self_recovery_enabled()) {
+		if (!cds_is_driver_recovering() && !cds_is_fw_down())
+			cds_trigger_recovery(QDF_PEER_UNMAP_TIMEDOUT);
+		else
+			ol_txrx_err("Recovery is in progress, ignore!");
 	} else {
-		ol_txrx_err("Recovery is in progress, ignore!");
+		QDF_BUG(0);
 	}
 }
 

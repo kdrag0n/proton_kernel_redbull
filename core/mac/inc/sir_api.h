@@ -2135,6 +2135,18 @@ struct lim_channel_status {
 };
 
 /**
+ * enum force_1x1_type - enum to specify the type of forced 1x1 ini provided.
+ * @FORCE_1X1_DISABLED: even if the AP is present in OUI, 1x1 will not be forced
+ * @FORCE_1X1_ENABLED_FOR_AS: If antenna sharing supported, then only do 1x1.
+ * @FORCE_1X1_ENABLED_FORCED: If AP present in OUI, force 1x1 connection.
+ */
+enum force_1x1_type {
+	FORCE_1X1_DISABLED,
+	FORCE_1X1_ENABLED_FOR_AS,
+	FORCE_1X1_ENABLED_FORCED,
+};
+
+/**
  * struct lim_scan_channel_status
  * @total_channel: total number of be scanned channel
  * @channel_status_list: channel status info store in this array
@@ -3527,6 +3539,20 @@ struct sir_peer_sta_info {
 struct sir_peer_sta_ext_info {
 	uint8_t sta_num;
 	struct sir_peer_info_ext info[MAX_PEER_STA];
+};
+
+/**
+ * struct sir_isolation_resp - isolation info related structure
+ * @isolation_chain0: isolation value for chain 0
+ * @isolation_chain1: isolation value for chain 1
+ * @isolation_chain2: isolation value for chain 2
+ * @isolation_chain3: isolation value for chain 3
+ */
+struct sir_isolation_resp {
+	uint32_t isolation_chain0:8,
+		 isolation_chain1:8,
+		 isolation_chain2:8,
+		 isolation_chain3:8;
 };
 
 typedef struct sSirAddPeriodicTxPtrn {

@@ -1254,6 +1254,30 @@ int pld_athdiag_write(struct device *dev, uint32_t offset,
 }
 
 /**
+ * pld_smmu_get_domain() - Get SMMU domain
+ * @dev: device
+ *
+ * Return: Pointer to the domain
+ */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+void *pld_smmu_get_domain(struct device *dev)
+{
+	void *ptr = NULL;
+	enum pld_bus_type type = pld_get_bus_type(dev);
+
+	switch (type) {
+	case PLD_BUS_TYPE_SNOC:
+		ptr = pld_snoc_smmu_get_domain(dev);
+		break;
+	default:
+		pr_err("Invalid device type %d\n", type);
+		break;
+	}
+
+	return ptr;
+}
+#else
+/**
  * pld_smmu_get_mapping() - Get SMMU mapping context
  * @dev: device
  *
@@ -1278,6 +1302,7 @@ void *pld_smmu_get_mapping(struct device *dev)
 
 	return ptr;
 }
+#endif
 
 /**
  * pld_smmu_map() - Map SMMU
@@ -1579,26 +1604,56 @@ int pld_is_fw_rejuvenate(struct device *dev)
 	return ret;
 }
 
-/**
- * pld_block_shutdown() - Block/Unblock modem shutdown
- * @dev: device
- * @status: status true or false
- *
- * This API will be called to Block/Unblock modem shutdown.
- * True - Block shutdown
- * False - Unblock shutdown
- *
- * Return: None
- */
-void pld_block_shutdown(struct device *dev, bool status)
+int pld_idle_shutdown(struct device *dev,
+		      int (*shutdown_cb)(struct device *dev))
 {
-	enum pld_bus_type type = pld_get_bus_type(dev);
+	int errno = -EINVAL;
+	enum pld_bus_type type;
 
+	if (!shutdown_cb)
+		return -EINVAL;
+
+	type = pld_get_bus_type(dev);
 	switch (type) {
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+	case PLD_BUS_TYPE_PCIE:
+		errno = shutdown_cb(dev);
+		break;
 	case PLD_BUS_TYPE_SNOC:
-		pld_snoc_block_shutdown(status);
+		errno = pld_snoc_idle_shutdown(dev);
 		break;
 	default:
+		pr_err("Invalid device type %d\n", type);
 		break;
 	}
+
+	return errno;
+}
+
+int pld_idle_restart(struct device *dev,
+		     int (*restart_cb)(struct device *dev))
+{
+	int errno = -EINVAL;
+	enum pld_bus_type type;
+
+	if (!restart_cb)
+		return -EINVAL;
+
+	type = pld_get_bus_type(dev);
+	switch (type) {
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+	case PLD_BUS_TYPE_PCIE:
+		errno = restart_cb(dev);
+		break;
+	case PLD_BUS_TYPE_SNOC:
+		errno = pld_snoc_idle_restart(dev);
+		break;
+	default:
+		pr_err("Invalid device type %d\n", type);
+		break;
+	}
+
+	return errno;
 }
