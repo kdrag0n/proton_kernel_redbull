@@ -476,6 +476,11 @@ ucfg_scan_update_dbs_scan_ctrl_ext_flag(struct scan_start_request *req)
 		goto end;
 	}
 
+	if (!ucfg_scan_cfg_honour_nl_scan_policy_flags(psoc)) {
+		scm_debug("nl scan policy flags not honoured, goto end");
+		goto end;
+	}
+
 	if (req->scan_req.scan_policy_high_accuracy) {
 		scm_debug("high accuracy scan received, going for non-dbs scan");
 		scan_dbs_policy = SCAN_DBS_POLICY_FORCE_NONDBS;
@@ -1141,6 +1146,8 @@ ucfg_scan_set_wide_band_scan(struct wlan_objmgr_pdev *pdev, bool enable)
 	}
 	pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
 	scan_obj = wlan_pdev_get_scan_obj(pdev);
+	if (!scan_obj)
+		return QDF_STATUS_E_FAILURE;
 
 	scm_debug("set wide_band_scan to %d", enable);
 	scan_obj->pdev_info[pdev_id].wide_band_scan = enable;
@@ -1159,6 +1166,8 @@ bool ucfg_scan_get_wide_band_scan(struct wlan_objmgr_pdev *pdev)
 	}
 	pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
 	scan_obj = wlan_pdev_get_scan_obj(pdev);
+	if (!scan_obj)
+		return QDF_STATUS_E_FAILURE;
 
 	return scan_obj->pdev_info[pdev_id].wide_band_scan;
 }
@@ -1435,6 +1444,10 @@ ucfg_scan_register_event_handler(struct wlan_objmgr_pdev *pdev,
 
 	scan = wlan_pdev_get_scan_obj(pdev);
 	pdev_ev_handler = wlan_pdev_get_pdev_scan_ev_handlers(pdev);
+	if (!pdev_ev_handler) {
+		scm_err("null pdev_ev_handler");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
 	cb_handler = &(pdev_ev_handler->cb_handlers[0]);
 
 	qdf_spin_lock_bh(&scan->lock);
@@ -1487,6 +1500,7 @@ wlan_scan_global_init(struct wlan_scan_obj *scan_obj)
 	scan_obj->scan_def.conc_passive_dwell = SCAN_CONC_PASSIVE_DWELL_TIME;
 	scan_obj->scan_def.conc_max_rest_time = SCAN_CONC_MAX_REST_TIME;
 	scan_obj->scan_def.conc_min_rest_time = SCAN_CONC_MIN_REST_TIME;
+	scan_obj->scan_def.honour_nl_scan_policy_flags = true;
 	scan_obj->scan_def.conc_idle_time = SCAN_CONC_IDLE_TIME;
 	scan_obj->scan_def.repeat_probe_time = SCAN_REPEAT_PROBE_TIME;
 	scan_obj->scan_def.probe_spacing_time = SCAN_PROBE_SPACING_TIME;
@@ -1569,6 +1583,9 @@ ucfg_scan_unregister_event_handler(struct wlan_objmgr_pdev *pdev,
 	}
 	scan = wlan_pdev_get_scan_obj(pdev);
 	pdev_ev_handler = wlan_pdev_get_pdev_scan_ev_handlers(pdev);
+	if (!pdev_ev_handler)
+		return;
+
 	cb_handler = &(pdev_ev_handler->cb_handlers[0]);
 
 	qdf_spin_lock_bh(&scan->lock);
@@ -1747,8 +1764,10 @@ is_chan_enabled_for_scan(struct regulatory_channel *reg_chan,
 			((reg_chan->center_freq < low_2g) ||
 			(reg_chan->center_freq > high_2g)))
 		return false;
-	else if ((reg_chan->center_freq < low_5g) ||
-			(reg_chan->center_freq > high_5g))
+	else if ((util_scan_scm_chan_to_band(reg_chan->chan_num) ==
+				WLAN_BAND_5_GHZ) &&
+		 ((reg_chan->center_freq < low_5g) ||
+		  (reg_chan->center_freq > high_5g)))
 		return false;
 
 	return true;
@@ -2005,6 +2024,8 @@ QDF_STATUS ucfg_scan_update_user_config(struct wlan_objmgr_psoc *psoc,
 	scan_def->adaptive_dwell_time_mode = scan_cfg->scan_dwell_time_mode;
 	scan_def->adaptive_dwell_time_mode_nc =
 				scan_cfg->scan_dwell_time_mode_nc;
+	scan_def->honour_nl_scan_policy_flags =
+				scan_cfg->honour_nl_scan_policy_flags;
 	scan_def->scan_f_chan_stat_evnt = scan_cfg->is_snr_monitoring_enabled;
 	scan_obj->ie_whitelist = scan_cfg->ie_whitelist;
 	scan_def->repeat_probe_time = scan_cfg->usr_cfg_probe_rpt_time;
@@ -2373,6 +2394,17 @@ void ucfg_scan_clear_vdev_del_in_progress(struct wlan_objmgr_vdev *vdev)
 		return;
 	}
 	scan_vdev_obj->is_vdev_delete_in_progress = false;
+}
+
+bool ucfg_scan_cfg_honour_nl_scan_policy_flags(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_scan_obj *scan_obj;
+
+	scan_obj = wlan_psoc_get_scan_obj(psoc);
+	if (!scan_obj)
+		return false;
+
+	return scan_obj->scan_def.honour_nl_scan_policy_flags;
 }
 
 bool ucfg_scan_wake_lock_in_user_scan(struct wlan_objmgr_psoc *psoc)
