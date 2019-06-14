@@ -2177,7 +2177,7 @@ static void rx_macro_hphdelay_lutbypass(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component, hph_lut_bypass_reg,
 					0x80, 0x00);
 		snd_soc_component_update_bits(component, hph_comp_ctrl7,
-					0x20, 0x0);
+					0x20, 0x20);
 	}
 }
 
@@ -3712,6 +3712,7 @@ static struct platform_driver rx_macro_driver = {
 		.owner = THIS_MODULE,
 		.pm = &bolero_dev_pm_ops,
 		.of_match_table = rx_macro_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = rx_macro_probe,
 	.remove = rx_macro_remove,

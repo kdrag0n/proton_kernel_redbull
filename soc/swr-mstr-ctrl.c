@@ -249,7 +249,7 @@ static int swrm_clk_request(struct swr_mstr_ctrl *swrm, bool enable)
 		if (swrm->clk_ref_count == 1) {
 			ret = swrm->clk(swrm->handle, true);
 			if (ret) {
-				dev_err(swrm->dev,
+				dev_err_ratelimited(swrm->dev,
 					"%s: clock enable req failed",
 					__func__);
 				--swrm->clk_ref_count;
@@ -1277,6 +1277,8 @@ static irqreturn_t swr_mstr_interrupt(int irq, void *dev)
 
 	mutex_lock(&swrm->reslock);
 	if (swrm_clk_request(swrm, true)) {
+		dev_err_ratelimited(swrm->dev, "%s:clk request failed\n",
+				__func__);
 		mutex_unlock(&swrm->reslock);
 		goto exit;
 	}
@@ -1447,8 +1449,15 @@ static irqreturn_t swr_mstr_interrupt_v2(int irq, void *dev)
 	}
 
 	mutex_lock(&swrm->reslock);
-	if (swrm->lpass_core_hw_vote)
-		clk_prepare_enable(swrm->lpass_core_hw_vote);
+	if (swrm->lpass_core_hw_vote) {
+		ret = clk_prepare_enable(swrm->lpass_core_hw_vote);
+		if (ret < 0) {
+			dev_err(dev, "%s:lpass core hw enable failed\n",
+				__func__);
+			ret = IRQ_NONE;
+			goto exit;
+		}
+	}
 	swrm_clk_request(swrm, true);
 	mutex_unlock(&swrm->reslock);
 
@@ -1618,6 +1627,7 @@ handle_irq:
 	swrm_clk_request(swrm, false);
 	if (swrm->lpass_core_hw_vote)
 		clk_disable_unprepare(swrm->lpass_core_hw_vote);
+exit:
 	mutex_unlock(&swrm->reslock);
 	swrm_unlock_sleep(swrm);
 	return ret;
@@ -2279,11 +2289,14 @@ static int swrm_runtime_resume(struct device *dev)
 		__func__, swrm->state);
 	mutex_lock(&swrm->reslock);
 
-	if (swrm->lpass_core_hw_vote)
+	if (swrm->lpass_core_hw_vote) {
 		ret = clk_prepare_enable(swrm->lpass_core_hw_vote);
-		if (ret < 0)
+		if (ret < 0) {
 			dev_err(dev, "%s:lpass core hw enable failed\n",
 				__func__);
+			ret = 0;
+		}
+	}
 
 	if ((swrm->state == SWR_MSTR_DOWN) ||
 	    (swrm->state == SWR_MSTR_SSR && swrm->dev_up)) {
@@ -2296,7 +2309,6 @@ static int swrm_runtime_resume(struct device *dev)
 		if (swrm_clk_request(swrm, true))
 			goto exit;
 		if (!swrm->clk_stop_mode0_supp || swrm->state == SWR_MSTR_SSR) {
-			enable_bank_switch(swrm, 0, SWR_ROW_50, SWR_MIN_COL);
 			list_for_each_entry(swr_dev, &mstr->devices, dev_list) {
 				ret = swr_device_up(swr_dev);
 				if (ret == -ENODEV) {
@@ -2317,7 +2329,11 @@ static int swrm_runtime_resume(struct device *dev)
 			swrm_master_init(swrm);
 			swrm_cmd_fifo_wr_cmd(swrm, 0x4, 0xF, 0x0,
 						SWRS_SCP_INT_STATUS_MASK_1);
-
+			if (swrm->state == SWR_MSTR_SSR) {
+				mutex_unlock(&swrm->reslock);
+				enable_bank_switch(swrm, 0, SWR_ROW_50, SWR_MIN_COL);
+				mutex_lock(&swrm->reslock);
+			}
 		} else {
 			/*wake up from clock stop*/
 			swr_master_write(swrm, SWRM_MCP_BUS_CTRL_ADDR, 0x2);
@@ -2348,11 +2364,14 @@ static int swrm_runtime_suspend(struct device *dev)
 	mutex_lock(&swrm->force_down_lock);
 	current_state = swrm->state;
 	mutex_unlock(&swrm->force_down_lock);
-	if (swrm->lpass_core_hw_vote)
+	if (swrm->lpass_core_hw_vote) {
 		ret = clk_prepare_enable(swrm->lpass_core_hw_vote);
-		if (ret < 0)
+		if (ret < 0) {
 			dev_err(dev, "%s:lpass core hw enable failed\n",
 				__func__);
+			ret = 0;
+		}
+	}
 
 	if ((current_state == SWR_MSTR_UP) ||
 	    (current_state == SWR_MSTR_SSR)) {
@@ -2921,6 +2940,7 @@ static struct platform_driver swr_mstr_driver = {
 		.owner = THIS_MODULE,
 		.pm = &swrm_dev_pm_ops,
 		.of_match_table = swrm_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

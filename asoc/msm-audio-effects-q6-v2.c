@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/slab.h>
+#include <linux/ratelimit.h>
 #include <sound/compress_params.h>
 #include <sound/devdep_params.h>
 #include <dsp/apr_audio-v2.h>
@@ -15,7 +16,8 @@
 #define GET_NEXT(ptr, upper_limit, rc)                                  \
 ({                                                                      \
 	if (((ptr) + 1) > (upper_limit)) {                              \
-		pr_err("%s: param list out of boundary\n", __func__);   \
+		pr_err_ratelimited("%s: param list out of boundary\n",  \
+				   __func__);				\
 		(rc) = -EINVAL;                                         \
 	}                                                               \
 	((rc) == 0) ? *(ptr)++ :  -EINVAL;                              \
@@ -24,7 +26,8 @@
 #define CHECK_PARAM_LEN(len, max_len, tag, rc)                          \
 do {                                                                    \
 	if ((len) > (max_len)) {                                        \
-		pr_err("%s: params length overflows\n", (tag));         \
+		pr_err_ratelimited("%s: params length overflows\n",	\
+				   (tag));				\
 		(rc) = -EINVAL;                                         \
 	}                                                               \
 } while (0)
@@ -244,7 +247,8 @@ int msm_audio_effects_virtualizer_handler(struct audio_client *ac,
 			param_data = (u8 *) &virtualizer->gain_adjust;
 			break;
 		default:
-			pr_err("%s: Invalid command to set config\n", __func__);
+			pr_err_ratelimited("%s: Invalid command to set config\n",
+					   __func__);
 			continue;
 		}
 		if (rc)
@@ -678,7 +682,8 @@ int msm_audio_effects_reverb_handler(struct audio_client *ac,
 			param_data = (u8 *) &reverb->density;
 			break;
 		default:
-			pr_err("%s: Invalid command to set config\n", __func__);
+			pr_err_ratelimited("%s: Invalid command to set config\n",
+					   __func__);
 			continue;
 		}
 		if (rc)
@@ -831,7 +836,8 @@ int msm_audio_effects_bass_boost_handler(struct audio_client *ac,
 			param_data = (u8 *) &bass_boost->strength;
 			break;
 		default:
-			pr_err("%s: Invalid command to set config\n", __func__);
+			pr_err_ratelimited("%s: Invalid command to set config\n",
+					   __func__);
 			continue;
 		}
 		if (rc)
@@ -884,6 +890,9 @@ int msm_audio_effects_pbe_handler(struct audio_client *ac,
 	struct param_hdr_v3 param_hdr;
 	u8 *param_data = NULL;
 	u32 packed_data_size = 0;
+	int32_t *p_coeffs = NULL;
+	uint32_t lpf_len = 0, hpf_len = 0, bpf_len = 0;
+	uint32_t bsf_len = 0, tsf_len = 0, total_coeffs_len = 0;
 
 	pr_debug("%s\n", __func__);
 	if (!ac || (devices == -EINVAL) || (num_commands == -EINVAL)) {
@@ -943,8 +952,71 @@ int msm_audio_effects_pbe_handler(struct audio_client *ac,
 				rc = -EINVAL;
 				goto invalid_config;
 			}
+
+			pbe->config.real_bass_mix =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.bass_color_control =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.main_chain_delay =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.xover_filter_order =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.bandpass_filter_order =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.drc_delay =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.rms_tav =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.exp_threshold =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.exp_slope =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.comp_threshold =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.comp_slope =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.makeup_gain =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.comp_attack =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.comp_release =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.exp_attack =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.exp_release =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_bass_threshold =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_high_threshold =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_bass_makeup_gain =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_high_makeup_gain =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_bass_gc =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_high_gc =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.limiter_delay =
+				GET_NEXT(values, param_max_offset, rc);
+			pbe->config.reserved =
+				GET_NEXT(values, param_max_offset, rc);
+
+			p_coeffs = &pbe->config.p1LowPassCoeffs[0];
+			lpf_len = (pbe->config.xover_filter_order == 3) ? 10 : 5;
+			hpf_len = (pbe->config.xover_filter_order == 3) ? 10 : 5;
+			bpf_len = pbe->config.bandpass_filter_order * 5;
+			bsf_len = 5;
+			tsf_len = 5;
+			total_coeffs_len = lpf_len + hpf_len + bpf_len + bsf_len + tsf_len;
+
+			for (i = 0; i < total_coeffs_len; i++) {
+				*p_coeffs++ = GET_NEXT(values, param_max_offset, rc);
+			}
+
 			if (command_config_state != CONFIG_SET)
 				break;
+
 			max_params_length =
 				params_length + COMMAND_IID_PAYLOAD_SZ + length;
 			CHECK_PARAM_LEN(max_params_length, MAX_INBAND_PARAM_SZ,
@@ -953,10 +1025,11 @@ int msm_audio_effects_pbe_handler(struct audio_client *ac,
 				break;
 			param_hdr.param_id = AUDPROC_PARAM_ID_PBE_PARAM_CONFIG;
 			param_hdr.param_size = length;
-			param_data = (u8 *) values;
+			param_data = (u8 *) &pbe->config;
 			break;
 		default:
-			pr_err("%s: Invalid command to set config\n", __func__);
+			pr_err_ratelimited("%s: Invalid command to set config\n",
+					   __func__);
 			continue;
 		}
 		if (rc)
@@ -1214,7 +1287,8 @@ int msm_audio_effects_popless_eq_handler(struct audio_client *ac,
 			param_data = (u8 *) &eq->freq_millihertz;
 			break;
 		default:
-			pr_err("%s: Invalid command to set config\n", __func__);
+			pr_err_ratelimited("%s: Invalid command to set config\n",
+					   __func__);
 			continue;
 		}
 		if (rc)
@@ -1335,7 +1409,7 @@ static int __msm_audio_effects_volume_handler(struct audio_client *ac,
 					"VOLUME/VOLUME2_GAIN_MASTER", rc);
 			break;
 		default:
-			pr_err("%s: Invalid command id: %d to set config\n",
+			pr_err_ratelimited("%s: Invalid command id: %d to set config\n",
 				__func__, command_id);
 			continue;
 		}

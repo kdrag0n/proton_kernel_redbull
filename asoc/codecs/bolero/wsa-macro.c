@@ -815,7 +815,7 @@ static int wsa_macro_mclk_enable(struct wsa_macro_priv *wsa_priv,
 							wsa_priv->default_clk_id,
 							true);
 			if (ret < 0) {
-				dev_err(wsa_priv->dev,
+				dev_err_ratelimited(wsa_priv->dev,
 					"%s: wsa request clock enable failed\n",
 					__func__);
 				goto exit;
@@ -1946,9 +1946,7 @@ static int wsa_macro_spkr_left_boost_stage_put(struct snd_kcontrol *kcontrol,
 	dev_dbg(component->dev, "%s: ucontrol->value.integer.value[0]  = %ld\n",
 		__func__, ucontrol->value.integer.value[0]);
 	bst_state_max =  ucontrol->value.integer.value[0] << 2;
-	snd_soc_component_update_bits(component,
-				BOLERO_CDC_WSA_BOOST0_BOOST_CTL,
-				0x0c, bst_state_max);
+	/* bolero does not need to limit the boost levels */
 
 	return 0;
 }
@@ -1980,9 +1978,7 @@ static int wsa_macro_spkr_right_boost_stage_put(struct snd_kcontrol *kcontrol,
 	dev_dbg(component->dev, "%s: ucontrol->value.integer.value[0]  = %ld\n",
 		__func__, ucontrol->value.integer.value[0]);
 	bst_state_max =  ucontrol->value.integer.value[0] << 2;
-	snd_soc_component_update_bits(component,
-			BOLERO_CDC_WSA_BOOST1_BOOST_CTL,
-			0x0c, bst_state_max);
+	/* bolero does not need to limit the boost levels */
 
 	return 0;
 }
@@ -2637,7 +2633,7 @@ static int wsa_swrm_clock(void *handle, bool enable)
 			if (ret < 0) {
 				msm_cdc_pinctrl_select_sleep_state(
 						wsa_priv->wsa_swr_gpio_p);
-				dev_err(wsa_priv->dev,
+				dev_err_ratelimited(wsa_priv->dev,
 					"%s: wsa request clock enable failed\n",
 					__func__);
 				goto exit;
@@ -3008,6 +3004,7 @@ static struct platform_driver wsa_macro_driver = {
 		.owner = THIS_MODULE,
 		.pm = &bolero_dev_pm_ops,
 		.of_match_table = wsa_macro_dt_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = wsa_macro_probe,
 	.remove = wsa_macro_remove,

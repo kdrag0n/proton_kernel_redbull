@@ -13,19 +13,24 @@
 #include <linux/list.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-buf.h>
+#include <linux/iommu.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
 #include <linux/export.h>
 #include <linux/ion_kernel.h>
 #include <ipc/apr.h>
+#include <asm/dma-iommu.h>
 #include <dsp/msm_audio_ion.h>
+#include <linux/habmm.h>
 
 #define MSM_AUDIO_ION_PROBED (1 << 0)
 
 #define MSM_AUDIO_ION_PHYS_ADDR(alloc_data) \
 	alloc_data->table->sgl->dma_address
 
-#define MSM_AUDIO_SMMU_SID_OFFSET 32
+#define MSM_AUDIO_SMMU_VM_CMD_MAP 0x00000001
+#define MSM_AUDIO_SMMU_VM_CMD_UNMAP 0x00000002
+#define MSM_AUDIO_SMMU_VM_HAB_MINOR_ID 1
 
 struct msm_audio_ion_private {
 	bool smmu_enabled;
@@ -33,8 +38,6 @@ struct msm_audio_ion_private {
 	u8 device_status;
 	struct list_head alloc_list;
 	struct mutex list_mutex;
-	u64 smmu_sid_bits;
-	u32 smmu_version;
 };
 
 struct msm_audio_alloc_data {
@@ -44,9 +47,31 @@ struct msm_audio_alloc_data {
 	struct dma_buf_attachment *attach;
 	struct sg_table *table;
 	struct list_head list;
+	u32 export_id;
+};
+
+struct msm_audio_smmu_vm_map_cmd {
+	int cmd_id;
+	u32 export_id;
+	u32 buf_size;
+};
+
+struct msm_audio_smmu_vm_map_cmd_rsp {
+	int status;
+	u64 addr;
+};
+
+struct msm_audio_smmu_vm_unmap_cmd {
+	int cmd_id;
+	u32 export_id;
+};
+
+struct msm_audio_smmu_vm_unmap_cmd_rsp {
+	int status;
 };
 
 static struct msm_audio_ion_private msm_audio_ion_data = {0,};
+static u32 msm_audio_ion_hab_handle;
 
 static void msm_audio_ion_add_allocation(
 	struct msm_audio_ion_private *msm_audio_ion_data,
@@ -185,6 +210,195 @@ static int msm_audio_dma_buf_unmap(struct dma_buf *dma_buf)
 	return rc;
 }
 
+static int msm_audio_ion_smmu_map(struct dma_buf *dma_buf,
+		dma_addr_t *paddr, size_t *len)
+{
+	int rc;
+	u32 export_id;
+	u32 cmd_rsp_size;
+	bool found = false;
+	bool exported = false;
+	struct msm_audio_smmu_vm_map_cmd smmu_map_cmd;
+	struct msm_audio_smmu_vm_map_cmd_rsp cmd_rsp;
+	struct msm_audio_alloc_data *alloc_data = NULL;
+	unsigned long delay = jiffies + (HZ / 2);
+	void *vaddr;
+
+	*len = dma_buf->size;
+
+	mutex_lock(&(msm_audio_ion_data.list_mutex));
+	list_for_each_entry(alloc_data, &(msm_audio_ion_data.alloc_list),
+			    list) {
+		if (alloc_data->dma_buf == dma_buf) {
+			found = true;
+			vaddr = alloc_data->vaddr;
+
+			/* Export the buffer to physical VM */
+			rc = habmm_export(msm_audio_ion_hab_handle, vaddr, *len,
+				&export_id, 0);
+			if (rc) {
+				pr_err("%s: habmm_export failed vaddr = %pK, len = %zd, rc = %d\n",
+					__func__, vaddr, *len, rc);
+				goto err;
+			}
+
+			exported = true;
+			smmu_map_cmd.cmd_id = MSM_AUDIO_SMMU_VM_CMD_MAP;
+			smmu_map_cmd.export_id = export_id;
+			smmu_map_cmd.buf_size = *len;
+
+			rc = habmm_socket_send(msm_audio_ion_hab_handle,
+				(void *)&smmu_map_cmd, sizeof(smmu_map_cmd), 0);
+			if (rc) {
+				pr_err("%s: habmm_socket_send failed %d\n",
+					__func__, rc);
+				goto err;
+			}
+
+			do {
+				cmd_rsp_size = sizeof(cmd_rsp);
+				rc = habmm_socket_recv(msm_audio_ion_hab_handle,
+					(void *)&cmd_rsp,
+					&cmd_rsp_size,
+					0xFFFFFFFF,
+					0);
+			} while (time_before(jiffies, delay) && (rc == -EINTR) &&
+					(cmd_rsp_size == 0));
+			if (rc) {
+				pr_err("%s: habmm_socket_recv failed %d\n",
+					__func__, rc);
+				goto err;
+			}
+
+			if (cmd_rsp_size != sizeof(cmd_rsp)) {
+				pr_err("%s: invalid size for cmd rsp %u, expected %zu\n",
+					__func__, cmd_rsp_size, sizeof(cmd_rsp));
+				rc = -EIO;
+				goto err;
+			}
+
+			if (cmd_rsp.status) {
+				pr_err("%s: SMMU map command failed %d\n",
+					__func__, cmd_rsp.status);
+				rc = cmd_rsp.status;
+				goto err;
+			}
+
+			*paddr = (dma_addr_t)cmd_rsp.addr;
+			alloc_data->export_id = export_id;
+			break;
+		}
+	}
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+
+	if (!found) {
+		pr_err("%s: cannot find allocation, dma_buf %pK", __func__, dma_buf);
+		return -EINVAL;
+	}
+
+	return 0;
+
+err:
+	if (exported)
+		(void)habmm_unexport(msm_audio_ion_hab_handle, export_id, 0);
+
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+	return rc;
+}
+
+static int msm_audio_ion_smmu_unmap(struct dma_buf *dma_buf)
+{
+	int rc;
+	bool found = false;
+	u32 cmd_rsp_size;
+	struct msm_audio_smmu_vm_unmap_cmd smmu_unmap_cmd;
+	struct msm_audio_smmu_vm_unmap_cmd_rsp cmd_rsp;
+	struct msm_audio_alloc_data *alloc_data, *next;
+	unsigned long delay = jiffies + (HZ / 2);
+
+	/*
+	 * Though list_for_each_entry_safe is delete safe, lock
+	 * should be explicitly acquired to avoid race condition
+	 * on adding elements to the list.
+	 */
+	mutex_lock(&(msm_audio_ion_data.list_mutex));
+	list_for_each_entry_safe(alloc_data, next,
+		&(msm_audio_ion_data.alloc_list), list) {
+
+		if (alloc_data->dma_buf == dma_buf) {
+			found = true;
+			smmu_unmap_cmd.cmd_id = MSM_AUDIO_SMMU_VM_CMD_UNMAP;
+			smmu_unmap_cmd.export_id = alloc_data->export_id;
+
+			rc = habmm_socket_send(msm_audio_ion_hab_handle,
+				(void *)&smmu_unmap_cmd,
+				sizeof(smmu_unmap_cmd), 0);
+			if (rc) {
+				pr_err("%s: habmm_socket_send failed %d\n",
+					__func__, rc);
+				goto err;
+			}
+
+			do {
+				cmd_rsp_size = sizeof(cmd_rsp);
+				rc = habmm_socket_recv(msm_audio_ion_hab_handle,
+					(void *)&cmd_rsp,
+					&cmd_rsp_size,
+					0xFFFFFFFF,
+					0);
+			} while (time_before(jiffies, delay) &&
+					(rc == -EINTR) && (cmd_rsp_size == 0));
+			if (rc) {
+				pr_err("%s: habmm_socket_recv failed %d\n",
+					__func__, rc);
+				goto err;
+			}
+
+			if (cmd_rsp_size != sizeof(cmd_rsp)) {
+				pr_err("%s: invalid size for cmd rsp %u\n",
+					__func__, cmd_rsp_size);
+				rc = -EIO;
+				goto err;
+			}
+
+			if (cmd_rsp.status) {
+				pr_err("%s: SMMU unmap command failed %d\n",
+					__func__, cmd_rsp.status);
+				rc = cmd_rsp.status;
+				goto err;
+			}
+
+			rc = habmm_unexport(msm_audio_ion_hab_handle,
+				alloc_data->export_id, 0xFFFFFFFF);
+			if (rc) {
+				pr_err("%s: habmm_unexport failed export_id = %d, rc = %d\n",
+					__func__, alloc_data->export_id, rc);
+			}
+
+			break;
+		}
+	}
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+
+	if (!found) {
+		pr_err("%s: cannot find allocation, dma_buf %pK\n", __func__, dma_buf);
+		rc = -EINVAL;
+	}
+
+	return rc;
+
+err:
+	if (found) {
+		(void)habmm_unexport(msm_audio_ion_hab_handle,
+			alloc_data->export_id, 0xFFFFFFFF);
+		list_del(&(alloc_data->list));
+		kfree(alloc_data);
+	}
+
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+	return rc;
+}
+
 static int msm_audio_ion_get_phys(struct dma_buf *dma_buf,
 				  dma_addr_t *addr, size_t *len)
 {
@@ -196,36 +410,10 @@ static int msm_audio_ion_get_phys(struct dma_buf *dma_buf,
 			__func__, rc);
 		goto err;
 	}
-	if (msm_audio_ion_data.smmu_enabled) {
-		/* Append the SMMU SID information to the IOVA address */
-		*addr |= msm_audio_ion_data.smmu_sid_bits;
-	}
 
 	pr_debug("phys=%pK, len=%zd, rc=%d\n", &(*addr), *len, rc);
 err:
 	return rc;
-}
-
-int msm_audio_ion_get_smmu_info(struct device **cb_dev,
-		u64 *smmu_sid)
-{
-	if (!cb_dev || !smmu_sid) {
-		pr_err("%s: Invalid params\n",
-			__func__);
-		return -EINVAL;
-	}
-
-	if (!msm_audio_ion_data.cb_dev ||
-		!msm_audio_ion_data.smmu_sid_bits) {
-		pr_err("%s: Params not initialized\n",
-			__func__);
-		return -EINVAL;
-	}
-
-	*cb_dev = msm_audio_ion_data.cb_dev;
-	*smmu_sid = msm_audio_ion_data.smmu_sid_bits;
-
-	return 0;
 }
 
 static void *msm_audio_ion_map_kernel(struct dma_buf *dma_buf)
@@ -326,16 +514,16 @@ static int msm_audio_ion_map_buf(struct dma_buf *dma_buf, dma_addr_t *paddr,
 		goto err;
 	}
 
+	if (msm_audio_ion_data.smmu_enabled) {
+		rc = msm_audio_ion_smmu_map(dma_buf, paddr, plen);
+		if (rc) {
+			pr_err("%s: failed to do smmu map, err = %d\n",
+				__func__, rc);
+			goto err;
+		}
+	}
 err:
 	return rc;
-}
-
-static u32 msm_audio_ion_get_smmu_sid_mode32(void)
-{
-	if (msm_audio_ion_data.smmu_enabled)
-		return upper_32_bits(msm_audio_ion_data.smmu_sid_bits);
-	else
-		return 0;
 }
 
 /**
@@ -399,43 +587,6 @@ err:
 	return rc;
 }
 EXPORT_SYMBOL(msm_audio_ion_alloc);
-
-/**
- * msm_audio_ion_dma_map -
- *        Memory maps for a given DMA buffer
- *
- * @phys_addr: Physical address of DMA buffer to be mapped
- * @iova_base: IOVA address of memory mapped DMA buffer
- * @size: buffer size
- * @dir: DMA direction
- * Returns 0 on success or error on failure
- */
-int msm_audio_ion_dma_map(dma_addr_t *phys_addr, dma_addr_t *iova_base,
-			u32 size, enum dma_data_direction dir)
-{
-	dma_addr_t iova;
-	struct device *cb_dev = msm_audio_ion_data.cb_dev;
-
-	if (!phys_addr || !iova_base || !size)
-		return -EINVAL;
-
-	iova = dma_map_resource(cb_dev, *phys_addr, size,
-				dir, 0);
-	if (dma_mapping_error(cb_dev, iova)) {
-		pr_err("%s: dma_mapping_error\n", __func__);
-		return -EIO;
-	}
-	pr_debug("%s: dma_mapping_success iova:0x%lx\n", __func__,
-			 (unsigned long)iova);
-	if (msm_audio_ion_data.smmu_enabled)
-		/* Append the SMMU SID information to the IOVA address */
-		iova |= msm_audio_ion_data.smmu_sid_bits;
-
-	*iova_base = iova;
-
-	return 0;
-}
-EXPORT_SYMBOL(msm_audio_ion_dma_map);
 
 /**
  * msm_audio_ion_import-
@@ -523,6 +674,13 @@ int msm_audio_ion_free(struct dma_buf *dma_buf)
 	ret = msm_audio_ion_unmap_kernel(dma_buf);
 	if (ret)
 		return ret;
+
+	if (msm_audio_ion_data.smmu_enabled) {
+		ret = msm_audio_ion_smmu_unmap(dma_buf);
+		if (ret)
+			pr_err("%s: smmu unmap failed with ret %d\n",
+				__func__, ret);
+	}
 
 	msm_audio_dma_buf_unmap(dma_buf);
 
@@ -617,56 +775,6 @@ int msm_audio_ion_mmap(struct audio_buffer *abuff,
 EXPORT_SYMBOL(msm_audio_ion_mmap);
 
 /**
- * msm_audio_ion_cache_operations-
- *       Cache operations on cached Audio ION buffers
- *
- * @abuff: audio buf pointer
- * @cache_op: cache operation to be performed
- *
- * Returns 0 on success or error on failure
- */
-int msm_audio_ion_cache_operations(struct audio_buffer *abuff, int cache_op)
-{
-	unsigned long ionflag = 0;
-	int rc = 0;
-
-	if (!abuff) {
-		pr_err("%s: Invalid params: %pK\n", __func__, abuff);
-		return -EINVAL;
-	}
-	rc = dma_buf_get_flags(abuff->dma_buf, &ionflag);
-	if (rc) {
-		pr_err("%s: dma_buf_get_flags failed: %d\n", __func__, rc);
-		goto cache_op_failed;
-	}
-
-	/* Has to be CACHED */
-	if (ionflag & ION_FLAG_CACHED) {
-		/* MSM_AUDIO_ION_INV_CACHES or MSM_AUDIO_ION_CLEAN_CACHES */
-		switch (cache_op) {
-		case MSM_AUDIO_ION_INV_CACHES:
-		case MSM_AUDIO_ION_CLEAN_CACHES:
-			dma_buf_begin_cpu_access(abuff->dma_buf,
-						  DMA_BIDIRECTIONAL);
-			dma_buf_end_cpu_access(abuff->dma_buf,
-						  DMA_BIDIRECTIONAL);
-			break;
-		default:
-			pr_err("%s: Invalid cache operation %d\n",
-			       __func__, cache_op);
-		}
-	} else {
-		pr_err("%s: Cache ops called on uncached buffer: %pK\n",
-			__func__, abuff->dma_buf);
-		rc = -EINVAL;
-	}
-
-cache_op_failed:
-	return rc;
-}
-EXPORT_SYMBOL(msm_audio_ion_cache_operations);
-
-/**
  * msm_audio_populate_upper_32_bits -
  *        retrieve upper 32bits of 64bit address
  *
@@ -675,20 +783,9 @@ EXPORT_SYMBOL(msm_audio_ion_cache_operations);
  */
 u32 msm_audio_populate_upper_32_bits(dma_addr_t pa)
 {
-	if (sizeof(dma_addr_t) == sizeof(u32))
-		return msm_audio_ion_get_smmu_sid_mode32();
-	else
-		return upper_32_bits(pa);
+	return upper_32_bits(pa);
 }
 EXPORT_SYMBOL(msm_audio_populate_upper_32_bits);
-
-static int msm_audio_smmu_init(struct device *dev)
-{
-	INIT_LIST_HEAD(&msm_audio_ion_data.alloc_list);
-	mutex_init(&(msm_audio_ion_data.list_mutex));
-
-	return 0;
-}
 
 static const struct of_device_id msm_audio_ion_dt_match[] = {
 	{ .compatible = "qcom,msm-audio-ion" },
@@ -699,16 +796,9 @@ MODULE_DEVICE_TABLE(of, msm_audio_ion_dt_match);
 static int msm_audio_ion_probe(struct platform_device *pdev)
 {
 	int rc = 0;
-	u64 smmu_sid = 0;
-	u64 smmu_sid_mask = 0;
 	const char *msm_audio_ion_dt = "qcom,smmu-enabled";
-	const char *msm_audio_ion_smmu = "qcom,smmu-version";
-	const char *msm_audio_ion_smmu_sid_mask = "qcom,smmu-sid-mask";
 	bool smmu_enabled;
-	enum apr_subsys_state q6_state;
 	struct device *dev = &pdev->dev;
-	struct of_phandle_args iommuspec;
-
 
 	if (dev->of_node == NULL) {
 		dev_err(dev,
@@ -727,59 +817,22 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	q6_state = apr_get_q6_state();
-	if (q6_state == APR_SUBSYS_DOWN) {
-		dev_dbg(dev,
-			"defering %s, adsp_state %d\n",
-			__func__, q6_state);
-		return -EPROBE_DEFER;
-	}
-	dev_dbg(dev, "%s: adsp is ready\n", __func__);
-
-	rc = of_property_read_u32(dev->of_node,
-				msm_audio_ion_smmu,
-				&msm_audio_ion_data.smmu_version);
+	rc = habmm_socket_open(&msm_audio_ion_hab_handle,
+		HAB_MMID_CREATE(MM_AUD_3,
+			MSM_AUDIO_SMMU_VM_HAB_MINOR_ID),
+		0xFFFFFFFF,
+		HABMM_SOCKET_OPEN_FLAGS_SINGLE_BE_SINGLE_FE);
 	if (rc) {
-		dev_err(dev,
-			"%s: qcom,smmu_version missing in DT node\n",
-			__func__);
+		dev_err(dev, "%s: habmm_socket_open failed %d\n",
+			__func__, rc);
 		return rc;
 	}
-	dev_dbg(dev, "%s: SMMU is Enabled. SMMU version is (%d)",
-		__func__, msm_audio_ion_data.smmu_version);
 
-	/* Get SMMU SID information from Devicetree */
-	rc = of_property_read_u64(dev->of_node,
-				  msm_audio_ion_smmu_sid_mask,
-				  &smmu_sid_mask);
-	if (rc) {
-		dev_err(dev,
-			"%s: qcom,smmu-sid-mask missing in DT node, using default\n",
-			__func__);
-		smmu_sid_mask = 0xFFFFFFFFFFFFFFFF;
-	}
+	dev_info(dev, "%s: msm_audio_ion_hab_handle %x\n",
+		__func__, msm_audio_ion_hab_handle);
 
-	rc = of_parse_phandle_with_args(dev->of_node, "iommus",
-					"#iommu-cells", 0, &iommuspec);
-	if (rc)
-		dev_err(dev, "%s: could not get smmu SID, ret = %d\n",
-			__func__, rc);
-	else
-		smmu_sid = (iommuspec.args[0] & smmu_sid_mask);
-
-	msm_audio_ion_data.smmu_sid_bits =
-		smmu_sid << MSM_AUDIO_SMMU_SID_OFFSET;
-
-	if (msm_audio_ion_data.smmu_version == 0x2) {
-		rc = msm_audio_smmu_init(dev);
-	} else {
-		dev_err(dev, "%s: smmu version invalid %d\n",
-			__func__, msm_audio_ion_data.smmu_version);
-		rc = -EINVAL;
-	}
-	if (rc)
-		dev_err(dev, "%s: smmu init failed, err = %d\n",
-			__func__, rc);
+	INIT_LIST_HEAD(&msm_audio_ion_data.alloc_list);
+	mutex_init(&(msm_audio_ion_data.list_mutex));
 
 exit:
 	if (!rc)
@@ -792,10 +845,12 @@ exit:
 
 static int msm_audio_ion_remove(struct platform_device *pdev)
 {
-	struct device *audio_cb_dev;
+	if (msm_audio_ion_data.smmu_enabled) {
+		if (msm_audio_ion_hab_handle)
+			habmm_socket_close(msm_audio_ion_hab_handle);
 
-	audio_cb_dev = msm_audio_ion_data.cb_dev;
-
+		mutex_destroy(&(msm_audio_ion_data.list_mutex));
+	}
 	msm_audio_ion_data.smmu_enabled = 0;
 	msm_audio_ion_data.device_status = 0;
 	return 0;
@@ -806,7 +861,6 @@ static struct platform_driver msm_audio_ion_driver = {
 		.name = "msm-audio-ion",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_audio_ion_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_audio_ion_probe,
 	.remove = msm_audio_ion_remove,
@@ -822,5 +876,5 @@ void msm_audio_ion_exit(void)
 	platform_driver_unregister(&msm_audio_ion_driver);
 }
 
-MODULE_DESCRIPTION("MSM Audio ION module");
+MODULE_DESCRIPTION("MSM Audio ION VM module");
 MODULE_LICENSE("GPL v2");
