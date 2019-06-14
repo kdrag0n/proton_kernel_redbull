@@ -6,7 +6,38 @@
 #include "lito-thermal-overlay.dtsi"
 
 &soc {
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
 
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_vol_up_default>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm8150l_gpios 5 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
+
+	qmp_dp_phy_core_supply: qmp_dp_phy_core_supply {
+		compatible = "regulator-fixed";
+		regulator-name = "core_supply";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		enable-active-high;
+		gpio = <&pm8150l_gpios 12 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb_eldo13>;
+	};
+};
+
+&usb_qmp_dp_phy {
+	core-supply = <&qmp_dp_phy_core_supply>;
 };
 
 / {
@@ -17,7 +48,7 @@
 };
 
 &ufsphy_mem {
-	compatible = "qcom,ufs-phy-qmp-v4-card";
+	compatible = "qcom,ufs-phy-qmp-v4-lito";
 
 	vdda-phy-supply = <&pm8150_l5>;
 	vdda-pll-supply = <&pm8150_l9>;

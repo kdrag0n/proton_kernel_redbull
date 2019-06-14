@@ -2,9 +2,27 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "lito-audio-overlay.dtsi"
 #include "lito-thermal-overlay.dtsi"
+#include "lito-camera-sensor-qrd.dtsi"
+#include "lito-sde-display.dtsi"
 
 &soc {
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
 
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_vol_up_default>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm8150l_gpios 5 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
 };
 
 &qupv3_se7_i2c {
@@ -81,7 +99,7 @@
 };
 
 &ufsphy_mem {
-	compatible = "qcom,ufs-phy-qmp-v4-card";
+	compatible = "qcom,ufs-phy-qmp-v4-lito";
 
 	vdda-phy-supply = <&pm8150_l5>;
 	vdda-pll-supply = <&pm8150_l9>;
@@ -251,4 +269,38 @@
 	qcom,msm-mbhc-usbc-audio-supported = <1>;
 	qcom,msm-mbhc-hphl-swh = <0>;
 	qcom,msm-mbhc-gnd-swh = <0>;
+};
+
+&dsi_sw43404_amoled_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+};
+
+&dsi_sw43404_amoled_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+};
+
+&dsi_sw43404_amoled_fhd_plus_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+};
+
+&sde_dsi {
+	qcom,dsi-default-panel = <&dsi_sw43404_amoled_video>;
 };
