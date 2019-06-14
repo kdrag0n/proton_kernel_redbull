@@ -110,7 +110,7 @@
 	((((width + 15) >> 4) << 7))
 
 #define SIZE_H264D_LB_RECON_DMA_METADATA_WR(width, height) \
-	(ALIGN(height, 8) * 32)
+	(ALIGN(height, 16) * 32)
 
 #define SIZE_H264D_QP(width, height) \
 	(((width + 63) >> 6) * ((height + 63) >> 6) * 128)
@@ -610,14 +610,14 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 				HAL_BUFFER_INPUT);
 	fmt->count_min = input_min_count;
 	/* batching needs minimum batch size count of input buffers */
-	if (inst->core->resources.decode_batching &&
+	if (inst->decode_batching &&
 		is_decode_session(inst) &&
 		fmt->count_min < inst->batch.size)
 		fmt->count_min = inst->batch.size;
 	fmt->count_min_host = fmt->count_actual =
 		fmt->count_min + extra_buff_count;
 
-	dprintk(VIDC_DBG, "%s: %x : input min %d min_host %d actual %d\n",
+	dprintk(VIDC_HIGH, "%s: %x : input min %d min_host %d actual %d\n",
 		__func__, hash32_ptr(inst->session),
 		fmt->count_min, fmt->count_min_host, fmt->count_actual);
 
@@ -648,7 +648,7 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 	fmt->count_min_host = fmt->count_actual =
 		fmt->count_min + extra_buff_count;
 
-	dprintk(VIDC_DBG, "%s: %x : output min %d min_host %d actual %d\n",
+	dprintk(VIDC_HIGH, "%s: %x : output min %d min_host %d actual %d\n",
 		__func__, hash32_ptr(inst->session),
 		fmt->count_min, fmt->count_min_host, fmt->count_actual);
 
@@ -711,7 +711,7 @@ int msm_vidc_get_extra_buff_count(struct msm_vidc_inst *inst,
 	 * batch size count of extra buffers added on output port
 	 */
 	if (buffer_type == HAL_BUFFER_OUTPUT) {
-		if (inst->core->resources.decode_batching &&
+		if (inst->decode_batching &&
 			is_decode_session(inst) &&
 			count < inst->batch.size)
 			count = inst->batch.size;
@@ -768,10 +768,10 @@ u32 msm_vidc_calculate_dec_input_frame_size(struct msm_vidc_inst *inst)
 	if (inst->buffer_size_limit &&
 		(inst->buffer_size_limit < frame_size)) {
 		frame_size = inst->buffer_size_limit;
-		dprintk(VIDC_DBG, "input buffer size limited to %d\n",
+		dprintk(VIDC_HIGH, "input buffer size limited to %d\n",
 			frame_size);
 	} else {
-		dprintk(VIDC_DBG, "set input buffer size to %d\n",
+		dprintk(VIDC_HIGH, "set input buffer size to %d\n",
 			frame_size);
 	}
 

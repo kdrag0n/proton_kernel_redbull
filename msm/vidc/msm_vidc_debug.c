@@ -9,18 +9,14 @@
 #include "vidc_hfi_api.h"
 #include <linux/of_fdt.h>
 
-int msm_vidc_debug = VIDC_ERR | VIDC_WARN;
+int msm_vidc_debug = VIDC_ERR | VIDC_PRINTK |
+	FW_HIGH | FW_ERROR | FW_FATAL | FW_FTRACE;
 EXPORT_SYMBOL(msm_vidc_debug);
-
-int msm_vidc_debug_out = VIDC_OUT_PRINTK;
-EXPORT_SYMBOL(msm_vidc_debug_out);
 
 bool msm_vidc_lossless_encode = !true;
 EXPORT_SYMBOL(msm_vidc_lossless_encode);
 
-int msm_vidc_fw_debug = HFI_DEBUG_MSG_HIGH |
-	HFI_DEBUG_MSG_ERROR | HFI_DEBUG_MSG_FATAL;
-int msm_vidc_fw_debug_mode = 1;
+int msm_vidc_fw_debug_mode = HFI_DEBUG_MODE_QUEUE;
 bool msm_vidc_fw_coverage = !true;
 bool msm_vidc_thermal_mitigation_disabled = !true;
 int msm_vidc_clock_voting = !1;
@@ -80,7 +76,7 @@ static ssize_t core_info_read(struct file *file, char __user *buf,
 	cur += write_str(cur, end - cur, "Core state: %d\n", core->state);
 	rc = call_hfi_op(hdev, get_fw_info, hdev->hfi_device_data, &fw_info);
 	if (rc) {
-		dprintk(VIDC_WARN, "Failed to read FW info\n");
+		dprintk(VIDC_ERR, "Failed to read FW info\n");
 		goto err_fw_info;
 	}
 
@@ -133,14 +129,14 @@ static ssize_t trigger_ssr_write(struct file *filp, const char __user *buf,
 		size = count;
 
 	if (copy_from_user(kbuf, buf, size)) {
-		dprintk(VIDC_WARN, "%s User memory fault\n", __func__);
+		dprintk(VIDC_ERR, "%s User memory fault\n", __func__);
 		rc = -EFAULT;
 		goto exit;
 	}
 
 	rc = kstrtoul(kbuf, 0, &ssr_trigger_val);
 	if (rc) {
-		dprintk(VIDC_WARN, "returning error err %d\n", rc);
+		dprintk(VIDC_ERR, "returning error err %d\n", rc);
 		rc = -EINVAL;
 	} else {
 		msm_vidc_trigger_ssr(core, ssr_trigger_val);
@@ -179,10 +175,8 @@ struct dentry *msm_vidc_debugfs_init_drv(void)
 
 	ok =
 	__debugfs_create(x32, "debug_level", &msm_vidc_debug) &&
-	__debugfs_create(x32, "fw_level", &msm_vidc_fw_debug) &&
 	__debugfs_create(u32, "fw_debug_mode", &msm_vidc_fw_debug_mode) &&
 	__debugfs_create(bool, "fw_coverage", &msm_vidc_fw_coverage) &&
-	__debugfs_create(u32, "debug_output", &msm_vidc_debug_out) &&
 	__debugfs_create(bool, "disable_thermal_mitigation",
 			&msm_vidc_thermal_mitigation_disabled) &&
 	__debugfs_create(u32, "core_clock_voting",
@@ -239,7 +233,7 @@ failed_create_dir:
 
 static int inst_info_open(struct inode *inode, struct file *file)
 {
-	dprintk(VIDC_INFO, "Open inode ptr: %pK\n", inode->i_private);
+	dprintk(VIDC_LOW, "Open inode ptr: %pK\n", inode->i_private);
 	file->private_data = inode->i_private;
 	return 0;
 }
@@ -401,7 +395,7 @@ failed_alloc:
 
 static int inst_info_release(struct inode *inode, struct file *file)
 {
-	dprintk(VIDC_INFO, "Release inode ptr: %pK\n", inode->i_private);
+	dprintk(VIDC_LOW, "Release inode ptr: %pK\n", inode->i_private);
 	file->private_data = NULL;
 	return 0;
 }
@@ -469,7 +463,7 @@ void msm_vidc_debugfs_deinit_inst(struct msm_vidc_inst *inst)
 
 	dentry = inst->debugfs_root;
 	if (dentry->d_inode) {
-		dprintk(VIDC_INFO, "Destroy %pK\n", dentry->d_inode->i_private);
+		dprintk(VIDC_LOW, "Destroy %pK\n", dentry->d_inode->i_private);
 		kfree(dentry->d_inode->i_private);
 		dentry->d_inode->i_private = NULL;
 	}
@@ -495,10 +489,10 @@ void msm_vidc_debugfs_update(struct msm_vidc_inst *inst,
 		inst->count.ebd++;
 		if (inst->count.ebd && inst->count.ebd == inst->count.etb) {
 			toc(inst, FRAME_PROCESSING);
-			dprintk(VIDC_PROF, "EBD: FW needs input buffers\n");
+			dprintk(VIDC_PERF, "EBD: FW needs input buffers\n");
 		}
 		if (inst->count.ftb == inst->count.fbd)
-			dprintk(VIDC_PROF, "EBD: FW needs output buffers\n");
+			dprintk(VIDC_PERF, "EBD: FW needs output buffers\n");
 	break;
 	case MSM_VIDC_DEBUGFS_EVENT_FTB: {
 		inst->count.ftb++;
@@ -514,10 +508,10 @@ void msm_vidc_debugfs_update(struct msm_vidc_inst *inst,
 		if (inst->count.fbd &&
 			inst->count.fbd == inst->count.ftb) {
 			toc(inst, FRAME_PROCESSING);
-			dprintk(VIDC_PROF, "FBD: FW needs output buffers\n");
+			dprintk(VIDC_PERF, "FBD: FW needs output buffers\n");
 		}
 		if (inst->count.etb == inst->count.ebd)
-			dprintk(VIDC_PROF, "FBD: FW needs input buffers\n");
+			dprintk(VIDC_PERF, "FBD: FW needs input buffers\n");
 		break;
 	default:
 		dprintk(VIDC_ERR, "Invalid state in debugfs: %d\n", e);

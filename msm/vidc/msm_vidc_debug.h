@@ -32,18 +32,24 @@
  */
 
 enum vidc_msg_prio {
-	VIDC_ERR  = 0x0001,
-	VIDC_WARN = 0x0002,
-	VIDC_INFO = 0x0004,
-	VIDC_DBG  = 0x0008,
-	VIDC_PROF = 0x0010,
-	VIDC_PKT  = 0x0020,
-	VIDC_FW   = 0x1000,
+	VIDC_ERR        = 0x00000001,
+	VIDC_HIGH       = 0x00000002,
+	VIDC_LOW        = 0x00000004,
+	VIDC_PERF       = 0x00000008,
+	VIDC_PKT        = 0x00000010,
+	VIDC_PRINTK     = 0x00001000,
+	VIDC_FTRACE     = 0x00002000,
+	FW_LOW          = 0x00010000,
+	FW_MEDIUM       = 0x00020000,
+	FW_HIGH         = 0x00040000,
+	FW_ERROR        = 0x00080000,
+	FW_FATAL        = 0x00100000,
+	FW_PERF         = 0x00200000,
+	FW_PRINTK       = 0x10000000,
+	FW_FTRACE       = 0x20000000,
 };
-
-enum vidc_msg_out {
-	VIDC_OUT_PRINTK = 0,
-};
+#define FW_LOGSHIFT    16
+#define FW_LOGMASK     0x0FFF0000
 
 enum msm_vidc_debugfs_event {
 	MSM_VIDC_DEBUGFS_EVENT_ETB,
@@ -53,8 +59,6 @@ enum msm_vidc_debugfs_event {
 };
 
 extern int msm_vidc_debug;
-extern int msm_vidc_debug_out;
-extern int msm_vidc_fw_debug;
 extern int msm_vidc_fw_debug_mode;
 extern bool msm_vidc_fw_coverage;
 extern bool msm_vidc_thermal_mitigation_disabled;
@@ -66,9 +70,40 @@ extern bool msm_vidc_cvp_usage;
 #define dprintk(__level, __fmt, ...)	\
 	do { \
 		if (msm_vidc_debug & __level) { \
-			if (msm_vidc_debug_out == VIDC_OUT_PRINTK) { \
+			if (msm_vidc_debug & VIDC_FTRACE) { \
+				char trace_logbuf[MAX_TRACER_LOG_LENGTH]; \
+				int log_length = snprintf(trace_logbuf, \
+					MAX_TRACER_LOG_LENGTH, \
+					VIDC_DBG_TAG __fmt, \
+					get_debug_level_str(__level), \
+					##__VA_ARGS__); \
+				trace_msm_vidc_printf(trace_logbuf, \
+					log_length); \
+			} \
+			if (msm_vidc_debug & VIDC_PRINTK) { \
 				pr_info(VIDC_DBG_TAG __fmt, \
-					get_debug_level_str(__level),	\
+					get_debug_level_str(__level), \
+					##__VA_ARGS__); \
+			} \
+		} \
+	} while (0)
+
+#define dprintk_firmware(__level, __fmt, ...)	\
+	do { \
+		if (msm_vidc_debug & __level) { \
+			if (msm_vidc_debug & FW_FTRACE) { \
+				char trace_logbuf[MAX_TRACER_LOG_LENGTH]; \
+				int log_length = snprintf(trace_logbuf, \
+					MAX_TRACER_LOG_LENGTH, \
+					VIDC_DBG_TAG __fmt, \
+					get_debug_level_str(__level), \
+					##__VA_ARGS__); \
+				trace_msm_vidc_printf(trace_logbuf, \
+					log_length); \
+			} \
+			if (msm_vidc_debug & FW_PRINTK) { \
+				pr_info(VIDC_DBG_TAG __fmt, \
+					get_debug_level_str(__level), \
 					##__VA_ARGS__); \
 			} \
 		} \
@@ -76,19 +111,14 @@ extern bool msm_vidc_cvp_usage;
 
 #define dprintk_ratelimit(__level, __fmt, arg...) \
 	do { \
-		if (msm_vidc_debug & __level) { \
-			if (msm_vidc_debug_out == VIDC_OUT_PRINTK && \
-					msm_vidc_check_ratelimit()) { \
-				pr_info(VIDC_DBG_TAG __fmt, \
-					get_debug_level_str(__level),	\
-					## arg); \
-			} \
+		if (msm_vidc_check_ratelimit()) { \
+			dprintk(__level, __fmt, arg); \
 		} \
 	} while (0)
 
 #define MSM_VIDC_ERROR(value)					\
 	do {	if (value)					\
-			dprintk(VIDC_DBG, "BugOn");		\
+			dprintk(VIDC_ERR, "BugOn");		\
 		BUG_ON(value);					\
 	} while (0)
 
@@ -108,18 +138,14 @@ static inline char *get_debug_level_str(int level)
 	switch (level) {
 	case VIDC_ERR:
 		return "err";
-	case VIDC_WARN:
-		return "warn";
-	case VIDC_INFO:
-		return "info";
-	case VIDC_DBG:
-		return "dbg";
-	case VIDC_PROF:
-		return "prof";
+	case VIDC_HIGH:
+		return "high";
+	case VIDC_LOW:
+		return "low";
+	case VIDC_PERF:
+		return "perf";
 	case VIDC_PKT:
 		return "pkt";
-	case VIDC_FW:
-		return "fw";
 	default:
 		return "???";
 	}
@@ -132,7 +158,7 @@ static inline void tic(struct msm_vidc_inst *i, enum profiling_points p,
 
 	if (!i->debug.pdata[p].name[0])
 		memcpy(i->debug.pdata[p].name, b, 64);
-	if ((msm_vidc_debug & VIDC_PROF) &&
+	if ((msm_vidc_debug & VIDC_PERF) &&
 		i->debug.pdata[p].sampling) {
 		do_gettimeofday(&__ddl_tv);
 		i->debug.pdata[p].start =
@@ -145,7 +171,7 @@ static inline void toc(struct msm_vidc_inst *i, enum profiling_points p)
 {
 	struct timeval __ddl_tv;
 
-	if ((msm_vidc_debug & VIDC_PROF) &&
+	if ((msm_vidc_debug & VIDC_PERF) &&
 		!i->debug.pdata[p].sampling) {
 		do_gettimeofday(&__ddl_tv);
 		i->debug.pdata[p].stop = (__ddl_tv.tv_sec * 1000)
@@ -162,15 +188,15 @@ static inline void show_stats(struct msm_vidc_inst *i)
 
 	for (x = 0; x < MAX_PROFILING_POINTS; x++) {
 		if (i->debug.pdata[x].name[0] &&
-				(msm_vidc_debug & VIDC_PROF)) {
+				(msm_vidc_debug & VIDC_PERF)) {
 			if (i->debug.samples) {
-				dprintk(VIDC_PROF, "%s averaged %d ms/sample\n",
+				dprintk(VIDC_PERF, "%s averaged %d ms/sample\n",
 						i->debug.pdata[x].name,
 						i->debug.pdata[x].cumulative /
 						i->debug.samples);
 			}
 
-			dprintk(VIDC_PROF, "%s Samples: %d\n",
+			dprintk(VIDC_PERF, "%s Samples: %d\n",
 					i->debug.pdata[x].name,
 					i->debug.samples);
 		}

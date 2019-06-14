@@ -188,7 +188,7 @@ static struct msm_vidc_codec_capability lito_capabilities_v0[] = {
 
 	/* VP8 specific */
 	{CAP_FRAME_WIDTH, ENC|DEC, VP8, 96, 1920, 1, 1920},
-	{CAP_FRAME_HEIGHT, ENC|DEC, VP8, 96, 1080, 1, 1080},
+	{CAP_FRAME_HEIGHT, ENC|DEC, VP8, 96, 1920, 1, 1080},
 	/* (1920 * 1088) / 256 */
 	{CAP_MBS_PER_FRAME, ENC|DEC, VP8, 1, 8160, 1, 8160},
 	/* ((1920 * 1088) / 256) * 120*/
@@ -246,7 +246,7 @@ static struct msm_vidc_codec_capability lito_capabilities_v1[] = {
 
 	/* VP8 specific */
 	{CAP_FRAME_WIDTH, ENC|DEC, VP8, 96, 1920, 1, 1920},
-	{CAP_FRAME_HEIGHT, ENC|DEC, VP8, 96, 1080, 1, 1080},
+	{CAP_FRAME_HEIGHT, ENC|DEC, VP8, 96, 1920, 1, 1080},
 	/* (1920 * 1088) / 256 */
 	{CAP_MBS_PER_FRAME, ENC|DEC, VP8, 1, 8160, 1, 8160},
 	/* ((1920 * 1088) / 256) * 120*/
@@ -531,6 +531,10 @@ static struct msm_vidc_common_data kona_common_data[] = {
 					 * Greater than 4096x2160@120fps,
 					 *  8192x4320@48fps
 					 */
+	},
+	{
+		.key = "qcom,max-mbpf",
+		.value = 138240,	/* (8192x4320)/256 */
 	},
 	{
 		.key = "qcom,max-hq-mbs-per-frame",
@@ -1069,7 +1073,7 @@ static int msm_vidc_read_efuse(
 				data->sku_version =
 					(efuse & (efuse_data[i]).mask) >>
 					(efuse_data[i]).shift;
-				dprintk(VIDC_DBG,
+				dprintk(VIDC_HIGH,
 					"efuse 0x%x, platform version 0x%x\n",
 					efuse, data->sku_version);
 
@@ -1120,7 +1124,7 @@ void *vidc_get_drv_data(struct device *dev)
 			dprintk(VIDC_ERR,
 				"Failed to get ddr type, use LPDDR5\n");
 		}
-		dprintk(VIDC_DBG, "DDR Type %x\n", ddr_type);
+		dprintk(VIDC_HIGH, "DDR Type %x\n", ddr_type);
 
 		if (driver_data->ubwc_config &&
 			(ddr_type == DDR_TYPE_LPDDR4 ||
