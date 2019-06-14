@@ -15,6 +15,7 @@
 #include "sde_hw_catalog_format.h"
 #include "sde_kms.h"
 #include "sde_hw_uidle.h"
+#include "sde_connector.h"
 
 /*************************************************************
  * MACRO DEFINITION
@@ -130,6 +131,8 @@
 		"NV12/5/1/1.25 AB24/5/1/1.25 XB24/5/1/1.25"
 #define DEFAULT_MAX_PER_PIPE_BW			2400000
 #define DEFAULT_AMORTIZABLE_THRESHOLD		25
+#define DEFAULT_MNOC_PORTS			2
+#define DEFAULT_AXI_BUS_WIDTH			32
 #define DEFAULT_CPU_MASK			0
 #define DEFAULT_CPU_DMA_LATENCY			PM_QOS_DEFAULT_VALUE
 
@@ -213,6 +216,8 @@ enum {
 	PERF_CPU_DMA_LATENCY,
 	PERF_QOS_LUT_MACROTILE_QSEED,
 	PERF_SAFE_LUT_MACROTILE_QSEED,
+	PERF_NUM_MNOC_PORTS,
+	PERF_AXI_BUS_WIDTH,
 	PERF_PROP_MAX,
 };
 
@@ -230,6 +235,7 @@ enum {
 	SSPP_EXCL_RECT,
 	SSPP_SMART_DMA,
 	SSPP_MAX_PER_PIPE_BW,
+	SSPP_MAX_PER_PIPE_BW_HIGH,
 	SSPP_PROP_MAX,
 };
 
@@ -524,6 +530,10 @@ static struct sde_prop_type sde_perf_prop[] = {
 			false, PROP_TYPE_U32_ARRAY},
 	{PERF_SAFE_LUT_MACROTILE_QSEED, "qcom,sde-safe-lut-macrotile-qseed",
 			false, PROP_TYPE_U32_ARRAY},
+	{PERF_NUM_MNOC_PORTS, "qcom,sde-num-mnoc-ports",
+			false, PROP_TYPE_U32},
+	{PERF_AXI_BUS_WIDTH, "qcom,sde-axi-bus-width",
+			false, PROP_TYPE_U32},
 };
 
 static struct sde_prop_type sspp_prop[] = {
@@ -543,6 +553,8 @@ static struct sde_prop_type sspp_prop[] = {
 	{SSPP_SMART_DMA, "qcom,sde-sspp-smart-dma-priority", false,
 		PROP_TYPE_U32_ARRAY},
 	{SSPP_MAX_PER_PIPE_BW, "qcom,sde-max-per-pipe-bw-kbps", false,
+		PROP_TYPE_U32_ARRAY},
+	{SSPP_MAX_PER_PIPE_BW_HIGH, "qcom,sde-max-per-pipe-bw-high-kbps", false,
 		PROP_TYPE_U32_ARRAY},
 };
 
@@ -740,6 +752,12 @@ static struct sde_prop_type merge_3d_prop[] = {
 	{HW_OFF, "qcom,sde-merge-3d-off", false, PROP_TYPE_U32_ARRAY},
 	{HW_LEN, "qcom,sde-merge-3d-size", false, PROP_TYPE_U32},
 };
+
+static struct sde_prop_type qdss_prop[] = {
+	{HW_OFF, "qcom,sde-qdss-off", false, PROP_TYPE_U32_ARRAY},
+	{HW_LEN, "qcom,sde-qdss-size", false, PROP_TYPE_U32},
+};
+
 /*************************************************************
  * static API list
  *************************************************************/
@@ -1515,6 +1533,13 @@ static int sde_sspp_parse_dt(struct device_node *np,
 		else
 			sblk->max_per_pipe_bw = DEFAULT_MAX_PER_PIPE_BW;
 
+		if (prop_exists[SSPP_MAX_PER_PIPE_BW_HIGH])
+			sblk->max_per_pipe_bw_high =
+				PROP_VALUE_ACCESS(prop_value,
+				SSPP_MAX_PER_PIPE_BW_HIGH, i);
+		else
+			sblk->max_per_pipe_bw_high = sblk->max_per_pipe_bw;
+
 		for (j = 0; j < sde_cfg->mdp_count; j++) {
 			sde_cfg->mdp[j].clk_ctrls[sspp->clk_ctrl].reg_off =
 				PROP_BITVALUE_ACCESS(prop_value,
@@ -1603,16 +1628,50 @@ end:
 	return rc;
 }
 
-void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm)
+void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
+		uint32_t disp_type)
 {
-	u32 i;
+	u32 i, cnt = 0, sec_cnt = 0;
 
-	for (i = 0; i < sde_cfg->mixer_count; i++) {
-		clear_bit(SDE_DISP_PRIMARY_PREF,
-				&sde_cfg->mixer[i].features);
-		if (i < num_lm)
-			set_bit(SDE_DISP_PRIMARY_PREF,
+	if (disp_type == SDE_CONNECTOR_PRIMARY) {
+		for (i = 0; i < sde_cfg->mixer_count; i++) {
+			/* Check if lm was previously set for secondary */
+			/* Clear pref, primary has higher priority */
+			if (sde_cfg->mixer[i].features &
+					BIT(SDE_DISP_SECONDARY_PREF)) {
+				clear_bit(SDE_DISP_SECONDARY_PREF,
+						&sde_cfg->mixer[i].features);
+				sec_cnt++;
+			}
+			clear_bit(SDE_DISP_PRIMARY_PREF,
 					&sde_cfg->mixer[i].features);
+
+			/* Set lm for primary pref */
+			if (cnt < num_lm) {
+				set_bit(SDE_DISP_PRIMARY_PREF,
+						&sde_cfg->mixer[i].features);
+				cnt++;
+			}
+
+			/* After primary pref is set, now re apply secondary */
+			if (cnt >= num_lm && cnt < (num_lm + sec_cnt)) {
+				set_bit(SDE_DISP_SECONDARY_PREF,
+						&sde_cfg->mixer[i].features);
+				cnt++;
+			}
+		}
+	} else if (disp_type == SDE_CONNECTOR_SECONDARY) {
+		for (i = 0; i < sde_cfg->mixer_count; i++) {
+			clear_bit(SDE_DISP_SECONDARY_PREF,
+					&sde_cfg->mixer[i].features);
+
+			if (cnt < num_lm && !(sde_cfg->mixer[i].features &
+					BIT(SDE_DISP_PRIMARY_PREF))) {
+				set_bit(SDE_DISP_SECONDARY_PREF,
+						&sde_cfg->mixer[i].features);
+				cnt++;
+			}
+		}
 	}
 }
 
@@ -2588,19 +2647,16 @@ static int sde_uidle_parse_dt(struct device_node *np,
 
 	if (!sde_cfg) {
 		SDE_ERROR("invalid argument\n");
-		rc = -EINVAL;
-		goto end;
+		return -EINVAL;
 	}
 
 	if (!sde_cfg->uidle_cfg.uidle_rev)
-		goto end;
+		return 0;
 
 	prop_value = kcalloc(UIDLE_PROP_MAX,
 		sizeof(struct sde_prop_value), GFP_KERNEL);
-	if (!prop_value) {
-		rc = -ENOMEM;
-		goto end;
-	}
+	if (!prop_value)
+		return -ENOMEM;
 
 	rc = _validate_dt_entry(np, uidle_prop, ARRAY_SIZE(uidle_prop),
 			prop_count, &off_count);
@@ -3463,6 +3519,16 @@ static void _sde_perf_parse_dt_cfg_populate(struct sde_mdss_cfg *cfg,
 			PROP_VALUE_ACCESS(prop_value,
 					PERF_AMORTIZABLE_THRESHOLD, 0) :
 			DEFAULT_AMORTIZABLE_THRESHOLD;
+	cfg->perf.num_mnoc_ports =
+			prop_exists[PERF_NUM_MNOC_PORTS] ?
+			PROP_VALUE_ACCESS(prop_value,
+				PERF_NUM_MNOC_PORTS, 0) :
+			DEFAULT_MNOC_PORTS;
+	cfg->perf.axi_bus_width =
+			prop_exists[PERF_AXI_BUS_WIDTH] ?
+			PROP_VALUE_ACCESS(prop_value,
+				PERF_AXI_BUS_WIDTH, 0) :
+			DEFAULT_AXI_BUS_WIDTH;
 }
 
 static int _sde_perf_parse_dt_cfg(struct device_node *np,
@@ -3578,23 +3644,23 @@ static int sde_parse_merge_3d_dt(struct device_node *np,
 
 	prop_value = kcalloc(HW_PROP_MAX, sizeof(struct sde_prop_value),
 			GFP_KERNEL);
-	if (!prop_value) {
-		rc = -ENOMEM;
-		goto fail;
-	}
+	if (!prop_value)
+		return -ENOMEM;
 
 	rc = _validate_dt_entry(np, merge_3d_prop, ARRAY_SIZE(merge_3d_prop),
 		prop_count, &off_count);
 	if (rc)
-		goto error;
+		goto end;
 
 	sde_cfg->merge_3d_count = off_count;
 
 	rc = _read_dt_entry(np, merge_3d_prop, ARRAY_SIZE(merge_3d_prop),
 			prop_count,
 			prop_exists, prop_value);
-	if (rc)
-		goto error;
+	if (rc) {
+		sde_cfg->merge_3d_count = 0;
+		goto end;
+	}
 
 	for (i = 0; i < off_count; i++) {
 		merge_3d = sde_cfg->merge_3d + i;
@@ -3605,11 +3671,54 @@ static int sde_parse_merge_3d_dt(struct device_node *np,
 		merge_3d->len = PROP_VALUE_ACCESS(prop_value, HW_LEN, 0);
 	}
 
-	return 0;
-error:
-	sde_cfg->merge_3d_count = 0;
+end:
 	kfree(prop_value);
-fail:
+	return rc;
+}
+
+int sde_qdss_parse_dt(struct device_node *np, struct sde_mdss_cfg *sde_cfg)
+{
+	int rc, prop_count[HW_PROP_MAX], i;
+	struct sde_prop_value *prop_value = NULL;
+	bool prop_exists[HW_PROP_MAX];
+	u32 off_count;
+	struct sde_qdss_cfg *qdss;
+
+	if (!sde_cfg) {
+		SDE_ERROR("invalid argument\n");
+		return -EINVAL;
+	}
+
+	prop_value = kzalloc(HW_PROP_MAX *
+			sizeof(struct sde_prop_value), GFP_KERNEL);
+	if (!prop_value)
+		return -ENOMEM;
+
+	rc = _validate_dt_entry(np, qdss_prop, ARRAY_SIZE(qdss_prop),
+			prop_count, &off_count);
+	if (rc) {
+		sde_cfg->qdss_count = 0;
+		goto end;
+	}
+
+	sde_cfg->qdss_count = off_count;
+
+	rc = _read_dt_entry(np, qdss_prop, ARRAY_SIZE(qdss_prop), prop_count,
+			prop_exists, prop_value);
+	if (rc)
+		goto end;
+
+	for (i = 0; i < off_count; i++) {
+		qdss = sde_cfg->qdss + i;
+		qdss->base = PROP_VALUE_ACCESS(prop_value, HW_OFF, i);
+		qdss->id = QDSS_0 + i;
+		snprintf(qdss->name, SDE_HW_BLK_NAME_LEN, "qdss_%u",
+				qdss->id - QDSS_0);
+		qdss->len = PROP_VALUE_ACCESS(prop_value, HW_LEN, 0);
+	}
+
+end:
+	kfree(prop_value);
 	return rc;
 }
 
@@ -3850,7 +3959,7 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 		sde_cfg->has_cwb_support = true;
 		sde_cfg->has_wb_ubwc = true;
 		sde_cfg->has_qsync = true;
-		sde_cfg->perf.min_prefill_lines = 24;
+		sde_cfg->perf.min_prefill_lines = 35;
 		sde_cfg->vbif_qos_nlvl = 8;
 		sde_cfg->ts_prefill_rev = 2;
 		sde_cfg->ctl_rev = SDE_CTL_CFG_VERSION_1_0_0;
@@ -3878,6 +3987,50 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 		sde_cfg->true_inline_prefill_lines_nv12 = 32;
 		sde_cfg->true_inline_prefill_lines = 48;
 		sde_cfg->uidle_cfg.uidle_rev = SDE_UIDLE_VERSION_1_0_0;
+	} else if (IS_SAIPAN_TARGET(hw_rev)) {
+		sde_cfg->has_cwb_support = true;
+		sde_cfg->has_wb_ubwc = true;
+		sde_cfg->has_qsync = true;
+		sde_cfg->perf.min_prefill_lines = 24;
+		sde_cfg->vbif_qos_nlvl = 8;
+		sde_cfg->ts_prefill_rev = 2;
+		sde_cfg->ctl_rev = SDE_CTL_CFG_VERSION_1_0_0;
+		sde_cfg->delay_prg_fetch_start = true;
+		sde_cfg->sui_ns_allowed = true;
+		sde_cfg->sui_misr_supported = true;
+		sde_cfg->sui_block_xin_mask = 0xE71;
+		sde_cfg->has_sui_blendstage = true;
+		sde_cfg->has_qos_fl_nocalc = true;
+		sde_cfg->has_3d_merge_reset = true;
+		clear_bit(MDSS_INTR_AD4_0_INTR, sde_cfg->mdss_irqs);
+		clear_bit(MDSS_INTR_AD4_1_INTR, sde_cfg->mdss_irqs);
+		sde_cfg->has_hdr = true;
+		sde_cfg->has_hdr_plus = true;
+		set_bit(SDE_MDP_DHDR_MEMPOOL, &sde_cfg->mdp[0].features);
+		sde_cfg->has_vig_p010 = true;
+		sde_cfg->true_inline_rot_rev = SDE_INLINE_ROT_VERSION_1_0_0;
+		sde_cfg->true_inline_dwnscale_rt_num =
+			MAX_DOWNSCALE_RATIO_INLINE_ROT_RT_NUMERATOR;
+		sde_cfg->true_inline_dwnscale_rt_denom =
+			MAX_DOWNSCALE_RATIO_INLINE_ROT_RT_DENOMINATOR;
+		sde_cfg->true_inline_dwnscale_nrt =
+			MAX_DOWNSCALE_RATIO_INLINE_ROT_NRT_DEFAULT;
+		sde_cfg->true_inline_prefill_fudge_lines = 2;
+		sde_cfg->true_inline_prefill_lines_nv12 = 32;
+		sde_cfg->true_inline_prefill_lines = 48;
+	} else if (IS_SDMTRINKET_TARGET(hw_rev)) {
+		sde_cfg->has_cwb_support = true;
+		sde_cfg->has_qsync = true;
+		sde_cfg->perf.min_prefill_lines = 24;
+		sde_cfg->vbif_qos_nlvl = 8;
+		sde_cfg->ts_prefill_rev = 2;
+		sde_cfg->ctl_rev = SDE_CTL_CFG_VERSION_1_0_0;
+		sde_cfg->delay_prg_fetch_start = true;
+		sde_cfg->sui_ns_allowed = true;
+		sde_cfg->sui_misr_supported = true;
+		sde_cfg->sui_block_xin_mask = 0xC61;
+		sde_cfg->has_hdr = false;
+		sde_cfg->has_sui_blendstage = true;
 	} else {
 		SDE_ERROR("unsupported chipset id:%X\n", hw_rev);
 		sde_cfg->perf.min_prefill_lines = 0xffff;
@@ -4094,6 +4247,10 @@ struct sde_mdss_cfg *sde_hw_catalog_init(struct drm_device *dev, u32 hw_rev)
 		goto end;
 
 	rc = sde_parse_merge_3d_dt(np, sde_cfg);
+	if (rc)
+		goto end;
+
+	rc = sde_qdss_parse_dt(np, sde_cfg);
 	if (rc)
 		goto end;
 

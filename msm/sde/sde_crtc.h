@@ -218,13 +218,13 @@ struct sde_crtc_misr_info {
  * @output_fence  : output release fence context
  * @stage_cfg     : H/w mixer stage configuration
  * @debugfs_root  : Parent of debugfs node
+ * @priv_handle   : Pointer to external private handle, if present
  * @vblank_cb_count : count of vblank callback since last reset
  * @play_count    : frame count between crtc enable and disable
  * @vblank_cb_time  : ktime at vblank count reset
  * @vblank_last_cb_time  : ktime at last vblank notification
  * @sysfs_dev  : sysfs device node for crtc
  * @vsync_event_sf : vsync event notifier sysfs device
- * @suspend         : whether or not a suspend operation is in progress
  * @enabled       : whether the SDE CRTC is currently enabled. updated in the
  *                  commit-thread, not state-swap time which is earlier, so
  *                  safe to make decisions on during VBLANK on/off work
@@ -285,6 +285,7 @@ struct sde_crtc {
 
 	struct sde_hw_stage_cfg stage_cfg;
 	struct dentry *debugfs_root;
+	void *priv_handle;
 
 	u32 vblank_cb_count;
 	u64 play_count;
@@ -293,7 +294,6 @@ struct sde_crtc {
 	struct sde_crtc_fps_info fps_info;
 	struct device *sysfs_dev;
 	struct kernfs_node *vsync_event_sf;
-	bool suspend;
 	bool enabled;
 
 	bool ds_reconfig;
@@ -475,6 +475,17 @@ static inline int sde_crtc_get_mixer_height(struct sde_crtc *sde_crtc,
 
 	return (cstate->num_ds_enabled ?
 			cstate->ds_cfg[0].lm_height : mode->vdisplay);
+}
+
+/**
+ * sde_crtc_get_num_datapath - get the number of datapath active
+ * @crtc: Pointer to drm crtc object
+ */
+static inline int sde_crtc_get_num_datapath(struct drm_crtc *crtc)
+{
+	struct sde_crtc *sde_crtc = to_sde_crtc(crtc);
+
+	return sde_crtc ? sde_crtc->num_mixers : 0;
 }
 
 /**

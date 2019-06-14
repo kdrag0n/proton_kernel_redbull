@@ -16,6 +16,7 @@
 #include "sde_encoder.h"
 #include "sde_connector.h"
 #include "sde_hw_dsc.h"
+#include "sde_crtc.h"
 
 #define RESERVED_BY_OTHER(h, r) \
 	(((h)->rsvp && ((h)->rsvp->enc_id != (r)->enc_id)) ||\
@@ -796,7 +797,8 @@ static bool _sde_rm_check_lm_and_get_connected_blks(
 	*dspp = NULL;
 	*ds = NULL;
 	*pp = NULL;
-	display_pref = lm_cfg->features & BIT(SDE_DISP_PRIMARY_PREF);
+	display_pref = lm_cfg->features & BIT(SDE_DISP_PRIMARY_PREF) ||
+			lm_cfg->features & BIT(SDE_DISP_SECONDARY_PREF);
 	cwb_pref = lm_cfg->features & BIT(SDE_DISP_CWB_PREF);
 
 	SDE_DEBUG("check lm %d: dspp %d ds %d pp %d disp_pref: %d cwb_pref%d\n",
@@ -831,10 +833,10 @@ static bool _sde_rm_check_lm_and_get_connected_blks(
 			SDE_DEBUG("fail: cwb supported lm not allocated\n");
 			return false;
 		}
-	} else if (!(reqs->hw_res.is_primary && display_pref)) {
+	} else if (!(reqs->hw_res.display_type && display_pref)) {
 		SDE_DEBUG(
-			"display preference is not met. is_primary: %d display_pref: %d\n",
-			(int)reqs->hw_res.is_primary, (int)display_pref);
+			"display preference is not met. display_type: %d display_pref: %d\n",
+			(int)reqs->hw_res.display_type, (int)display_pref);
 		return false;
 	}
 
@@ -879,8 +881,8 @@ static int _sde_rm_reserve_lms(
 	int i, rc = 0;
 
 	if (!reqs->topology->num_lm) {
-		SDE_ERROR("invalid number of lm: %d\n", reqs->topology->num_lm);
-		return -EINVAL;
+		SDE_DEBUG("invalid number of lm: %d\n", reqs->topology->num_lm);
+		return 0;
 	}
 
 	/* Find a primary mixer */
@@ -994,6 +996,11 @@ static int _sde_rm_reserve_ctls(
 	struct sde_rm_hw_iter iter;
 	int i = 0;
 
+	if (!top->num_ctl) {
+		SDE_DEBUG("invalid number of ctl: %d\n", top->num_ctl);
+		return 0;
+	}
+
 	memset(&ctls, 0, sizeof(ctls));
 
 	sde_rm_init_hw_iter(&iter, 0, SDE_HW_BLK_CTL);
@@ -1022,11 +1029,11 @@ static int _sde_rm_reserve_ctls(
 			if (top->top_name == SDE_RM_TOPOLOGY_PPSPLIT &&
 					!has_ppsplit)
 				continue;
-		} else if (!(reqs->hw_res.is_primary && primary_pref) &&
-				!_ctl_ids) {
+		} else if (!(reqs->hw_res.display_type ==
+				SDE_CONNECTOR_PRIMARY && primary_pref) && !_ctl_ids) {
 			SDE_DEBUG(
-				"display pref not met. is_primary: %d primary_pref: %d\n",
-				reqs->hw_res.is_primary, primary_pref);
+				"display pref not met. display_type: %d primary_pref: %d\n",
+				reqs->hw_res.display_type, primary_pref);
 			continue;
 		}
 
@@ -1551,8 +1558,22 @@ static int _sde_rm_populate_requirements(
 	 * Set the requirement for LM which has CWB support if CWB is
 	 * found enabled.
 	 */
-	if (!RM_RQ_CWB(reqs) && sde_encoder_in_clone_mode(enc))
+	if (!RM_RQ_CWB(reqs) && sde_encoder_in_clone_mode(enc)) {
 		reqs->top_ctrl |= BIT(SDE_RM_TOPCTL_CWB);
+
+		/*
+		 * topology selection based on conn mode is not valid for CWB
+		 * as WB conn populates modes based on max_mixer_width check
+		 * but primary can be using dual LMs. This topology override for
+		 * CWB is to check number of datapath active in primary and
+		 * allocate same number of LM/PP blocks reserved for CWB
+		 */
+		reqs->topology =
+			&rm->topology_tbl[SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE];
+		if (sde_crtc_get_num_datapath(crtc_state->crtc) == 1)
+			reqs->topology =
+				&rm->topology_tbl[SDE_RM_TOPOLOGY_SINGLEPIPE];
+	}
 
 	SDE_DEBUG("top_ctrl: 0x%llX num_h_tiles: %d\n", reqs->top_ctrl,
 			reqs->hw_res.display_num_of_h_tiles);
@@ -1902,5 +1923,102 @@ end:
 	_sde_rm_print_rsvps(rm, SDE_RM_STAGE_FINAL);
 	mutex_unlock(&rm->rm_lock);
 
+	return ret;
+}
+
+int sde_rm_ext_blk_create_reserve(struct sde_rm *rm,
+		struct sde_hw_blk *hw, struct drm_encoder *enc)
+{
+	struct sde_rm_hw_blk *blk;
+	struct sde_rm_rsvp *rsvp;
+	int ret = 0;
+
+	if (!rm || !hw || !enc) {
+		SDE_ERROR("invalid parameters\n");
+		return -EINVAL;
+	}
+
+	if (hw->type >= SDE_HW_BLK_MAX) {
+		SDE_ERROR("invalid HW type\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&rm->rm_lock);
+
+	rsvp = _sde_rm_get_rsvp(rm, enc);
+	if (!rsvp) {
+		rsvp = kzalloc(sizeof(*rsvp), GFP_KERNEL);
+		if (!rsvp) {
+			ret = -ENOMEM;
+			goto end;
+		}
+
+		rsvp->seq = ++rm->rsvp_next_seq;
+		rsvp->enc_id = enc->base.id;
+		list_add_tail(&rsvp->list, &rm->rsvps);
+
+		SDE_DEBUG("create rsvp %d for enc %d\n",
+					rsvp->seq, rsvp->enc_id);
+	}
+
+	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	if (!blk) {
+		ret = -ENOMEM;
+		goto end;
+	}
+
+	blk->type = hw->type;
+	blk->id = hw->id;
+	blk->hw = hw;
+	blk->rsvp = rsvp;
+	list_add_tail(&blk->list, &rm->hw_blks[hw->type]);
+
+	SDE_DEBUG("create blk %d %d for rsvp %d enc %d\n", blk->type, blk->id,
+					rsvp->seq, rsvp->enc_id);
+
+end:
+	mutex_unlock(&rm->rm_lock);
+	return ret;
+}
+
+int sde_rm_ext_blk_destroy(struct sde_rm *rm,
+		struct drm_encoder *enc)
+{
+	struct sde_rm_hw_blk *blk = NULL, *p;
+	struct sde_rm_rsvp *rsvp;
+	enum sde_hw_blk_type type;
+	int ret = 0;
+
+	if (!rm || !enc) {
+		SDE_ERROR("invalid parameters\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&rm->rm_lock);
+
+	rsvp = _sde_rm_get_rsvp(rm, enc);
+	if (!rsvp) {
+		ret = -ENOENT;
+		SDE_ERROR("failed to find rsvp for enc %d\n", enc->base.id);
+		goto end;
+	}
+
+	for (type = 0; type < SDE_HW_BLK_MAX; type++) {
+		list_for_each_entry_safe(blk, p, &rm->hw_blks[type], list) {
+			if (blk->rsvp == rsvp) {
+				list_del(&blk->list);
+				SDE_DEBUG("del blk %d %d from rsvp %d enc %d\n",
+						blk->type, blk->id,
+						rsvp->seq, rsvp->enc_id);
+				kfree(blk);
+			}
+		}
+	}
+
+	SDE_DEBUG("del rsvp %d\n", rsvp->seq);
+	list_del(&rsvp->list);
+	kfree(rsvp);
+end:
+	mutex_unlock(&rm->rm_lock);
 	return ret;
 }

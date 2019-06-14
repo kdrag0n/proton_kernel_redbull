@@ -25,6 +25,8 @@
 #include "sde_hw_mdss.h"
 #include "sde_kms.h"
 
+#define MAX_CHANNELS_PER_ENC 2
+
 #define SDE_ENCODER_FRAME_EVENT_DONE			BIT(0)
 #define SDE_ENCODER_FRAME_EVENT_ERROR			BIT(1)
 #define SDE_ENCODER_FRAME_EVENT_PANEL_DEAD		BIT(2)
@@ -41,7 +43,7 @@
  * @needs_cdm:	Encoder requests a CDM based on pixel format conversion needs
  * @display_num_of_h_tiles: Number of horizontal tiles in case of split
  *                          interface
- * @is_primary: set to true if the display is primary display
+ * @display_type: Type of the display
  * @topology:   Topology of the display
  */
 struct sde_encoder_hw_resources {
@@ -49,23 +51,37 @@ struct sde_encoder_hw_resources {
 	enum sde_intf_mode wbs[WB_MAX];
 	bool needs_cdm;
 	u32 display_num_of_h_tiles;
-	bool is_primary;
+	bool display_type;
 	struct msm_display_topology topology;
 };
 
 /**
  * sde_encoder_kickoff_params - info encoder requires at kickoff
- * @is_primary: set to true if the display is primary display
  * @affected_displays:  bitmask, bit set means the ROI of the commit lies within
  *                      the bounds of the physical display at the bit index
  * @recovery_events_enabled: indicates status of client for recoovery events
  * @frame_trigger_mode: indicates frame trigger mode
  */
 struct sde_encoder_kickoff_params {
-	u32 is_primary;
 	unsigned long affected_displays;
 	bool recovery_events_enabled;
 	enum frame_trigger_mode_type frame_trigger_mode;
+};
+
+/**
+ * struct sde_encoder_ops - callback functions for generic sde encoder
+ * Individual callbacks documented below.
+ */
+struct sde_encoder_ops {
+	/**
+	 * phys_init - phys initialization function
+	 * @type: controller type
+	 * @controller_id: controller id
+	 * @phys_init_params: Pointer of structure sde_enc_phys_init_params
+	 * Returns: Pointer of sde_encoder_phys, NULL if failed
+	 */
+	void *(*phys_init)(enum sde_intf_type type,
+			u32 controller_id, void *phys_init_params);
 };
 
 /**
@@ -145,11 +161,11 @@ void sde_encoder_kickoff(struct drm_encoder *encoder, bool is_error);
  * @encoder:	encoder pointer
  * @event:      event to wait for
  * MSM_ENC_COMMIT_DONE -  Wait for hardware to have flushed the current pending
- *                        frames to hardware at a vblank or ctl_start
+ *                        frames to hardware at a vblank or wr_ptr_start
  *                        Encoders will map this differently depending on the
  *                        panel type.
  *	                  vid mode -> vsync_irq
- *                        cmd mode -> ctl_start
+ *                        cmd mode -> wr_ptr_start_irq
  * MSM_ENC_TX_COMPLETE -  Wait for the hardware to transfer all the pixels to
  *                        the panel. Encoders will map this differently
  *                        depending on the panel type.
@@ -219,6 +235,18 @@ struct drm_encoder *sde_encoder_init(
 		struct msm_display_info *disp_info);
 
 /**
+ * sde_encoder_init_with_ops - initialize virtual encoder object with init ops
+ * @dev:        Pointer to drm device structure
+ * @disp_info:  Pointer to display information structure
+ * @ops:        Pointer to encoder ops structure
+ * Returns:     Pointer to newly created drm encoder
+ */
+struct drm_encoder *sde_encoder_init_with_ops(
+		struct drm_device *dev,
+		struct msm_display_info *disp_info,
+		const struct sde_encoder_ops *ops);
+
+/**
  * sde_encoder_destroy - destroy previously initialized virtual encoder
  * @drm_enc:    Pointer to previously created drm encoder structure
  */
@@ -253,9 +281,12 @@ int sde_encoder_update_caps_for_cont_splash(struct drm_encoder *encoder,
  *
  *      TODO: manage the event at sde_kms level for forward processing.
  * @drm_enc:    Pointer to drm encoder structure
+ * @skip_pre_kickoff:    Caller can avoid pre_kickoff if it is triggering this
+ *                       event only to switch the panel TE to watchdog mode.
  * @Return:     true if successful in updating the encoder structure
  */
-int sde_encoder_display_failure_notification(struct drm_encoder *enc);
+int sde_encoder_display_failure_notification(struct drm_encoder *enc,
+	bool skip_pre_kickoff);
 
 /**
  * sde_encoder_recovery_events_enabled - checks if client has enabled

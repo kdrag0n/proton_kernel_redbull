@@ -189,16 +189,18 @@ struct sde_encoder_phys_ops {
 /**
  * enum sde_intr_idx - sde encoder interrupt index
  * @INTR_IDX_VSYNC:    Vsync interrupt for video mode panel
- * @INTR_IDX_PINGPONG: Pingpong done unterrupt for cmd mode panel
- * @INTR_IDX_UNDERRUN: Underrun unterrupt for video and cmd mode panel
- * @INTR_IDX_RDPTR:    Readpointer done unterrupt for cmd mode panel
+ * @INTR_IDX_PINGPONG: Pingpong done interrupt for cmd mode panel
+ * @INTR_IDX_UNDERRUN: Underrun interrupt for video and cmd mode panel
+ * @INTR_IDX_RDPTR:    Readpointer done interrupt for cmd mode panel
  * @INTR_IDX_WB_DONE:  Writeback done interrupt for WB
+ * @INTR_IDX_PP1_OVFL: Pingpong overflow interrupt on PP1 for Concurrent WB
  * @INTR_IDX_PP2_OVFL: Pingpong overflow interrupt on PP2 for Concurrent WB
  * @INTR_IDX_PP3_OVFL: Pingpong overflow interrupt on PP3 for Concurrent WB
  * @INTR_IDX_PP4_OVFL: Pingpong overflow interrupt on PP4 for Concurrent WB
  * @INTR_IDX_PP5_OVFL: Pingpong overflow interrupt on PP5 for Concurrent WB
  * @INTR_IDX_AUTOREFRESH_DONE:  Autorefresh done for cmd mode panel meaning
  *                              autorefresh has triggered a double buffer flip
+ * @INTR_IDX_WRPTR:    Writepointer start interrupt for cmd mode panel
  */
 enum sde_intr_idx {
 	INTR_IDX_VSYNC,
@@ -208,10 +210,12 @@ enum sde_intr_idx {
 	INTR_IDX_RDPTR,
 	INTR_IDX_AUTOREFRESH_DONE,
 	INTR_IDX_WB_DONE,
+	INTR_IDX_PP1_OVFL,
 	INTR_IDX_PP2_OVFL,
 	INTR_IDX_PP3_OVFL,
 	INTR_IDX_PP4_OVFL,
 	INTR_IDX_PP5_OVFL,
+	INTR_IDX_WRPTR,
 	INTR_IDX_MAX,
 };
 
@@ -272,8 +276,6 @@ struct sde_encoder_irq {
  *				vs. the number of done/vblank irqs. Should hover
  *				between 0-2 Incremented when a new kickoff is
  *				scheduled. Decremented in irq handler
- * @pending_ctlstart_cnt:	Atomic counter tracking the number of ctl start
- *                              pending.
  * @pending_retire_fence_cnt:   Atomic counter tracking the pending retire
  *                              fences that have to be signalled.
  * @pending_kickoff_wq:		Wait queue for blocking until kickoff completes
@@ -317,7 +319,6 @@ struct sde_encoder_phys {
 	atomic_t wbirq_refcount;
 	atomic_t vsync_cnt;
 	atomic_t underrun_cnt;
-	atomic_t pending_ctlstart_cnt;
 	atomic_t pending_kickoff_cnt;
 	atomic_t pending_retire_fence_cnt;
 	wait_queue_head_t pending_kickoff_wq;
@@ -332,7 +333,6 @@ struct sde_encoder_phys {
 
 static inline int sde_encoder_phys_inc_pending(struct sde_encoder_phys *phys)
 {
-	atomic_inc_return(&phys->pending_ctlstart_cnt);
 	return atomic_inc_return(&phys->pending_kickoff_cnt);
 }
 
@@ -369,24 +369,16 @@ struct sde_encoder_phys_cmd_autorefresh {
  * @stream_sel:	Stream selection for multi-stream interfaces
  * @pp_timeout_report_cnt: number of pingpong done irq timeout errors
  * @autorefresh: autorefresh feature state
- * @pending_rd_ptr_cnt: atomic counter to indicate if retire fence can be
- *                      signaled at the next rd_ptr_irq
- * @rd_ptr_timestamp: last rd_ptr_irq timestamp
  * @pending_vblank_cnt: Atomic counter tracking pending wait for VBLANK
  * @pending_vblank_wq: Wait queue for blocking until VBLANK received
- * @ctl_start_threshold: A threshold in microseconds allows command mode
- *   engine to trigger the retire fence without waiting for rd_ptr.
  */
 struct sde_encoder_phys_cmd {
 	struct sde_encoder_phys base;
 	int stream_sel;
 	int pp_timeout_report_cnt;
 	struct sde_encoder_phys_cmd_autorefresh autorefresh;
-	atomic_t pending_rd_ptr_cnt;
-	ktime_t rd_ptr_timestamp;
 	atomic_t pending_vblank_cnt;
 	wait_queue_head_t pending_vblank_wq;
-	u32 ctl_start_threshold;
 };
 
 /**
@@ -396,13 +388,14 @@ struct sde_encoder_phys_cmd {
  * @hw_wb:		Hardware interface to the wb registers
  * @wbdone_timeout:	Timeout value for writeback done in msec
  * @bypass_irqreg:	Bypass irq register/unregister if non-zero
- * @wbdone_complete:	for wbdone irq synchronization
  * @wb_cfg:		Writeback hardware configuration
  * @cdp_cfg:		Writeback CDP configuration
  * @wb_roi:		Writeback region-of-interest
  * @wb_fmt:		Writeback pixel format
  * @wb_fb:		Pointer to current writeback framebuffer
  * @wb_aspace:		Pointer to current writeback address space
+ * @cwb_old_fb:		Pointer to old writeback framebuffer
+ * @cwb_old_aspace:	Pointer to old writeback address space
  * @frame_count:	Counter of completed writeback operations
  * @kickoff_count:	Counter of issued writeback operations
  * @aspace:		address space identifier for non-secure/secure domain
@@ -418,13 +411,14 @@ struct sde_encoder_phys_wb {
 	struct sde_hw_wb *hw_wb;
 	u32 wbdone_timeout;
 	u32 bypass_irqreg;
-	struct completion wbdone_complete;
 	struct sde_hw_wb_cfg wb_cfg;
 	struct sde_hw_wb_cdp_cfg cdp_cfg;
 	struct sde_rect wb_roi;
 	const struct sde_format *wb_fmt;
 	struct drm_framebuffer *wb_fb;
 	struct msm_gem_address_space *wb_aspace;
+	struct drm_framebuffer *cwb_old_fb;
+	struct msm_gem_address_space *cwb_old_aspace;
 	u32 frame_count;
 	u32 kickoff_count;
 	struct msm_gem_address_space *aspace[SDE_IOMMU_DOMAIN_MAX];
@@ -507,6 +501,14 @@ struct sde_encoder_phys *sde_encoder_phys_wb_init(
 void sde_encoder_phys_setup_cdm(struct sde_encoder_phys *phys_enc,
 		struct drm_framebuffer *fb, const struct sde_format *format,
 		struct sde_rect *wb_roi);
+
+/**
+ * sde_encoder_helper_get_pp_line_count - pingpong linecount helper function
+ * @drm_enc:    Pointer to drm encoder structure
+ * @info:       structure used to populate the pp line count information
+ */
+void sde_encoder_helper_get_pp_line_count(struct drm_encoder *drm_enc,
+		struct sde_hw_pp_vsync_info *info);
 
 /**
  * sde_encoder_helper_trigger_flush - control flush helper function

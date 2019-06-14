@@ -1839,8 +1839,9 @@ static int add_components_mdp(struct device *mdp_dev,
 		if (!intf)
 			continue;
 
-		drm_of_component_match_add(master_dev, matchptr, compare_of,
-					   intf);
+		if (of_device_is_available(intf))
+			drm_of_component_match_add(master_dev, matchptr,
+						   compare_of, intf);
 		of_node_put(intf);
 	}
 
@@ -1962,6 +1963,8 @@ static int msm_pdev_probe(struct platform_device *pdev)
 	ret = add_display_components(&pdev->dev, &match);
 	if (ret)
 		return ret;
+	if (!match)
+		return -ENODEV;
 
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	return component_master_add_with_match(&pdev->dev, &msm_drm_ops, match);

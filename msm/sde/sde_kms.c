@@ -286,7 +286,7 @@ static int _sde_kms_scm_call(struct sde_kms *sde_kms, int vmid)
 		if (ret)
 			return -ENOMEM;
 
-		sec_sid = (uint32_t *) shm.paddr;
+		sec_sid = (uint32_t *) shm.vaddr;
 		desc.args[1] = shm.paddr;
 		desc.args[2] = shm.size;
 	} else {
@@ -881,10 +881,11 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 
 	priv = sde_kms->dev->dev_private;
 
-	SDE_EVT32(crtc->base.id, crtc->state->active,
-			sde_kms->splash_data.num_splash_displays);
 	if (!crtc->state->active || !sde_kms->splash_data.num_splash_displays)
 		return;
+
+	SDE_EVT32(DRMID(crtc), crtc->state->active,
+			sde_kms->splash_data.num_splash_displays);
 
 	for (i = 0; i < MAX_DSI_DISPLAYS; i++) {
 		splash_display = &sde_kms->splash_data.splash_display[i];
@@ -2346,9 +2347,9 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms)
 			encoder = NULL;
 			continue;
 		}
-		SDE_DEBUG("info.is_connected = %s, info.is_primary = %s\n",
+		SDE_DEBUG("info.is_connected = %s, info.display_type = %d\n",
 			((info.is_connected) ? "true" : "false"),
-			((info.is_primary) ? "true" : "false"));
+			info.display_type);
 
 		if (!encoder) {
 			SDE_ERROR("encoder not initialized\n");

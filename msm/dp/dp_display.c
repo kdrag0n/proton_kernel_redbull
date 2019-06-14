@@ -2438,7 +2438,8 @@ static int dp_display_mst_connector_update_link_info(
 	memcpy(&dp_panel->link_info, &dp->panel->link_info,
 			sizeof(dp_panel->link_info));
 
-	DP_MST_DEBUG("dp mst connector:%d link info updated\n");
+	DP_MST_DEBUG("dp mst connector:%d link info updated\n",
+		connector->base.id);
 
 	return rc;
 }
@@ -2492,6 +2493,28 @@ static int dp_display_get_mst_caps(struct dp_display *dp_display,
 	mst_caps->drm_aux = dp->aux->drm_aux;
 
 	return rc;
+}
+
+static void dp_display_wakeup_phy_layer(struct dp_display *dp_display,
+		bool wakeup)
+{
+	struct dp_display_private *dp;
+	struct dp_hpd *hpd;
+
+	if (!dp_display) {
+		pr_err("invalid input\n");
+		return;
+	}
+
+	dp = container_of(dp_display, struct dp_display_private, dp_display);
+	if (!dp->mst.drm_registered) {
+		pr_debug("drm mst not registered\n");
+		return;
+	}
+
+	hpd = dp->hpd;
+	if (hpd && hpd->wakeup_phy)
+		hpd->wakeup_phy(hpd, wakeup);
 }
 
 static int dp_display_probe(struct platform_device *pdev)
@@ -2566,6 +2589,8 @@ static int dp_display_probe(struct platform_device *pdev)
 					dp_display_mst_get_connector_info;
 	g_dp_display->mst_get_fixed_topology_port =
 					dp_display_mst_get_fixed_topology_port;
+	g_dp_display->wakeup_phy_layer =
+					dp_display_wakeup_phy_layer;
 
 	rc = component_add(&pdev->dev, &dp_display_comp_ops);
 	if (rc) {

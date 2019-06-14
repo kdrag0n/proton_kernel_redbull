@@ -110,16 +110,6 @@ static inline struct sde_kms *_sde_crtc_get_kms(struct drm_crtc *crtc)
 	return to_sde_kms(priv->kms);
 }
 
-static inline struct drm_encoder *_sde_crtc_get_encoder(struct drm_crtc *crtc)
-{
-	struct drm_encoder *enc;
-
-	drm_for_each_encoder_mask(enc, crtc->dev, crtc->state->encoder_mask)
-		return enc;
-
-	return NULL;
-}
-
 /**
  * sde_crtc_calc_fps() - Calculates fps value.
  * @sde_crtc   : CRTC structure
@@ -885,6 +875,11 @@ static u32 _sde_crtc_get_displays_affected(struct drm_crtc *crtc,
 	struct sde_crtc_state *crtc_state;
 	u32 disp_bitmask = 0;
 	int i;
+
+	if (!crtc || !state) {
+		pr_err("Invalid crtc or state\n");
+		return 0;
+	}
 
 	sde_crtc = to_sde_crtc(crtc);
 	crtc_state = to_sde_crtc_state(state);
@@ -3309,12 +3304,16 @@ static void sde_crtc_destroy_state(struct drm_crtc *crtc,
 
 	sde_crtc = to_sde_crtc(crtc);
 	cstate = to_sde_crtc_state(state);
-	enc = _sde_crtc_get_encoder(crtc);
 	sde_kms = _sde_crtc_get_kms(crtc);
+
+	if (!sde_kms) {
+		SDE_ERROR("invalid sde_kms\n");
+		return;
+	}
 
 	SDE_DEBUG("crtc%d\n", crtc->base.id);
 
-	if (sde_kms && enc)
+	drm_for_each_encoder_mask(enc, crtc->dev, state->encoder_mask)
 		sde_rm_release(&sde_kms->rm, enc, true);
 
 	__drm_atomic_helper_crtc_destroy_state(state);
@@ -3647,8 +3646,7 @@ static int _sde_crtc_vblank_enable_no_lock(
 				continue;
 
 			SDE_EVT32(DRMID(&sde_crtc->base), DRMID(enc), enable,
-					sde_crtc->enabled,
-					sde_crtc->suspend);
+					sde_crtc->enabled);
 
 			sde_encoder_register_vblank_callback(enc,
 					sde_crtc_vblank_cb, (void *)crtc);
@@ -3660,8 +3658,7 @@ static int _sde_crtc_vblank_enable_no_lock(
 				continue;
 
 			SDE_EVT32(DRMID(&sde_crtc->base), DRMID(enc), enable,
-					sde_crtc->enabled,
-					sde_crtc->suspend);
+					sde_crtc->enabled);
 
 			sde_encoder_register_vblank_callback(enc, NULL, NULL);
 		}
@@ -3673,49 +3670,6 @@ static int _sde_crtc_vblank_enable_no_lock(
 	}
 
 	return 0;
-}
-
-/**
- * _sde_crtc_set_suspend - notify crtc of suspend enable/disable
- * @crtc: Pointer to drm crtc object
- * @enable: true to enable suspend, false to indicate resume
- */
-static void _sde_crtc_set_suspend(struct drm_crtc *crtc, bool enable)
-{
-	struct sde_crtc *sde_crtc;
-	struct msm_drm_private *priv;
-	struct sde_kms *sde_kms;
-
-	if (!crtc || !crtc->dev || !crtc->dev->dev_private) {
-		SDE_ERROR("invalid crtc\n");
-		return;
-	}
-	sde_crtc = to_sde_crtc(crtc);
-	priv = crtc->dev->dev_private;
-
-	if (!priv->kms) {
-		SDE_ERROR("invalid crtc kms\n");
-		return;
-	}
-	sde_kms = to_sde_kms(priv->kms);
-
-	SDE_DEBUG("crtc%d suspend = %d\n", crtc->base.id, enable);
-	SDE_EVT32_VERBOSE(DRMID(crtc), enable);
-
-	mutex_lock(&sde_crtc->crtc_lock);
-
-	/*
-	 * If the vblank is enabled, release a power reference on suspend
-	 * and take it back during resume (if it is still enabled).
-	 */
-	SDE_EVT32(DRMID(&sde_crtc->base), enable, sde_crtc->enabled,
-			sde_crtc->suspend);
-	if (sde_crtc->suspend == enable)
-		SDE_DEBUG("crtc%d suspend already set to %d, ignoring update\n",
-				crtc->base.id, enable);
-
-	sde_crtc->suspend = enable;
-	mutex_unlock(&sde_crtc->crtc_lock);
 }
 
 /**
@@ -3772,11 +3726,9 @@ static void sde_crtc_reset(struct drm_crtc *crtc)
 	}
 
 	/* revert suspend actions, if necessary */
-	if (sde_kms_is_suspend_state(crtc->dev) &&
-		 !sde_crtc_is_reset_required(crtc)) {
-			SDE_DEBUG("avoiding reset for crtc:%d\n",
-					crtc->base.id);
-			return;
+	if (!sde_crtc_is_reset_required(crtc)) {
+		SDE_DEBUG("avoiding reset for crtc:%d\n", crtc->base.id);
+		return;
 	}
 
 	/* remove previous state, if present */
@@ -3801,7 +3753,6 @@ static void sde_crtc_reset(struct drm_crtc *crtc)
 
 	cstate->base.crtc = crtc;
 	crtc->state = &cstate->base;
-	drm_crtc_vblank_reset(crtc);
 }
 
 static void sde_crtc_handle_power_event(u32 event_type, void *arg)
@@ -3964,9 +3915,6 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 
 	drm_crtc_vblank_off(crtc);
 
-	if (sde_kms_is_suspend_state(crtc->dev))
-		_sde_crtc_set_suspend(crtc, true);
-
 	mutex_lock(&sde_crtc->crtc_lock);
 	SDE_EVT32_VERBOSE(DRMID(crtc));
 
@@ -3984,7 +3932,7 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 
 	_sde_crtc_flush_event_thread(crtc);
 
-	SDE_EVT32(DRMID(crtc), sde_crtc->enabled, sde_crtc->suspend,
+	SDE_EVT32(DRMID(crtc), sde_crtc->enabled,
 			crtc->state->active, crtc->state->enable);
 	sde_crtc->enabled = false;
 
@@ -4097,7 +4045,7 @@ static void sde_crtc_enable(struct drm_crtc *crtc,
 	drm_crtc_vblank_on(crtc);
 
 	mutex_lock(&sde_crtc->crtc_lock);
-	SDE_EVT32(DRMID(crtc), sde_crtc->enabled, sde_crtc->suspend);
+	SDE_EVT32(DRMID(crtc), sde_crtc->enabled);
 
 	/*
 	 * Try to enable uidle (if possible), we do this before the call
@@ -4294,18 +4242,18 @@ static int _sde_crtc_check_secure_blend_config(struct drm_crtc *crtc,
 }
 
 static int _sde_crtc_check_secure_single_encoder(struct drm_crtc *crtc,
-	int fb_sec_dir)
+	struct drm_crtc_state *state, int fb_sec_dir)
 {
 	struct drm_encoder *encoder;
 	int encoder_cnt = 0;
 
 	if (fb_sec_dir) {
 		drm_for_each_encoder_mask(encoder, crtc->dev,
-			crtc->state->encoder_mask)
+				state->encoder_mask)
 			encoder_cnt++;
 
 		if (encoder_cnt > MAX_ALLOWED_ENCODER_CNT_PER_SECURE_CRTC) {
-			SDE_ERROR("crtc%d, invalid virtual encoder crtc%d\n",
+			SDE_ERROR("crtc:%d invalid number of encoders:%d\n",
 				DRMID(crtc), encoder_cnt);
 			return -EINVAL;
 		}
@@ -4321,11 +4269,9 @@ static int _sde_crtc_check_secure_state_smmu_translation(struct drm_crtc *crtc,
 	struct drm_encoder *encoder;
 	int is_video_mode = false;
 
-	drm_for_each_encoder_mask(encoder, crtc->dev,
-			crtc->state->encoder_mask) {
+	drm_for_each_encoder_mask(encoder, crtc->dev, state->encoder_mask)
 		is_video_mode |= sde_encoder_check_curr_mode(encoder,
-			MSM_DISPLAY_VIDEO_MODE);
-	}
+						MSM_DISPLAY_VIDEO_MODE);
 
 	/*
 	 * In video mode check for null commit before transition
@@ -4393,7 +4339,7 @@ static int _sde_crtc_check_secure_state(struct drm_crtc *crtc,
 	 * secure_crtc is not allowed in a shared toppolgy
 	 * across different encoders.
 	 */
-	rc = _sde_crtc_check_secure_single_encoder(crtc, fb_sec_dir);
+	rc = _sde_crtc_check_secure_single_encoder(crtc, state, fb_sec_dir);
 	if (rc)
 		return rc;
 
@@ -4715,14 +4661,12 @@ int sde_crtc_vblank(struct drm_crtc *crtc, bool en)
 	sde_crtc = to_sde_crtc(crtc);
 
 	mutex_lock(&sde_crtc->crtc_lock);
-	SDE_EVT32(DRMID(&sde_crtc->base), en, sde_crtc->enabled,
-			sde_crtc->suspend);
-	if (sde_crtc->enabled && !sde_crtc->suspend) {
-		ret = _sde_crtc_vblank_enable_no_lock(sde_crtc, en);
-		if (ret)
-			SDE_ERROR("%s vblank enable failed: %d\n",
-					sde_crtc->name, ret);
-	}
+	SDE_EVT32(DRMID(&sde_crtc->base), en, sde_crtc->enabled);
+	ret = _sde_crtc_vblank_enable_no_lock(sde_crtc, en);
+	if (ret)
+		SDE_ERROR("%s vblank enable failed: %d\n",
+				sde_crtc->name, ret);
+
 	mutex_unlock(&sde_crtc->crtc_lock);
 
 	return 0;
@@ -4982,6 +4926,10 @@ static void sde_crtc_install_properties(struct drm_crtc *crtc,
 			catalog->perf.amortizable_threshold);
 	sde_kms_info_add_keyint(info, "min_prefill_lines",
 			catalog->perf.min_prefill_lines);
+	sde_kms_info_add_keyint(info, "num_mnoc_ports",
+			catalog->perf.num_mnoc_ports);
+	sde_kms_info_add_keyint(info, "axi_bus_width",
+			catalog->perf.axi_bus_width);
 	sde_kms_info_add_keyint(info, "sec_ui_blendstage",
 			catalog->sui_supported_blendstage);
 
@@ -5374,8 +5322,8 @@ static int _sde_debugfs_status_show(struct seq_file *s, void *data)
 		if (!pstate || !state)
 			continue;
 
-		seq_printf(s, "\tplane:%u stage:%d\n", plane->base.id,
-			pstate->stage);
+		seq_printf(s, "\tplane:%u stage:%d rotation:%d\n",
+			plane->base.id, pstate->stage, pstate->rotation);
 
 		if (plane->state->fb) {
 			fb = plane->state->fb;
@@ -5405,7 +5353,8 @@ static int _sde_debugfs_status_show(struct seq_file *s, void *data)
 		}
 
 		seq_printf(s, "\tsrc_x:%4d src_y:%4d src_w:%4d src_h:%4d\n",
-			state->src_x, state->src_y, state->src_w, state->src_h);
+			state->src_x >> 16, state->src_y >> 16,
+			state->src_w >> 16, state->src_h >> 16);
 
 		seq_printf(s, "\tdst x:%4d dst_y:%4d dst_w:%4d dst_h:%4d\n",
 			state->crtc_x, state->crtc_y, state->crtc_w,

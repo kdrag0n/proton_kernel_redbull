@@ -1154,7 +1154,7 @@ static int _sde_connector_set_ext_hdr_info(
 
 	/* verify 1st header byte, programmed in DP Infoframe SDP header */
 	if (payload_size < 1 || (payload[0] != HDR10_PLUS_VSIF_TYPE_CODE)) {
-		SDE_ERROR_CONN(c_conn, "invalid payload detected, size: %d\n",
+		SDE_ERROR_CONN(c_conn, "invalid payload detected, size: %zd\n",
 				payload_size);
 		rc = -EINVAL;
 		goto end;
@@ -1533,14 +1533,19 @@ int sde_connector_helper_reset_custom_properties(
 	return 0;
 }
 
-static int _sde_connector_primary_preference(struct sde_connector *sde_conn,
-		struct sde_kms *sde_kms)
+static int _sde_connector_lm_preference(struct sde_connector *sde_conn,
+		 struct sde_kms *sde_kms, uint32_t disp_type)
 {
 	int ret = 0;
 	u32 num_lm = 0;
 
 	if (!sde_conn || !sde_kms || !sde_conn->ops.get_default_lms) {
 		SDE_DEBUG("invalid input params");
+		return -EINVAL;
+	}
+
+	if (!disp_type || disp_type >= SDE_CONNECTOR_MAX) {
+		SDE_DEBUG("invalid display_type");
 		return -EINVAL;
 	}
 
@@ -1557,7 +1562,7 @@ static int _sde_connector_primary_preference(struct sde_connector *sde_conn,
 		return -EINVAL;
 	}
 
-	sde_hw_mixer_set_preference(sde_kms->catalog, num_lm);
+	sde_hw_mixer_set_preference(sde_kms->catalog, num_lm, disp_type);
 
 	return ret;
 }
@@ -1918,7 +1923,8 @@ static int sde_connector_atomic_check(struct drm_connector *connector,
 	return 0;
 }
 
-static void _sde_connector_report_panel_dead(struct sde_connector *conn)
+static void _sde_connector_report_panel_dead(struct sde_connector *conn,
+	bool skip_pre_kickoff)
 {
 	struct drm_event event;
 
@@ -1938,7 +1944,8 @@ static void _sde_connector_report_panel_dead(struct sde_connector *conn)
 	event.length = sizeof(bool);
 	msm_mode_object_event_notify(&conn->base.base,
 		conn->base.dev, &event, (u8 *)&conn->panel_dead);
-	sde_encoder_display_failure_notification(conn->encoder);
+	sde_encoder_display_failure_notification(conn->encoder,
+		skip_pre_kickoff);
 	SDE_EVT32(SDE_EVTLOG_ERROR);
 	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
 			conn->base.base.id, conn->encoder->base.id);
@@ -1973,7 +1980,7 @@ int sde_connector_esd_status(struct drm_connector *conn)
 	if (ret <= 0) {
 		/* cancel if any pending esd work */
 		sde_connector_schedule_status_work(conn, false);
-		_sde_connector_report_panel_dead(sde_conn);
+		_sde_connector_report_panel_dead(sde_conn, true);
 		ret = -ETIMEDOUT;
 	} else {
 		SDE_DEBUG("Successfully received TE from panel\n");
@@ -2021,7 +2028,7 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		return;
 	}
 
-	_sde_connector_report_panel_dead(conn);
+	_sde_connector_report_panel_dead(conn, false);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
@@ -2451,8 +2458,8 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 		goto error_destroy_property;
 	}
 
-	if (display_info.is_primary)
-		_sde_connector_primary_preference(c_conn, sde_kms);
+	_sde_connector_lm_preference(c_conn, sde_kms,
+			display_info.display_type);
 
 	SDE_DEBUG("connector %d attach encoder %d\n",
 			c_conn->base.base.id, encoder->base.id);
