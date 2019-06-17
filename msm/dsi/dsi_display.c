@@ -5403,6 +5403,7 @@ int dsi_display_get_info(struct drm_connector *connector,
 {
 	struct dsi_display *display;
 	struct dsi_panel_phy_props phy_props;
+	struct dsi_host_common_cfg *host;
 	int i, rc;
 
 	if (!info || !disp) {
@@ -5471,6 +5472,9 @@ int dsi_display_get_info(struct drm_connector *connector,
 
 	info->te_source = display->te_source;
 
+	host = &display->panel->host_config;
+	if (host->split_link.split_link_enabled)
+		info->capabilities |= MSM_DISPLAY_SPLIT_LINK;
 error:
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -6376,10 +6380,12 @@ int dsi_display_prepare(struct dsi_display *display)
 	dsi_display_ctrl_isr_configure(display, true);
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
-		if (display->is_cont_splash_enabled) {
-			pr_err("DMS is not supposed to be set on first frame\n");
+		if (display->is_cont_splash_enabled &&
+		    display->config.panel_mode == DSI_OP_VIDEO_MODE) {
+			pr_err("DMS not supported on first frame\n");
 			return -EINVAL;
 		}
+
 		/* update dsi ctrl for new mode */
 		rc = dsi_display_pre_switch(display);
 		if (rc)
