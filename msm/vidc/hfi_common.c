@@ -1169,7 +1169,7 @@ static int __tzbsp_set_video_state(enum tzbsp_video_state state)
 static inline int __boot_firmware_common(struct venus_hfi_device *device)
 {
 	int rc = 0;
-	u32 ctrl_init_val = 0, ctrl_status = 0, count = 0, max_tries = 10000;
+	u32 ctrl_init_val = 0, ctrl_status = 0, count = 0, max_tries = 1000;
 
 	ctrl_init_val = BIT(0);
 	if (device->res->cvp_internal)
@@ -1292,19 +1292,20 @@ static int __set_clk_rate(struct venus_hfi_device *device,
 		return rc;
 	}
 
-	device->clk_freq = rate;
-
-	if (device->clk_freq >= threshold_freq && rate < threshold_freq) {
+	if (ipeak && device->clk_freq >= threshold_freq && rate < threshold_freq) {
 		rc = cx_ipeak_update(ipeak, false);
 		if (rc) {
 			dprintk(VIDC_ERR,
 				"cx_ipeak_update failed! ipeak %pK\n", ipeak);
+			device->clk_freq = rate;
 			return rc;
 		}
 		dprintk(VIDC_PERF,
 				"cx_ipeak_update: up, clk freq = %lu rate = %lu threshold_freq = %lu\n",
 				device->clk_freq, rate, threshold_freq);
 	}
+
+	device->clk_freq = rate;
 
 	return rc;
 }
@@ -3236,7 +3237,7 @@ static void __process_sys_error(struct venus_hfi_device *device)
 static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 {
 	bool local_packet = false;
-	enum vidc_msg_prio log_level = msm_vidc_debug & FW_LOGMASK;
+	enum vidc_msg_prio log_level = msm_vidc_debug;
 
 	if (!device) {
 		dprintk(VIDC_ERR, "%s: Invalid params\n", __func__);

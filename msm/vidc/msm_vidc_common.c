@@ -732,11 +732,8 @@ static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
 	struct v4l2_format *f;
 
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
-	input_port_mbs = inst->in_reconfig ?
-			NUM_MBS_PER_FRAME(inst->reconfig_width,
-				inst->reconfig_height) :
-			NUM_MBS_PER_FRAME(f->fmt.pix_mp.width,
-				f->fmt.pix_mp.height);
+	input_port_mbs = NUM_MBS_PER_FRAME(f->fmt.pix_mp.width,
+		f->fmt.pix_mp.height);
 
 	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
 	output_port_mbs = NUM_MBS_PER_FRAME(f->fmt.pix_mp.width,
@@ -1730,11 +1727,14 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 
 	mutex_lock(&inst->lock);
 	inst->in_reconfig = true;
-	inst->reconfig_height = event_notify->height;
-	inst->reconfig_width = event_notify->width;
+	fmt = &inst->fmts[INPUT_PORT];
+	fmt->v4l2_fmt.fmt.pix_mp.height = event_notify->height;
+	fmt->v4l2_fmt.fmt.pix_mp.width = event_notify->width;
 	inst->bit_depth = event_notify->bit_depth;
 
 	fmt = &inst->fmts[OUTPUT_PORT];
+	fmt->v4l2_fmt.fmt.pix_mp.height = event_notify->height;
+	fmt->v4l2_fmt.fmt.pix_mp.width = event_notify->width;
 	extra_buff_count = msm_vidc_get_extra_buff_count(inst,
 					HAL_BUFFER_OUTPUT);
 	fmt->count_min = event_notify->capture_buf_count;
@@ -2567,6 +2567,13 @@ static void handle_fbd(enum hal_command_response cmd, void *data)
 	mbuf->flags &= ~MSM_VIDC_FLAG_QUEUED;
 	vb = &mbuf->vvb.vb2_buf;
 
+	if (fill_buf_done->buffer_type == HAL_BUFFER_OUTPUT2 &&
+		fill_buf_done->flags1 & HAL_BUFFERFLAG_READONLY) {
+		dprintk(VIDC_ERR,
+			"%s: Read only buffer not allowed for OPB\n", __func__);
+		goto exit;
+	}
+
 	if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DROP_FRAME)
 		fill_buf_done->filled_len1 = 0;
 	vb->planes[0].bytesused = fill_buf_done->filled_len1;
@@ -2787,7 +2794,7 @@ bool is_batching_allowed(struct msm_vidc_inst *inst)
 	maxmbs = inst->capability.cap[CAP_BATCH_MAX_MB_PER_FRAME].max;
 	maxfps = inst->capability.cap[CAP_BATCH_MAX_FPS].max;
 
-	return (inst->decode_batching &&
+	return (inst->batch.enable &&
 		is_decode_session(inst) &&
 		!is_thumbnail_session(inst) &&
 		!inst->clk_data.low_latency_mode &&
@@ -3428,6 +3435,29 @@ static int get_flipped_state(int present_state,
 		flipped_state = flipped_state - 1;
 	}
 	return flipped_state;
+}
+
+int msm_comm_reset_bufreqs(struct msm_vidc_inst *inst, enum hal_buffer buf_type)
+{
+	struct hal_buffer_requirements *bufreqs;
+
+	if (!inst) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	bufreqs = get_buff_req_buffer(inst, buf_type);
+	if (!bufreqs) {
+		dprintk(VIDC_ERR, "%s: invalid buf type %d\n",
+			__func__, buf_type);
+		return -EINVAL;
+	}
+	bufreqs->buffer_size = bufreqs->buffer_region_size =
+	bufreqs->buffer_count_min = bufreqs->buffer_count_min_host =
+	bufreqs->buffer_count_actual = bufreqs->contiguous =
+	bufreqs->buffer_alignment = 0;
+
+	return 0;
 }
 
 struct hal_buffer_requirements *get_buff_req_buffer(
@@ -4440,6 +4470,14 @@ int msm_comm_try_get_bufreqs(struct msm_vidc_inst *inst)
 {
 	int rc = -EINVAL, i = 0;
 	union hal_get_property hprop;
+	enum hal_buffer int_buf[] = {
+			HAL_BUFFER_INTERNAL_SCRATCH,
+			HAL_BUFFER_INTERNAL_SCRATCH_1,
+			HAL_BUFFER_INTERNAL_SCRATCH_2,
+			HAL_BUFFER_INTERNAL_PERSIST,
+			HAL_BUFFER_INTERNAL_PERSIST_1,
+			HAL_BUFFER_INTERNAL_RECON,
+	};
 
 	memset(&hprop, 0x0, sizeof(hprop));
 	/*
@@ -4465,6 +4503,10 @@ int msm_comm_try_get_bufreqs(struct msm_vidc_inst *inst)
 				"Failed getting buffer requirements: %d", rc);
 			return rc;
 		}
+
+		/* reset internal buffers */
+		for (i = 0; i < ARRAY_SIZE(int_buf); i++)
+			msm_comm_reset_bufreqs(inst, int_buf[i]);
 
 		for (i = 0; i < HAL_BUFFER_MAX; i++) {
 			struct hal_buffer_requirements req;
@@ -5755,7 +5797,6 @@ int msm_comm_session_continue(void *instance)
 	struct msm_vidc_inst *inst = instance;
 	int rc = 0;
 	struct hfi_device *hdev;
-	struct v4l2_format *f;
 
 	if (!inst || !inst->core || !inst->core->device)
 		return -EINVAL;
@@ -5779,12 +5820,7 @@ int msm_comm_session_continue(void *instance)
 			goto sess_continue_fail;
 		}
 		inst->in_reconfig = false;
-		f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
-		f->fmt.pix_mp.height = inst->reconfig_height;
-		f->fmt.pix_mp.width = inst->reconfig_width;
-		f = &inst->fmts[INPUT_PORT].v4l2_fmt;
-		f->fmt.pix_mp.height = inst->reconfig_height;
-		f->fmt.pix_mp.width = inst->reconfig_width;
+
 		if (msm_comm_get_stream_output_mode(inst) ==
 			HAL_VIDEO_DECODER_SECONDARY) {
 			rc = msm_comm_queue_dpb_only_buffers(inst);

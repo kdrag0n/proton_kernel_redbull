@@ -203,7 +203,7 @@
 	max(((height + 31) >> 5) * MAX_SE_NBR_CTRL_LCU32_LINE_BUFFER_SIZE, \
 	((height + 63) >> 6) * MAX_SE_NBR_CTRL_LCU64_LINE_BUFFER_SIZE))
 #define SIZE_VPXD_LB_RECON_DMA_METADATA_WR(width, height) \
-	ALIGN((ALIGN(height, 8) / (4 / 2)) * 64, BUFFER_ALIGNMENT_SIZE(32))
+	ALIGN((ALIGN(height, 16) / (4 / 2)) * 64, BUFFER_ALIGNMENT_SIZE(32))
 #define SIZE_VP8D_LB_FE_TOP_DATA(width, height) \
 	((ALIGN(width, 16) + 8) * 10 * 2)
 #define SIZE_VP9D_LB_FE_TOP_DATA(width, height) \
@@ -610,7 +610,7 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 				HAL_BUFFER_INPUT);
 	fmt->count_min = input_min_count;
 	/* batching needs minimum batch size count of input buffers */
-	if (inst->decode_batching &&
+	if (inst->batch.enable &&
 		is_decode_session(inst) &&
 		fmt->count_min < inst->batch.size)
 		fmt->count_min = inst->batch.size;
@@ -637,7 +637,7 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 			output_min_count = 6;
 			break;
 		case V4L2_PIX_FMT_VP9:
-			output_min_count = 11;
+			output_min_count = 9;
 			break;
 		}
 	}
@@ -711,7 +711,7 @@ int msm_vidc_get_extra_buff_count(struct msm_vidc_inst *inst,
 	 * batch size count of extra buffers added on output port
 	 */
 	if (buffer_type == HAL_BUFFER_OUTPUT) {
-		if (inst->decode_batching &&
+		if (inst->batch.enable &&
 			is_decode_session(inst) &&
 			count < inst->batch.size)
 			count = inst->batch.size;

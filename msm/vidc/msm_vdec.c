@@ -670,10 +670,6 @@ int msm_vdec_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		memcpy(f, fmt, sizeof(struct v4l2_format));
 	} else if (f->type == INPUT_MPLANE) {
 		fmt = &inst->fmts[INPUT_PORT].v4l2_fmt;
-		if (inst->in_reconfig) {
-			fmt->fmt.pix_mp.width = inst->reconfig_width;
-			fmt->fmt.pix_mp.height = inst->reconfig_height;
-		}
 		fmt->fmt.pix_mp.plane_fmt[0].sizeimage =
 			msm_vidc_calculate_dec_input_frame_size(inst);
 		memcpy(f, fmt, sizeof(struct v4l2_format));
@@ -780,7 +776,7 @@ int msm_vdec_inst_init(struct msm_vidc_inst *inst)
 		struct msm_vidc_inst *temp;
 
 		inst->batch.size = MAX_DEC_BATCH_SIZE;
-		inst->decode_batching = true;
+		inst->batch.enable = true;
 
 		mutex_lock(&core->lock);
 		list_for_each_entry(temp, &core->instances, list) {
@@ -788,7 +784,7 @@ int msm_vdec_inst_init(struct msm_vidc_inst *inst)
 				temp->state != MSM_VIDC_CORE_INVALID &&
 				is_decode_session(temp) &&
 				!is_thumbnail_session(temp)) {
-				inst->decode_batching = false;
+				inst->batch.enable = false;
 				dprintk(VIDC_HIGH,
 				"Disable decode-batching in multi sessions\n");
 				break;
@@ -1290,36 +1286,6 @@ int msm_vdec_set_priority(struct msm_vidc_inst *inst)
 	return rc;
 }
 
-int msm_vdec_set_operating_rate(struct msm_vidc_inst *inst)
-{
-	int rc = 0;
-	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
-	struct hfi_operating_rate operating_rate;
-
-	if (!inst || !inst->core) {
-		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
-		return -EINVAL;
-	}
-	hdev = inst->core->device;
-
-	if (is_decode_session(inst))
-		return 0;
-
-	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE);
-	operating_rate.operating_rate = ctrl->val;
-
-	dprintk(VIDC_HIGH, "%s: %#x\n", __func__,
-			operating_rate.operating_rate);
-	rc = call_hfi_op(hdev, session_set_property, inst->session,
-		HFI_PROPERTY_CONFIG_OPERATING_RATE, &operating_rate,
-		sizeof(operating_rate));
-	if (rc)
-		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
-
-	return rc;
-}
-
 int msm_vdec_set_conceal_color(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
@@ -1464,9 +1430,6 @@ int msm_vdec_set_properties(struct msm_vidc_inst *inst)
 	if (rc)
 		goto exit;
 	rc = msm_vdec_set_output_buffer_counts(inst);
-	if (rc)
-		goto exit;
-	rc = msm_vdec_set_operating_rate(inst);
 	if (rc)
 		goto exit;
 
