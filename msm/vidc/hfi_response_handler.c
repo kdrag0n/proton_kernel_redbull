@@ -90,28 +90,37 @@ static int get_hal_pixel_depth(u32 hfi_bit_depth)
 	return MSM_VIDC_BIT_DEPTH_UNSUPPORTED;
 }
 
+static inline int validate_pkt_size(u32 rem_size, u32 msg_size)
+{
+	if (rem_size < msg_size) {
+		dprintk(VIDC_ERR, "%s: bad_packet_size: %d\n",
+			__func__, rem_size);
+		return false;
+	}
+	return true;
+}
+
 static int hfi_process_sess_evt_seq_changed(u32 device_id,
 		struct hfi_msg_event_notify_packet *pkt,
 		struct msm_vidc_cb_info *info)
 {
 	struct msm_vidc_cb_event event_notify = {0};
-	int num_properties_changed;
+	u32 num_properties_changed;
 	struct hfi_frame_size *frame_sz;
 	struct hfi_profile_level *profile_level;
 	struct hfi_bit_depth *pixel_depth;
 	struct hfi_pic_struct *pic_struct;
 	struct hfi_buffer_requirements *buf_req;
 	struct hfi_index_extradata_input_crop_payload *crop_info;
-	u32 entropy_mode = 0;
+	u32 rem_size,entropy_mode = 0;
 	u8 *data_ptr;
 	int prop_id;
 	int luma_bit_depth, chroma_bit_depth;
 	struct hfi_colour_space *colour_info;
 
-	if (sizeof(struct hfi_msg_event_notify_packet) > pkt->size) {
-		dprintk(VIDC_ERR, "%s: bad_pkt_size\n", __func__);
+	if (!validate_pkt_size(pkt->size,
+			       sizeof(struct hfi_msg_event_notify_packet)))
 		return -E2BIG;
-	}
 
 	event_notify.device_id = device_id;
 	event_notify.session_id = (void *)(uintptr_t)pkt->session_id;
@@ -132,10 +141,18 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 
 	if (num_properties_changed) {
 		data_ptr = (u8 *) &pkt->rg_ext_event_data[0];
+		rem_size = pkt->size - sizeof(struct
+				hfi_msg_event_notify_packet) + sizeof(u32);
 		do {
+			if (!validate_pkt_size(rem_size, sizeof(u32)))
+				return -E2BIG;
 			prop_id = (int) *((u32 *)data_ptr);
+			rem_size -= sizeof(u32);
 			switch (prop_id) {
 			case HFI_PROPERTY_PARAM_FRAME_SIZE:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_frame_size)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				frame_sz =
 					(struct hfi_frame_size *) data_ptr;
@@ -145,8 +162,12 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					frame_sz->height, frame_sz->width);
 				data_ptr +=
 					sizeof(struct hfi_frame_size);
+				rem_size -= sizeof(struct hfi_frame_size);
 				break;
 			case HFI_PROPERTY_PARAM_PROFILE_LEVEL_CURRENT:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_profile_level)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				profile_level =
 					(struct hfi_profile_level *) data_ptr;
@@ -157,8 +178,12 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					profile_level->level);
 				data_ptr +=
 					sizeof(struct hfi_profile_level);
+				rem_size -= sizeof(struct hfi_profile_level);
 				break;
 			case HFI_PROPERTY_PARAM_VDEC_PIXEL_BITDEPTH:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_bit_depth)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				pixel_depth = (struct hfi_bit_depth *) data_ptr;
 				/*
@@ -189,8 +214,12 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					event_notify.bit_depth, luma_bit_depth,
 					chroma_bit_depth);
 				data_ptr += sizeof(struct hfi_bit_depth);
+				rem_size -= sizeof(struct hfi_bit_depth);
 				break;
 			case HFI_PROPERTY_PARAM_VDEC_PIC_STRUCT:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_pic_struct)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				pic_struct = (struct hfi_pic_struct *) data_ptr;
 				event_notify.pic_struct =
@@ -200,8 +229,12 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						pic_struct->progressive_only);
 				data_ptr +=
 					sizeof(struct hfi_pic_struct);
+				rem_size -= sizeof(struct hfi_pic_struct);
 				break;
 			case HFI_PROPERTY_PARAM_VDEC_COLOUR_SPACE:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_colour_space)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				colour_info =
 					(struct hfi_colour_space *) data_ptr;
@@ -212,8 +245,11 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						colour_info->colour_space);
 				data_ptr +=
 					sizeof(struct hfi_colour_space);
+				rem_size -= sizeof(struct hfi_colour_space);
 				break;
 			case HFI_PROPERTY_CONFIG_VDEC_ENTROPY:
+				if (!validate_pkt_size(rem_size, sizeof(u32)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				entropy_mode = *(u32 *)data_ptr;
 				event_notify.entropy_mode = entropy_mode;
@@ -221,8 +257,12 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					"Entropy Mode: 0x%x\n", entropy_mode);
 				data_ptr +=
 					sizeof(u32);
+				rem_size -= sizeof(u32);
 				break;
 			case HFI_PROPERTY_CONFIG_BUFFER_REQUIREMENTS:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+					hfi_buffer_requirements)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				buf_req =
 					(struct hfi_buffer_requirements *)
@@ -234,8 +274,13 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						event_notify.capture_buf_count);
 				data_ptr +=
 					sizeof(struct hfi_buffer_requirements);
+				rem_size -=
+					sizeof(struct hfi_buffer_requirements);
 				break;
 			case HFI_INDEX_EXTRADATA_INPUT_CROP:
+				if (!validate_pkt_size(rem_size, sizeof(struct
+				     hfi_index_extradata_input_crop_payload)))
+					return -E2BIG;
 				data_ptr = data_ptr + sizeof(u32);
 				crop_info = (struct
 				hfi_index_extradata_input_crop_payload *)
@@ -255,6 +300,8 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						crop_info->height);
 				data_ptr +=
 					sizeof(struct
+					hfi_index_extradata_input_crop_payload);
+				rem_size -= sizeof(struct
 					hfi_index_extradata_input_crop_payload);
 				break;
 			default:

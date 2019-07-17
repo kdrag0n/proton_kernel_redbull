@@ -19,6 +19,7 @@
 #include "vidc_hfi_helper.h"
 #include "vidc_hfi_api.h"
 #include "msm_vidc_clocks.h"
+#include "msm_vidc_buffer_calculations.h"
 #include <linux/dma-buf.h>
 
 #define MAX_EVENTS 30
@@ -336,6 +337,12 @@ int msm_vidc_qbuf(void *instance, struct v4l2_buffer *b)
 	if (!inst || !inst->core || !b || !valid_v4l2_buffer(b, inst)) {
 		dprintk(VIDC_ERR, "%s: invalid params, inst %pK\n",
 			__func__, inst);
+		return -EINVAL;
+	}
+
+	if (inst->in_flush && is_decode_session(inst) &&
+		b->type == OUTPUT_MPLANE) {
+		dprintk(VIDC_ERR, "%s: in flush, discarding qbuf\n", __func__);
 		return -EINVAL;
 	}
 
@@ -913,7 +920,15 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 		}
 	}
 
-	inst->batch.enable = is_batching_allowed(inst);
+	/*
+	 * if batching enabled previously then you may chose
+	 * to disable it based on recent configuration changes.
+	 * if batching already disabled do not enable it again
+	 * as sufficient extra buffers (required for batch mode
+	 * on both ports) may not have been updated to client.
+	 */
+	if (inst->batch.enable)
+		inst->batch.enable = is_batching_allowed(inst);
 	dprintk(VIDC_HIGH, "%s: batching %s for inst %pK (%#x)\n",
 		__func__, inst->batch.enable ? "enabled" : "disabled",
 		inst, hash32_ptr(inst->session));
@@ -1334,6 +1349,12 @@ int msm_vidc_private(void *vidc_inst, unsigned int cmd,
 	int rc = 0;
 	struct msm_vidc_inst *inst = (struct msm_vidc_inst *)vidc_inst;
 
+	if (cmd != VIDIOC_VIDEO_CMD) {
+		dprintk(VIDC_ERR,
+			"%s: invalid private cmd %#x\n", __func__, cmd);
+		return -ENOIOCTLCMD;
+	}
+
 	if (!inst || !arg) {
 		dprintk(VIDC_ERR, "%s: invalid args\n", __func__);
 		return -EINVAL;
@@ -1369,6 +1390,7 @@ static int msm_vidc_op_s_ctrl(struct v4l2_ctrl *ctrl)
 	int rc = 0;
 	unsigned int c = 0;
 	struct msm_vidc_inst *inst;
+	const char *ctrl_name = NULL;
 
 	if (!ctrl) {
 		dprintk(VIDC_ERR, "%s invalid parameters for ctrl\n", __func__);
@@ -1392,9 +1414,12 @@ static int msm_vidc_op_s_ctrl(struct v4l2_ctrl *ctrl)
 			}
 		}
 	}
-	if (rc)
+	if (rc) {
+		ctrl_name = v4l2_ctrl_get_name(ctrl->id);
 		dprintk(VIDC_ERR, "Failed setting control: Inst = %pK (%s)\n",
-				inst, v4l2_ctrl_get_name(ctrl->id));
+			inst, ctrl_name ? ctrl_name : "Invalid ctrl");
+	}
+
 	return rc;
 }
 
@@ -1506,7 +1531,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	INIT_MSM_VIDC_LIST(&inst->outputbufs);
 	INIT_MSM_VIDC_LIST(&inst->registeredbufs);
 	INIT_MSM_VIDC_LIST(&inst->cvpbufs);
-	INIT_MSM_VIDC_LIST(&inst->reconbufs);
+	INIT_MSM_VIDC_LIST(&inst->refbufs);
 	INIT_MSM_VIDC_LIST(&inst->eosbufs);
 	INIT_MSM_VIDC_LIST(&inst->etb_data);
 	INIT_MSM_VIDC_LIST(&inst->fbd_data);

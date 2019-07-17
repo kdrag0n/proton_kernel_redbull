@@ -36,6 +36,7 @@
 #define FIRMWARE_SIZE			0X00A00000
 #define REG_ADDR_OFFSET_BITMASK	0x000FFFFF
 #define QDSS_IOVA_START 0x80001000
+#define MIN_PAYLOAD_SIZE 3
 
 static struct hal_device_data hal_ctxt;
 
@@ -3261,12 +3262,35 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 		log_level |= FW_PRINTK;
 	}
 
+#define SKIP_INVALID_PKT(pkt_size, payload_size, pkt_hdr_size) ({ \
+		if (pkt_size < pkt_hdr_size || \
+			payload_size < MIN_PAYLOAD_SIZE || \
+			payload_size > \
+			(pkt_size - pkt_hdr_size + sizeof(u8))) { \
+			dprintk(VIDC_ERR, \
+				"%s: invalid msg size - %d\n", \
+				__func__, pkt->msg_size); \
+			continue; \
+		} \
+	})
+
 	while (!__iface_dbgq_read(device, packet)) {
-		struct hfi_msg_sys_coverage_packet *pkt =
-			(struct hfi_msg_sys_coverage_packet *) packet;
+		struct hfi_packet_header *pkt =
+			(struct hfi_packet_header *) packet;
+
+		if (pkt->size < sizeof(struct hfi_packet_header)) {
+			dprintk(VIDC_ERR, "Invalid pkt size - %s\n",
+				__func__);
+			continue;
+		}
 
 		if (pkt->packet_type == HFI_MSG_SYS_COV) {
+			struct hfi_msg_sys_coverage_packet *pkt =
+				(struct hfi_msg_sys_coverage_packet *) packet;
 			int stm_size = 0;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
 
 			stm_size = stm_log_inv_ts(0, 0,
 				pkt->rg_msg_data, pkt->msg_size);
@@ -3274,9 +3298,14 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 				dprintk(VIDC_ERR,
 					"In %s, stm_log returned size of 0\n",
 					__func__);
-		} else {
+
+		} else if (pkt->packet_type == HFI_MSG_SYS_DEBUG) {
 			struct hfi_msg_sys_debug_packet *pkt =
 				(struct hfi_msg_sys_debug_packet *) packet;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
+
 			/*
 			 * All fw messages starts with new line character. This
 			 * causes dprintk to print this message in two lines
@@ -3284,9 +3313,11 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 			 * from the message fixes this to print it in a single
 			 * line.
 			 */
+			pkt->rg_msg_data[pkt->msg_size-1] = '\0';
 			dprintk_firmware(log_level, "%s", &pkt->rg_msg_data[1]);
 		}
 	}
+#undef SKIP_INVALID_PKT
 
 	if (local_packet)
 		kfree(packet);
@@ -3759,7 +3790,16 @@ void __disable_unprepare_clks(struct venus_hfi_device *device)
 				"Failed set flag NORETAIN_MEM %s\n",
 					cl->name);
 		}
+
+		if (!__clk_is_enabled(cl->clk))
+			dprintk(VIDC_ERR, "%s: clock %s already disabled\n",
+				__func__, cl->name);
+
 		clk_disable_unprepare(cl->clk);
+
+		if (__clk_is_enabled(cl->clk))
+			dprintk(VIDC_ERR, "%s: clock %s not disabled\n",
+				__func__, cl->name);
 	}
 }
 
@@ -3829,12 +3869,21 @@ static inline int __prepare_enable_clks(struct venus_hfi_device *device)
 				"Failed set flag RETAIN_MEM %s\n",
 					cl->name);
 		}
+
+		if (__clk_is_enabled(cl->clk))
+			dprintk(VIDC_ERR, "%s: clock %s already enabled\n",
+				__func__, cl->name);
+
 		rc = clk_prepare_enable(cl->clk);
 		if (rc) {
 			dprintk(VIDC_ERR, "Failed to enable clocks\n");
 			cl_fail = cl;
 			goto fail_clk_enable;
 		}
+
+		if (!__clk_is_enabled(cl->clk))
+			dprintk(VIDC_ERR, "%s: clock %s not enabled\n",
+				__func__, cl->name);
 
 		c++;
 		dprintk(VIDC_HIGH,
@@ -4153,6 +4202,10 @@ static int __disable_regulator(struct regulator_info *rinfo,
 		goto disable_regulator_failed;
 	}
 
+	if (!regulator_is_enabled(rinfo->regulator))
+		dprintk(VIDC_ERR, "%s: regulator %s already disabled\n",
+			__func__, rinfo->name);
+
 	rc = regulator_disable(rinfo->regulator);
 	if (rc) {
 		dprintk(VIDC_ERR,
@@ -4160,6 +4213,10 @@ static int __disable_regulator(struct regulator_info *rinfo,
 			rinfo->name, rc);
 		goto disable_regulator_failed;
 	}
+
+	if (regulator_is_enabled(rinfo->regulator))
+		dprintk(VIDC_ERR, "%s: regulator %s not disabled\n",
+			__func__, rinfo->name);
 
 	return 0;
 disable_regulator_failed:
@@ -4189,6 +4246,10 @@ static int __enable_regulators(struct venus_hfi_device *device)
 	dprintk(VIDC_HIGH, "Enabling regulators\n");
 
 	venus_hfi_for_each_regulator(device, rinfo) {
+		if (regulator_is_enabled(rinfo->regulator))
+			dprintk(VIDC_ERR, "%s: regulator %s already enabled\n",
+				__func__, rinfo->name);
+
 		rc = regulator_enable(rinfo->regulator);
 		if (rc) {
 			dprintk(VIDC_ERR,
@@ -4196,6 +4257,10 @@ static int __enable_regulators(struct venus_hfi_device *device)
 					rinfo->name, rc);
 			goto err_reg_enable_failed;
 		}
+
+		if (!regulator_is_enabled(rinfo->regulator))
+			dprintk(VIDC_ERR, "%s: regulator %s not enabled\n",
+				__func__, rinfo->name);
 
 		dprintk(VIDC_HIGH, "Enabled regulator %s\n",
 				rinfo->name);

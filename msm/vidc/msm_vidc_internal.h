@@ -51,6 +51,8 @@
 
 /* Maintains the number of FTB's between each FBD over a window */
 #define DCVS_FTB_WINDOW 16
+/* Superframe can have maximum of 32 frames */
+#define VIDC_SUPERFRAME_MAX 32
 
 #define V4L2_EVENT_VIDC_BASE  10
 #define INPUT_MPLANE V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
@@ -66,6 +68,9 @@
 #define SESSION_MSG_INDEX(__msg) (__msg - SESSION_MSG_START)
 
 #define MAX_NAME_LENGTH 64
+
+#define DB_DISABLE_SLICE_BOUNDARY \
+	V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
 
 #define NUM_MBS_PER_SEC(__height, __width, __fps) \
 	(NUM_MBS_PER_FRAME(__height, __width) * __fps)
@@ -470,13 +475,14 @@ struct msm_vidc_inst {
 	struct msm_vidc_list persistbufs;
 	struct msm_vidc_list pending_getpropq;
 	struct msm_vidc_list outputbufs;
-	struct msm_vidc_list reconbufs;
+	struct msm_vidc_list refbufs;
 	struct msm_vidc_list eosbufs;
 	struct msm_vidc_list registeredbufs;
 	struct msm_vidc_list cvpbufs;
 	struct msm_vidc_list etb_data;
 	struct msm_vidc_list fbd_data;
 	struct buffer_requirements buff_req;
+	struct vidc_frame_data superframe_data[VIDC_SUPERFRAME_MAX];
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct completion completions[SESSION_MSG_END - SESSION_MSG_START + 1];
 	struct v4l2_ctrl **cluster;

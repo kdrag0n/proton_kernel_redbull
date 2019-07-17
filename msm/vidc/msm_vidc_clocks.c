@@ -14,7 +14,7 @@
 #define MSM_VIDC_MAX_UBWC_COMPLEXITY_FACTOR (4 << 16)
 
 #define MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO (1 << 16)
-#define MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO (5 << 16)
+#define MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO (3 << 16)
 
 static int msm_vidc_decide_work_mode_ar50(struct msm_vidc_inst *inst);
 static unsigned long msm_vidc_calc_freq_ar50(struct msm_vidc_inst *inst,
@@ -116,6 +116,34 @@ bool res_is_greater_than(u32 width, u32 height,
 		return false;
 }
 
+bool res_is_greater_than_or_equal_to(u32 width, u32 height,
+				u32 ref_width, u32 ref_height)
+{
+	u32 num_mbs = NUM_MBS_PER_FRAME(height, width);
+	u32 max_side = max(ref_width, ref_height);
+
+	if (num_mbs >= NUM_MBS_PER_FRAME(ref_height, ref_width) ||
+		width >= max_side ||
+		height >= max_side)
+		return true;
+	else
+		return false;
+}
+
+bool res_is_less_than_or_equal_to(u32 width, u32 height,
+				u32 ref_width, u32 ref_height)
+{
+	u32 num_mbs = NUM_MBS_PER_FRAME(height, width);
+	u32 max_side = max(ref_width, ref_height);
+
+	if (num_mbs <= NUM_MBS_PER_FRAME(ref_height, ref_width) ||
+		width <= max_side ||
+		height <= max_side)
+		return true;
+	else
+		return false;
+}
+
 int msm_vidc_get_mbs_per_frame(struct msm_vidc_inst *inst)
 {
 	int height, width;
@@ -132,7 +160,7 @@ int msm_vidc_get_mbs_per_frame(struct msm_vidc_inst *inst)
 	return NUM_MBS_PER_FRAME(height, width);
 }
 
-static int msm_vidc_get_fps(struct msm_vidc_inst *inst)
+int msm_vidc_get_fps(struct msm_vidc_inst *inst)
 {
 	int fps;
 
@@ -148,9 +176,15 @@ static int msm_vidc_get_fps(struct msm_vidc_inst *inst)
 void update_recon_stats(struct msm_vidc_inst *inst,
 	struct recon_stats_type *recon_stats)
 {
+	struct v4l2_ctrl *ctrl;
 	struct recon_buf *binfo;
 	u32 CR = 0, CF = 0;
 	u32 frame_size;
+
+	/* do not consider recon stats in case of superframe */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_SUPERFRAME);
+	if (ctrl->val)
+		return;
 
 	CR = get_ubwc_compression_ratio(recon_stats->ubwc_stats_info);
 
@@ -160,16 +194,16 @@ void update_recon_stats(struct msm_vidc_inst *inst,
 		CF = recon_stats->complexity_number / frame_size;
 	else
 		CF = MSM_VIDC_MAX_UBWC_COMPLEXITY_FACTOR;
-
-	mutex_lock(&inst->reconbufs.lock);
-	list_for_each_entry(binfo, &inst->reconbufs.list, list) {
+	mutex_lock(&inst->refbufs.lock);
+	list_for_each_entry(binfo, &inst->refbufs.list, list) {
 		if (binfo->buffer_index ==
 				recon_stats->buffer_index) {
 			binfo->CR = CR;
 			binfo->CF = CF;
+			break;
 		}
 	}
-	mutex_unlock(&inst->reconbufs.lock);
+	mutex_unlock(&inst->refbufs.lock);
 }
 
 static int fill_dynamic_stats(struct msm_vidc_inst *inst,
@@ -177,13 +211,15 @@ static int fill_dynamic_stats(struct msm_vidc_inst *inst,
 {
 	struct recon_buf *binfo, *nextb;
 	struct vidc_input_cr_data *temp, *next;
-	u32 min_cf = MSM_VIDC_MAX_UBWC_COMPLEXITY_FACTOR, max_cf = 0;
-	u32 min_input_cr = MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO,
-		max_input_cr = 0;
-	u32 min_cr = MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO, max_cr = 0;
+	u32 max_cr = MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO;
+	u32 max_cf = MSM_VIDC_MIN_UBWC_COMPLEXITY_FACTOR;
+	u32 max_input_cr = MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO;
+	u32 min_cf = MSM_VIDC_MAX_UBWC_COMPLEXITY_FACTOR;
+	u32 min_input_cr = MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO;
+	u32 min_cr = MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO;
 
-	mutex_lock(&inst->reconbufs.lock);
-	list_for_each_entry_safe(binfo, nextb, &inst->reconbufs.list, list) {
+	mutex_lock(&inst->refbufs.lock);
+	list_for_each_entry_safe(binfo, nextb, &inst->refbufs.list, list) {
 		if (binfo->CR) {
 			min_cr = min(min_cr, binfo->CR);
 			max_cr = max(max_cr, binfo->CR);
@@ -193,7 +229,7 @@ static int fill_dynamic_stats(struct msm_vidc_inst *inst,
 			max_cf = max(max_cf, binfo->CF);
 		}
 	}
-	mutex_unlock(&inst->reconbufs.lock);
+	mutex_unlock(&inst->refbufs.lock);
 
 	mutex_lock(&inst->input_crs.lock);
 	list_for_each_entry_safe(temp, next, &inst->input_crs.list, list) {
@@ -215,15 +251,6 @@ static int fill_dynamic_stats(struct msm_vidc_inst *inst,
 	vote_data->compression_ratio = min_cr;
 	vote_data->complexity_factor = max_cf;
 	vote_data->input_cr = min_input_cr;
-	vote_data->use_dpb_read = false;
-
-	/* Check if driver can vote for lower bus BW */
-	if (inst->clk_data.load < inst->clk_data.load_norm) {
-		vote_data->compression_ratio = max_cr;
-		vote_data->complexity_factor = min_cf;
-		vote_data->input_cr = max_input_cr;
-		vote_data->use_dpb_read = true;
-	}
 
 	dprintk(VIDC_PERF,
 		"Input CR = %d Recon CR = %d Complexity Factor = %d\n",
@@ -1487,11 +1514,13 @@ int msm_vidc_decide_work_mode_iris2(struct msm_vidc_inst *inst)
 			/* For WORK_MODE_1, set Low Latency mode by default */
 			latency.enable = true;
 		}
-		if (inst->rc_type == RATE_CONTROL_LOSSLESS &&
-			out_f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_H264) {
-			dprintk(VIDC_HIGH,
-				"Set work mode to low latency for AVC lossless encoding.");
+		if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ) {
+			pdata.video_work_mode = HFI_WORKMODE_1;
 			latency.enable = true;
+		}
+		if (inst->rc_type == RATE_CONTROL_LOSSLESS) {
+			pdata.video_work_mode = HFI_WORKMODE_2;
+			latency.enable = false;
 		}
 	} else {
 		return -EINVAL;

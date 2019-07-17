@@ -119,6 +119,16 @@ static inline bool in_port_reconfig(struct msm_vidc_inst *inst)
 	return inst->in_reconfig && inst->bufq[INPUT_PORT].vb2_bufq.streaming;
 }
 
+static inline bool is_input_buffer(struct msm_vidc_buffer *mbuf)
+{
+	return mbuf->vvb.vb2_buf.type == INPUT_MPLANE;
+}
+
+static inline bool is_output_buffer(struct msm_vidc_buffer *mbuf)
+{
+	return mbuf->vvb.vb2_buf.type == OUTPUT_MPLANE;
+}
+
 static inline int msm_comm_g_ctrl(struct msm_vidc_inst *inst,
 		struct v4l2_control *ctrl)
 {
@@ -130,6 +140,8 @@ static inline int msm_comm_s_ctrl(struct msm_vidc_inst *inst,
 {
 	return v4l2_s_ctrl(NULL, &inst->ctrl_handler, ctrl);
 }
+
+bool is_single_session(struct msm_vidc_inst *inst, u32 ignore_flags);
 bool is_batching_allowed(struct msm_vidc_inst *inst);
 enum hal_buffer get_hal_buffer_type(unsigned int type,
 		unsigned int plane_num);

@@ -41,8 +41,8 @@
 #define MAX_CBR_H 720
 #define LEGACY_CBR_BUF_SIZE 500
 #define CBR_PLUS_BUF_SIZE 1000
+#define MAX_GOP 0xFFFFFFF
 
-#define L_MODE V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
 #define MIN_NUM_ENC_OUTPUT_BUFFERS 4
 #define MIN_NUM_ENC_CAPTURE_BUFFERS 5
 
@@ -91,7 +91,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.name = "Intra Period for P frames",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = 0,
-		.maximum = INT_MAX,
+		.maximum = MAX_GOP,
 		.default_value = 2*DEFAULT_FPS-1,
 		.step = 1,
 		.qmenu = NULL,
@@ -470,12 +470,12 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.name = "H.264 Loop Filter Mode",
 		.type = V4L2_CTRL_TYPE_MENU,
 		.minimum = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED,
-		.maximum = L_MODE,
-		.default_value = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED,
+		.maximum = DB_DISABLE_SLICE_BOUNDARY,
+		.default_value = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED,
 		.menu_skip_mask = ~(
 		(1 << V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED) |
 		(1 << V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED) |
-		(1 << L_MODE)
+		(1 << DB_DISABLE_SLICE_BOUNDARY)
 		),
 	},
 	{
@@ -947,6 +947,15 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.default_value = 0,
 		.step = 500,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_SUPERFRAME,
+		.name = "Superframe",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = VIDC_SUPERFRAME_MAX,
+		.default_value = 0,
+		.step = 1,
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(msm_venc_ctrls)
@@ -1248,6 +1257,15 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		mplane->width = f->fmt.pix_mp.width;
 		mplane->height = f->fmt.pix_mp.height;
 		mplane->pixelformat = f->fmt.pix_mp.pixelformat;
+
+		if (!inst->profile) {
+			rc = msm_venc_set_default_profile(inst);
+			if (rc) {
+				dprintk(VIDC_ERR, "%s: Failed to set default profile type\n", __func__);
+				goto exit;
+			}
+		}
+
 		rc = msm_comm_try_state(inst, MSM_VIDC_OPEN_DONE);
 		if (rc) {
 			dprintk(VIDC_ERR, "Failed to open instance\n");
@@ -1324,6 +1342,26 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 	}
 exit:
 	return rc;
+}
+
+int msm_venc_set_default_profile(struct msm_vidc_inst *inst)
+{
+	if (!inst) {
+		dprintk(VIDC_ERR,
+			"%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	if (get_v4l2_codec(inst) == V4L2_PIX_FMT_HEVC)
+		inst->profile = HFI_HEVC_PROFILE_MAIN;
+	else if (get_v4l2_codec(inst) == V4L2_PIX_FMT_VP8)
+		inst->profile = HFI_VP8_PROFILE_MAIN;
+	else if (get_v4l2_codec(inst) == V4L2_PIX_FMT_H264)
+		inst->profile = HFI_H264_PROFILE_HIGH;
+	else
+		dprintk(VIDC_ERR,
+			"%s: Invalid codec type %#x\n", __func__, get_v4l2_codec(inst));
+	return 0;
 }
 
 int msm_venc_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
@@ -1768,6 +1806,7 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDC_VENC_RC_TIMESTAMP_DISABLE:
 	case V4L2_CID_MPEG_VIDEO_VBV_DELAY:
 	case V4L2_CID_MPEG_VIDC_VENC_BITRATE_SAVINGS:
+	case V4L2_CID_MPEG_VIDC_SUPERFRAME:
 		dprintk(VIDC_HIGH, "Control set: ID : %x Val : %d\n",
 			ctrl->id, ctrl->val);
 		break;
@@ -2136,6 +2175,12 @@ void msm_venc_decide_bframe(struct msm_vidc_inst *inst)
 			goto disable_bframe;
 		}
 	}
+
+	/* do not enable bframe if superframe is enabled */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_SUPERFRAME);
+	if (ctrl->val)
+		goto disable_bframe;
+
 	dprintk(VIDC_HIGH, "Bframe can be enabled!\n");
 
 	return;
@@ -2360,11 +2405,10 @@ int msm_venc_set_rate_control(struct msm_vidc_inst *inst)
 int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
+	bool is_legacy_cbr;
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
-	u32 codec;
-	u32 height, width, fps, mbpf, mbps;
-	u32 max_fps = 15;
+	u32 codec, height, width, buf_size;
 	struct hfi_vbv_hrd_buf_size hrd_buf_size;
 	struct v4l2_format *f;
 
@@ -2378,10 +2422,6 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 	codec = get_v4l2_codec(inst);
 	height = f->fmt.pix_mp.height;
 	width = f->fmt.pix_mp.width;
-	mbpf = NUM_MBS_PER_FRAME(height, width);
-	fps = inst->clk_data.frame_rate >> 16;
-	mbpf = NUM_MBS_PER_FRAME(height, width);
-	mbps = NUM_MBS_PER_SEC(height, width, fps);
 
 	/* vbv delay is required for CBR_CFR and CBR_VFR only */
 	if (inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_CBR &&
@@ -2392,34 +2432,39 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 	if (codec == V4L2_PIX_FMT_VP8)
 		return 0;
 
-	/* default behavior */
-	inst->clk_data.is_legacy_cbr = false;
-	hrd_buf_size.vbv_hrd_buf_size = CBR_PLUS_BUF_SIZE;
+	/* Default behavior */
+	is_legacy_cbr = false;
+	buf_size = CBR_PLUS_BUF_SIZE;
 
-	/* if resolution greater than MAX_CBR (720p), default behavior */
-	if (res_is_greater_than(width, height, MAX_CBR_W, MAX_CBR_H))
-		goto set_vbv_delay;
-
-	/* enable legacy cbr if resolution less than MIN_CBRPLUS (VGA) */
-	if (res_is_less_than(width, height, MIN_CBRPLUS_W, MIN_CBRPLUS_H) &&
-		mbps <= NUM_MBS_PER_SEC(MIN_CBRPLUS_H, MIN_CBRPLUS_W,
-			max_fps)) {
-		inst->clk_data.is_legacy_cbr = true;
-		hrd_buf_size.vbv_hrd_buf_size = LEGACY_CBR_BUF_SIZE;
-		goto set_vbv_delay;
-	}
-
-	/* enable legacy cbr if rate control is CBR_VFR and VBV delay is 500 */
-	if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR_VFR) {
+	/*
+	 * Client can set vbv delay only when
+	 * resolution is between VGA and 720p
+	 */
+	if (res_is_greater_than_or_equal_to(width, height, MIN_CBRPLUS_W,
+		MIN_CBRPLUS_H) && res_is_less_than_or_equal_to(width, height,
+		MAX_CBR_W, MAX_CBR_H)) {
 		ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_VBV_DELAY);
 		if (ctrl->val == LEGACY_CBR_BUF_SIZE) {
-		    inst->clk_data.is_legacy_cbr = true;
-		    hrd_buf_size.vbv_hrd_buf_size = LEGACY_CBR_BUF_SIZE;
-		    goto set_vbv_delay;
+			is_legacy_cbr = true;
+			buf_size = LEGACY_CBR_BUF_SIZE;
+			goto set_vbv_delay;
+		} else if (ctrl->val == CBR_PLUS_BUF_SIZE) {
+			is_legacy_cbr = false;
+			buf_size = CBR_PLUS_BUF_SIZE;
+			goto set_vbv_delay;
 		}
 	}
 
+	/* Enable legacy cbr if resolution < MIN_CBRPLUS (720p) */
+	if (res_is_less_than(width, height, MAX_CBR_W, MAX_CBR_H)) {
+		is_legacy_cbr = true;
+		buf_size = LEGACY_CBR_BUF_SIZE;
+		goto set_vbv_delay;
+	}
+
 set_vbv_delay:
+	inst->clk_data.is_legacy_cbr = is_legacy_cbr;
+	hrd_buf_size.vbv_hrd_buf_size = buf_size;
 	dprintk(VIDC_HIGH, "Set hrd_buf_size %d",
 				hrd_buf_size.vbv_hrd_buf_size);
 	rc = call_hfi_op(hdev, session_set_property,
@@ -2856,7 +2901,7 @@ int msm_venc_set_slice_control_mode(struct msm_vidc_inst *inst)
 		goto set_and_exit;
 	}
 
-	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
 	output_width = f->fmt.pix_mp.width;
 	output_height = f->fmt.pix_mp.height;
 	if ((codec == V4L2_PIX_FMT_HEVC) &&
@@ -3023,6 +3068,7 @@ int msm_venc_set_loop_filter_mode(struct msm_vidc_inst *inst)
 	struct v4l2_ctrl *ctrl_a;
 	struct v4l2_ctrl *ctrl_b;
 	struct hfi_h264_db_control h264_db_control;
+	u32 codec;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -3030,7 +3076,8 @@ int msm_venc_set_loop_filter_mode(struct msm_vidc_inst *inst)
 	}
 	hdev = inst->core->device;
 
-	if (get_v4l2_codec(inst) != V4L2_PIX_FMT_H264)
+	codec = get_v4l2_codec(inst);
+	if (codec != V4L2_PIX_FMT_H264 && codec != V4L2_PIX_FMT_HEVC)
 		return 0;
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE);
@@ -3791,6 +3838,7 @@ int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst)
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
 	struct hfi_frame_size frame_sz;
+	struct v4l2_format *f;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -3803,6 +3851,29 @@ int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst)
 	frame_sz.buffer_type = HFI_BUFFER_INPUT;
 	frame_sz.height = ctrl->val & 0xFFFF;
 	frame_sz.width = (ctrl->val & 0x7FFF0000) >> 16;
+
+	/*
+	 * 0x0 is default value, internal blur enabled, external blur disabled
+	 * 0x1 means dynamic external blur, blur resolution will be set
+	 *     after start, internal blur disabled
+	 * 0x2 means disable both internal and external blur
+	 */
+	if (ctrl->val == 0x2) {
+		if (inst->state == MSM_VIDC_START_DONE) {
+			dprintk(VIDC_ERR,
+				"Dynamic disable all blur not supported\n");
+			return -EINVAL;
+		}
+		f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+		/*
+		 * Use original input width/height (before VPSS) to inform FW
+		 * to disable all blur.
+		 */
+		frame_sz.width = f->fmt.pix_mp.width;
+		frame_sz.height = f->fmt.pix_mp.height;
+		dprintk(VIDC_HIGH, "Disable both auto and external blur\n");
+	}
+
 	dprintk(VIDC_HIGH, "%s: type %u, height %u, width %u\n", __func__,
 		frame_sz.buffer_type, frame_sz.height, frame_sz.width);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
