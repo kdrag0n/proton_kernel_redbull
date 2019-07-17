@@ -474,9 +474,8 @@ static int calc_clk_post(struct dsi_phy_hw *phy,
 	t->rec_max = 255;
 
 	/* register value */
-	rec_cal1 = (t->rec_max - t->rec_min);
-	rec_cal2 = clk_params->clk_post_buf/100;
-	t->rec = rec_cal1 * rec_cal2 + t->rec_min;
+	t->rec = DIV_ROUND_UP((((t->rec_max - t->rec_min) *
+		clk_params->clk_post_buf) + (t->rec_min * 100)), 100);
 
 	rc = dsi_phy_cmn_validate_and_set(t, "clk_post");
 	if (rc)
@@ -501,7 +500,6 @@ static int calc_clk_pre(struct dsi_phy_hw *phy,
 	s64 rec_temp1;
 	s64 clk_prepare, clk_zero, clk_16;
 	u32 input1;
-	s64 rec_cal1, rec_cal2;
 
 	/* mipi min */
 	t->mipi_min = cal_clk_pulse_time(8, 0, clk_params->bitclk_mbps);
@@ -526,9 +524,8 @@ static int calc_clk_pre(struct dsi_phy_hw *phy,
 	t->rec_max = 255;
 
 	/* register value */
-	rec_cal1 = (t->rec_max - t->rec_min);
-	rec_cal2 = clk_params->clk_pre_buf/100;
-	t->rec = rec_cal1 * rec_cal2 + t->rec_min;
+	t->rec =DIV_ROUND_UP((((t->rec_max - t->rec_min) *
+		125) + (t->rec_min * 100 * 100)), 100 * 100);
 
 	rc = dsi_phy_cmn_validate_and_set(t, "clk_pre");
 	if (rc)
@@ -630,11 +627,14 @@ error:
  * @mode:     Mode information for which timing has to be calculated.
  * @config:   DSI host configuration for this mode.
  * @timing:   Timing parameters for each lane which will be returned.
+ * @use_mode_bit_clk: Boolean to indicate whether reacalculate dsi
+ *		bit clk or use the existing bit clk(for dynamic clk case).
  */
 int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
-					    struct dsi_mode_info *mode,
-					    struct dsi_host_common_cfg *host,
-					   struct dsi_phy_per_lane_cfgs *timing)
+				       struct dsi_mode_info *mode,
+				       struct dsi_host_common_cfg *host,
+				       struct dsi_phy_per_lane_cfgs *timing,
+				       bool use_mode_bit_clk)
 {
 	/* constants */
 	u32 const esc_clk_mhz = 192; /* TODO: esc clock is hardcoded */
@@ -677,7 +677,10 @@ int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
 		num_of_lanes++;
 
 
-	x = mult_frac(v_total * h_total, inter_num, num_of_lanes);
+	if (use_mode_bit_clk)
+		x = mode->clk_rate_hz;
+	else
+		x = mult_frac(v_total * h_total, inter_num, num_of_lanes);
 	y = rounddown(x, 1);
 
 	clk_params.bitclk_mbps = rounddown(DIV_ROUND_UP_ULL(y, 1000000), 1);

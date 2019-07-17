@@ -376,7 +376,8 @@ static void _sde_plane_set_qos_lut(struct drm_plane *plane,
 
 		if (fmt && SDE_FORMAT_IS_LINEAR(fmt))
 			lut_usage = SDE_QOS_LUT_USAGE_LINEAR;
-		else if (psde->features & BIT(SDE_SSPP_SCALER_QSEED3))
+		else if (psde->features & BIT(SDE_SSPP_SCALER_QSEED3) ||
+			psde->features & BIT(SDE_SSPP_SCALER_QSEED3LITE))
 			lut_usage = SDE_QOS_LUT_USAGE_MACROTILE_QSEED;
 		else
 			lut_usage = SDE_QOS_LUT_USAGE_MACROTILE;
@@ -765,8 +766,9 @@ int sde_plane_wait_input_fence(struct drm_plane *plane, uint32_t wait_ms)
 
 			switch (rc) {
 			case 0:
-				SDE_ERROR_PLANE(psde, "%ums timeout on %08X\n",
-						wait_ms, prefix);
+				SDE_ERROR_PLANE(psde, "%ums timeout on %08X fd %d\n",
+						wait_ms, prefix, sde_plane_get_property(pstate,
+						PLANE_PROP_INPUT_FENCE));
 				psde->is_error = true;
 				sde_kms_timeline_status(plane->dev);
 				ret = -ETIMEDOUT;
@@ -2536,8 +2538,7 @@ static int sde_plane_sspp_atomic_check(struct drm_plane *plane,
 
 	if (!psde->pipe_sblk) {
 		SDE_ERROR_PLANE(psde, "invalid catalog\n");
-		ret = -EINVAL;
-		goto exit;
+		return -EINVAL;
 	}
 
 	/* src values are in Q16 fixed point, convert to integer */
@@ -2605,6 +2606,9 @@ static int sde_plane_sspp_atomic_check(struct drm_plane *plane,
 		ret = -EINVAL;
 	}
 
+	if (ret)
+		return ret;
+
 	ret = _sde_atomic_check_decimation_scaler(state, psde, fmt, pstate,
 		&src, &dst, width, height);
 
@@ -2626,7 +2630,6 @@ modeset_update:
 	if (!ret)
 		_sde_plane_sspp_atomic_check_mode_changed(psde,
 				state, plane->state);
-exit:
 	return ret;
 }
 
@@ -3049,6 +3052,10 @@ static void _sde_plane_update_properties(struct drm_plane *plane,
 	state = plane->state;
 
 	pstate = to_sde_plane_state(state);
+	if (!pstate) {
+		SDE_ERROR("invalid plane state for plane%d\n", DRMID(plane));
+		return;
+	}
 
 	msm_fmt = msm_framebuffer_format(fb);
 	if (!msm_fmt) {
@@ -3189,7 +3196,8 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 		return 0;
 	pstate->pending = true;
 
-	psde->is_rt_pipe = (sde_crtc_get_client_type(crtc) != NRT_CLIENT);
+	psde->is_rt_pipe =
+		(sde_crtc_get_client_type_for_qos(crtc) != NRT_CLIENT);
 	_sde_plane_set_qos_ctrl(plane, false, SDE_PLANE_QOS_PANIC_CTRL);
 
 	_sde_plane_update_properties(plane, crtc, fb);

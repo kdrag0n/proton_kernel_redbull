@@ -430,8 +430,9 @@ static bool sde_crtc_mode_fixup(struct drm_crtc *crtc,
 	SDE_DEBUG("\n");
 
 	if ((msm_is_mode_seamless(adjusted_mode) ||
-			msm_is_mode_seamless_vrr(adjusted_mode)) &&
-		(!crtc->enabled)) {
+	     (msm_is_mode_seamless_vrr(adjusted_mode) ||
+	      msm_is_mode_seamless_dyn_clk(adjusted_mode))) &&
+	    (!crtc->enabled)) {
 		SDE_ERROR("crtc state prevents seamless transition\n");
 		return false;
 	}
@@ -722,7 +723,7 @@ static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 		if (!conn_state || conn_state->crtc != crtc)
 			continue;
 
-		rc = sde_connector_get_mode_info(conn_state, &mode_info);
+		rc = sde_connector_state_get_mode_info(conn_state, &mode_info);
 		if (rc) {
 			SDE_ERROR("failed to get mode info\n");
 			return -EINVAL;
@@ -1065,7 +1066,7 @@ static int _sde_crtc_check_rois(struct drm_crtc *crtc,
 		if (!conn || !conn->state)
 			continue;
 
-		rc = sde_connector_get_mode_info(conn->state, &mode_info);
+		rc = sde_connector_state_get_mode_info(conn->state, &mode_info);
 		if (rc) {
 			SDE_ERROR("failed to get mode info\n");
 			return -EINVAL;
@@ -4056,7 +4057,9 @@ static void sde_crtc_enable(struct drm_crtc *crtc,
 
 	/* return early if crtc is already enabled, do this after UIDLE check */
 	if (sde_crtc->enabled) {
-		if (msm_is_mode_seamless_dms(&crtc->state->adjusted_mode))
+		if (msm_is_mode_seamless_dms(&crtc->state->adjusted_mode) ||
+		msm_is_mode_seamless_dyn_clk(&crtc->state->adjusted_mode))
+
 			SDE_DEBUG("%s extra crtc enable expected during DMS\n",
 					sde_crtc->name);
 		else
@@ -4562,8 +4565,10 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 	struct sde_crtc *sde_crtc;
 	struct plane_state *pstates = NULL;
 	struct sde_crtc_state *cstate;
+	const struct drm_plane_state *pstate;
+	struct drm_plane *plane;
 	struct drm_display_mode *mode;
-	int rc = 0;
+	int mixer_height, mixer_width, rc = 0;
 	struct sde_multirect_plane_states *multirect_plane = NULL;
 	struct drm_connector *conn;
 	struct drm_connector_list_iter conn_iter;
@@ -4619,6 +4624,26 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 			cstate->connectors[cstate->num_connectors++] = conn;
 		}
 	drm_connector_list_iter_end(&conn_iter);
+
+	mixer_width = sde_crtc_get_mixer_width(sde_crtc, cstate, mode);
+	mixer_height = sde_crtc_get_mixer_height(sde_crtc, cstate, mode);
+
+	if (cstate->num_ds_enabled) {
+		if (!state->state)
+			goto end;
+
+		drm_atomic_crtc_state_for_each_plane_state(plane,
+							pstate, state) {
+			if ((pstate->crtc_h > mixer_height) ||
+					(pstate->crtc_w > mixer_width)) {
+				SDE_ERROR("plane w/h:%x*%x > mixer w/h:%x*%x\n",
+					pstate->crtc_w, pstate->crtc_h,
+					mixer_width, mixer_height);
+				return -E2BIG;
+				goto end;
+			}
+		}
+	}
 
 	_sde_crtc_setup_is_ppsplit(state);
 	_sde_crtc_setup_lm_bounds(crtc, state);
@@ -5000,7 +5025,8 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 	struct sde_crtc *sde_crtc;
 	struct sde_crtc_state *cstate;
 	int idx, ret;
-	uint64_t fence_fd;
+	uint64_t fence_user_fd;
+	uint64_t __user prev_user_fd;
 
 	if (!crtc || !state || !property) {
 		SDE_ERROR("invalid argument(s)\n");
@@ -5060,19 +5086,34 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 		if (!val)
 			goto exit;
 
-		ret = _sde_crtc_get_output_fence(crtc, state, &fence_fd);
+		ret = copy_from_user(&prev_user_fd, (void __user *)val,
+				sizeof(uint64_t));
 		if (ret) {
-			SDE_ERROR("fence create failed rc:%d\n", ret);
+			SDE_ERROR("copy from user failed rc:%d\n", ret);
+			ret = -EFAULT;
 			goto exit;
 		}
 
-		ret = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
-				sizeof(uint64_t));
-		if (ret) {
-			SDE_ERROR("copy to user failed rc:%d\n", ret);
-			put_unused_fd(fence_fd);
-			ret = -EFAULT;
-			goto exit;
+		/*
+		 * client is expected to reset the property to -1 before
+		 * requesting for the release fence
+		 */
+		if (prev_user_fd == -1) {
+			ret = _sde_crtc_get_output_fence(crtc, state,
+					&fence_user_fd);
+			if (ret) {
+				SDE_ERROR("fence create failed rc:%d\n", ret);
+				goto exit;
+			}
+
+			ret = copy_to_user((uint64_t __user *)(uintptr_t)val,
+					&fence_user_fd, sizeof(uint64_t));
+			if (ret) {
+				SDE_ERROR("copy to user failed rc:%d\n", ret);
+				put_unused_fd(fence_user_fd);
+				ret = -EFAULT;
+				goto exit;
+			}
 		}
 		break;
 	default:

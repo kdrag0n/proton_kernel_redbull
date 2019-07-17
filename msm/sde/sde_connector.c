@@ -365,7 +365,45 @@ int sde_connector_get_dither_cfg(struct drm_connector *conn,
 	return 0;
 }
 
-int sde_connector_get_mode_info(struct drm_connector_state *conn_state,
+static void sde_connector_get_avail_res_info(struct drm_connector *conn,
+		struct msm_resource_caps_info *avail_res)
+{
+	struct msm_drm_private *priv;
+	struct sde_kms *sde_kms;
+
+	if (!conn || !conn->dev || !conn->dev->dev_private)
+		return;
+
+	priv = conn->dev->dev_private;
+	sde_kms = to_sde_kms(priv->kms);
+
+	if (!sde_kms)
+		return;
+
+	avail_res->max_mixer_width = sde_kms->catalog->max_mixer_width;
+}
+
+int sde_connector_get_mode_info(struct drm_connector *conn,
+		const struct drm_display_mode *drm_mode,
+		struct msm_mode_info *mode_info)
+{
+	struct sde_connector *sde_conn;
+	struct msm_resource_caps_info avail_res;
+
+	memset(&avail_res, 0, sizeof(avail_res));
+
+	sde_conn = to_sde_connector(conn);
+
+	if (!sde_conn)
+		return -EINVAL;
+
+	sde_connector_get_avail_res_info(conn, &avail_res);
+
+	return sde_conn->ops.get_mode_info(conn, drm_mode,
+			mode_info, sde_conn->display, &avail_res);
+}
+
+int sde_connector_state_get_mode_info(struct drm_connector_state *conn_state,
 	struct msm_mode_info *mode_info)
 {
 	struct sde_connector_state *sde_conn_state = NULL;
@@ -1204,7 +1242,8 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 	struct sde_connector *c_conn;
 	struct sde_connector_state *c_state;
 	int idx, rc;
-	uint64_t fence_fd;
+	uint64_t fence_user_fd;
+	uint64_t __user prev_user_fd;
 
 	if (!connector || !state || !property) {
 		SDE_ERROR("invalid argument(s), conn %pK, state %pK, prp %pK\n",
@@ -1247,23 +1286,42 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		if (!val)
 			goto end;
 
-		/*
-		 * update the the offset to a timeline for commit completion
-		 */
-		rc = sde_fence_create(c_conn->retire_fence, &fence_fd, 1);
+		rc = copy_from_user(&prev_user_fd, (void __user *)val,
+				sizeof(uint64_t));
 		if (rc) {
-			SDE_ERROR("fence create failed rc:%d\n", rc);
+			SDE_ERROR("copy from user failed rc:%d\n", rc);
+			rc = -EFAULT;
 			goto end;
 		}
 
-		rc = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
-			sizeof(uint64_t));
-		if (rc) {
-			SDE_ERROR("copy to user failed rc:%d\n", rc);
-			/* fence will be released with timeline update */
-			put_unused_fd(fence_fd);
-			rc = -EFAULT;
-			goto end;
+		/*
+		 * client is expected to reset the property to -1 before
+		 * requesting for the retire fence
+		 */
+		if (prev_user_fd == -1) {
+			/*
+			 * update the offset to a timeline for
+			 * commit completion
+			 */
+			rc = sde_fence_create(c_conn->retire_fence,
+						&fence_user_fd, 1);
+			if (rc) {
+				SDE_ERROR("fence create failed rc:%d\n", rc);
+				goto end;
+			}
+
+			rc = copy_to_user((uint64_t __user *)(uintptr_t)val,
+					&fence_user_fd, sizeof(uint64_t));
+			if (rc) {
+				SDE_ERROR("copy to user failed rc:%d\n", rc);
+				/*
+				 * fence will be released with timeline
+				 * update
+				 */
+				put_unused_fd(fence_user_fd);
+				rc = -EFAULT;
+				goto end;
+			}
 		}
 		break;
 	case CONNECTOR_PROP_ROI_V1:
@@ -1826,6 +1884,7 @@ static const struct drm_connector_funcs sde_connector_ops = {
 static int sde_connector_get_modes(struct drm_connector *connector)
 {
 	struct sde_connector *c_conn;
+	struct msm_resource_caps_info avail_res;
 	int mode_count = 0;
 
 	if (!connector) {
@@ -1839,7 +1898,11 @@ static int sde_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-	mode_count = c_conn->ops.get_modes(connector, c_conn->display);
+	memset(&avail_res, 0, sizeof(avail_res));
+	sde_connector_get_avail_res_info(connector, &avail_res);
+
+	mode_count = c_conn->ops.get_modes(connector, c_conn->display,
+			&avail_res);
 	if (!mode_count) {
 		SDE_ERROR_CONN(c_conn, "failed to get modes\n");
 		return 0;
@@ -1856,6 +1919,7 @@ sde_connector_mode_valid(struct drm_connector *connector,
 		struct drm_display_mode *mode)
 {
 	struct sde_connector *c_conn;
+	struct msm_resource_caps_info avail_res;
 
 	if (!connector || !mode) {
 		SDE_ERROR("invalid argument(s), conn %pK, mode %pK\n",
@@ -1865,8 +1929,12 @@ sde_connector_mode_valid(struct drm_connector *connector,
 
 	c_conn = to_sde_connector(connector);
 
+	memset(&avail_res, 0, sizeof(avail_res));
+	sde_connector_get_avail_res_info(connector, &avail_res);
+
 	if (c_conn->ops.mode_valid)
-		return c_conn->ops.mode_valid(connector, mode, c_conn->display);
+		return c_conn->ops.mode_valid(connector, mode, c_conn->display,
+				&avail_res);
 
 	/* assume all modes okay by default */
 	return MODE_OK;
@@ -2080,9 +2148,8 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 
 		memset(&mode_info, 0, sizeof(mode_info));
 
-		rc = c_conn->ops.get_mode_info(&c_conn->base, mode, &mode_info,
-			sde_kms->catalog->max_mixer_width,
-			c_conn->display);
+		rc = sde_connector_get_mode_info(&c_conn->base, mode,
+				&mode_info);
 		if (rc) {
 			SDE_ERROR_CONN(c_conn,
 				"failed to get mode info for mode %s\n",
@@ -2091,6 +2158,9 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 		}
 
 		sde_kms_info_add_keystr(info, "mode_name", mode->name);
+
+		sde_kms_info_add_keyint(info, "bit_clk_rate",
+					mode_info.clk_rate);
 
 		topology_idx = (int)sde_rm_get_topology_name(
 							mode_info.topology);

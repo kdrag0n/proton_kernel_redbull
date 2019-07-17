@@ -25,8 +25,6 @@
 
 #define DSI_PANEL_DEFAULT_LABEL  "Default dsi panel"
 
-#define DEFAULT_MDP_TRANSFER_TIME 14000
-
 #define DEFAULT_PANEL_JITTER_NUMERATOR		2
 #define DEFAULT_PANEL_JITTER_DENOMINATOR	1
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
@@ -763,8 +761,7 @@ static int dsi_panel_parse_timing(struct dsi_mode_info *mode,
 		display_mode->priv_info->mdp_transfer_time_us =
 			mode->mdp_transfer_time_us;
 	else
-		display_mode->priv_info->mdp_transfer_time_us =
-			DEFAULT_MDP_TRANSFER_TIME;
+		display_mode->priv_info->mdp_transfer_time_us = 0;
 
 	rc = utils->read_u32(utils->data,
 				"qcom,mdss-dsi-panel-framerate",
@@ -1155,6 +1152,48 @@ static int dsi_panel_parse_qsync_caps(struct dsi_panel *panel,
 	return rc;
 }
 
+static int dsi_panel_parse_dyn_clk_caps(struct dsi_panel *panel)
+{
+	int rc = 0;
+	bool supported = false;
+	struct dsi_dyn_clk_caps *dyn_clk_caps = &panel->dyn_clk_caps;
+	struct dsi_parser_utils *utils = &panel->utils;
+	const char *name = panel->name;
+
+	supported = utils->read_bool(utils->data, "qcom,dsi-dyn-clk-enable");
+
+	if (!supported) {
+		dyn_clk_caps->dyn_clk_support = false;
+		return rc;
+	}
+
+	dyn_clk_caps->bit_clk_list_len = utils->count_u32_elems(utils->data,
+			"qcom,dsi-dyn-clk-list");
+
+	if (dyn_clk_caps->bit_clk_list_len < 1) {
+		pr_err("[%s] failed to get supported bit clk list\n", name);
+		return -EINVAL;
+	}
+
+	dyn_clk_caps->bit_clk_list = kcalloc(dyn_clk_caps->bit_clk_list_len,
+			sizeof(u32), GFP_KERNEL);
+	if (!dyn_clk_caps->bit_clk_list)
+		return -ENOMEM;
+
+	rc = utils->read_u32_array(utils->data, "qcom,dsi-dyn-clk-list",
+			dyn_clk_caps->bit_clk_list,
+			dyn_clk_caps->bit_clk_list_len);
+
+	if (rc) {
+		pr_err("[%s] failed to parse supported bit clk list\n", name);
+		return -EINVAL;
+	}
+
+	dyn_clk_caps->dyn_clk_support = true;
+
+	return 0;
+}
+
 static int dsi_panel_parse_dfps_caps(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -1163,7 +1202,7 @@ static int dsi_panel_parse_dfps_caps(struct dsi_panel *panel)
 	struct dsi_parser_utils *utils = &panel->utils;
 	const char *name = panel->name;
 	const char *type;
-	u32 val = 0;
+	u32 i;
 
 	supported = utils->read_bool(utils->data,
 			"qcom,mdss-dsi-pan-enable-dynamic-fps");
@@ -1171,66 +1210,64 @@ static int dsi_panel_parse_dfps_caps(struct dsi_panel *panel)
 	if (!supported) {
 		pr_debug("[%s] DFPS is not supported\n", name);
 		dfps_caps->dfps_support = false;
+		return rc;
+	}
+
+	type = utils->get_property(utils->data,
+			"qcom,mdss-dsi-pan-fps-update", NULL);
+	if (!type) {
+		pr_err("[%s] dfps type not defined\n", name);
+		rc = -EINVAL;
+		goto error;
+	} else if (!strcmp(type, "dfps_suspend_resume_mode")) {
+		dfps_caps->type = DSI_DFPS_SUSPEND_RESUME;
+	} else if (!strcmp(type, "dfps_immediate_clk_mode")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_CLK;
+	} else if (!strcmp(type, "dfps_immediate_porch_mode_hfp")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_HFP;
+	} else if (!strcmp(type, "dfps_immediate_porch_mode_vfp")) {
+		dfps_caps->type = DSI_DFPS_IMMEDIATE_VFP;
 	} else {
+		pr_err("[%s] dfps type is not recognized\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
 
-		type = utils->get_property(utils->data,
-				       "qcom,mdss-dsi-pan-fps-update",
-				       NULL);
-		if (!type) {
-			pr_err("[%s] dfps type not defined\n", name);
-			rc = -EINVAL;
-			goto error;
-		} else if (!strcmp(type, "dfps_suspend_resume_mode")) {
-			dfps_caps->type = DSI_DFPS_SUSPEND_RESUME;
-		} else if (!strcmp(type, "dfps_immediate_clk_mode")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_CLK;
-		} else if (!strcmp(type, "dfps_immediate_porch_mode_hfp")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_HFP;
-		} else if (!strcmp(type, "dfps_immediate_porch_mode_vfp")) {
-			dfps_caps->type = DSI_DFPS_IMMEDIATE_VFP;
-		} else {
-			pr_err("[%s] dfps type is not recognized\n", name);
-			rc = -EINVAL;
-			goto error;
-		}
+	dfps_caps->dfps_list_len = utils->count_u32_elems(utils->data,
+				  "qcom,dsi-supported-dfps-list");
+	if (dfps_caps->dfps_list_len < 1) {
+		pr_err("[%s] dfps refresh list not present\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
 
-		rc = utils->read_u32(utils->data,
-					  "qcom,mdss-dsi-min-refresh-rate",
-					  &val);
-		if (rc) {
-			pr_err("[%s] Min refresh rate is not defined\n", name);
-			rc = -EINVAL;
-			goto error;
-		}
-		dfps_caps->min_refresh_rate = val;
+	dfps_caps->dfps_list = kcalloc(dfps_caps->dfps_list_len, sizeof(u32),
+			GFP_KERNEL);
+	if (!dfps_caps->dfps_list) {
+		rc = -ENOMEM;
+		goto error;
+	}
 
-		rc = utils->read_u32(utils->data,
-					  "qcom,mdss-dsi-max-refresh-rate",
-					  &val);
-		if (rc) {
-			pr_debug("[%s] Using default refresh rate\n", name);
-			rc = utils->read_u32(utils->data,
-						"qcom,mdss-dsi-panel-framerate",
-						&val);
-			if (rc) {
-				pr_err("[%s] max refresh rate is not defined\n",
-				       name);
-				rc = -EINVAL;
-				goto error;
-			}
-		}
-		dfps_caps->max_refresh_rate = val;
+	rc = utils->read_u32_array(utils->data,
+			"qcom,dsi-supported-dfps-list",
+			dfps_caps->dfps_list,
+			dfps_caps->dfps_list_len);
+	if (rc) {
+		pr_err("[%s] dfps refresh rate list parse failed\n", name);
+		rc = -EINVAL;
+		goto error;
+	}
+	dfps_caps->dfps_support = true;
 
-		if (dfps_caps->min_refresh_rate > dfps_caps->max_refresh_rate) {
-			pr_err("[%s] min rate > max rate\n", name);
-			rc = -EINVAL;
-		}
+	/* calculate max and min fps */
+	dfps_caps->max_refresh_rate = dfps_caps->dfps_list[0];
+	dfps_caps->min_refresh_rate = dfps_caps->dfps_list[0];
 
-		pr_debug("[%s] DFPS is supported %d-%d, mode %d\n", name,
-				dfps_caps->min_refresh_rate,
-				dfps_caps->max_refresh_rate,
-				dfps_caps->type);
-		dfps_caps->dfps_support = true;
+	for (i = 1; i < dfps_caps->dfps_list_len; i++) {
+		if (dfps_caps->dfps_list[i] < dfps_caps->min_refresh_rate)
+			dfps_caps->min_refresh_rate = dfps_caps->dfps_list[i];
+		else if (dfps_caps->dfps_list[i] > dfps_caps->max_refresh_rate)
+			dfps_caps->max_refresh_rate = dfps_caps->dfps_list[i];
 	}
 
 error:
@@ -3053,6 +3090,10 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 			pr_err("failed to parse qsync features, rc=%d\n", rc);
 	}
 
+	rc = dsi_panel_parse_dyn_clk_caps(panel);
+	if (rc)
+		pr_err("failed to parse dynamic clk config, rc=%d\n", rc);
+
 	rc = dsi_panel_parse_phy_props(panel);
 	if (rc) {
 		pr_err("failed to parse panel physical dimension, rc=%d\n", rc);
@@ -3097,6 +3138,13 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		pr_debug("failed to parse esd config, rc=%d\n", rc);
 
 	drm_panel_init(&panel->drm_panel);
+	panel->drm_panel.dev = &panel->mipi_device.dev;
+	panel->mipi_device.dev.of_node = of_node;
+
+	rc = drm_panel_add(&panel->drm_panel);
+	if (rc)
+		goto error;
+
 	mutex_init(&panel->panel_lock);
 
 	return panel;
@@ -3107,6 +3155,8 @@ error:
 
 void dsi_panel_put(struct dsi_panel *panel)
 {
+	drm_panel_remove(&panel->drm_panel);
+
 	/* free resources allocated for ESD check */
 	dsi_panel_esd_config_deinit(&panel->esd_config);
 
@@ -3309,19 +3359,17 @@ void dsi_panel_put_mode(struct dsi_display_mode *mode)
 }
 
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
-		struct dsi_mode_info *timing)
+		struct dsi_display_mode *mode, u32 frame_threshold_us)
 {
 	u32 frame_time_us,nslices;
 	u64 min_bitclk, total_active_pixels, bits_per_line;
-	struct msm_display_dsc_info *dsc = timing->dsc;
+	struct msm_display_dsc_info *dsc = mode->timing.dsc;
+	struct dsi_mode_info *timing = &mode->timing;
 
 	/* Packet overlead in bits,2 bytes header + 2 bytes checksum
 	 * + 1 byte dcs data command.
         */
 	const u32 packet_overhead = 56;
-
-	/* Default time between pingpong done to TE in microsecs */
-	const u32 max_tx_threshold_time = 2166;
 
 	frame_time_us = mult_frac(1000, 1000, (timing->refresh_rate));
 
@@ -3350,9 +3398,12 @@ void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 		/* adjust the transfer time proportionately for bit clk*/
 		timing->dsi_transfer_time_us = mult_frac(frame_time_us,
 				min_bitclk, timing->clk_rate_hz);
+	} else if (mode->priv_info->mdp_transfer_time_us) {
+		timing->dsi_transfer_time_us =
+			mode->priv_info->mdp_transfer_time_us;
 	} else {
 		timing->dsi_transfer_time_us = frame_time_us -
-			max_tx_threshold_time;
+			frame_threshold_us;
 	}
 }
 
@@ -3475,6 +3526,7 @@ int dsi_panel_get_host_cfg_for_mode(struct dsi_panel *panel,
 				    struct dsi_host_config *config)
 {
 	int rc = 0;
+	struct dsi_dyn_clk_caps *dyn_clk_caps = &panel->dyn_clk_caps;
 
 	if (!panel || !mode || !config) {
 		pr_err("invalid params\n");
@@ -3502,7 +3554,11 @@ int dsi_panel_get_host_cfg_for_mode(struct dsi_panel *panel,
 	config->video_timing.dsc_enabled = mode->priv_info->dsc_enabled;
 	config->video_timing.dsc = &mode->priv_info->dsc;
 
-	config->bit_clk_rate_hz_override = mode->priv_info->clk_rate_hz;
+	if (dyn_clk_caps->dyn_clk_support)
+		config->bit_clk_rate_hz_override = mode->timing.clk_rate_hz;
+	else
+		config->bit_clk_rate_hz_override = mode->priv_info->clk_rate_hz;
+
 	config->esc_clk_rate_hz = 19200000;
 	mutex_unlock(&panel->panel_lock);
 	return rc;

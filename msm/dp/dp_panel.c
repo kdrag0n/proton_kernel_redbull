@@ -974,6 +974,7 @@ enum dp_dsc_ratio_type {
 	DSC_8BPC_8BPP,
 	DSC_10BPC_8BPP,
 	DSC_12BPC_8BPP,
+	DSC_10BPC_10BPP,
 	DSC_RATIO_TYPE_MAX
 };
 
@@ -988,6 +989,7 @@ static char dp_dsc_rc_range_min_qp_1_1[][15] = {
 	{0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 13},
 	{0, 4, 5, 5, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 17},
 	{0, 4, 9, 9, 11, 11, 11, 11, 11, 11, 13, 13, 13, 15, 21},
+	{0, 4, 5, 6, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 15},
 	};
 
 /*
@@ -998,6 +1000,7 @@ static char dp_dsc_rc_range_min_qp_1_1_scr1[][15] = {
 	{0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 9, 12},
 	{0, 4, 5, 5, 7, 7, 7, 7, 7, 7, 9, 9, 9, 13, 16},
 	{0, 4, 9, 9, 11, 11, 11, 11, 11, 11, 13, 13, 13, 17, 20},
+	{0, 4, 5, 6, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 15},
 	};
 
 /*
@@ -1008,6 +1011,7 @@ static char dp_dsc_rc_range_max_qp_1_1[][15] = {
 	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15},
 	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 15, 16, 17, 17, 19},
 	{12, 12, 13, 14, 15, 15, 15, 16, 17, 18, 19, 20, 21, 21, 23},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
 	};
 
 /*
@@ -1018,6 +1022,7 @@ static char dp_dsc_rc_range_max_qp_1_1_scr1[][15] = {
 	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 10, 11, 11, 12, 13},
 	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 14, 15, 15, 16, 17},
 	{12, 12, 13, 14, 15, 15, 15, 16, 17, 18, 18, 19, 19, 20, 21},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
 	};
 
 /*
@@ -1349,7 +1354,7 @@ static void dp_panel_dsc_pclk_param_calc(struct dp_panel *dp_panel,
 }
 
 static void dp_panel_dsc_populate_static_params(
-		struct msm_display_dsc_info *dsc)
+		struct msm_display_dsc_info *dsc, struct dp_panel *panel)
 {
 	int bpp, bpc;
 	int mux_words_size;
@@ -1361,6 +1366,7 @@ static void dp_panel_dsc_populate_static_params(
 	int data;
 	int final_value, final_scale;
 	int ratio_index, mod_offset;
+	int line_buf_depth_raw, line_buf_depth;
 
 	dsc->version = 0x11;
 	dsc->scr_rev = 0;
@@ -1383,10 +1389,12 @@ static void dp_panel_dsc_populate_static_params(
 	bpp = dsc->bpp;
 	bpc = dsc->bpc;
 
-	if (bpc == 12)
+	if (bpc == 12 && bpp == 8)
 		ratio_index = DSC_12BPC_8BPP;
-	else if (bpc == 10)
+	else if (bpc == 10 && bpp == 8)
 		ratio_index = DSC_10BPC_8BPP;
+	else if (bpc == 10 && bpp == 10)
+		ratio_index = DSC_10BPC_10BPP;
 	else
 		ratio_index = DSC_8BPC_8BPP;
 
@@ -1401,17 +1409,21 @@ static void dp_panel_dsc_populate_static_params(
 	}
 	dsc->range_bpg_offset = dp_dsc_rc_range_bpg_offset;
 
-	if (bpp <= 10)
+	if (bpp == 8) {
 		dsc->initial_offset = 6144;
-	else
-		dsc->initial_offset = 2048;	/* bpp = 12 */
+		dsc->initial_xmit_delay = 512;
+	} else if (bpp == 10) {
+		dsc->initial_offset = 5632;
+		dsc->initial_xmit_delay = 410;
+	} else {
+		dsc->initial_offset = 2048;
+		dsc->initial_xmit_delay = 341;
+	}
 
-	if (bpc == 12)
-		mux_words_size = 64;
-	else
-		mux_words_size = 48;		/* bpc == 8/10 */
-
-	dsc->line_buf_depth = bpc + 1;
+	line_buf_depth_raw = panel->dsc_dpcd[5] & 0x0f;
+	line_buf_depth = (line_buf_depth_raw == 8) ? 8 :
+			(line_buf_depth_raw + 9);
+	dsc->line_buf_depth = min(line_buf_depth, dsc->bpc + 1);
 
 	if (bpc == 8) {
 		dsc->input_10_bits = 0;
@@ -1419,18 +1431,21 @@ static void dp_panel_dsc_populate_static_params(
 		dsc->max_qp_flatness = 12;
 		dsc->quant_incr_limit0 = 11;
 		dsc->quant_incr_limit1 = 11;
+		mux_words_size = 48;
 	} else if (bpc == 10) { /* 10bpc */
 		dsc->input_10_bits = 1;
 		dsc->min_qp_flatness = 7;
 		dsc->max_qp_flatness = 16;
 		dsc->quant_incr_limit0 = 15;
 		dsc->quant_incr_limit1 = 15;
+		mux_words_size = 48;
 	} else { /* 12 bpc */
 		dsc->input_10_bits = 0;
 		dsc->min_qp_flatness = 11;
 		dsc->max_qp_flatness = 20;
 		dsc->quant_incr_limit0 = 19;
 		dsc->quant_incr_limit1 = 19;
+		mux_words_size = 64;
 	}
 
 	mod_offset = dsc->slice_width % 3;
@@ -1449,8 +1464,6 @@ static void dp_panel_dsc_populate_static_params(
 	}
 
 	dsc->det_thresh_flatness = 2 << (bpc - 8);
-
-	dsc->initial_xmit_delay = dsc->rc_model_size / (2 * bpp);
 
 	groups_per_line = DIV_ROUND_UP(dsc->slice_width, 3);
 
@@ -1509,7 +1522,17 @@ struct dp_dsc_slices_per_line {
 	u8 num_slices;
 };
 
-struct dp_dsc_slices_per_line slice_per_line_tbl[] = {
+struct dp_dsc_peak_throughput {
+	u32 index;
+	u32 peak_throughput;
+};
+
+struct dp_dsc_slice_caps_bit_map {
+	u32 num_slices;
+	u32 bit_index;
+};
+
+const struct dp_dsc_slices_per_line slice_per_line_tbl[] = {
 	{0,     340,    1   },
 	{340,   680,    2   },
 	{680,   1360,   4   },
@@ -1520,16 +1543,81 @@ struct dp_dsc_slices_per_line slice_per_line_tbl[] = {
 	{8000,  9600,   24  }
 };
 
+const struct dp_dsc_peak_throughput peak_throughput_mode_0_tbl[] = {
+	{0, 0},
+	{1, 340},
+	{2, 400},
+	{3, 450},
+	{4, 500},
+	{5, 550},
+	{6, 600},
+	{7, 650},
+	{8, 700},
+	{9, 750},
+	{10, 800},
+	{11, 850},
+	{12, 900},
+	{13, 950},
+	{14, 1000},
+};
+
+const struct dp_dsc_slice_caps_bit_map slice_caps_bit_map_tbl[] = {
+	{1, 0},
+	{2, 1},
+	{4, 3},
+	{6, 4},
+	{8, 5},
+	{10, 6},
+	{12, 7},
+	{16, 0},
+	{20, 1},
+	{24, 2},
+};
+
+static bool dp_panel_check_slice_support(u32 num_slices, u32 raw_data_1,
+		u32 raw_data_2)
+{
+	const struct dp_dsc_slice_caps_bit_map *bcap;
+	u32 raw_data;
+	int i;
+
+	if (num_slices <= 12)
+		raw_data = raw_data_1;
+	else
+		raw_data = raw_data_2;
+
+	for (i = 0; i < ARRAY_SIZE(slice_caps_bit_map_tbl); i++) {
+		bcap = &slice_caps_bit_map_tbl[i];
+
+		if (bcap->num_slices == num_slices) {
+			raw_data &= (1 << bcap->bit_index);
+
+			if (raw_data)
+				return true;
+			else
+				return false;
+		}
+	}
+
+	return false;
+}
+
 static int dp_panel_dsc_prepare_basic_params(
 		struct msm_compression_info *comp_info,
 		const struct dp_display_mode *dp_mode,
 		struct dp_panel *dp_panel)
 {
 	int i;
-	struct dp_dsc_slices_per_line *rec;
-	int slice_width;
+	const struct dp_dsc_slices_per_line *rec;
+	const struct dp_dsc_peak_throughput *tput;
+	u32 slice_width;
 	u32 ppr = dp_mode->timing.pixel_clk_khz/1000;
-	int max_slice_width;
+	u32 max_slice_width;
+	u32 ppr_max_index;
+	u32 peak_throughput;
+	u32 ppr_per_slice;
+	u32 slice_caps_1;
+	u32 slice_caps_2;
 
 	comp_info->dsc_info.slice_per_pkt = 0;
 	for (i = 0; i < ARRAY_SIZE(slice_per_line_tbl); i++) {
@@ -1544,11 +1632,35 @@ static int dp_panel_dsc_prepare_basic_params(
 	if (comp_info->dsc_info.slice_per_pkt == 0)
 		return -EINVAL;
 
+	ppr_max_index = dp_panel->dsc_dpcd[11] &= 0xf;
+	if (!ppr_max_index || ppr_max_index >= 15) {
+		pr_debug("Throughput mode 0 not supported");
+		return -EINVAL;
+	}
+
+	tput = &peak_throughput_mode_0_tbl[ppr_max_index];
+	peak_throughput = tput->peak_throughput;
+
 	max_slice_width = dp_panel->dsc_dpcd[12] * 320;
 	slice_width = (dp_mode->timing.h_active /
 				comp_info->dsc_info.slice_per_pkt);
 
-	while (slice_width >= max_slice_width) {
+	ppr_per_slice = ppr/comp_info->dsc_info.slice_per_pkt;
+
+	slice_caps_1 = dp_panel->dsc_dpcd[4];
+	slice_caps_2 = dp_panel->dsc_dpcd[13] & 0x7;
+
+	/*
+	 * There are 3 conditions to check for sink support:
+	 * 1. The slice width cannot exceed the maximum.
+	 * 2. The ppr per slice cannot exceed the maximum.
+	 * 3. The number of slices must be explicitly supported.
+	 */
+	while (slice_width >= max_slice_width ||
+			ppr_per_slice > peak_throughput ||
+			!dp_panel_check_slice_support(
+			comp_info->dsc_info.slice_per_pkt, slice_caps_1,
+			slice_caps_2)) {
 		if (i == ARRAY_SIZE(slice_per_line_tbl))
 			return -EINVAL;
 
@@ -1556,6 +1668,7 @@ static int dp_panel_dsc_prepare_basic_params(
 		comp_info->dsc_info.slice_per_pkt = rec->num_slices;
 		slice_width = (dp_mode->timing.h_active /
 				comp_info->dsc_info.slice_per_pkt);
+		ppr_per_slice = ppr/comp_info->dsc_info.slice_per_pkt;
 		i++;
 	}
 
@@ -2894,7 +3007,8 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 			return;
 		}
 
-		dp_panel_dsc_populate_static_params(&comp_info->dsc_info);
+		dp_panel_dsc_populate_static_params(&comp_info->dsc_info,
+				dp_panel);
 		dp_panel_dsc_pclk_param_calc(dp_panel,
 				&comp_info->dsc_info,
 				comp_info->comp_ratio,

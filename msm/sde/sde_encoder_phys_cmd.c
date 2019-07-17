@@ -243,8 +243,10 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 
 	sde_encoder_helper_get_pp_line_count(phys_enc->parent, info);
 	SDE_EVT32_IRQ(DRMID(phys_enc->parent),
-		info[0].pp_idx, info[0].intf_idx, info[0].wr_ptr_line_count,
-		info[1].pp_idx, info[1].intf_idx, info[1].wr_ptr_line_count,
+		info[0].pp_idx, info[0].intf_idx,
+		info[0].wr_ptr_line_count, info[0].intf_frame_count,
+		info[1].pp_idx, info[1].intf_idx,
+		info[1].wr_ptr_line_count, info[1].intf_frame_count,
 		scheduler_status);
 
 	if (phys_enc->parent_ops.handle_vblank_virt)
@@ -1415,8 +1417,11 @@ static int sde_encoder_phys_cmd_wait_for_commit_done(
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	/* only required for master controller */
-	if (sde_encoder_phys_cmd_is_master(phys_enc))
+	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
 		rc = _sde_encoder_phys_cmd_wait_for_wr_ptr(phys_enc);
+		if (rc == -ETIMEDOUT)
+			goto wait_for_idle;
+	}
 
 	if (!rc && sde_encoder_phys_cmd_is_master(phys_enc) &&
 			cmd_enc->autorefresh.cfg.enable)
@@ -1424,15 +1429,24 @@ static int sde_encoder_phys_cmd_wait_for_commit_done(
 
 	/* wait for posted start or serialize trigger */
 	if ((atomic_read(&phys_enc->pending_kickoff_cnt) > 1) ||
-	    (!rc && phys_enc->frame_trigger_mode ==
-						FRAME_DONE_WAIT_SERIALIZE)) {
-		rc = _sde_encoder_phys_cmd_wait_for_idle(phys_enc);
-		if (rc) {
-			atomic_set(&phys_enc->pending_kickoff_cnt, 0);
-			SDE_EVT32(DRMID(phys_enc->parent),
-					phys_enc->hw_pp->idx - PINGPONG_0);
-			SDE_ERROR("failed wait_for_idle: %d\n", rc);
-		}
+	  (!rc && phys_enc->frame_trigger_mode == FRAME_DONE_WAIT_SERIALIZE))
+		goto wait_for_idle;
+
+	return rc;
+
+wait_for_idle:
+	rc = _sde_encoder_phys_cmd_wait_for_idle(phys_enc);
+	if (rc) {
+		SDE_EVT32(DRMID(phys_enc->parent),
+			phys_enc->hw_pp->idx - PINGPONG_0,
+			phys_enc->frame_trigger_mode,
+			atomic_read(&phys_enc->pending_kickoff_cnt),
+			phys_enc->enable_state, rc);
+		atomic_set(&phys_enc->pending_kickoff_cnt, 0);
+		SDE_ERROR("pp:%d failed wait_for_idle: %d\n",
+				phys_enc->hw_pp->idx - PINGPONG_0, rc);
+		if (phys_enc->enable_state == SDE_ENC_ERR_NEEDS_HW_RESET)
+			sde_encoder_helper_needs_hw_reset(phys_enc->parent);
 	}
 
 	return rc;
