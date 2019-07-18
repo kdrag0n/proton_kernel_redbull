@@ -3085,6 +3085,7 @@ int q6asm_open_read_compressed(struct audio_client *ac, uint32_t format,
 	 */
 	if (format == FORMAT_IEC61937) {
 		open.mode_flags = 0x1;
+		open.frames_per_buf = 1;
 		pr_debug("%s: Flag 1 IEC61937 output\n", __func__);
 	} else {
 		open.mode_flags = 0;
@@ -5701,6 +5702,17 @@ int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
 		lchannel_mapping[5] = PCM_CHANNEL_RB;
 		lchannel_mapping[6] = PCM_CHANNEL_LS;
 		lchannel_mapping[7] = PCM_CHANNEL_RS;
+	} else if (channels == 10) {
+		lchannel_mapping[0] = PCM_CHANNEL_FL;
+		lchannel_mapping[1] = PCM_CHANNEL_FR;
+		lchannel_mapping[2] = PCM_CHANNEL_LFE;
+		lchannel_mapping[3] = PCM_CHANNEL_FC;
+		lchannel_mapping[4] = PCM_CHANNEL_LB;
+		lchannel_mapping[5] = PCM_CHANNEL_RB;
+		lchannel_mapping[6] = PCM_CHANNEL_LS;
+		lchannel_mapping[7] = PCM_CHANNEL_RS;
+		lchannel_mapping[8] = PCM_CHANNEL_TFL;
+		lchannel_mapping[9] = PCM_CHANNEL_TFR;
 	} else if (channels == 12) {
 		/*
 		 * Configured for 7.1.4 channel mapping
@@ -5718,6 +5730,21 @@ int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
 		lchannel_mapping[9] = PCM_CHANNEL_TFR;
 		lchannel_mapping[10] = PCM_CHANNEL_TSL;
 		lchannel_mapping[11] = PCM_CHANNEL_TSR;
+	} else if (channels == 14) {
+		lchannel_mapping[0] = PCM_CHANNEL_FL;
+		lchannel_mapping[1] = PCM_CHANNEL_FR;
+		lchannel_mapping[2] = PCM_CHANNEL_LFE;
+		lchannel_mapping[3] = PCM_CHANNEL_FC;
+		lchannel_mapping[4] = PCM_CHANNEL_LB;
+		lchannel_mapping[5] = PCM_CHANNEL_RB;
+		lchannel_mapping[6] = PCM_CHANNEL_LS;
+		lchannel_mapping[7] = PCM_CHANNEL_RS;
+		lchannel_mapping[8] = PCM_CHANNEL_TFL;
+		lchannel_mapping[9] = PCM_CHANNEL_TFR;
+		lchannel_mapping[10] = PCM_CHANNEL_TSL;
+		lchannel_mapping[11] = PCM_CHANNEL_TSR;
+		lchannel_mapping[12] = PCM_CHANNEL_FLC;
+		lchannel_mapping[13] = PCM_CHANNEL_FRC;
 	} else if (channels == 16) {
 		/*
 		 * Configured for 7.1.8 channel mapping
@@ -10818,6 +10845,26 @@ int q6asm_get_apr_service_id(int session_id)
 	}
 
 	return ((struct apr_svc *)(session[session_id].ac)->apr)->id;
+}
+
+uint8_t q6asm_get_asm_stream_id(int session_id)
+{
+	uint8_t stream_id = 1;
+	pr_debug("%s:\n", __func__);
+
+	if (session_id <= 0 || session_id > ASM_ACTIVE_STREAMS_ALLOWED) {
+		pr_err("%s: invalid session_id = %d\n", __func__, session_id);
+		goto done;
+	}
+	if (session[session_id].ac == NULL) {
+		pr_err("%s: session not created for session id = %d\n",
+		       __func__, session_id);
+		goto done;
+	}
+	stream_id = (session[session_id].ac)->stream_id;
+
+done:
+	return stream_id;
 }
 
 int q6asm_get_asm_topology(int session_id)

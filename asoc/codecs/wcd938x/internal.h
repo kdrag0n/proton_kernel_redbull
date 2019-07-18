@@ -94,6 +94,8 @@ struct wcd938x_priv {
 	/* Entry for version info */
 	struct snd_info_entry *entry;
 	struct snd_info_entry *version_entry;
+	int flyback_cur_det_disable;
+	int ear_rx_path;
 };
 
 struct wcd938x_micbias_setting {
@@ -142,6 +144,7 @@ enum {
 	WCD_BOLERO_EVT_RX_MUTE = 1,	/* for RX mute/unmute */
 	WCD_BOLERO_EVT_IMPED_TRUE,	/* for imped true */
 	WCD_BOLERO_EVT_IMPED_FALSE,	/* for imped false */
+	WCD_BOLERO_EVT_RX_COMPANDER_SOFT_RST,
 };
 
 enum {

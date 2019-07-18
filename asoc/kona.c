@@ -5003,16 +5003,17 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		__func__, rtd->card->num_aux_devs);
 	if (rtd->card->num_aux_devs &&
 	    !list_empty(&rtd->card->component_dev_list)) {
-		aux_comp = list_first_entry(
-				&rtd->card->component_dev_list,
-				struct snd_soc_component,
-				card_aux_list);
-		if (!strcmp(aux_comp->name, WSA8810_NAME_1) ||
-		    !strcmp(aux_comp->name, WSA8810_NAME_2)) {
-			wsa_macro_set_spkr_mode(component,
+		list_for_each_entry(aux_comp,
+				&rtd->card->aux_comp_list,
+				card_aux_list) {
+			if (aux_comp->name != NULL && (
+				!strcmp(aux_comp->name, WSA8810_NAME_1) ||
+		    		!strcmp(aux_comp->name, WSA8810_NAME_2))) {
+				wsa_macro_set_spkr_mode(component,
 						WSA_MACRO_SPKR_MODE_1);
-			wsa_macro_set_spkr_gain_offset(component,
-					WSA_MACRO_GAIN_OFFSET_M1P5_DB);
+				wsa_macro_set_spkr_gain_offset(component,
+						WSA_MACRO_GAIN_OFFSET_M1P5_DB);
+			}
 		}
 		bolero_set_port_map(component, ARRAY_SIZE(sm_port_map),
 				    sm_port_map);
@@ -5794,6 +5795,7 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-rx",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_USB_RX,
@@ -6527,6 +6529,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx1",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_0,
@@ -6542,6 +6545,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx2",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_1,
@@ -6557,6 +6561,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx3",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_2,
@@ -6572,6 +6577,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx4",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_3,
@@ -7168,6 +7174,7 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 	struct device_node *aux_codec_of_node;
 	u32 wsa_max_devs;
 	u32 wsa_dev_cnt;
+	u32 codec_max_aux_devs = 0;
 	u32 codec_aux_dev_cnt = 0;
 	int i;
 	struct msm_wsa881x_dev_info *wsa881x_dev_info;
@@ -7283,6 +7290,24 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 		__func__, found);
 
 codec_aux_dev:
+	/* Get maximum aux codec device count for this platform */
+	ret = of_property_read_u32(pdev->dev.of_node,
+				   "qcom,codec-max-aux-devs",
+				   &codec_max_aux_devs);
+	if (ret) {
+		dev_err(&pdev->dev,
+			 "%s: codec-max-aux-devs property missing in DT %s, ret = %d\n",
+			 __func__, pdev->dev.of_node->full_name, ret);
+		codec_max_aux_devs = 0;
+		goto aux_dev_register;
+	}
+	if (codec_max_aux_devs == 0) {
+		dev_dbg(&pdev->dev,
+			 "%s: Max aux codec devices is 0 for this target?\n",
+			 __func__);
+		goto aux_dev_register;
+	}
+
 	/* Get count of aux codec device phandles for this platform */
 	codec_aux_dev_cnt = of_count_phandle_with_args(
 				pdev->dev.of_node,
@@ -7297,6 +7322,19 @@ codec_aux_dev:
 			__func__, codec_aux_dev_cnt);
 		ret = -EINVAL;
 		goto err;
+	}
+
+	/*
+	 * Expect total phandles count to be NOT less than maximum possible
+	 * AUX device count. However, if it is less, then assign same value to
+	 * max count as well.
+	 */
+	if (codec_aux_dev_cnt < codec_max_aux_devs) {
+		dev_dbg(&pdev->dev,
+			"%s: codec_max_aux_devs = %d cannot exceed codec_aux_dev_cnt = %d\n",
+			__func__, codec_max_aux_devs,
+			codec_aux_dev_cnt);
+		codec_max_aux_devs = codec_aux_dev_cnt;
 	}
 
 	/*
@@ -7347,6 +7385,7 @@ codec_aux_dev:
 		"%s: found %d AUX codecs registered with ALSA core\n",
 		__func__, codecs_found);
 
+aux_dev_register:
 	card->num_aux_devs = wsa_max_devs + codec_aux_dev_cnt;
 	card->num_configs = wsa_max_devs + codec_aux_dev_cnt;
 

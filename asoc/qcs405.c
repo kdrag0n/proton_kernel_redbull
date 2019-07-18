@@ -490,8 +490,8 @@ static const char *const qos_text[] = {"Disable", "Enable"};
 
 static const char *const cdc_dma_rx_ch_text[] = {"One", "Two"};
 static const char *const cdc_dma_tx_ch_text[] = {"One", "Two", "Three", "Four",
-						"Five", "Six", "Seven",
-						"Eight"};
+		"Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven",
+		"Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen"};
 static char const *cdc_dma_sample_rate_text[] = {"KHZ_8", "KHZ_11P025",
 					"KHZ_16", "KHZ_22P05",
 					"KHZ_32", "KHZ_44P1", "KHZ_48",
@@ -6390,6 +6390,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia7",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6597,6 +6598,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia11",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6613,6 +6615,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia12",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6629,6 +6632,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia13",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6645,6 +6649,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia14",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6661,6 +6666,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia15",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
