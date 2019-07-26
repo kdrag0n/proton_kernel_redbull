@@ -504,6 +504,8 @@ struct sap_acs_cfg {
 	uint8_t    end_ch;
 	uint8_t    *ch_list;
 	uint8_t    ch_list_count;
+	uint8_t    *master_ch_list;
+	uint8_t    master_ch_list_count;
 #ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
 	uint8_t    skip_scan_status;
 	uint8_t    skip_scan_range1_stch;
@@ -1045,6 +1047,17 @@ uint16_t wlansap_check_cc_intf(struct sap_context *sap_ctx);
  */
 QDF_STATUS wlansap_set_mac_acl(struct sap_context *sap_ctx,
 			       tsap_config_t *pConfig);
+
+/**
+ * sap_undo_acs() - Undo acs i.e free the allocated ch lists
+ * @sap_ctx: pointer to the SAP context
+ *
+ * This function will free the memory allocated to the sap ctx channel list, acs
+ * cfg ch list and master ch list.
+ *
+ * Return: None
+ */
+void sap_undo_acs(struct sap_context *sap_context, struct sap_config *sap_cfg);
 
 /**
  * wlansap_disassoc_sta() - initiate disassociation of station.
