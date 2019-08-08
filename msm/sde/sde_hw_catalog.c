@@ -297,6 +297,7 @@ enum {
 enum {
 	DSC_OFF,
 	DSC_LEN,
+	DSC_PAIR_MASK,
 	DSC_PROP_MAX,
 };
 
@@ -684,6 +685,7 @@ static struct sde_prop_type pp_prop[] = {
 static struct sde_prop_type dsc_prop[] = {
 	{DSC_OFF, "qcom,sde-dsc-off", false, PROP_TYPE_U32_ARRAY},
 	{DSC_LEN, "qcom,sde-dsc-size", false, PROP_TYPE_U32},
+	{DSC_PAIR_MASK, "qcom,sde-dsc-pair-mask", false, PROP_TYPE_U32_ARRAY},
 };
 
 static struct sde_prop_type cdm_prop[] = {
@@ -1659,6 +1661,16 @@ void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
 				cnt++;
 			}
 
+			/*
+			 * When all primary prefs have been set,
+			 * and if 2 lms are required for secondary
+			 * preference must be set with an lm pair
+			 */
+			if (cnt == num_lm && sec_cnt > 1 &&
+					!test_bit(sde_cfg->mixer[i+1].id,
+					&sde_cfg->mixer[i].lm_pair_mask))
+				continue;
+
 			/* After primary pref is set, now re apply secondary */
 			if (cnt >= num_lm && cnt < (num_lm + sec_cnt)) {
 				set_bit(SDE_DISP_SECONDARY_PREF,
@@ -1670,6 +1682,15 @@ void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
 		for (i = 0; i < sde_cfg->mixer_count; i++) {
 			clear_bit(SDE_DISP_SECONDARY_PREF,
 					&sde_cfg->mixer[i].features);
+
+			/*
+			 * If 2 lms are required for secondary
+			 * preference must be set with an lm pair
+			 */
+			if (cnt == 0 && num_lm > 1 &&
+					!test_bit(sde_cfg->mixer[i+1].id,
+					&sde_cfg->mixer[i].lm_pair_mask))
+				continue;
 
 			if (cnt < num_lm && !(sde_cfg->mixer[i].features &
 					BIT(SDE_DISP_PRIMARY_PREF))) {
@@ -2540,7 +2561,7 @@ static int sde_dsc_parse_dt(struct device_node *np,
 	int rc, prop_count[MAX_BLOCKS], i;
 	struct sde_prop_value *prop_value = NULL;
 	bool prop_exists[DSC_PROP_MAX];
-	u32 off_count;
+	u32 off_count, dsc_pair_mask;
 	struct sde_dsc_cfg *dsc;
 
 	if (!sde_cfg) {
@@ -2581,6 +2602,11 @@ static int sde_dsc_parse_dt(struct device_node *np,
 
 		if (IS_SDE_CTL_REV_100(sde_cfg->ctl_rev))
 			set_bit(SDE_DSC_OUTPUT_CTRL, &dsc->features);
+
+		dsc_pair_mask = PROP_VALUE_ACCESS(prop_value,
+				DSC_PAIR_MASK, i);
+		if (dsc_pair_mask)
+			set_bit(dsc_pair_mask, dsc->dsc_pair_mask);
 	}
 
 end:

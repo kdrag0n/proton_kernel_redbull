@@ -102,10 +102,9 @@ struct dsi_backlight_config {
 
 	int en_gpio;
 	/* PWM params */
-	bool pwm_pmi_control;
-	u32 pwm_pmic_bank;
+	struct pwm_device *pwm_bl;
+	bool pwm_enabled;
 	u32 pwm_period_usecs;
-	int pwm_gpio;
 
 	/* WLED params */
 	struct led_trigger *wled;
@@ -196,6 +195,8 @@ struct dsi_panel {
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
+
+	int panel_test_gpio;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)

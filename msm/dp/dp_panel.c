@@ -3,10 +3,10 @@
  * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
-
 #include "dp_panel.h"
+#include <linux/unistd.h>
 #include <drm/drm_fixed.h>
+#include "dp_debug.h"
 
 #define DP_KHZ_TO_HZ 1000
 #define DP_PANEL_DEFAULT_BPP 24
@@ -189,6 +189,98 @@ struct tu_algo_data {
 	s64 ratio;
 };
 
+/**
+ * Mapper function which outputs colorimetry and dynamic range
+ * to be used for a given colorspace value when the vsc sdp
+ * packets are used to change the colorimetry.
+ */
+static void get_sdp_colorimetry_range(struct dp_panel_private *panel,
+	u32 colorspace, u32 *colorimetry, u32 *dynamic_range)
+{
+
+	u32 cc;
+
+	/*
+	 * Some rules being used for assignment of dynamic
+	 * range for colorimetry using SDP:
+	 *
+	 * 1) If compliance test is ongoing return sRGB with
+	 *    CEA primaries
+	 * 2) For BT2020 cases, dynamic range shall be CEA
+	 * 3) For DCI-P3 cases, as per HW team dynamic range
+	 *    shall be VESA for RGB and CEA for YUV content
+	 *    Hence defaulting to RGB and picking VESA
+	 * 4) Default shall be sRGB with VESA
+	 */
+
+	cc = panel->link->get_colorimetry_config(panel->link);
+
+	if (cc) {
+		*colorimetry = sRGB;
+		*dynamic_range = CEA;
+		return;
+	}
+
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+		*colorimetry = ITU_R_BT_2020_RGB;
+		*dynamic_range = CEA;
+		break;
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_THEATER:
+		*colorimetry = DCI_P3;
+		*dynamic_range = VESA;
+		break;
+	default:
+		*colorimetry = sRGB;
+		*dynamic_range = VESA;
+	}
+}
+
+/**
+ * Mapper function which outputs colorimetry to be used for a
+ * given colorspace value when misc field of MSA is used to
+ * change the colorimetry. Currently only RGB formats have been
+ * added. This API will be extended to YUV once its supported on DP.
+ */
+static u8 get_misc_colorimetry_val(struct dp_panel_private *panel,
+	u32 colorspace)
+{
+	u8 colorimetry;
+	u32 cc;
+
+	cc = panel->link->get_colorimetry_config(panel->link);
+	/*
+	 * If there is a non-zero value then compliance test-case
+	 * is going on, otherwise we can honor the colorspace setting
+	 */
+	if (cc)
+		return cc;
+
+	switch (colorspace) {
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_THEATER:
+		colorimetry = 0x7;
+		break;
+	case DRM_MODE_DP_COLORIMETRY_SRGB:
+		colorimetry = 0x4;
+		break;
+	case DRM_MODE_DP_COLORIMETRY_RGB_WIDE_GAMUT:
+		colorimetry = 0x3;
+		break;
+	case DRM_MODE_DP_COLORIMETRY_SCRGB:
+		colorimetry = 0xb;
+		break;
+	case DRM_MODE_COLORIMETRY_OPRGB:
+		colorimetry = 0xc;
+		break;
+	default:
+		colorimetry = 0;
+	}
+
+	return colorimetry;
+}
+
 static int _tu_param_compare(s64 a, s64 b)
 {
 	u32 a_int, a_frac, a_sign;
@@ -307,7 +399,7 @@ static void dp_panel_update_tu_timings(struct dp_tu_calc_input *in,
 	tot_num_dummy_bytes = (nlanes - eoc_bytes) * dsc_num_slices;
 
 	if (dsc_num_bytes == 0)
-		pr_info("incorrect no of bytes per slice=%d\n", dsc_num_bytes);
+		DP_INFO("incorrect no of bytes per slice=%d\n", dsc_num_bytes);
 
 	dwidth_dsc_bytes = (tot_num_hor_bytes +
 				tot_num_eoc_symbols +
@@ -705,7 +797,7 @@ static void _dp_panel_calc_tu(struct dp_tu_calc_input *in,
 
 	if (tu.dsc_en && compare_result_1 && compare_result_2) {
 		HBLANK_MARGIN += 4;
-		pr_info("Info: increase HBLANK_MARGIN to %d\n", HBLANK_MARGIN);
+		DP_INFO("Info: increase HBLANK_MARGIN to %d\n", HBLANK_MARGIN);
 	}
 
 tu_size_calc:
@@ -739,7 +831,7 @@ tu_size_calc:
 		tu.n_tus += 1;
 
 	tu.even_distribution_legacy = tu.n_tus % tu.nlanes == 0 ? 1 : 0;
-	pr_info("Info: n_sym = %d, num_of_tus = %d\n",
+	DP_INFO("Info: n_sym = %d, num_of_tus = %d\n",
 		tu.valid_boundary_link, tu.n_tus);
 
 	_dp_calc_extra_bytes(&tu);
@@ -869,17 +961,17 @@ tu_size_calc:
 	tu_table->lower_boundary_count      = tu.lower_boundary_count;
 	tu_table->tu_size_minus1            = tu.tu_size_minus1;
 
-	pr_info("TU: valid_boundary_link: %d\n", tu_table->valid_boundary_link);
-	pr_info("TU: delay_start_link: %d\n", tu_table->delay_start_link);
-	pr_info("TU: boundary_moderation_en: %d\n",
+	DP_INFO("TU: valid_boundary_link: %d\n", tu_table->valid_boundary_link);
+	DP_INFO("TU: delay_start_link: %d\n", tu_table->delay_start_link);
+	DP_INFO("TU: boundary_moderation_en: %d\n",
 			tu_table->boundary_moderation_en);
-	pr_info("TU: valid_lower_boundary_link: %d\n",
+	DP_INFO("TU: valid_lower_boundary_link: %d\n",
 			tu_table->valid_lower_boundary_link);
-	pr_info("TU: upper_boundary_count: %d\n",
+	DP_INFO("TU: upper_boundary_count: %d\n",
 			tu_table->upper_boundary_count);
-	pr_info("TU: lower_boundary_count: %d\n",
+	DP_INFO("TU: lower_boundary_count: %d\n",
 			tu_table->lower_boundary_count);
-	pr_info("TU: tu_size_minus1: %d\n", tu_table->tu_size_minus1);
+	DP_INFO("TU: tu_size_minus1: %d\n", tu_table->tu_size_minus1);
 }
 
 static void dp_panel_calc_tu_parameters(struct dp_panel *dp_panel,
@@ -937,7 +1029,7 @@ static void dp_panel_config_tr_unit(struct dp_panel *dp_panel)
 	struct dp_vc_tu_mapping_table tu_calc_table;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -960,7 +1052,7 @@ static void dp_panel_config_tr_unit(struct dp_panel *dp_panel)
 	if (tu_calc_table.boundary_moderation_en)
 		valid_boundary2 |= BIT(0);
 
-	pr_debug("dp_tu=0x%x, valid_boundary=0x%x, valid_boundary2=0x%x\n",
+	DP_DEBUG("dp_tu=0x%x, valid_boundary=0x%x, valid_boundary2=0x%x\n",
 			dp_tu, valid_boundary, valid_boundary2);
 
 	catalog->dp_tu = dp_tu;
@@ -1252,7 +1344,7 @@ static void _dp_panel_dsc_get_num_extra_pclk(struct msm_display_dsc_info *dsc,
 	else
 		dsc->extra_width = 0;
 
-	pr_debug("extra pclks required: %d\n", dsc->extra_width);
+	DP_DEBUG("extra pclks required: %d\n", dsc->extra_width);
 }
 
 static void _dp_panel_dsc_bw_overhead_calc(struct dp_panel *dp_panel,
@@ -1278,7 +1370,7 @@ static void _dp_panel_dsc_bw_overhead_calc(struct dp_panel *dp_panel,
 	dwidth_dsc_bytes = tot_num_hor_bytes + tot_num_eoc_symbols +
 				tot_num_dummy_bytes;
 
-	pr_debug("dwidth_dsc_bytes:%d, tot_num_hor_bytes:%d\n",
+	DP_DEBUG("dwidth_dsc_bytes:%d, tot_num_hor_bytes:%d\n",
 			dwidth_dsc_bytes, tot_num_hor_bytes);
 
 	dp_mode->dsc_overhead_fp = drm_fixp_from_fraction(dwidth_dsc_bytes,
@@ -1634,7 +1726,7 @@ static int dp_panel_dsc_prepare_basic_params(
 
 	ppr_max_index = dp_panel->dsc_dpcd[11] &= 0xf;
 	if (!ppr_max_index || ppr_max_index >= 15) {
-		pr_debug("Throughput mode 0 not supported");
+		DP_DEBUG("Throughput mode 0 not supported");
 		return -EINVAL;
 	}
 
@@ -1710,7 +1802,7 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	u32 dfp_count = 0, offset = DP_DPCD_REV;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1727,27 +1819,27 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	panel->vscext_chaining_supported = false;
 
 	if (panel->custom_dpcd) {
-		pr_debug("skip dpcd read in debug mode\n");
+		DP_DEBUG("skip dpcd read in debug mode\n");
 		goto skip_dpcd_read;
 	}
 
 	rlen = drm_dp_dpcd_read(drm_aux, DP_TRAINING_AUX_RD_INTERVAL, &temp, 1);
 	if (rlen != 1) {
-		pr_err("error reading DP_TRAINING_AUX_RD_INTERVAL\n");
+		DP_ERR("error reading DP_TRAINING_AUX_RD_INTERVAL\n");
 		rc = -EINVAL;
 		goto end;
 	}
 
 	/* check for EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT */
 	if (temp & BIT(7)) {
-		pr_debug("using EXTENDED_RECEIVER_CAPABILITY_FIELD\n");
+		DP_DEBUG("using EXTENDED_RECEIVER_CAPABILITY_FIELD\n");
 		offset = DPRX_EXTENDED_DPCD_FIELD;
 	}
 
 	rlen = drm_dp_dpcd_read(drm_aux, offset,
 		dp_panel->dpcd, (DP_RECEIVER_CAP_SIZE + 1));
 	if (rlen < (DP_RECEIVER_CAP_SIZE + 1)) {
-		pr_err("dpcd read failed, rlen=%d\n", rlen);
+		DP_ERR("dpcd read failed, rlen=%d\n", rlen);
 		if (rlen == -ETIMEDOUT)
 			rc = rlen;
 		else
@@ -1762,20 +1854,24 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	rlen = drm_dp_dpcd_read(panel->aux->drm_aux,
 		DPRX_FEATURE_ENUMERATION_LIST, &rx_feature, 1);
 	if (rlen != 1) {
-		pr_debug("failed to read DPRX_FEATURE_ENUMERATION_LIST\n");
-		goto skip_dpcd_read;
+		DP_DEBUG("failed to read DPRX_FEATURE_ENUMERATION_LIST\n");
+		rx_feature = 0;
 	}
+
+skip_dpcd_read:
+	if (panel->custom_dpcd)
+		rx_feature = dp_panel->dpcd[DP_RECEIVER_CAP_SIZE + 1];
+
 	panel->vsc_supported = !!(rx_feature &
 		VSC_SDP_EXTENSION_FOR_COLORIMETRY_SUPPORTED);
 	panel->vscext_supported = !!(rx_feature & VSC_EXT_VESA_SDP_SUPPORTED);
 	panel->vscext_chaining_supported = !!(rx_feature &
 			VSC_EXT_VESA_SDP_CHAINING_SUPPORTED);
 
-	pr_debug("vsc=%d, vscext=%d, vscext_chaining=%d\n",
+	DP_DEBUG("vsc=%d, vscext=%d, vscext_chaining=%d\n",
 		panel->vsc_supported, panel->vscext_supported,
 		panel->vscext_chaining_supported);
 
-skip_dpcd_read:
 	link_info->revision = dpcd[DP_DPCD_REV];
 	panel->major = (link_info->revision >> 4) & 0x0f;
 	panel->minor = link_info->revision & 0x0f;
@@ -1790,7 +1886,7 @@ skip_dpcd_read:
 		link_info->num_lanes = min_t(unsigned int,
 			link_info->num_lanes, 2);
 
-	pr_debug("version:%d.%d, rate:%d, lanes:%d\n", panel->major,
+	DP_DEBUG("version:%d.%d, rate:%d, lanes:%d\n", panel->major,
 		panel->minor, link_info->rate, link_info->num_lanes);
 
 	if (drm_dp_enhanced_frame_cap(dpcd))
@@ -1805,14 +1901,14 @@ skip_dpcd_read:
 			DP_DOWNSTREAM_PORT_0, dp_panel->ds_ports,
 			DP_MAX_DOWNSTREAM_PORTS);
 		if (rlen < DP_MAX_DOWNSTREAM_PORTS) {
-			pr_err("ds port status failed, rlen=%d\n", rlen);
+			DP_ERR("ds port status failed, rlen=%d\n", rlen);
 			rc = -EINVAL;
 			goto end;
 		}
 	}
 
 	if (dfp_count > DP_MAX_DS_PORT_COUNT)
-		pr_debug("DS port count %d greater that max (%d) supported\n",
+		DP_DEBUG("DS port count %d greater that max (%d) supported\n",
 			dfp_count, DP_MAX_DS_PORT_COUNT);
 
 end:
@@ -1826,13 +1922,13 @@ static int dp_panel_set_default_link_params(struct dp_panel *dp_panel)
 	const int default_num_lanes = 1;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 	link_info = &dp_panel->link_info;
 	link_info->rate = default_bw_code;
 	link_info->num_lanes = default_num_lanes;
-	pr_debug("link_rate=%d num_lanes=%d\n",
+	DP_DEBUG("link_rate=%d num_lanes=%d\n",
 		link_info->rate, link_info->num_lanes);
 
 	return 0;
@@ -1843,7 +1939,7 @@ static int dp_panel_set_edid(struct dp_panel *dp_panel, u8 *edid)
 	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
@@ -1857,7 +1953,7 @@ static int dp_panel_set_edid(struct dp_panel *dp_panel, u8 *edid)
 		dp_panel->edid_ctrl->edid = NULL;
 	}
 
-	pr_debug("%d\n", panel->custom_edid);
+	DP_DEBUG("%d\n", panel->custom_edid);
 	return 0;
 }
 
@@ -1867,7 +1963,7 @@ static int dp_panel_set_dpcd(struct dp_panel *dp_panel, u8 *dpcd)
 	u8 *dp_dpcd;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
@@ -1876,13 +1972,14 @@ static int dp_panel_set_dpcd(struct dp_panel *dp_panel, u8 *dpcd)
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
 
 	if (dpcd) {
-		memcpy(dp_dpcd, dpcd, DP_RECEIVER_CAP_SIZE + 1);
+		memcpy(dp_dpcd, dpcd, DP_RECEIVER_CAP_SIZE +
+				DP_RECEIVER_EXT_CAP_SIZE + 1);
 		panel->custom_dpcd = true;
 	} else {
 		panel->custom_dpcd = false;
 	}
 
-	pr_debug("%d\n", panel->custom_dpcd);
+	DP_DEBUG("%d\n", panel->custom_dpcd);
 
 	return 0;
 }
@@ -1895,21 +1992,21 @@ static int dp_panel_read_edid(struct dp_panel *dp_panel,
 	struct edid *edid;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
 
 	if (panel->custom_edid) {
-		pr_debug("skip edid read in debug mode\n");
+		DP_DEBUG("skip edid read in debug mode\n");
 		goto end;
 	}
 
 	sde_get_edid(connector, &panel->aux->drm_aux->ddc,
 		(void **)&dp_panel->edid_ctrl);
 	if (!dp_panel->edid_ctrl->edid) {
-		pr_err("EDID read failed\n");
+		DP_ERR("EDID read failed\n");
 		ret = -EINVAL;
 		goto end;
 	}
@@ -1925,7 +2022,7 @@ static void dp_panel_decode_dsc_dpcd(struct dp_panel *dp_panel)
 	s64 fec_overhead_fp = drm_fixp_from_fraction(1, 1);
 
 	if (!dp_panel->dsc_feature_enable || !dp_panel->fec_feature_enable) {
-		pr_debug("source dsc is not supported\n");
+		DP_DEBUG("source dsc is not supported\n");
 		return;
 	}
 
@@ -1960,7 +2057,7 @@ static void dp_panel_read_sink_dsc_caps(struct dp_panel *dp_panel)
 	int dpcd_rev;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1976,7 +2073,7 @@ static void dp_panel_read_sink_dsc_caps(struct dp_panel *dp_panel)
 		rlen = drm_dp_dpcd_read(panel->aux->drm_aux, DP_DSC_SUPPORT,
 			dp_panel->dsc_dpcd, (DP_RECEIVER_DSC_CAP_SIZE + 1));
 		if (rlen < (DP_RECEIVER_DSC_CAP_SIZE + 1)) {
-			pr_debug("dsc dpcd read failed, rlen=%d\n", rlen);
+			DP_DEBUG("dsc dpcd read failed, rlen=%d\n", rlen);
 			return;
 		}
 
@@ -1987,7 +2084,7 @@ static void dp_panel_read_sink_dsc_caps(struct dp_panel *dp_panel)
 		rlen = drm_dp_dpcd_read(panel->aux->drm_aux, fec_cap,
 			&dp_panel->fec_dpcd, 1);
 		if (rlen < 1) {
-			pr_err("fec dpcd read failed, rlen=%d\n", rlen);
+			DP_ERR("fec dpcd read failed, rlen=%d\n", rlen);
 			return;
 		}
 
@@ -2003,7 +2100,7 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 	struct dp_panel_private *panel;
 
 	if (!dp_panel || !connector) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -2017,10 +2114,10 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 		((drm_dp_link_rate_to_bw_code(dp_panel->link_info.rate)) >
 		dp_panel->max_bw_code)) {
 		if ((rc == -ETIMEDOUT) || (rc == -ENODEV)) {
-			pr_err("DPCD read failed, return early\n");
+			DP_ERR("DPCD read failed, return early\n");
 			goto end;
 		}
-		pr_err("panel dpcd read failed/incorrect, set default params\n");
+		DP_ERR("panel dpcd read failed/incorrect, set default params\n");
 		dp_panel_set_default_link_params(dp_panel);
 	}
 
@@ -2033,7 +2130,7 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 		if (rlen == count_len) {
 			count = DP_GET_SINK_COUNT(count);
 			if (!count) {
-				pr_err("no downstream ports connected\n");
+				DP_ERR("no downstream ports connected\n");
 				panel->link->sink_count.count = 0;
 				rc = -ENOTCONN;
 				goto end;
@@ -2043,7 +2140,7 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 
 	rc = dp_panel_read_edid(dp_panel, connector);
 	if (rc) {
-		pr_err("panel edid read failed, set failsafe mode\n");
+		DP_ERR("panel edid read failed, set failsafe mode\n");
 		return rc;
 	}
 
@@ -2084,7 +2181,7 @@ static u32 dp_panel_get_mode_bpp(struct dp_panel *dp_panel,
 	u32 bpp = mode_edid_bpp;
 
 	if (!dp_panel || !mode_edid_bpp || !mode_pclk_khz) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return 0;
 	}
 
@@ -2107,7 +2204,7 @@ static void dp_panel_set_test_mode(struct dp_panel_private *panel,
 	struct dp_link_test_video *test_info = NULL;
 
 	if (!panel) {
-		pr_err("invalid params\n");
+		DP_ERR("invalid params\n");
 		return;
 	}
 
@@ -2151,7 +2248,7 @@ static int dp_panel_get_modes(struct dp_panel *dp_panel,
 	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
@@ -2175,7 +2272,7 @@ static void dp_panel_handle_sink_request(struct dp_panel *dp_panel)
 	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -2197,12 +2294,12 @@ static void dp_panel_tpg_config(struct dp_panel *dp_panel, bool enable)
 	struct dp_panel_info *pinfo;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (dp_panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream id:%d\n", dp_panel->stream_id);
+		DP_ERR("invalid stream id:%d\n", dp_panel->stream_id);
 		return;
 	}
 
@@ -2211,7 +2308,7 @@ static void dp_panel_tpg_config(struct dp_panel *dp_panel, bool enable)
 	pinfo = &panel->dp_panel.pinfo;
 
 	if (!panel->panel_on) {
-		pr_debug("DP panel not enabled, handle TPG on next panel on\n");
+		DP_DEBUG("DP panel not enabled, handle TPG on next panel on\n");
 		return;
 	}
 
@@ -2255,7 +2352,7 @@ static int dp_panel_config_timing(struct dp_panel *dp_panel)
 	struct dp_panel_info *pinfo;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -2264,11 +2361,11 @@ static int dp_panel_config_timing(struct dp_panel *dp_panel)
 	catalog = panel->catalog;
 	pinfo = &panel->dp_panel.pinfo;
 
-	pr_debug("width=%d hporch= %d %d %d\n",
+	DP_DEBUG("width=%d hporch= %d %d %d\n",
 		pinfo->h_active, pinfo->h_back_porch,
 		pinfo->h_front_porch, pinfo->h_sync_width);
 
-	pr_debug("height=%d vporch= %d %d %d\n",
+	DP_DEBUG("height=%d vporch= %d %d %d\n",
 		pinfo->v_active, pinfo->v_back_porch,
 		pinfo->v_front_porch, pinfo->v_sync_width);
 
@@ -2414,7 +2511,7 @@ static int dp_panel_edid_register(struct dp_panel_private *panel)
 
 	panel->dp_panel.edid_ctrl = sde_edid_init();
 	if (!panel->dp_panel.edid_ctrl) {
-		pr_err("sde edid init for DP failed\n");
+		DP_ERR("sde edid init for DP failed\n");
 		rc = -ENOMEM;
 	}
 
@@ -2431,7 +2528,7 @@ static int dp_panel_set_stream_info(struct dp_panel *dp_panel,
 			u32 ch_tot_slots, u32 pbn, int vcpi)
 {
 	if (!dp_panel || stream_id > DP_STREAM_MAX) {
-		pr_err("invalid input. stream_id: %d\n", stream_id);
+		DP_ERR("invalid input. stream_id: %d\n", stream_id);
 		return -EINVAL;
 	}
 
@@ -2451,7 +2548,7 @@ static int dp_panel_init_panel_info(struct dp_panel *dp_panel)
 	struct dp_panel_info *pinfo;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -2459,6 +2556,9 @@ static int dp_panel_init_panel_info(struct dp_panel *dp_panel)
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
 	pinfo = &dp_panel->pinfo;
 
+	drm_dp_dpcd_writeb(panel->aux->drm_aux, DP_SET_POWER, DP_SET_POWER_D3);
+	/* 200us propagation time for the power down to take effect */
+	usleep_range(200, 205);
 	drm_dp_dpcd_writeb(panel->aux->drm_aux, DP_SET_POWER, DP_SET_POWER_D0);
 
 	/*
@@ -2477,32 +2577,45 @@ static int dp_panel_deinit_panel_info(struct dp_panel *dp_panel, u32 flags)
 {
 	int rc = 0;
 	struct dp_panel_private *panel;
-	struct dp_catalog_hdr_data *hdr;
+	struct drm_msm_ext_hdr_metadata *hdr_meta;
+	struct dp_sdp_header *dhdr_vsif_sdp;
+	struct sde_connector *sde_conn;
+	struct dp_sdp_header *shdr_if_sdp;
+	struct dp_catalog_vsc_sdp_colorimetry *vsc_colorimetry;
 	struct drm_connector *connector;
 	struct sde_connector_state *c_state;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
 	if (flags & DP_PANEL_SRC_INITIATED_POWER_DOWN) {
-		pr_debug("retain states in src initiated power down request\n");
+		DP_DEBUG("retain states in src initiated power down request\n");
 		return 0;
 	}
 
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
-	hdr = &panel->catalog->hdr_data;
+	hdr_meta = &panel->catalog->hdr_meta;
+	dhdr_vsif_sdp = &panel->catalog->dhdr_vsif_sdp;
+	shdr_if_sdp = &panel->catalog->shdr_if_sdp;
+	vsc_colorimetry = &panel->catalog->vsc_colorimetry;
 
 	if (!panel->custom_edid && dp_panel->edid_ctrl->edid)
 		sde_free_edid((void **)&dp_panel->edid_ctrl);
 
 	dp_panel_set_stream_info(dp_panel, DP_STREAM_MAX, 0, 0, 0, 0);
 	memset(&dp_panel->pinfo, 0, sizeof(dp_panel->pinfo));
-	memset(&hdr->hdr_meta, 0, sizeof(hdr->hdr_meta));
+	memset(hdr_meta, 0, sizeof(struct drm_msm_ext_hdr_metadata));
+	memset(dhdr_vsif_sdp, 0, sizeof(struct dp_sdp_header));
+	memset(shdr_if_sdp, 0, sizeof(struct dp_sdp_header));
+	memset(vsc_colorimetry, 0,
+		sizeof(struct dp_catalog_vsc_sdp_colorimetry));
+
 	panel->panel_on = false;
 
 	connector = dp_panel->connector;
+	sde_conn = to_sde_connector(connector);
 	c_state = to_sde_connector_state(connector->state);
 
 	connector->hdr_eotf = 0;
@@ -2512,6 +2625,8 @@ static int dp_panel_deinit_panel_info(struct dp_panel *dp_panel, u32 flags)
 	connector->hdr_min_luminance = 0;
 	connector->hdr_supported = false;
 	connector->hdr_plus_app_ver = 0;
+
+	sde_conn->colorspace_updated = false;
 
 	memset(&c_state->hdr_meta, 0, sizeof(c_state->hdr_meta));
 	memset(&c_state->dyn_hdr_meta, 0, sizeof(c_state->dyn_hdr_meta));
@@ -2526,7 +2641,7 @@ static u32 dp_panel_get_min_req_link_rate(struct dp_panel *dp_panel)
 	struct dp_panel_info *pinfo;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		goto end;
 	}
 
@@ -2538,7 +2653,7 @@ static u32 dp_panel_get_min_req_link_rate(struct dp_panel *dp_panel)
 				(lane_cnt * encoding_factx10);
 	min_link_rate_khz *= pinfo->bpp;
 
-	pr_debug("min lclk req=%d khz for pclk=%d khz, lanes=%d, bpp=%d\n",
+	DP_DEBUG("min lclk req=%d khz for pclk=%d khz, lanes=%d, bpp=%d\n",
 		min_link_rate_khz, pinfo->pixel_clk_khz, lane_cnt,
 		pinfo->bpp);
 end:
@@ -2550,7 +2665,7 @@ static bool dp_panel_hdr_supported(struct dp_panel *dp_panel)
 	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return false;
 	}
 
@@ -2627,30 +2742,110 @@ static u32 dp_panel_calc_dhdr_pkt_limit(struct dp_panel *dp_panel,
 
 	calc_pkt_limit = target_period / deploy_period;
 
-	pr_debug("input: %d, %d, %d, %d, %d, 0x%llx, %d, %d\n",
+	DP_DEBUG("input: %d, %d, %d, %d, %d, 0x%llx, %d, %d\n",
 		input->mdp_clk, input->lclk, input->pclk, input->h_active,
 		input->nlanes, input->mst_target_sc, input->mst_en ? 1 : 0,
 		input->fec_en ? 1 : 0);
-	pr_debug("factors: %d, %d, %d, %d, %d\n", f1, f2, f3, f4, f5);
-	pr_debug("d_p: %d, t_p: %d, maxPkts: %d%s\n", deploy_period,
+	DP_DEBUG("factors: %d, %d, %d, %d, %d\n", f1, f2, f3, f4, f5);
+	DP_DEBUG("d_p: %d, t_p: %d, maxPkts: %d%s\n", deploy_period,
 		target_period, calc_pkt_limit, calc_pkt_limit > max_pkt_limit ?
 		" CAPPED" : "");
 
 	if (calc_pkt_limit > max_pkt_limit)
 		calc_pkt_limit = max_pkt_limit;
 
-	pr_debug("packet limit per line = %d\n", calc_pkt_limit);
+	DP_DEBUG("packet limit per line = %d\n", calc_pkt_limit);
 	return calc_pkt_limit;
 }
 
-static int dp_panel_setup_hdr(struct dp_panel *dp_panel,
-		struct drm_msm_ext_hdr_metadata *hdr_meta,
-		bool dhdr_update, u64 core_clk_rate)
+static void dp_panel_setup_colorimetry_sdp(struct dp_panel *dp_panel,
+	u32 cspace)
 {
-	int rc = 0, max_pkts = 0;
 	struct dp_panel_private *panel;
-	struct dp_catalog_hdr_data *hdr;
-	struct dp_dhdr_maxpkt_calc_input input;
+	struct dp_catalog_vsc_sdp_colorimetry *hdr_colorimetry;
+	u8 bpc;
+	u32 colorimetry = 0;
+	u32 dynamic_range = 0;
+
+	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
+	hdr_colorimetry = &panel->catalog->vsc_colorimetry;
+
+	hdr_colorimetry->header.HB0 = 0x00;
+	hdr_colorimetry->header.HB1 = 0x07;
+	hdr_colorimetry->header.HB2 = 0x05;
+	hdr_colorimetry->header.HB3 = 0x13;
+
+	get_sdp_colorimetry_range(panel, cspace, &colorimetry,
+		&dynamic_range);
+
+	/* VSC SDP Payload for DB16 */
+	hdr_colorimetry->data[16] = (RGB << 4) | colorimetry;
+
+	/* VSC SDP Payload for DB17 */
+	hdr_colorimetry->data[17] = (dynamic_range << 7);
+	bpc = (dp_panel->pinfo.bpp / 3);
+
+	switch (bpc) {
+	default:
+	case 10:
+		hdr_colorimetry->data[17] |= BIT(1);
+		break;
+	case 8:
+		hdr_colorimetry->data[17] |= BIT(0);
+		break;
+	case 6:
+		hdr_colorimetry->data[17] |= 0;
+		break;
+	}
+
+	/* VSC SDP Payload for DB18 */
+	hdr_colorimetry->data[18] = GRAPHICS;
+}
+
+static void dp_panel_setup_hdr_if(struct dp_panel_private *panel)
+{
+	struct dp_sdp_header *shdr_if;
+
+	shdr_if = &panel->catalog->shdr_if_sdp;
+
+	shdr_if->HB0 = 0x00;
+	shdr_if->HB1 = 0x87;
+	shdr_if->HB2 = 0x1D;
+	shdr_if->HB3 = 0x13 << 2;
+}
+
+static void dp_panel_setup_dhdr_vsif(struct dp_panel_private *panel)
+{
+	struct dp_sdp_header *dhdr_vsif;
+
+	dhdr_vsif = &panel->catalog->dhdr_vsif_sdp;
+
+	dhdr_vsif->HB0 = 0x00;
+	dhdr_vsif->HB1 = 0x81;
+	dhdr_vsif->HB2 = 0x1D;
+	dhdr_vsif->HB3 = 0x13 << 2;
+}
+
+static void dp_panel_setup_misc_colorimetry(struct dp_panel *dp_panel,
+	u32 colorspace)
+{
+	struct dp_panel_private *panel;
+	struct dp_catalog_panel *catalog;
+
+	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
+	catalog = panel->catalog;
+
+	catalog->misc_val &= ~0x1e;
+
+	catalog->misc_val |= (get_misc_colorimetry_val(panel,
+		colorspace) << 1);
+}
+
+static int dp_panel_set_colorspace(struct dp_panel *dp_panel,
+	u32 colorspace)
+{
+	int rc = 0;
+	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
 		pr_err("invalid input\n");
@@ -2659,11 +2854,51 @@ static int dp_panel_setup_hdr(struct dp_panel *dp_panel,
 	}
 
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
-	hdr = &panel->catalog->hdr_data;
+
+	if (panel->vsc_supported)
+		dp_panel_setup_colorimetry_sdp(dp_panel,
+			colorspace);
+	else
+		dp_panel_setup_misc_colorimetry(dp_panel,
+			colorspace);
+
+	/*
+	 * During the first frame update panel_on will be false and
+	 * the colorspace will be cached in the connector's state which
+	 * shall be used in the dp_panel_hw_cfg
+	 */
+	if (panel->panel_on) {
+		DP_DEBUG("panel is ON programming colorspace\n");
+		rc =  panel->catalog->set_colorspace(panel->catalog,
+			  panel->vsc_supported);
+	}
+
+end:
+	return rc;
+}
+
+static int dp_panel_setup_hdr(struct dp_panel *dp_panel,
+		struct drm_msm_ext_hdr_metadata *hdr_meta,
+		bool dhdr_update, u64 core_clk_rate, bool flush)
+{
+	int rc = 0, max_pkts = 0;
+	struct dp_panel_private *panel;
+	struct dp_dhdr_maxpkt_calc_input input;
+	struct drm_msm_ext_hdr_metadata *catalog_hdr_meta;
+
+	if (!dp_panel) {
+		DP_ERR("invalid input\n");
+		rc = -EINVAL;
+		goto end;
+	}
+
+	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
+
+	catalog_hdr_meta = &panel->catalog->hdr_meta;
 
 	/* use cached meta data in case meta data not provided */
 	if (!hdr_meta) {
-		if (hdr->hdr_meta.hdr_state)
+		if (catalog_hdr_meta->hdr_state)
 			goto cached;
 		else
 			goto end;
@@ -2671,41 +2906,18 @@ static int dp_panel_setup_hdr(struct dp_panel *dp_panel,
 
 	panel->hdr_state = hdr_meta->hdr_state;
 
-	hdr->vsc_header_byte0 = 0x00;
-	hdr->vsc_header_byte1 = 0x07;
-	hdr->vsc_header_byte2 = 0x05;
-	hdr->vsc_header_byte3 = 0x13;
+	dp_panel_setup_hdr_if(panel);
 
-	hdr->shdr_header_byte0 = 0x00;
-	hdr->shdr_header_byte1 = 0x87;
-	hdr->shdr_header_byte2 = 0x1D;
-	hdr->shdr_header_byte3 = 0x13 << 2;
-
-	/* VSC SDP Payload for DB16 */
-	hdr->pixel_encoding = RGB;
-	hdr->colorimetry = ITU_R_BT_2020_RGB;
-
-	/* VSC SDP Payload for DB17 */
-	hdr->dynamic_range = CEA;
-
-	/* VSC SDP Payload for DB18 */
-	hdr->content_type = GRAPHICS;
-
-	hdr->bpc = dp_panel->pinfo.bpp / 3;
-
-	hdr->version = 0x01;
-	hdr->length = 0x1A;
-
-	if (panel->hdr_state)
-		memcpy(&hdr->hdr_meta, hdr_meta, sizeof(hdr->hdr_meta));
-	else
-		memset(&hdr->hdr_meta, 0, sizeof(hdr->hdr_meta));
+	if (panel->hdr_state) {
+		memcpy(catalog_hdr_meta, hdr_meta,
+			   sizeof(struct drm_msm_ext_hdr_metadata));
+	} else {
+		memset(catalog_hdr_meta, 0,
+			sizeof(struct drm_msm_ext_hdr_metadata));
+	}
 cached:
 	if (dhdr_update) {
-		hdr->vscext_header_byte0 = 0x00;
-		hdr->vscext_header_byte1 = 0x81;
-		hdr->vscext_header_byte2 = 0x1D;
-		hdr->vscext_header_byte3 = 0x13 << 2;
+		dp_panel_setup_dhdr_vsif(panel);
 
 		input.mdp_clk = core_clk_rate;
 		input.lclk = dp_panel->link_info.rate;
@@ -2721,7 +2933,7 @@ cached:
 	if (panel->panel_on) {
 		panel->catalog->stream_id = dp_panel->stream_id;
 		panel->catalog->config_hdr(panel->catalog, panel->hdr_state,
-				max_pkts);
+			max_pkts, flush);
 		if (dhdr_update)
 			panel->catalog->dhdr_flush(panel->catalog);
 	}
@@ -2735,18 +2947,18 @@ static int dp_panel_spd_config(struct dp_panel *dp_panel)
 	struct dp_panel_private *panel;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
 
 	if (dp_panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream id:%d\n", dp_panel->stream_id);
+		DP_ERR("invalid stream id:%d\n", dp_panel->stream_id);
 		return -EINVAL;
 	}
 
 	if (!dp_panel->spd_enabled) {
-		pr_debug("SPD Infoframe not enabled\n");
+		DP_DEBUG("SPD Infoframe not enabled\n");
 		goto end;
 	}
 
@@ -2800,18 +3012,28 @@ static void dp_panel_config_misc(struct dp_panel *dp_panel)
 {
 	struct dp_panel_private *panel;
 	struct dp_catalog_panel *catalog;
+	struct drm_connector *connector;
 	u32 misc_val;
-	u32 tb, cc;
+	u32 tb, cc, colorspace;
 
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
 	catalog = panel->catalog;
+	connector = dp_panel->connector;
+	cc = 0;
 
 	tb = panel->link->get_test_bits_depth(panel->link, dp_panel->pinfo.bpp);
-	cc = panel->link->get_colorimetry_config(panel->link);
+	colorspace = connector->state->colorspace;
+
+
+	cc = (get_misc_colorimetry_val(panel, colorspace) << 1);
 
 	misc_val = cc;
 	misc_val |= (tb << 5);
 	misc_val |= BIT(0); /* Configure clock to synchronous mode */
+
+	/* if VSC is supported then set bit 6 of MISC1 */
+	if (panel->vsc_supported)
+		misc_val |= BIT(14);
 
 	catalog->misc_val = misc_val;
 	catalog->config_misc(catalog);
@@ -2843,8 +3065,8 @@ static void dp_panel_resolution_info(struct dp_panel_private *panel)
 	 * print resolution info as this is a result
 	 * of user initiated action of cable connection
 	 */
-	pr_info("DP RESOLUTION: active(back|front|width|low)\n");
-	pr_info("%d(%d|%d|%d|%d)x%d(%d|%d|%d|%d)@%dfps %dbpp %dKhz %dLR %dLn\n",
+	DP_INFO("DP RESOLUTION: active(back|front|width|low)\n");
+	DP_INFO("%d(%d|%d|%d|%d)x%d(%d|%d|%d|%d)@%dfps %dbpp %dKhz %dLR %dLn\n",
 		pinfo->h_active, pinfo->h_back_porch, pinfo->h_front_porch,
 		pinfo->h_sync_width, pinfo->h_active_low,
 		pinfo->v_active, pinfo->v_back_porch, pinfo->v_front_porch,
@@ -2854,31 +3076,51 @@ static void dp_panel_resolution_info(struct dp_panel_private *panel)
 		panel->link->link_params.lane_count);
 }
 
-static int dp_panel_hw_cfg(struct dp_panel *dp_panel, bool enable)
+static void dp_panel_config_sdp(struct dp_panel *dp_panel,
+	bool en)
 {
 	struct dp_panel_private *panel;
 
+	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
+	panel->catalog->stream_id = dp_panel->stream_id;
+
+	panel->catalog->config_sdp(panel->catalog, en);
+}
+
+static int dp_panel_hw_cfg(struct dp_panel *dp_panel, bool enable)
+{
+	struct dp_panel_private *panel;
+	struct drm_connector *connector;
+
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
 	if (dp_panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id: %d\n", dp_panel->stream_id);
+		DP_ERR("invalid stream_id: %d\n", dp_panel->stream_id);
 		return -EINVAL;
 	}
 
 	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
 	panel->catalog->stream_id = dp_panel->stream_id;
+	connector = dp_panel->connector;
 
 	if (enable) {
 		dp_panel_config_ctrl(dp_panel);
 		dp_panel_config_misc(dp_panel);
 		dp_panel_config_msa(dp_panel);
+		if (panel->vsc_supported) {
+			dp_panel_setup_colorimetry_sdp(dp_panel,
+				connector->state->colorspace);
+			dp_panel_config_sdp(dp_panel, true);
+		}
 		dp_panel_config_dsc(dp_panel, enable);
 		dp_panel_config_tr_unit(dp_panel);
 		dp_panel_config_timing(dp_panel);
 		dp_panel_resolution_info(panel);
+	} else {
+		dp_panel_config_sdp(dp_panel, false);
 	}
 
 	panel->catalog->config_dto(panel->catalog, !enable);
@@ -2892,7 +3134,7 @@ static int dp_panel_read_sink_sts(struct dp_panel *dp_panel, u8 *sts, u32 size)
 	struct dp_panel_private *panel;
 
 	if (!dp_panel || !sts || !size) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		return rc;
 	}
@@ -2902,7 +3144,7 @@ static int dp_panel_read_sink_sts(struct dp_panel *dp_panel, u8 *sts, u32 size)
 	rlen = drm_dp_dpcd_read(panel->aux->drm_aux, DP_SINK_COUNT_ESI,
 		sts, size);
 	if (rlen != size) {
-		pr_err("dpcd sink sts fail rlen:%d size:%d\n", rlen, size);
+		DP_ERR("dpcd sink sts fail rlen:%d size:%d\n", rlen, size);
 		rc = -EINVAL;
 		return rc;
 	}
@@ -2931,7 +3173,7 @@ static bool dp_panel_read_mst_cap(struct dp_panel *dp_panel)
 	bool mst_cap = false;
 
 	if (!dp_panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return 0;
 	}
 
@@ -2940,14 +3182,14 @@ static bool dp_panel_read_mst_cap(struct dp_panel *dp_panel)
 	rlen = drm_dp_dpcd_read(panel->aux->drm_aux, DP_MSTM_CAP,
 		&dpcd, 1);
 	if (rlen < 1) {
-		pr_err("dpcd mstm_cap read failed, rlen=%d\n", rlen);
+		DP_ERR("dpcd mstm_cap read failed, rlen=%d\n", rlen);
 		goto end;
 	}
 
 	mst_cap = (dpcd & DP_MST_CAP) ? true : false;
 
 end:
-	pr_debug("dp mst-cap: %d\n", mst_cap);
+	DP_DEBUG("dp mst-cap: %d\n", mst_cap);
 
 	return mst_cap;
 }
@@ -3003,7 +3245,7 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 
 		if (dp_panel_dsc_prepare_basic_params(comp_info,
 					dp_mode, dp_panel)) {
-			pr_debug("prepare DSC basic params failed\n");
+			DP_DEBUG("prepare DSC basic params failed\n");
 			return;
 		}
 
@@ -3038,7 +3280,7 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 
 	if (!in->dev || !in->catalog || !in->aux ||
 			!in->link || !in->connector) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto error;
 	}
@@ -3092,6 +3334,7 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 	dp_panel->tpg_config = dp_panel_tpg_config;
 	dp_panel->spd_config = dp_panel_spd_config;
 	dp_panel->setup_hdr = dp_panel_setup_hdr;
+	dp_panel->set_colorspace = dp_panel_set_colorspace;
 	dp_panel->hdr_supported = dp_panel_hdr_supported;
 	dp_panel->set_stream_info = dp_panel_set_stream_info;
 	dp_panel->read_sink_status = dp_panel_read_sink_sts;

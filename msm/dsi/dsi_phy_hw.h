@@ -12,6 +12,15 @@
 #define DSI_PHY_TIMING_V3_SIZE 12
 #define DSI_PHY_TIMING_V4_SIZE 14
 
+#define DSI_PHY_DBG(p, fmt, ...)	DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: DSI_%d: "\
+		fmt, p ? p->index : -1, ##__VA_ARGS__)
+#define DSI_PHY_ERR(p, fmt, ...)	DRM_DEV_ERROR(NULL, "[msm-dsi-error]: DSI_%d: "\
+		fmt, p ? p->index : -1, ##__VA_ARGS__)
+#define DSI_PHY_INFO(p, fmt, ...)	DRM_DEV_INFO(NULL, "[msm-dsi-info]: DSI_%d: "\
+		fmt, p ? p->index : -1, ##__VA_ARGS__)
+#define DSI_PHY_WARN(p, fmt, ...)	DRM_WARN("[msm-dsi-warn]: DSI_%d: " fmt,\
+		p ? p->index : -1, ##__VA_ARGS__)
+
 /**
  * enum dsi_phy_version - DSI PHY version enumeration
  * @DSI_PHY_VERSION_UNKNOWN:    Unknown version.
@@ -40,11 +49,13 @@ enum dsi_phy_version {
  * enum dsi_phy_hw_features - features supported by DSI PHY hardware
  * @DSI_PHY_DPHY:        Supports DPHY
  * @DSI_PHY_CPHY:        Supports CPHY
+ * @DSI_PHY_SPLIT_LINK:  Supports Split Link
  * @DSI_PHY_MAX_FEATURES:
  */
 enum dsi_phy_hw_features {
 	DSI_PHY_DPHY,
 	DSI_PHY_CPHY,
+	DSI_PHY_SPLIT_LINK,
 	DSI_PHY_MAX_FEATURES
 };
 
@@ -302,6 +313,13 @@ struct dsi_phy_hw_ops {
 	 * @phy:      Pointer to DSI PHY hardware object.
 	 */
 	void (*reset_clk_en_sel)(struct dsi_phy_hw *phy);
+
+	/**
+	 * set_continuous_clk() - Set continuous clock
+	 * @phy:	Pointer to DSI PHY hardware object
+	 * @enable:	Bool to control continuous clock request.
+	 */
+	void (*set_continuous_clk)(struct dsi_phy_hw *phy, bool enable);
 
 	void *timing_ops;
 	struct phy_ulps_config_ops ulps_ops;

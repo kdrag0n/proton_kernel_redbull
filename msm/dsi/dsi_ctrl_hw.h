@@ -13,6 +13,11 @@
 
 #include "dsi_defs.h"
 
+#define DSI_CTRL_HW_DBG(c, fmt, ...)	DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: DSI_%d: "\
+		fmt, c ? c->index : -1,	##__VA_ARGS__)
+#define DSI_CTRL_HW_ERR(c, fmt, ...)	DRM_DEV_ERROR(NULL, "[msm-dsi-error]: DSI_%d: "\
+		fmt, c ? c->index : -1,	##__VA_ARGS__)
+
 /**
  * Modifier flag for command transmission. If this flag is set, command
  * information is programmed to hardware and transmission is not triggered.
@@ -823,6 +828,12 @@ struct dsi_ctrl_hw_ops {
 	 * @ctrl:         Pointer to the controller host hardware.
 	 */
 	int (*wait4dynamic_refresh_done)(struct dsi_ctrl_hw *ctrl);
+	/**
+	 * hw.ops.hs_req_sel() - enable continuous clk support through phy
+	 * @ctrl:	Pointer to the controller host hardware.
+	 * @sel_phy:	Bool to control whether to select phy or controller
+	 */
+	void (*hs_req_sel)(struct dsi_ctrl_hw *ctrl, bool sel_phy);
 };
 
 /*

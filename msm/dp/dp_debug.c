@@ -3,8 +3,6 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
-
 #include <linux/debugfs.h>
 #include <linux/slab.h>
 
@@ -115,7 +113,7 @@ static ssize_t dp_debug_write_edid(struct file *file,
 		goto bail;
 
 	if (edid_size != debug->edid_size) {
-		pr_debug("realloc debug edid\n");
+		DP_DEBUG("realloc debug edid\n");
 
 		if (debug->edid) {
 			devm_kfree(debug->dev, debug->edid);
@@ -143,7 +141,7 @@ static ssize_t dp_debug_write_edid(struct file *file,
 		t[char_to_nib] = '\0';
 
 		if (kstrtoint(t, 16, &d)) {
-			pr_err("kstrtoint error\n");
+			DP_ERR("kstrtoint error\n");
 			goto bail;
 		}
 
@@ -163,7 +161,7 @@ bail:
 	 * only while running in debug mode which is manually
 	 * triggered by a tester or a script.
 	 */
-	pr_info("[%s]\n", edid ? "SET" : "CLEAR");
+	DP_INFO("[%s]\n", edid ? "SET" : "CLEAR");
 
 	mutex_unlock(&debug->lock);
 	return rc;
@@ -180,6 +178,7 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 	ssize_t rc = count;
 	char offset_ch[5];
 	u32 offset, data_len;
+	u32 extended_capability_bytes = 0;
 	const u32 dp_receiver_cap_size = 16;
 
 	if (!debug)
@@ -192,7 +191,7 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 
 	size = min_t(size_t, count, SZ_2K);
 
-	if (size <= char_to_nib)
+	if (size <= 4)
 		goto bail;
 
 	buf = kzalloc(size, GFP_KERNEL);
@@ -208,7 +207,7 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 	offset_ch[4] = '\0';
 
 	if (kstrtoint(offset_ch, 16, &offset)) {
-		pr_err("offset kstrtoint error\n");
+		DP_ERR("offset kstrtoint error\n");
 		goto bail;
 	}
 
@@ -216,12 +215,14 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 		goto bail;
 
 	if (offset == 0xFFFF) {
-		pr_err("clearing dpcd\n");
+		DP_ERR("clearing dpcd\n");
 		memset(debug->dpcd, 0, debug->dpcd_size);
 		goto bail;
 	}
 
 	size -= 4;
+	if (size == 0)
+		goto bail;
 
 	dpcd_size = size / char_to_nib;
 	data_len = dpcd_size;
@@ -237,7 +238,7 @@ static ssize_t dp_debug_write_dpcd(struct file *file,
 		t[char_to_nib] = '\0';
 
 		if (kstrtoint(t, 16, &d)) {
-			pr_err("kstrtoint error\n");
+			DP_ERR("kstrtoint error\n");
 			goto bail;
 		}
 
@@ -252,10 +253,22 @@ bail:
 	kfree(buf);
 
 	/*
+	 * If extension bit is set then increase the length
+	 * of user input to account for the extra bytes
+	 */
+	if (dpcd && (dpcd_buf_index > DP_RECEIVER_CAP_SIZE) &&
+			(dpcd[DP_TRAINING_AUX_RD_INTERVAL] &
+			 DP_EXT_REC_CAP_FIELD))
+		extended_capability_bytes = 4;
+
+	/*
 	 * Reset panel's dpcd in case of any failure. Also, set the
 	 * panel's dpcd only if a full dpcd is provided with offset as 0.
 	 */
-	if (!dpcd || (!offset && (data_len == dp_receiver_cap_size))) {
+	if (!dpcd || (!offset &&
+			(data_len == (dp_receiver_cap_size +
+			extended_capability_bytes))) ||
+			(offset == 0xffff)) {
 		debug->panel->set_dpcd(debug->panel, dpcd);
 
 		/*
@@ -263,7 +276,10 @@ bail:
 		 * only while running in debug mode which is manually
 		 * triggered by a tester or a script.
 		 */
-		pr_info("[%s]\n", dpcd ? "SET" : "CLEAR");
+		if (!dpcd || (offset == 0xffff))
+			DP_INFO("[%s]\n", "CLEAR");
+		else
+			DP_INFO("[%s]\n", "SET");
 	} else
 		debug->aux->dpcd_updated(debug->aux);
 
@@ -306,6 +322,7 @@ static ssize_t dp_debug_read_dpcd(struct file *file,
 			debug->aux->dpcd_updated(debug->aux);
 	}
 
+	len = min_t(size_t, count, len);
 	if (!copy_to_user(user_buff, buf, len))
 		*ppos += len;
 
@@ -348,7 +365,7 @@ static ssize_t dp_debug_write_hpd(struct file *file,
 	 * only while running in debug mode which is manually
 	 * triggered by a tester or a script.
 	 */
-	pr_info("%s\n", debug->hotplug ? "[CONNECT]" : "[DISCONNECT]");
+	DP_INFO("%s\n", debug->hotplug ? "[CONNECT]" : "[DISCONNECT]");
 
 	debug->hpd->simulate_connect(debug->hpd, debug->hotplug);
 end:
@@ -390,7 +407,7 @@ static ssize_t dp_debug_write_edid_modes(struct file *file,
 	debug->dp_debug.aspect_ratio = aspect_ratio;
 	goto end;
 clear:
-	pr_debug("clearing debug modes\n");
+	DP_DEBUG("clearing debug modes\n");
 	debug->dp_debug.debug_en = false;
 end:
 	return len;
@@ -440,7 +457,7 @@ static ssize_t dp_debug_write_edid_modes_mst(struct file *file,
 		}
 
 		if (!in_list)
-			pr_debug("dp connector id %d is invalid\n", con_id);
+			DP_DEBUG("dp connector id %d is invalid\n", con_id);
 
 		in_list = false;
 		read_buf += offset;
@@ -497,7 +514,7 @@ static ssize_t dp_debug_write_mst_con_id(struct file *file,
 	mutex_unlock(&debug->dp_debug.dp_mst_connector_list.lock);
 
 	if (!in_list)
-		pr_err("invalid connector id %u\n", con_id);
+		DP_ERR("invalid connector id %u\n", con_id);
 	else if (status != connector_status_unknown) {
 		debug->dp_debug.mst_hpd_sim = true;
 		debug->hpd->simulate_attention(debug->hpd, vdo);
@@ -505,7 +522,7 @@ static ssize_t dp_debug_write_mst_con_id(struct file *file,
 
 	goto end;
 clear:
-	pr_debug("clearing mst_con_id\n");
+	DP_DEBUG("clearing mst_con_id\n");
 	debug->mst_con_id = 0;
 end:
 	return len;
@@ -620,11 +637,11 @@ static ssize_t dp_debug_bw_code_write(struct file *file,
 		return 0;
 
 	if (!is_link_rate_valid(max_bw_code)) {
-		pr_err("Unsupported bw code %d\n", max_bw_code);
+		DP_ERR("Unsupported bw code %d\n", max_bw_code);
 		return len;
 	}
 	debug->panel->max_bw_code = max_bw_code;
-	pr_debug("max_bw_code: %d\n", max_bw_code);
+	DP_DEBUG("max_bw_code: %d\n", max_bw_code);
 
 	return len;
 }
@@ -668,7 +685,7 @@ static ssize_t dp_debug_mst_mode_write(struct file *file,
 		return 0;
 
 	debug->parser->has_mst = mst_mode ? true : false;
-	pr_debug("mst_enable: %d\n", mst_mode);
+	DP_DEBUG("mst_enable: %d\n", mst_mode);
 
 	return len;
 }
@@ -697,12 +714,12 @@ static ssize_t dp_debug_max_pclk_khz_write(struct file *file,
 		return 0;
 
 	if (max_pclk > debug->parser->max_pclk_khz)
-		pr_err("requested: %d, max_pclk_khz:%d\n", max_pclk,
+		DP_ERR("requested: %d, max_pclk_khz:%d\n", max_pclk,
 				debug->parser->max_pclk_khz);
 	else
 		debug->dp_debug.max_pclk_khz = max_pclk;
 
-	pr_debug("max_pclk_khz: %d\n", max_pclk);
+	DP_DEBUG("max_pclk_khz: %d\n", max_pclk);
 
 	return len;
 }
@@ -729,6 +746,7 @@ static ssize_t dp_debug_max_pclk_khz_read(struct file *file,
 			debug->dp_debug.max_pclk_khz,
 			debug->parser->max_pclk_khz);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		return -EFAULT;
@@ -759,19 +777,19 @@ static ssize_t dp_debug_mst_sideband_mode_write(struct file *file,
 	buf[len] = '\0';
 
 	if (sscanf(buf, "%d %u", &mst_sideband_mode, &mst_port_cnt) != 2) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
 	if (mst_port_cnt > DP_MST_SIM_MAX_PORTS) {
-		pr_err("port cnt:%d exceeding max:%d\n", mst_port_cnt,
+		DP_ERR("port cnt:%d exceeding max:%d\n", mst_port_cnt,
 				DP_MST_SIM_MAX_PORTS);
 		return -EINVAL;
 	}
 
 	debug->parser->has_mst_sideband = mst_sideband_mode ? true : false;
 	debug->dp_debug.mst_port_cnt = mst_port_cnt;
-	pr_debug("mst_sideband_mode: %d port_cnt:%d\n",
+	DP_DEBUG("mst_sideband_mode: %d port_cnt:%d\n",
 			mst_sideband_mode, mst_port_cnt);
 	return count;
 }
@@ -800,7 +818,7 @@ static ssize_t dp_debug_widebus_mode_write(struct file *file,
 		return -EINVAL;
 
 	debug->parser->has_widebus = widebus_mode ? true : false;
-	pr_debug("widebus_enable: %d\n", widebus_mode);
+	DP_DEBUG("widebus_enable: %d\n", widebus_mode);
 
 	return len;
 }
@@ -830,7 +848,7 @@ static ssize_t dp_debug_tpg_write(struct file *file,
 		goto bail;
 
 	tpg_state &= 0x1;
-	pr_debug("tpg_state: %d\n", tpg_state);
+	DP_DEBUG("tpg_state: %d\n", tpg_state);
 
 	if (tpg_state == debug->dp_debug.tpg_state)
 		goto bail;
@@ -890,6 +908,7 @@ static ssize_t dp_debug_read_connected(struct file *file,
 
 	len += snprintf(buf, SZ_8, "%d\n", debug->hpd->hpd_high);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len))
 		return -EFAULT;
 
@@ -940,6 +959,7 @@ static ssize_t dp_debug_read_hdcp(struct file *file,
 
 	len = sizeof(debug->dp_debug.hdcp_status);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, debug->dp_debug.hdcp_status, len))
 		return -EFAULT;
 
@@ -950,7 +970,7 @@ static ssize_t dp_debug_read_hdcp(struct file *file,
 static int dp_debug_check_buffer_overflow(int rc, int *max_size, int *len)
 {
 	if (rc >= *max_size) {
-		pr_err("buffer overflow\n");
+		DP_ERR("buffer overflow\n");
 		return -EINVAL;
 	}
 	*len += rc;
@@ -970,7 +990,7 @@ static ssize_t dp_debug_read_edid_modes(struct file *file,
 	struct drm_display_mode *mode;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		rc = -ENODEV;
 		goto error;
 	}
@@ -978,7 +998,7 @@ static ssize_t dp_debug_read_edid_modes(struct file *file,
 	connector = *debug->connector;
 
 	if (!connector) {
-		pr_err("connector is NULL\n");
+		DP_ERR("connector is NULL\n");
 		rc = -EINVAL;
 		goto error;
 	}
@@ -1003,6 +1023,7 @@ static ssize_t dp_debug_read_edid_modes(struct file *file,
 	}
 	mutex_unlock(&connector->dev->mode_config.mutex);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		rc = -EFAULT;
@@ -1030,7 +1051,7 @@ static ssize_t dp_debug_read_edid_modes_mst(struct file *file,
 	bool in_list = false;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		rc = -ENODEV;
 		goto error;
 	}
@@ -1046,13 +1067,13 @@ static ssize_t dp_debug_read_edid_modes_mst(struct file *file,
 	mutex_unlock(&debug->dp_debug.dp_mst_connector_list.lock);
 
 	if (!in_list) {
-		pr_err("connector %u not in mst list\n", debug->mst_con_id);
+		DP_ERR("connector %u not in mst list\n", debug->mst_con_id);
 		rc = -EINVAL;
 		goto error;
 	}
 
 	if (!connector) {
-		pr_err("connector is NULL\n");
+		DP_ERR("connector is NULL\n");
 		rc = -EINVAL;
 		goto error;
 	}
@@ -1078,6 +1099,7 @@ static ssize_t dp_debug_read_edid_modes_mst(struct file *file,
 	}
 	mutex_unlock(&connector->dev->mode_config.mutex);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		rc = -EFAULT;
@@ -1101,7 +1123,7 @@ static ssize_t dp_debug_read_mst_con_id(struct file *file,
 	int rc = 0;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		rc = -ENODEV;
 		goto error;
 	}
@@ -1118,6 +1140,7 @@ static ssize_t dp_debug_read_mst_con_id(struct file *file,
 	ret = snprintf(buf, max_size, "%u\n", debug->mst_con_id);
 	len += ret;
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		rc = -EFAULT;
@@ -1143,7 +1166,7 @@ static ssize_t dp_debug_read_mst_conn_info(struct file *file,
 	struct drm_connector *connector;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		rc = -ENODEV;
 		goto error;
 	}
@@ -1167,7 +1190,7 @@ static ssize_t dp_debug_read_mst_conn_info(struct file *file,
 		connector = mst_connector->conn;
 
 		if (!connector) {
-			pr_err("connector for id %d is NULL\n",
+			DP_ERR("connector for id %d is NULL\n",
 					mst_connector->con_id);
 			continue;
 		}
@@ -1181,6 +1204,7 @@ static ssize_t dp_debug_read_mst_conn_info(struct file *file,
 	}
 	mutex_unlock(&debug->dp_debug.dp_mst_connector_list.lock);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		rc = -EFAULT;
@@ -1270,6 +1294,7 @@ static ssize_t dp_debug_read_info(struct file *file, char __user *user_buff,
 	if (dp_debug_check_buffer_overflow(rc, &max_size, &len))
 		goto error;
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len))
 		goto error;
 
@@ -1302,6 +1327,7 @@ static ssize_t dp_debug_bw_code_read(struct file *file,
 	len += snprintf(buf + len, (SZ_4K - len),
 			"max_bw_code = %d\n", debug->panel->max_bw_code);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		return -EFAULT;
@@ -1327,6 +1353,7 @@ static ssize_t dp_debug_tpg_read(struct file *file,
 
 	len += snprintf(buf, SZ_8, "%d\n", debug->dp_debug.tpg_state);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len))
 		return -EFAULT;
 
@@ -1488,14 +1515,14 @@ static ssize_t dp_debug_read_hdr(struct file *file,
 	struct drm_connector *connector;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		return -ENODEV;
 	}
 
 	connector = *debug->connector;
 
 	if (!connector) {
-		pr_err("connector is NULL\n");
+		DP_ERR("connector is NULL\n");
 		return -EINVAL;
 	}
 
@@ -1512,6 +1539,7 @@ static ssize_t dp_debug_read_hdr(struct file *file,
 		return len;
 	}
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		return -EFAULT;
@@ -1533,7 +1561,7 @@ static ssize_t dp_debug_read_hdr_mst(struct file *file,
 	bool in_list = false;
 
 	if (!debug) {
-		pr_err("invalid data\n");
+		DP_ERR("invalid data\n");
 		return -ENODEV;
 	}
 
@@ -1548,12 +1576,12 @@ static ssize_t dp_debug_read_hdr_mst(struct file *file,
 	mutex_unlock(&debug->dp_debug.dp_mst_connector_list.lock);
 
 	if (!in_list) {
-		pr_err("connector %u not in mst list\n", debug->mst_con_id);
+		DP_ERR("connector %u not in mst list\n", debug->mst_con_id);
 		return -EINVAL;
 	}
 
 	if (!connector) {
-		pr_err("connector is NULL\n");
+		DP_ERR("connector is NULL\n");
 		return -EINVAL;
 	}
 
@@ -1571,6 +1599,7 @@ static ssize_t dp_debug_read_hdr_mst(struct file *file,
 		return len;
 	}
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len)) {
 		kfree(buf);
 		return -EFAULT;
@@ -1598,7 +1627,7 @@ static void dp_debug_set_sim_mode(struct dp_debug_private *debug, bool sim)
 			debug->edid, debug->dpcd);
 	} else {
 		if (debug->hotplug) {
-			pr_warn("sim mode off before hotplug disconnect\n");
+			DP_WARN("sim mode off before hotplug disconnect\n");
 			debug->hpd->simulate_connect(debug->hpd, false);
 			debug->hotplug = false;
 		}
@@ -1626,7 +1655,7 @@ static void dp_debug_set_sim_mode(struct dp_debug_private *debug, bool sim)
 	 * only while running in debug mode which is manually
 	 * triggered by a tester or a script.
 	 */
-	pr_info("%s\n", sim ? "[ON]" : "[OFF]");
+	DP_INFO("%s\n", sim ? "[ON]" : "[OFF]");
 }
 
 static ssize_t dp_debug_write_sim(struct file *file,
@@ -1747,6 +1776,7 @@ static ssize_t dp_debug_read_dump(struct file *file,
 	print_hex_dump(KERN_DEBUG, prefix, DUMP_PREFIX_NONE,
 		16, 4, buf, len, false);
 
+	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len))
 		return -EFAULT;
 
@@ -1897,7 +1927,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			rc = -EINVAL;
 		else
 			rc = PTR_ERR(dir);
-		pr_err("[%s] debugfs create dir failed, rc = %d\n",
+		DP_ERR("[%s] debugfs create dir failed, rc = %d\n",
 		       DEBUG_NAME, rc);
 		goto error;
 	}
@@ -1908,7 +1938,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 				debug, &dp_debug_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs create file failed, rc=%d\n",
+		DP_ERR("[%s] debugfs create file failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1917,7 +1947,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &edid_modes_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs create edid_modes failed, rc=%d\n",
+		DP_ERR("[%s] debugfs create edid_modes failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1926,7 +1956,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &edid_modes_mst_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs create edid_modes_mst failed, rc=%d\n",
+		DP_ERR("[%s] debugfs create edid_modes_mst failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1935,7 +1965,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &mst_con_id_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs create mst_con_id failed, rc=%d\n",
+		DP_ERR("[%s] debugfs create mst_con_id failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1944,7 +1974,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &mst_conn_info_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs create mst_conn_info failed, rc=%d\n",
+		DP_ERR("[%s] debugfs create mst_conn_info failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1971,7 +2001,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &hpd_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs hpd failed, rc=%d\n",
+		DP_ERR("[%s] debugfs hpd failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1980,7 +2010,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &connected_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs connected failed, rc=%d\n",
+		DP_ERR("[%s] debugfs connected failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -1989,7 +2019,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &bw_code_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs max_bw_code failed, rc=%d\n",
+		DP_ERR("[%s] debugfs max_bw_code failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -1997,7 +2027,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &exe_mode_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs register failed, rc=%d\n",
+		DP_ERR("[%s] debugfs register failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -2005,7 +2035,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &edid_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs edid failed, rc=%d\n",
+		DP_ERR("[%s] debugfs edid failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2014,7 +2044,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &dpcd_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs dpcd failed, rc=%d\n",
+		DP_ERR("[%s] debugfs dpcd failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2023,7 +2053,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &tpg_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs tpg failed, rc=%d\n",
+		DP_ERR("[%s] debugfs tpg failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2033,7 +2063,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs hdr failed, rc=%d\n",
+		DP_ERR("[%s] debugfs hdr failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2043,7 +2073,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs hdr_mst failed, rc=%d\n",
+		DP_ERR("[%s] debugfs hdr_mst failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2053,7 +2083,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs sim failed, rc=%d\n",
+		DP_ERR("[%s] debugfs sim failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2063,7 +2093,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs attention failed, rc=%d\n",
+		DP_ERR("[%s] debugfs attention failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2073,7 +2103,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs dump failed, rc=%d\n",
+		DP_ERR("[%s] debugfs dump failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2082,7 +2112,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &mst_mode_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs max_bw_code failed, rc=%d\n",
+		DP_ERR("[%s] debugfs max_bw_code failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2091,7 +2121,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &mst_sideband_mode_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs max_bw_code failed, rc=%d\n",
+		DP_ERR("[%s] debugfs max_bw_code failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2100,7 +2130,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &max_pclk_khz_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs max_pclk_khz failed, rc=%d\n",
+		DP_ERR("[%s] debugfs max_pclk_khz failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2109,7 +2139,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			&debug->dp_debug.force_encryption);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs force_encryption failed, rc=%d\n",
+		DP_ERR("[%s] debugfs force_encryption failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2118,7 +2148,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 					debug, &hdcp_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs hdcp failed, rc=%d\n",
+		DP_ERR("[%s] debugfs hdcp failed, rc=%d\n",
 			DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2128,7 +2158,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs hdcp_wait_sink_sync failed, rc=%d\n",
+		DP_ERR("[%s] debugfs hdcp_wait_sink_sync failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 		goto error_remove_dir;
 	}
@@ -2137,7 +2167,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			&debug->parser->dsc_feature_enable);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs dsc_feature failed, rc=%d\n",
+		DP_ERR("[%s] debugfs dsc_feature failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -2145,7 +2175,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			&debug->parser->fec_feature_enable);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs fec_feature_enable failed, rc=%d\n",
+		DP_ERR("[%s] debugfs fec_feature_enable failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -2153,7 +2183,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			debug, &widebus_mode_fops);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs widebus failed, rc=%d\n",
+		DP_ERR("[%s] debugfs widebus failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -2161,7 +2191,7 @@ static int dp_debug_init(struct dp_debug *dp_debug)
 			&debug->parser->max_lclk_khz);
 	if (IS_ERR_OR_NULL(file)) {
 		rc = PTR_ERR(file);
-		pr_err("[%s] debugfs max_lclk_khz failed, rc=%d\n",
+		DP_ERR("[%s] debugfs max_lclk_khz failed, rc=%d\n",
 		       DEBUG_NAME, rc);
 	}
 
@@ -2209,7 +2239,7 @@ struct dp_debug *dp_debug_get(struct dp_debug_in *in)
 
 	if (!in->dev || !in->panel || !in->hpd || !in->link ||
 	    !in->catalog || !in->ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto error;
 	}

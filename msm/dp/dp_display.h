@@ -81,7 +81,8 @@ struct dp_display {
 	int (*set_mode)(struct dp_display *dp_display, void *panel,
 			struct dp_display_mode *mode);
 	enum drm_mode_status (*validate_mode)(struct dp_display *dp_display,
-			void *panel, struct drm_display_mode *mode);
+			void *panel, struct drm_display_mode *mode,
+			const struct msm_resource_caps_info *avail_res);
 	int (*get_modes)(struct dp_display *dp_display, void *panel,
 		struct dp_display_mode *dp_mode);
 	int (*prepare)(struct dp_display *dp_display, void *panel);
@@ -92,6 +93,8 @@ struct dp_display {
 	int (*config_hdr)(struct dp_display *dp_display, void *panel,
 				struct drm_msm_ext_hdr_metadata *hdr_meta,
 				bool dhdr_update);
+	int (*set_colorspace)(struct dp_display *dp_display, void *panel,
+				u32 colorspace);
 	int (*post_init)(struct dp_display *dp_display);
 	int (*mst_install)(struct dp_display *dp_display,
 			struct dp_mst_drm_install_info *mst_install_info);

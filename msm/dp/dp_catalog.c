@@ -3,16 +3,18 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
 
 #include <linux/delay.h>
-#include <drm/drm_dp_helper.h>
+#include <linux/iopoll.h>
 
 #include "dp_catalog.h"
 #include "dp_reg.h"
+#include "dp_debug.h"
 
 #define DP_GET_MSB(x)	(x >> 8)
 #define DP_GET_LSB(x)	(x & 0xff)
+
+#define DP_PHY_READY BIT(1)
 
 #define dp_catalog_get_priv(x) ({ \
 	struct dp_catalog *dp_catalog; \
@@ -104,7 +106,7 @@ static u32 dp_catalog_aux_read_data(struct dp_catalog_aux *aux)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		goto end;
 	}
 
@@ -123,7 +125,7 @@ static int dp_catalog_aux_write_data(struct dp_catalog_aux *aux)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -143,7 +145,7 @@ static int dp_catalog_aux_write_trans(struct dp_catalog_aux *aux)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -164,7 +166,7 @@ static int dp_catalog_aux_clear_trans(struct dp_catalog_aux *aux, bool read)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto end;
 	}
@@ -190,7 +192,7 @@ static void dp_catalog_aux_clear_hw_interrupts(struct dp_catalog_aux *aux)
 	u32 data = 0;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -214,7 +216,7 @@ static void dp_catalog_aux_reset(struct dp_catalog_aux *aux)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -240,7 +242,7 @@ static void dp_catalog_aux_enable(struct dp_catalog_aux *aux, bool enable)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -270,7 +272,7 @@ static void dp_catalog_aux_update_cfg(struct dp_catalog_aux *aux,
 	struct dp_io_data *io_data;
 
 	if (!aux || !cfg || (type >= PHY_AUX_CFG_MAX)) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -280,7 +282,7 @@ static void dp_catalog_aux_update_cfg(struct dp_catalog_aux *aux,
 
 	current_index = cfg[type].current_index;
 	new_index = (current_index + 1) % cfg[type].cfg_cnt;
-	pr_debug("Updating %s from 0x%08x to 0x%08x\n",
+	DP_DEBUG("Updating %s from 0x%08x to 0x%08x\n",
 		dp_phy_aux_config_type_to_string(type),
 	cfg[type].lut[current_index], cfg[type].lut[new_index]);
 
@@ -297,7 +299,7 @@ static void dp_catalog_aux_setup(struct dp_catalog_aux *aux,
 	int i = 0;
 
 	if (!aux || !cfg) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -339,7 +341,7 @@ static void dp_catalog_aux_get_irq(struct dp_catalog_aux *aux, bool cmd_busy)
 	struct dp_io_data *io_data;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -354,14 +356,118 @@ static void dp_catalog_aux_get_irq(struct dp_catalog_aux *aux, bool cmd_busy)
 	dp_write(catalog->exe_mode, io_data, DP_INTR_STATUS, ack);
 }
 
+static bool dp_catalog_ctrl_wait_for_phy_ready(
+		struct dp_catalog_private *catalog)
+{
+	u32 reg = DP_PHY_STATUS, state;
+	void __iomem *base = catalog->io.dp_phy->io.base;
+	bool success = true;
+	u32 const poll_sleep_us = 500;
+	u32 const pll_timeout_us = 10000;
+
+	if (readl_poll_timeout_atomic((base + reg), state,
+			((state & DP_PHY_READY) > 0),
+			poll_sleep_us, pll_timeout_us)) {
+		DP_ERR("PHY status failed, status=%x\n", state);
+
+		success = false;
+	}
+
+	return success;
+}
+
 /* controller related catalog functions */
+static int dp_catalog_ctrl_late_phy_init(struct dp_catalog_ctrl *ctrl,
+					u8 lane_cnt, bool flipped)
+{
+	int rc = 0;
+	u32 bias0_en, drvr0_en, bias1_en, drvr1_en;
+	struct dp_catalog_private *catalog;
+	struct dp_io_data *io_data;
+
+	if (!ctrl) {
+		DP_ERR("invalid input\n");
+		return -EINVAL;
+	}
+
+	catalog = dp_catalog_get_priv(ctrl);
+
+	switch (lane_cnt) {
+	case 1:
+		drvr0_en = flipped ? 0x13 : 0x10;
+		bias0_en = flipped ? 0x3E : 0x15;
+		drvr1_en = flipped ? 0x10 : 0x13;
+		bias1_en = flipped ? 0x15 : 0x3E;
+		break;
+	case 2:
+		drvr0_en = flipped ? 0x10 : 0x10;
+		bias0_en = flipped ? 0x3F : 0x15;
+		drvr1_en = flipped ? 0x10 : 0x10;
+		bias1_en = flipped ? 0x15 : 0x3F;
+		break;
+	case 4:
+	default:
+		drvr0_en = 0x10;
+		bias0_en = 0x3F;
+		drvr1_en = 0x10;
+		bias1_en = 0x3F;
+		break;
+	}
+
+	io_data = catalog->io.dp_ln_tx0;
+	dp_write(catalog->exe_mode, io_data, TXn_HIGHZ_DRVR_EN_V420, drvr0_en);
+	dp_write(catalog->exe_mode, io_data,
+			TXn_TRANSCEIVER_BIAS_EN_V420, bias0_en);
+
+	io_data = catalog->io.dp_ln_tx1;
+	dp_write(catalog->exe_mode, io_data, TXn_HIGHZ_DRVR_EN_V420, drvr1_en);
+	dp_write(catalog->exe_mode, io_data,
+			TXn_TRANSCEIVER_BIAS_EN_V420, bias1_en);
+
+	io_data = catalog->io.dp_phy;
+	dp_write(catalog->exe_mode, io_data, DP_PHY_CFG, 0x18);
+	/* add hardware recommended delay */
+	udelay(2000);
+	dp_write(catalog->exe_mode, io_data, DP_PHY_CFG, 0x19);
+
+	/*
+	 * Make sure all the register writes are completed before
+	 * doing any other operation
+	 */
+	wmb();
+
+	if (!dp_catalog_ctrl_wait_for_phy_ready(catalog)) {
+		rc = -EINVAL;
+		goto lock_err;
+	}
+
+	io_data = catalog->io.dp_ln_tx0;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_POL_INV_V420, 0x0a);
+	io_data = catalog->io.dp_ln_tx1;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_POL_INV_V420, 0x0a);
+
+	io_data = catalog->io.dp_ln_tx0;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420, 0x27);
+	io_data = catalog->io.dp_ln_tx1;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420, 0x27);
+
+	io_data = catalog->io.dp_ln_tx0;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL, 0x20);
+	io_data = catalog->io.dp_ln_tx1;
+	dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL, 0x20);
+	/* Make sure the PHY register writes are done */
+	wmb();
+lock_err:
+	return rc;
+}
+
 static u32 dp_catalog_ctrl_read_hdcp_status(struct dp_catalog_ctrl *ctrl)
 {
 	struct dp_catalog_private *catalog;
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
@@ -369,6 +475,29 @@ static u32 dp_catalog_ctrl_read_hdcp_status(struct dp_catalog_ctrl *ctrl)
 	io_data = catalog->io.dp_ahb;
 
 	return dp_read(catalog->exe_mode, io_data, DP_HDCP_STATUS);
+}
+
+static void dp_catalog_panel_sdp_update(struct dp_catalog_panel *panel)
+{
+	struct dp_catalog_private *catalog;
+	struct dp_io_data *io_data;
+	u32 sdp_cfg3_off = 0;
+
+	if (panel->stream_id >= DP_STREAM_MAX) {
+		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		return;
+	}
+
+	if (panel->stream_id == DP_STREAM_1)
+		sdp_cfg3_off = MMSS_DP1_SDP_CFG3 - MMSS_DP_SDP_CFG3;
+
+	catalog = dp_catalog_get_priv(panel);
+	io_data = catalog->io.dp_link;
+
+	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
+			 0x01);
+	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
+			 0x00);
 }
 
 static void dp_catalog_panel_setup_vsif_infoframe_sdp(
@@ -381,7 +510,7 @@ static void dp_catalog_panel_setup_vsif_infoframe_sdp(
 	u8 buf[SZ_64], off = 0;
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -389,11 +518,11 @@ static void dp_catalog_panel_setup_vsif_infoframe_sdp(
 		mst_offset = MMSS_DP1_VSCEXT_0 - MMSS_DP_VSCEXT_0;
 
 	catalog = dp_catalog_get_priv(panel);
-	hdr = &panel->hdr_data.hdr_meta;
+	hdr = &panel->hdr_meta;
 	io_data = catalog->io.dp_link;
 
 	/* HEADER BYTE 1 */
-	header = panel->hdr_data.vscext_header_byte1;
+	header = panel->dhdr_vsif_sdp.HB1;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_1_BIT)
 			| (parity << PARITY_BYTE_1_BIT));
@@ -403,7 +532,7 @@ static void dp_catalog_panel_setup_vsif_infoframe_sdp(
 	off += sizeof(data);
 
 	/* HEADER BYTE 2 */
-	header = panel->hdr_data.vscext_header_byte2;
+	header = panel->dhdr_vsif_sdp.HB2;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_2_BIT)
 			| (parity << PARITY_BYTE_2_BIT));
@@ -411,7 +540,7 @@ static void dp_catalog_panel_setup_vsif_infoframe_sdp(
 			data);
 
 	/* HEADER BYTE 3 */
-	header = panel->hdr_data.vscext_header_byte3;
+	header = panel->dhdr_vsif_sdp.HB3;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_3_BIT)
 			| (parity << PARITY_BYTE_3_BIT));
@@ -434,9 +563,11 @@ static void dp_catalog_panel_setup_hdr_infoframe_sdp(
 	struct dp_io_data *io_data;
 	u32 header, parity, data, mst_offset = 0;
 	u8 buf[SZ_64], off = 0;
+	u32 const version = 0x01;
+	u32 const length = 0x1a;
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -444,11 +575,11 @@ static void dp_catalog_panel_setup_hdr_infoframe_sdp(
 		mst_offset = MMSS_DP1_GENERIC2_0 - MMSS_DP_GENERIC2_0;
 
 	catalog = dp_catalog_get_priv(panel);
-	hdr = &panel->hdr_data.hdr_meta;
+	hdr = &panel->hdr_meta;
 	io_data = catalog->io.dp_link;
 
 	/* HEADER BYTE 1 */
-	header = panel->hdr_data.shdr_header_byte1;
+	header = panel->shdr_if_sdp.HB1;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_1_BIT)
 			| (parity << PARITY_BYTE_1_BIT));
@@ -458,7 +589,7 @@ static void dp_catalog_panel_setup_hdr_infoframe_sdp(
 	off += sizeof(data);
 
 	/* HEADER BYTE 2 */
-	header = panel->hdr_data.shdr_header_byte2;
+	header = panel->shdr_if_sdp.HB2;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_2_BIT)
 			| (parity << PARITY_BYTE_2_BIT));
@@ -466,7 +597,7 @@ static void dp_catalog_panel_setup_hdr_infoframe_sdp(
 			data);
 
 	/* HEADER BYTE 3 */
-	header = panel->hdr_data.shdr_header_byte3;
+	header = panel->shdr_if_sdp.HB3;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_3_BIT)
 			| (parity << PARITY_BYTE_3_BIT));
@@ -477,8 +608,8 @@ static void dp_catalog_panel_setup_hdr_infoframe_sdp(
 	memcpy(buf + off, &data, sizeof(data));
 	off += sizeof(data);
 
-	data = panel->hdr_data.version;
-	data |= panel->hdr_data.length << 8;
+	data = version;
+	data |= length << 8;
 	data |= hdr->eotf << 16;
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_GENERIC2_2 + mst_offset,
 			data);
@@ -554,16 +685,16 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 	struct dp_catalog_private *catalog;
 	struct dp_io_data *io_data;
 	u32 header, parity, data, mst_offset = 0;
-	u8 bpc, off = 0;
+	u8 off = 0;
 	u8 buf[SZ_128];
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -574,7 +705,7 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 	io_data = catalog->io.dp_link;
 
 	/* HEADER BYTE 1 */
-	header = panel->hdr_data.vsc_header_byte1;
+	header = panel->vsc_colorimetry.header.HB1;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_1_BIT)
 			| (parity << PARITY_BYTE_1_BIT));
@@ -584,7 +715,7 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 	off += sizeof(data);
 
 	/* HEADER BYTE 2 */
-	header = panel->hdr_data.vsc_header_byte2;
+	header = panel->vsc_colorimetry.header.HB2;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_2_BIT)
 			| (parity << PARITY_BYTE_2_BIT));
@@ -592,7 +723,7 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 			data);
 
 	/* HEADER BYTE 3 */
-	header = panel->hdr_data.vsc_header_byte3;
+	header = panel->vsc_colorimetry.header.HB3;
 	parity = dp_header_get_parity(header);
 	data   = ((header << HEADER_BYTE_3_BIT)
 			| (parity << PARITY_BYTE_3_BIT));
@@ -624,24 +755,9 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 	memcpy(buf + off, &data, sizeof(data));
 	off += sizeof(data);
 
-	switch (panel->hdr_data.bpc) {
-	default:
-	case 10:
-		bpc = BIT(1);
-		break;
-	case 8:
-		bpc = BIT(0);
-		break;
-	case 6:
-		bpc = 0;
-		break;
-	}
-
-	data = (panel->hdr_data.colorimetry & 0xF) |
-		((panel->hdr_data.pixel_encoding & 0xF) << 4) |
-		(bpc << 8) |
-		((panel->hdr_data.dynamic_range & 0x1) << 15) |
-		((panel->hdr_data.content_type & 0x7) << 16);
+	data = (panel->vsc_colorimetry.data[16] & 0xFF) |
+		((panel->vsc_colorimetry.data[17] & 0xFF) << 8) |
+		((panel->vsc_colorimetry.data[18] & 0x7) << 16);
 
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_GENERIC0_6 + mst_offset,
 			data);
@@ -668,17 +784,67 @@ static void dp_catalog_panel_setup_vsc_sdp(struct dp_catalog_panel *panel)
 			DUMP_PREFIX_NONE, 16, 4, buf, off, false);
 }
 
-static void dp_catalog_panel_config_hdr(struct dp_catalog_panel *panel, bool en,
-		u32 dhdr_max_pkts)
+static void dp_catalog_panel_config_sdp(struct dp_catalog_panel *panel,
+	bool en)
 {
 	struct dp_catalog_private *catalog;
 	struct dp_io_data *io_data;
-	u32 cfg, cfg2, cfg4, misc;
+	u32 cfg, cfg2;
 	u32 sdp_cfg_off = 0;
 	u32 sdp_cfg2_off = 0;
-	u32 sdp_cfg3_off = 0;
-	u32 sdp_cfg4_off = 0;
-	u32 misc1_misc0_off = 0;
+
+	if (panel->stream_id >= DP_STREAM_MAX) {
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
+		return;
+	}
+
+	catalog = dp_catalog_get_priv(panel);
+	io_data = catalog->io.dp_link;
+
+	if (panel->stream_id == DP_STREAM_1) {
+		sdp_cfg_off = MMSS_DP1_SDP_CFG - MMSS_DP_SDP_CFG;
+		sdp_cfg2_off = MMSS_DP1_SDP_CFG2 - MMSS_DP_SDP_CFG2;
+	}
+
+	cfg = dp_read(catalog->exe_mode, io_data,
+				MMSS_DP_SDP_CFG + sdp_cfg_off);
+	cfg2 = dp_read(catalog->exe_mode, io_data,
+				MMSS_DP_SDP_CFG2 + sdp_cfg2_off);
+
+	if (en) {
+		/* GEN0_SDP_EN */
+		cfg |= BIT(17);
+		dp_write(catalog->exe_mode, io_data,
+				 MMSS_DP_SDP_CFG + sdp_cfg_off, cfg);
+
+		/* GENERIC0_SDPSIZE */
+		cfg2 |= BIT(16);
+		dp_write(catalog->exe_mode, io_data,
+				 MMSS_DP_SDP_CFG2 + sdp_cfg2_off, cfg2);
+
+		/* setup the GENERIC0 in case of en = true */
+		dp_catalog_panel_setup_vsc_sdp(panel);
+
+	} else {
+		/* GEN0_SDP_EN */
+		cfg &= ~BIT(17);
+		dp_write(catalog->exe_mode, io_data,
+				 MMSS_DP_SDP_CFG + sdp_cfg_off, cfg);
+
+		/* GENERIC0_SDPSIZE */
+		cfg2 &= ~BIT(16);
+		dp_write(catalog->exe_mode, io_data,
+				 MMSS_DP_SDP_CFG2 + sdp_cfg2_off, cfg2);
+	}
+
+	dp_catalog_panel_sdp_update(panel);
+}
+
+static void dp_catalog_panel_config_misc(struct dp_catalog_panel *panel)
+{
+	struct dp_catalog_private *catalog;
+	struct dp_io_data *io_data;
+	u32 reg_offset = 0;
 
 	if (!panel) {
 		pr_err("invalid input\n");
@@ -693,10 +859,69 @@ static void dp_catalog_panel_config_hdr(struct dp_catalog_panel *panel, bool en,
 	catalog = dp_catalog_get_priv(panel);
 	io_data = catalog->io.dp_link;
 
+	if (panel->stream_id == DP_STREAM_1)
+		reg_offset = DP1_MISC1_MISC0 - DP_MISC1_MISC0;
+
+	DP_DEBUG("misc settings = 0x%x\n", panel->misc_val);
+	dp_write(catalog->exe_mode, io_data, DP_MISC1_MISC0 + reg_offset,
+			panel->misc_val);
+}
+
+static int dp_catalog_panel_set_colorspace(struct dp_catalog_panel *panel,
+bool vsc_supported)
+{
+	struct dp_catalog_private *catalog;
+	struct dp_io_data *io_data;
+
+	if (!panel) {
+		pr_err("invalid input\n");
+		return -EINVAL;
+	}
+
+	if (panel->stream_id >= DP_STREAM_MAX) {
+		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		return -EINVAL;
+	}
+
+	catalog = dp_catalog_get_priv(panel);
+	io_data = catalog->io.dp_link;
+
+	if (vsc_supported) {
+		dp_catalog_panel_setup_vsc_sdp(panel);
+		dp_catalog_panel_sdp_update(panel);
+	} else
+		dp_catalog_panel_config_misc(panel);
+
+	return 0;
+}
+
+static void dp_catalog_panel_config_hdr(struct dp_catalog_panel *panel, bool en,
+	u32 dhdr_max_pkts, bool flush)
+{
+	struct dp_catalog_private *catalog;
+	struct dp_io_data *io_data;
+	u32 cfg, cfg2, cfg4, misc;
+	u32 sdp_cfg_off = 0;
+	u32 sdp_cfg2_off = 0;
+	u32 sdp_cfg4_off = 0;
+	u32 misc1_misc0_off = 0;
+
+	if (!panel) {
+		DP_ERR("invalid input\n");
+		return;
+	}
+
+	if (panel->stream_id >= DP_STREAM_MAX) {
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
+		return;
+	}
+
+	catalog = dp_catalog_get_priv(panel);
+	io_data = catalog->io.dp_link;
+
 	if (panel->stream_id == DP_STREAM_1) {
 		sdp_cfg_off = MMSS_DP1_SDP_CFG - MMSS_DP_SDP_CFG;
 		sdp_cfg2_off = MMSS_DP1_SDP_CFG2 - MMSS_DP_SDP_CFG2;
-		sdp_cfg3_off = MMSS_DP1_SDP_CFG3 - MMSS_DP_SDP_CFG3;
 		sdp_cfg4_off = MMSS_DP1_SDP_CFG4 - MMSS_DP_SDP_CFG4;
 		misc1_misc0_off = DP1_MISC1_MISC0 - DP_MISC1_MISC0;
 	}
@@ -719,34 +944,30 @@ static void dp_catalog_panel_config_hdr(struct dp_catalog_panel *panel, bool en,
 			dp_catalog_panel_setup_vsif_infoframe_sdp(panel);
 		}
 
-		/* GEN0_SDP_EN, GEN2_SDP_EN */
-		cfg |= BIT(17) | BIT(19);
+		/* GEN2_SDP_EN */
+		cfg |= BIT(19);
 		dp_write(catalog->exe_mode, io_data,
 				MMSS_DP_SDP_CFG + sdp_cfg_off, cfg);
 
-		/* GENERIC0_SDPSIZE GENERIC2_SDPSIZE */
-		cfg2 |= BIT(16) | BIT(20);
+		/* GENERIC2_SDPSIZE */
+		cfg2 |= BIT(20);
 		dp_write(catalog->exe_mode, io_data,
 				MMSS_DP_SDP_CFG2 + sdp_cfg2_off, cfg2);
 
-		dp_catalog_panel_setup_vsc_sdp(panel);
 		dp_catalog_panel_setup_hdr_infoframe_sdp(panel);
 
-		/* indicates presence of VSC (BIT(6) of MISC1) */
-		misc |= BIT(14);
-
-		if (panel->hdr_data.hdr_meta.eotf)
-			pr_debug("Enabled\n");
+		if (panel->hdr_meta.eotf)
+			DP_DEBUG("Enabled\n");
 		else
-			pr_debug("Reset\n");
+			DP_DEBUG("Reset\n");
 	} else {
-		/* VSCEXT_SDP_EN, GEN0_SDP_EN */
-		cfg &= ~BIT(16) & ~BIT(17) & ~BIT(19);
+		/* VSCEXT_SDP_ENG */
+		cfg &= ~BIT(16) & ~BIT(19);
 		dp_write(catalog->exe_mode, io_data,
 				MMSS_DP_SDP_CFG + sdp_cfg_off, cfg);
 
 		/* GENERIC0_SDPSIZE GENERIC2_SDPSIZE */
-		cfg2 &= ~BIT(16) & ~BIT(20);
+		cfg2 &= ~BIT(20);
 		dp_write(catalog->exe_mode, io_data,
 				MMSS_DP_SDP_CFG2 + sdp_cfg2_off, cfg2);
 
@@ -755,19 +976,13 @@ static void dp_catalog_panel_config_hdr(struct dp_catalog_panel *panel, bool en,
 		dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG4
 				+ sdp_cfg4_off, cfg4);
 
-		/* switch back to MSA */
-		misc &= ~BIT(14);
-
-		pr_debug("Disabled\n");
+		DP_DEBUG("Disabled\n");
 	}
 
-	dp_write(catalog->exe_mode, io_data, DP_MISC1_MISC0 + misc1_misc0_off,
-			misc);
-
-	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
-			0x01);
-	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
-			0x00);
+	if (flush) {
+		DP_DEBUG("flushing HDR metadata\n");
+		dp_catalog_panel_sdp_update(panel);
+	}
 }
 
 static void dp_catalog_panel_update_transfer_unit(
@@ -777,7 +992,7 @@ static void dp_catalog_panel_update_transfer_unit(
 	struct dp_io_data *io_data;
 
 	if (!panel || panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -797,7 +1012,7 @@ static void dp_catalog_ctrl_state_ctrl(struct dp_catalog_ctrl *ctrl, u32 state)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -816,7 +1031,7 @@ static void dp_catalog_ctrl_config_ctrl(struct dp_catalog_ctrl *ctrl, u8 ln_cnt)
 	u32 cfg;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -832,7 +1047,7 @@ static void dp_catalog_ctrl_config_ctrl(struct dp_catalog_ctrl *ctrl, u8 ln_cnt)
 	cfg |= 0x02000000;
 	dp_write(catalog->exe_mode, io_data, DP_MAINLINK_CTRL, cfg);
 
-	pr_debug("DP_MAINLINK_CTRL=0x%x\n", cfg);
+	DP_DEBUG("DP_MAINLINK_CTRL=0x%x\n", cfg);
 }
 
 static void dp_catalog_panel_config_ctrl(struct dp_catalog_panel *panel,
@@ -843,12 +1058,12 @@ static void dp_catalog_panel_config_ctrl(struct dp_catalog_panel *panel,
 	u32 strm_reg_off = 0, mainlink_ctrl;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -858,7 +1073,7 @@ static void dp_catalog_panel_config_ctrl(struct dp_catalog_panel *panel,
 	if (panel->stream_id == DP_STREAM_1)
 		strm_reg_off = DP1_CONFIGURATION_CTRL - DP_CONFIGURATION_CTRL;
 
-	pr_debug("DP_CONFIGURATION_CTRL=0x%x\n", cfg);
+	DP_DEBUG("DP_CONFIGURATION_CTRL=0x%x\n", cfg);
 
 	dp_write(catalog->exe_mode, io_data,
 			DP_CONFIGURATION_CTRL + strm_reg_off, cfg);
@@ -886,12 +1101,12 @@ static void dp_catalog_panel_config_dto(struct dp_catalog_panel *panel,
 	u32 dsc_dto;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -906,7 +1121,7 @@ static void dp_catalog_panel_config_dto(struct dp_catalog_panel *panel,
 		io_data = catalog->io.dp_p1;
 		break;
 	default:
-		pr_err("invalid stream id\n");
+		DP_ERR("invalid stream id\n");
 		return;
 	}
 
@@ -925,7 +1140,7 @@ static void dp_catalog_ctrl_lane_mapping(struct dp_catalog_ctrl *ctrl,
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -968,7 +1183,7 @@ static void dp_catalog_ctrl_mainlink_ctrl(struct dp_catalog_ctrl *ctrl,
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1002,33 +1217,6 @@ static void dp_catalog_ctrl_mainlink_ctrl(struct dp_catalog_ctrl *ctrl,
 	}
 }
 
-static void dp_catalog_panel_config_misc(struct dp_catalog_panel *panel)
-{
-	struct dp_catalog_private *catalog;
-	struct dp_io_data *io_data;
-	u32 reg_offset = 0;
-
-	if (!panel) {
-		pr_err("invalid input\n");
-		return;
-	}
-
-	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
-		return;
-	}
-
-	catalog = dp_catalog_get_priv(panel);
-	io_data = catalog->io.dp_link;
-
-	if (panel->stream_id == DP_STREAM_1)
-		reg_offset = DP1_MISC1_MISC0 - DP_MISC1_MISC0;
-
-	pr_debug("misc settings = 0x%x\n", panel->misc_val);
-	dp_write(catalog->exe_mode, io_data, DP_MISC1_MISC0 + reg_offset,
-			panel->misc_val);
-}
-
 static void dp_catalog_panel_config_msa(struct dp_catalog_panel *panel,
 					u32 rate, u32 stream_rate_khz)
 {
@@ -1043,12 +1231,12 @@ static void dp_catalog_panel_config_msa(struct dp_catalog_panel *panel,
 	u32 mvid_reg_off = 0, nvid_reg_off = 0;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -1062,7 +1250,7 @@ static void dp_catalog_panel_config_msa(struct dp_catalog_panel *panel,
 			MMSS_DP_PIXEL_M + strm_reg_off);
 	pixel_n = dp_read(catalog->exe_mode, io_data,
 			MMSS_DP_PIXEL_N + strm_reg_off);
-	pr_debug("pixel_m=0x%x, pixel_n=0x%x\n", pixel_m, pixel_n);
+	DP_DEBUG("pixel_m=0x%x, pixel_n=0x%x\n", pixel_m, pixel_n);
 
 	mvid = (pixel_m & 0xFFFF) * 5;
 	nvid = (0xFFFF & (~pixel_n)) + (pixel_m & 0xFFFF);
@@ -1075,7 +1263,7 @@ static void dp_catalog_panel_config_msa(struct dp_catalog_panel *panel,
 		nvid = temp;
 	}
 
-	pr_debug("rate = %d\n", rate);
+	DP_DEBUG("rate = %d\n", rate);
 
 	if (panel->widebus_en)
 		mvid <<= 1;
@@ -1093,7 +1281,7 @@ static void dp_catalog_panel_config_msa(struct dp_catalog_panel *panel,
 		nvid_reg_off = DP1_SOFTWARE_NVID - DP_SOFTWARE_NVID;
 	}
 
-	pr_debug("mvid=0x%x, nvid=0x%x\n", mvid, nvid);
+	DP_DEBUG("mvid=0x%x, nvid=0x%x\n", mvid, nvid);
 	dp_write(catalog->exe_mode, io_data, DP_SOFTWARE_MVID + mvid_reg_off,
 			mvid);
 	dp_write(catalog->exe_mode, io_data, DP_SOFTWARE_NVID + nvid_reg_off,
@@ -1105,33 +1293,45 @@ static void dp_catalog_ctrl_set_pattern(struct dp_catalog_ctrl *ctrl,
 {
 	int bit, cnt = 10;
 	u32 data;
+	const u32 link_training_offset = 3;
 	struct dp_catalog_private *catalog;
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	catalog = dp_catalog_get_priv(ctrl);
 	io_data = catalog->io.dp_link;
 
-	bit = 1;
-	bit <<= (pattern - 1);
-	pr_debug("hw: bit=%d train=%d\n", bit, pattern);
-	dp_write(catalog->exe_mode, io_data, DP_STATE_CTRL, bit);
+	switch (pattern) {
+	case DP_TRAINING_PATTERN_4:
+		bit = 3;
+		break;
+	case DP_TRAINING_PATTERN_3:
+	case DP_TRAINING_PATTERN_2:
+	case DP_TRAINING_PATTERN_1:
+		bit = pattern - 1;
+		break;
+	default:
+		DP_ERR("invalid pattern\n");
+		return;
+	}
 
-	bit = 8;
-	bit <<= (pattern - 1);
+	DP_DEBUG("hw: bit=%d train=%d\n", bit, pattern);
+	dp_write(catalog->exe_mode, io_data, DP_STATE_CTRL, BIT(bit));
+
+	bit += link_training_offset;
 
 	while (cnt--) {
 		data = dp_read(catalog->exe_mode, io_data, DP_MAINLINK_READY);
-		if (data & bit)
+		if (data & BIT(bit))
 			break;
 	}
 
 	if (cnt == 0)
-		pr_err("set link_train=%d failed\n", pattern);
+		DP_ERR("set link_train=%d failed\n", pattern);
 }
 
 static void dp_catalog_ctrl_usb_reset(struct dp_catalog_ctrl *ctrl, bool flip)
@@ -1140,7 +1340,7 @@ static void dp_catalog_ctrl_usb_reset(struct dp_catalog_ctrl *ctrl, bool flip)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1180,12 +1380,12 @@ static void dp_catalog_panel_tpg_cfg(struct dp_catalog_panel *panel,
 	struct dp_io_data *io_data;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -1248,12 +1448,12 @@ static void dp_catalog_panel_dsc_cfg(struct dp_catalog_panel *panel)
 	int i;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -1306,7 +1506,7 @@ static void dp_catalog_panel_dsc_cfg(struct dp_catalog_panel *panel)
 	dp_write(catalog->exe_mode, io_data,
 			DP_COMPRESSION_MODE_CTRL + offset, reg);
 
-	pr_debug("compression:0x%x for stream:%d\n",
+	DP_DEBUG("compression:0x%x for stream:%d\n",
 			reg, panel->stream_id);
 }
 
@@ -1318,12 +1518,12 @@ static void dp_catalog_panel_dp_flush(struct dp_catalog_panel *panel,
 	u32 dp_flush, offset;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -1343,13 +1543,13 @@ static void dp_catalog_panel_dp_flush(struct dp_catalog_panel *panel,
 static void dp_catalog_panel_pps_flush(struct dp_catalog_panel *panel)
 {
 	dp_catalog_panel_dp_flush(panel, DP_PPS_FLUSH);
-	pr_debug("pps flush for stream:%d\n", panel->stream_id);
+	DP_DEBUG("pps flush for stream:%d\n", panel->stream_id);
 }
 
 static void dp_catalog_panel_dhdr_flush(struct dp_catalog_panel *panel)
 {
 	dp_catalog_panel_dp_flush(panel, DP_DHDR_FLUSH);
-	pr_debug("dhdr flush for stream:%d\n", panel->stream_id);
+	DP_DEBUG("dhdr flush for stream:%d\n", panel->stream_id);
 }
 
 
@@ -1360,7 +1560,7 @@ static bool dp_catalog_panel_dhdr_busy(struct dp_catalog_panel *panel)
 	u32 dp_flush, offset;
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		return false;
 	}
 
@@ -1384,7 +1584,7 @@ static void dp_catalog_ctrl_reset(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1409,7 +1609,7 @@ static bool dp_catalog_ctrl_mainlink_ready(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		goto end;
 	}
 
@@ -1424,7 +1624,7 @@ static bool dp_catalog_ctrl_mainlink_ready(struct dp_catalog_ctrl *ctrl)
 
 		usleep_range(1000, 1010); /* 1ms wait before next reg read */
 	}
-	pr_err("mainlink not ready\n");
+	DP_ERR("mainlink not ready\n");
 end:
 	return false;
 }
@@ -1436,7 +1636,7 @@ static void dp_catalog_ctrl_enable_irq(struct dp_catalog_ctrl *ctrl,
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1464,7 +1664,7 @@ static void dp_catalog_ctrl_get_interrupt(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1492,7 +1692,7 @@ static void dp_catalog_ctrl_phy_reset(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1514,7 +1714,7 @@ static void dp_catalog_ctrl_phy_lane_cfg(struct dp_catalog_ctrl *ctrl,
 	u8 orientation = BIT(!!flipped);
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1524,7 +1724,7 @@ static void dp_catalog_ctrl_phy_lane_cfg(struct dp_catalog_ctrl *ctrl,
 
 	info |= (ln_cnt & 0x0F);
 	info |= ((orientation & 0x0F) << 4);
-	pr_debug("Shared Info = 0x%x\n", info);
+	DP_DEBUG("Shared Info = 0x%x\n", info);
 
 	dp_write(catalog->exe_mode, io_data, DP_PHY_SPARE0, info);
 }
@@ -1537,13 +1737,13 @@ static void dp_catalog_ctrl_update_vx_px(struct dp_catalog_ctrl *ctrl,
 	u8 value0, value1;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	catalog = dp_catalog_get_priv(ctrl);
 
-	pr_debug("hw: v=%d p=%d\n", v_level, p_level);
+	DP_DEBUG("hw: v=%d p=%d\n", v_level, p_level);
 
 	value0 = vm_voltage_swing[v_level][p_level];
 	value1 = vm_pre_emphasis[v_level][p_level];
@@ -1574,10 +1774,10 @@ static void dp_catalog_ctrl_update_vx_px(struct dp_catalog_ctrl *ctrl,
 		dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL,
 				value1);
 
-		pr_debug("hw: vx_value=0x%x px_value=0x%x\n",
+		DP_DEBUG("hw: vx_value=0x%x px_value=0x%x\n",
 			value0, value1);
 	} else {
-		pr_err("invalid vx (0x%x=0x%x), px (0x%x=0x%x\n",
+		DP_ERR("invalid vx (0x%x=0x%x), px (0x%x=0x%x\n",
 			v_level, value0, p_level, value1);
 	}
 }
@@ -1590,7 +1790,7 @@ static void dp_catalog_ctrl_send_phy_pattern(struct dp_catalog_ctrl *ctrl,
 	struct dp_io_data *io_data = NULL;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1652,7 +1852,7 @@ static void dp_catalog_ctrl_send_phy_pattern(struct dp_catalog_ctrl *ctrl,
 		dp_write(catalog->exe_mode, io_data, DP_STATE_CTRL, 0x8);
 		break;
 	default:
-		pr_debug("No valid test pattern requested: 0x%x\n", pattern);
+		DP_DEBUG("No valid test pattern requested: 0x%x\n", pattern);
 		return;
 	}
 
@@ -1666,7 +1866,7 @@ static u32 dp_catalog_ctrl_read_phy_pattern(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data = NULL;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return 0;
 	}
 
@@ -1685,7 +1885,7 @@ static void dp_catalog_ctrl_fec_config(struct dp_catalog_ctrl *ctrl,
 	u32 reg;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1721,7 +1921,7 @@ static int dp_catalog_reg_dump(struct dp_catalog *dp_catalog,
 	struct dp_parser *parser;
 
 	if (!dp_catalog) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return -EINVAL;
 	}
 
@@ -1732,7 +1932,7 @@ static int dp_catalog_reg_dump(struct dp_catalog *dp_catalog,
 	parser->get_io_buf(parser, name);
 	io_data = parser->get_io(parser, name);
 	if (!io_data) {
-		pr_err("IO %s not found\n", name);
+		DP_ERR("IO %s not found\n", name);
 		ret = -EINVAL;
 		goto end;
 	}
@@ -1741,7 +1941,7 @@ static int dp_catalog_reg_dump(struct dp_catalog *dp_catalog,
 	len = io_data->io.len;
 
 	if (!buf || !len) {
-		pr_err("no buffer available\n");
+		DP_ERR("no buffer available\n");
 		ret = -ENOMEM;
 		goto end;
 	}
@@ -1779,7 +1979,7 @@ static void dp_catalog_ctrl_mst_config(struct dp_catalog_ctrl *ctrl,
 	u32 reg;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1804,7 +2004,7 @@ static void dp_catalog_ctrl_trigger_act(struct dp_catalog_ctrl *ctrl)
 	struct dp_io_data *io_data = NULL;
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1825,7 +2025,7 @@ static void dp_catalog_ctrl_read_act_complete_sts(struct dp_catalog_ctrl *ctrl,
 	u32 reg;
 
 	if (!ctrl || !sts) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -1851,13 +2051,13 @@ static void dp_catalog_ctrl_channel_alloc(struct dp_catalog_ctrl *ctrl,
 	int const num_slots_per_reg = 32;
 
 	if (!ctrl || ch >= DP_STREAM_MAX) {
-		pr_err("invalid input. ch %d\n", ch);
+		DP_ERR("invalid input. ch %d\n", ch);
 		return;
 	}
 
 	if (ch_start_slot > DP_MAX_TIME_SLOTS ||
 			(ch_start_slot + tot_slot_cnt > DP_MAX_TIME_SLOTS)) {
-		pr_err("invalid slots start %d, tot %d\n",
+		DP_ERR("invalid slots start %d, tot %d\n",
 			ch_start_slot, tot_slot_cnt);
 		return;
 	}
@@ -1866,7 +2066,7 @@ static void dp_catalog_ctrl_channel_alloc(struct dp_catalog_ctrl *ctrl,
 
 	io_data = catalog->io.dp_link;
 
-	pr_debug("ch %d, start_slot %d, tot_slot %d\n",
+	DP_DEBUG("ch %d, start_slot %d, tot_slot %d\n",
 			ch, ch_start_slot, tot_slot_cnt);
 
 	if (ch == DP_STREAM_1)
@@ -1888,7 +2088,7 @@ static void dp_catalog_ctrl_channel_alloc(struct dp_catalog_ctrl *ctrl,
 		}
 	}
 
-	pr_debug("ch:%d slot_reg_1:%d, slot_reg_2:%d\n", ch,
+	DP_DEBUG("ch:%d slot_reg_1:%d, slot_reg_2:%d\n", ch,
 			slot_reg_1, slot_reg_2);
 
 	dp_write(catalog->exe_mode, io_data, DP_DP0_TIMESLOT_1_32 + reg_off,
@@ -1906,13 +2106,13 @@ static void dp_catalog_ctrl_channel_dealloc(struct dp_catalog_ctrl *ctrl,
 	u32 reg_off = 0;
 
 	if (!ctrl || ch >= DP_STREAM_MAX) {
-		pr_err("invalid input. ch %d\n", ch);
+		DP_ERR("invalid input. ch %d\n", ch);
 		return;
 	}
 
 	if (ch_start_slot > DP_MAX_TIME_SLOTS ||
 			(ch_start_slot + tot_slot_cnt > DP_MAX_TIME_SLOTS)) {
-		pr_err("invalid slots start %d, tot %d\n",
+		DP_ERR("invalid slots start %d, tot %d\n",
 			ch_start_slot, tot_slot_cnt);
 		return;
 	}
@@ -1921,7 +2121,7 @@ static void dp_catalog_ctrl_channel_dealloc(struct dp_catalog_ctrl *ctrl,
 
 	io_data = catalog->io.dp_link;
 
-	pr_debug("dealloc ch %d, start_slot %d, tot_slot %d\n",
+	DP_DEBUG("dealloc ch %d, start_slot %d, tot_slot %d\n",
 			ch, ch_start_slot, tot_slot_cnt);
 
 	if (ch == DP_STREAM_1)
@@ -1943,7 +2143,7 @@ static void dp_catalog_ctrl_channel_dealloc(struct dp_catalog_ctrl *ctrl,
 		ch_start_slot++;
 	}
 
-	pr_debug("dealloc ch:%d slot_reg_1:%d, slot_reg_2:%d\n", ch,
+	DP_DEBUG("dealloc ch:%d slot_reg_1:%d, slot_reg_2:%d\n", ch,
 			slot_reg_1, slot_reg_2);
 
 	dp_write(catalog->exe_mode, io_data, DP_DP0_TIMESLOT_1_32 + reg_off,
@@ -1960,7 +2160,7 @@ static void dp_catalog_ctrl_update_rg(struct dp_catalog_ctrl *ctrl, u32 ch,
 	u32 rg, reg_off = 0;
 
 	if (!ctrl || ch >= DP_STREAM_MAX) {
-		pr_err("invalid input. ch %d\n", ch);
+		DP_ERR("invalid input. ch %d\n", ch);
 		return;
 	}
 
@@ -1971,7 +2171,7 @@ static void dp_catalog_ctrl_update_rg(struct dp_catalog_ctrl *ctrl, u32 ch,
 	rg = y_frac_enum;
 	rg |= (x_int << 16);
 
-	pr_debug("ch: %d x_int:%d y_frac_enum:%d rg:%d\n", ch, x_int,
+	DP_DEBUG("ch: %d x_int:%d y_frac_enum:%d rg:%d\n", ch, x_int,
 			y_frac_enum, rg);
 
 	if (ch == DP_STREAM_1)
@@ -2002,7 +2202,7 @@ static void dp_catalog_ctrl_mainlink_levels(struct dp_catalog_ctrl *ctrl,
 		safe_to_exit_level = 5;
 		break;
 	default:
-		pr_debug("setting the default safe_to_exit_level = %u\n",
+		DP_DEBUG("setting the default safe_to_exit_level = %u\n",
 				safe_to_exit_level);
 		break;
 	}
@@ -2012,7 +2212,7 @@ static void dp_catalog_ctrl_mainlink_levels(struct dp_catalog_ctrl *ctrl,
 	mainlink_levels &= 0xFE0;
 	mainlink_levels |= safe_to_exit_level;
 
-	pr_debug("mainlink_level = 0x%x, safe_to_exit_level = 0x%x\n",
+	DP_DEBUG("mainlink_level = 0x%x, safe_to_exit_level = 0x%x\n",
 			mainlink_levels, safe_to_exit_level);
 
 	dp_write(catalog->exe_mode, io_data, DP_MAINLINK_LEVELS,
@@ -2028,12 +2228,12 @@ static int dp_catalog_panel_timing_cfg(struct dp_catalog_panel *panel)
 	u32 offset = 0, reg;
 
 	if (!panel) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		goto end;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream_id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream_id:%d\n", panel->stream_id);
 		goto end;
 	}
 
@@ -2075,7 +2275,7 @@ static void dp_catalog_hpd_config_hpd(struct dp_catalog_hpd *hpd, bool en)
 	struct dp_io_data *io_data;
 
 	if (!hpd) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -2117,7 +2317,7 @@ static u32 dp_catalog_hpd_get_interrupt(struct dp_catalog_hpd *hpd)
 	struct dp_io_data *io_data;
 
 	if (!hpd) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return isr;
 	}
 
@@ -2180,7 +2380,7 @@ static void dp_catalog_audio_config_sdp(struct dp_catalog_audio *audio)
 		return;
 
 	if (audio->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream id:%d\n", audio->stream_id);
+		DP_ERR("invalid stream id:%d\n", audio->stream_id);
 		return;
 	}
 
@@ -2206,7 +2406,7 @@ static void dp_catalog_audio_config_sdp(struct dp_catalog_audio *audio)
 	/* AUDIO_INFOFRAME_SDP_EN  */
 	sdp_cfg |= BIT(20);
 
-	pr_debug("sdp_cfg = 0x%x\n", sdp_cfg);
+	DP_DEBUG("sdp_cfg = 0x%x\n", sdp_cfg);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG + sdp_cfg_off,
 			sdp_cfg);
 
@@ -2217,7 +2417,7 @@ static void dp_catalog_audio_config_sdp(struct dp_catalog_audio *audio)
 	/* AUDIO_STREAM_HB3_REGSRC-> Do not use reg values */
 	sdp_cfg2 &= ~BIT(1);
 
-	pr_debug("sdp_cfg2 = 0x%x\n", sdp_cfg2);
+	DP_DEBUG("sdp_cfg2 = 0x%x\n", sdp_cfg2);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG2 + sdp_cfg_off,
 			sdp_cfg2);
 }
@@ -2279,7 +2479,7 @@ static void dp_catalog_audio_config_acr(struct dp_catalog_audio *audio)
 
 	acr_ctrl = select << 4 | BIT(31) | BIT(8) | BIT(14);
 
-	pr_debug("select = 0x%x, acr_ctrl = 0x%x\n", select, acr_ctrl);
+	DP_DEBUG("select = 0x%x, acr_ctrl = 0x%x\n", select, acr_ctrl);
 
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_AUDIO_ACR_CTRL, acr_ctrl);
 }
@@ -2303,7 +2503,7 @@ static void dp_catalog_audio_enable(struct dp_catalog_audio *audio)
 	else
 		audio_ctrl &= ~BIT(0);
 
-	pr_debug("dp_audio_cfg = 0x%x\n", audio_ctrl);
+	DP_DEBUG("dp_audio_cfg = 0x%x\n", audio_ctrl);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_AUDIO_CFG, audio_ctrl);
 
 	/* make sure audio engine is disabled */
@@ -2334,7 +2534,7 @@ static void dp_catalog_config_spd_header(struct dp_catalog_panel *panel)
 	parity_byte = dp_header_get_parity(new_value);
 	value |= ((new_value << HEADER_BYTE_1_BIT)
 			| (parity_byte << PARITY_BYTE_1_BIT));
-	pr_debug("Header Byte 1: value = 0x%x, parity_byte = 0x%x\n",
+	DP_DEBUG("Header Byte 1: value = 0x%x, parity_byte = 0x%x\n",
 			value, parity_byte);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_GENERIC1_0 + offset,
 			value);
@@ -2347,7 +2547,7 @@ static void dp_catalog_config_spd_header(struct dp_catalog_panel *panel)
 	parity_byte = dp_header_get_parity(new_value);
 	value |= ((new_value << HEADER_BYTE_2_BIT)
 			| (parity_byte << PARITY_BYTE_2_BIT));
-	pr_debug("Header Byte 2: value = 0x%x, parity_byte = 0x%x\n",
+	DP_DEBUG("Header Byte 2: value = 0x%x, parity_byte = 0x%x\n",
 			value, parity_byte);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_GENERIC1_1 + offset,
 			value);
@@ -2360,7 +2560,7 @@ static void dp_catalog_config_spd_header(struct dp_catalog_panel *panel)
 	parity_byte = dp_header_get_parity(new_value);
 	value |= ((new_value << HEADER_BYTE_3_BIT)
 			| (parity_byte << PARITY_BYTE_3_BIT));
-	pr_debug("Header Byte 3: value = 0x%x, parity_byte = 0x%x\n",
+	DP_DEBUG("Header Byte 3: value = 0x%x, parity_byte = 0x%x\n",
 			new_value, parity_byte);
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_GENERIC1_1 + offset,
 			value);
@@ -2375,7 +2575,6 @@ static void dp_catalog_panel_config_spd(struct dp_catalog_panel *panel)
 	u32 offset = 0;
 	u32 sdp_cfg_off = 0;
 	u32 sdp_cfg2_off = 0;
-	u32 sdp_cfg3_off = 0;
 
 	/*
 	 * Source Device Information
@@ -2448,7 +2647,6 @@ static void dp_catalog_panel_config_spd(struct dp_catalog_panel *panel)
 	if (panel->stream_id == DP_STREAM_1) {
 		sdp_cfg_off = MMSS_DP1_SDP_CFG - MMSS_DP_SDP_CFG;
 		sdp_cfg2_off = MMSS_DP1_SDP_CFG2 - MMSS_DP_SDP_CFG2;
-		sdp_cfg3_off = MMSS_DP1_SDP_CFG3 - MMSS_DP_SDP_CFG3;
 	}
 
 	spd_cfg = dp_read(catalog->exe_mode, io_data,
@@ -2465,10 +2663,7 @@ static void dp_catalog_panel_config_spd(struct dp_catalog_panel *panel)
 	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG2 + sdp_cfg2_off,
 			spd_cfg2);
 
-	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
-				0x1);
-	dp_write(catalog->exe_mode, io_data, MMSS_DP_SDP_CFG3 + sdp_cfg3_off,
-				0x0);
+	dp_catalog_panel_sdp_update(panel);
 }
 
 static void dp_catalog_get_io_buf(struct dp_catalog_private *catalog)
@@ -2514,7 +2709,7 @@ static void dp_catalog_set_exe_mode(struct dp_catalog *dp_catalog, char *mode)
 	struct dp_catalog_private *catalog;
 
 	if (!dp_catalog) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -2609,6 +2804,7 @@ struct dp_catalog *dp_catalog_get(struct device *dev, struct dp_parser *parser)
 		.channel_dealloc = dp_catalog_ctrl_channel_dealloc,
 		.fec_config = dp_catalog_ctrl_fec_config,
 		.mainlink_levels = dp_catalog_ctrl_mainlink_levels,
+		.late_phy_init = dp_catalog_ctrl_late_phy_init,
 	};
 	struct dp_catalog_hpd hpd = {
 		.config_hpd	= dp_catalog_hpd_config_hpd,
@@ -2625,9 +2821,11 @@ struct dp_catalog *dp_catalog_get(struct device *dev, struct dp_parser *parser)
 	struct dp_catalog_panel panel = {
 		.timing_cfg = dp_catalog_panel_timing_cfg,
 		.config_hdr = dp_catalog_panel_config_hdr,
+		.config_sdp = dp_catalog_panel_config_sdp,
 		.tpg_config = dp_catalog_panel_tpg_cfg,
 		.config_spd = dp_catalog_panel_config_spd,
 		.config_misc = dp_catalog_panel_config_misc,
+		.set_colorspace = dp_catalog_panel_set_colorspace,
 		.config_msa = dp_catalog_panel_config_msa,
 		.update_transfer_unit = dp_catalog_panel_update_transfer_unit,
 		.config_ctrl = dp_catalog_panel_config_ctrl,
@@ -2639,7 +2837,7 @@ struct dp_catalog *dp_catalog_get(struct device *dev, struct dp_parser *parser)
 	};
 
 	if (!dev || !parser) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		rc = -EINVAL;
 		goto error;
 	}

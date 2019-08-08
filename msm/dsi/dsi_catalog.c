@@ -3,7 +3,6 @@
  * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt) "msm-dsi-catalog:[%s] " fmt, __func__
 #include <linux/errno.h>
 
 #include "dsi_catalog.h"
@@ -64,6 +63,7 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 	ctrl->ops.set_continuous_clk = dsi_ctrl_hw_cmn_set_continuous_clk;
 	ctrl->ops.wait4dynamic_refresh_done =
 		dsi_ctrl_hw_cmn_wait4dynamic_refresh_done;
+	ctrl->ops.hs_req_sel = dsi_ctrl_hw_cmn_hs_req_sel;
 
 	switch (version) {
 	case DSI_CTRL_VERSION_1_4:
@@ -142,7 +142,7 @@ int dsi_catalog_ctrl_setup(struct dsi_ctrl_hw *ctrl,
 
 	if (version == DSI_CTRL_VERSION_UNKNOWN ||
 	    version >= DSI_CTRL_VERSION_MAX) {
-		pr_err("Unsupported version: %d\n", version);
+		DSI_ERR("Unsupported version: %d\n", version);
 		return -ENOTSUPP;
 	}
 
@@ -261,6 +261,7 @@ static void dsi_catalog_phy_4_0_init(struct dsi_phy_hw *phy)
 		dsi_phy_hw_v4_0_dyn_refresh_helper;
 	phy->ops.dyn_refresh_ops.cache_phy_timings =
 		dsi_phy_hw_v4_0_cache_phy_timings;
+	phy->ops.set_continuous_clk = dsi_phy_hw_v4_0_set_continuous_clk;
 }
 
 /**
@@ -281,7 +282,7 @@ int dsi_catalog_phy_setup(struct dsi_phy_hw *phy,
 
 	if (version == DSI_PHY_VERSION_UNKNOWN ||
 	    version >= DSI_PHY_VERSION_MAX) {
-		pr_err("Unsupported version: %d\n", version);
+		DSI_ERR("Unsupported version: %d\n", version);
 		return -ENOTSUPP;
 	}
 
