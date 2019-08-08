@@ -1477,6 +1477,12 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	switch (ctrl->id) {
 	case V4L2_CID_MPEG_VIDEO_GOP_SIZE:
 		if (inst->state == MSM_VIDC_START_DONE) {
+			if (inst->all_intra) {
+				dprintk(VIDC_HIGH,
+					"%s: ignore dynamic gop size for all intra\n",
+					__func__);
+				break;
+			}
 			rc = msm_venc_set_intra_period(inst);
 			if (rc)
 				dprintk(VIDC_ERR,
@@ -1500,12 +1506,6 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 				"%s: set bitrate mode failed\n", __func__);
 		break;
 	}
-	case V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY:
-		inst->frame_quality = ctrl->val;
-		break;
-	case V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE:
-		inst->grid_enable = ctrl->val;
-		break;
 	case V4L2_CID_MPEG_VIDEO_BITRATE:
 		inst->clk_data.bitrate = ctrl->val;
 		if (inst->state == MSM_VIDC_START_DONE) {
@@ -1768,6 +1768,8 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 					__func__);
 		}
 		break;
+	case V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY:
+	case V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE:
 	case V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER:
 	case V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_TYPE:
 	case V4L2_CID_ROTATE:
@@ -1869,12 +1871,27 @@ int msm_venc_set_frame_rate(struct msm_vidc_inst *inst)
 	int rc = 0;
 	struct hfi_device *hdev;
 	struct hfi_frame_rate frame_rate;
+	struct msm_vidc_capability *capability;
+	u32 fps_max;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
 		return -EINVAL;
 	}
 	hdev = inst->core->device;
+	capability = &inst->capability;
+
+	/* Check frame rate */
+	if (inst->all_intra)
+		fps_max = capability->cap[CAP_ALLINTRA_MAX_FPS].max;
+	else
+		fps_max = capability->cap[CAP_FRAMERATE].max;
+
+	if (inst->clk_data.frame_rate >> 16 > fps_max) {
+		dprintk(VIDC_ERR, "%s: Unsupported frame rate\n",
+			__func__);
+		return -ENOTSUPP;
+	}
 
 	frame_rate.buffer_type = HFI_BUFFER_OUTPUT;
 	frame_rate.frame_rate = inst->clk_data.frame_rate;
@@ -2249,7 +2266,7 @@ void msm_venc_adjust_gop_size(struct msm_vidc_inst *inst)
 	 * Layer encoding needs GOP size to be multiple of subgop size
 	 * And subgop size is 2 ^ number of enhancement layers
 	 */
-	hier_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
+	hier_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
 	if (hier_ctrl->val > 1) {
 		u32 min_gop_size;
 		u32 num_subgops;
@@ -2288,6 +2305,14 @@ int msm_venc_set_intra_period(struct msm_vidc_inst *inst)
 	 */
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
 	intra_period.bframes = ctrl->val;
+
+	if (inst->state == MSM_VIDC_START_DONE &&
+		!intra_period.pframes && !intra_period.bframes) {
+		dprintk(VIDC_HIGH,
+			"%s: Switch from IPPP to All Intra is not allowed\n",
+			__func__);
+		return rc;
+	}
 
 	dprintk(VIDC_HIGH, "%s: %d %d\n", __func__, intra_period.pframes,
 		intra_period.bframes);
@@ -2771,12 +2796,74 @@ int msm_venc_set_qp_range(struct msm_vidc_inst *inst)
 	return rc;
 }
 
-int msm_venc_set_frame_quality(struct msm_vidc_inst *inst)
+static void set_all_intra_preconditions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL, *ctrl_t = NULL;
+
+	/* Disable multi slice */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Disable multi slice for all intra\n");
+		ctrl->val = V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE;
+	}
+
+	/* Disable LTR */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Disable LTR for all intra\n");
+		ctrl->val = 0;
+	}
+
+	/* Disable Layer encoding */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
+	ctrl_t = get_ctrl(inst,
+		V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
+	if (ctrl->val || ctrl_t->val) {
+		dprintk(VIDC_HIGH, "Disable layer encoding for all intra\n");
+		ctrl->val = 0;
+		ctrl_t->val = 0;
+	}
+
+	/* Disable IR */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_INTRA_REFRESH_RANDOM);
+	ctrl_t = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_CYCLIC_INTRA_REFRESH_MB);
+	if (ctrl->val || ctrl_t->val) {
+		dprintk(VIDC_HIGH, "Disable IR for all intra\n");
+		ctrl->val = 0;
+		ctrl_t->val = 0;
+	}
+
+	return;
+}
+
+static void set_heif_preconditions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL;
+
+	/* Reset PFrames */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_GOP_SIZE);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Reset P-frame count for HEIF\n");
+		ctrl->val = 0;
+	}
+
+	/* Reset BFrames */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Reset B-frame count for HEIF\n");
+		ctrl->val = 0;
+	}
+
+	return;
+}
+
+int msm_venc_set_image_properties(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
 	struct hfi_heic_frame_quality frame_quality;
+	struct hfi_heic_grid_enable grid_enable;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -2790,31 +2877,13 @@ int msm_venc_set_frame_quality(struct msm_vidc_inst *inst)
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY);
 	frame_quality.frame_quality = ctrl->val;
 
-	dprintk(VIDC_HIGH, "%s: %d\n", __func__, frame_quality.frame_quality);
+	dprintk(VIDC_HIGH, "%s: frame quality: %d\n", __func__,
+		frame_quality.frame_quality);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
 		HFI_PROPERTY_CONFIG_HEIC_FRAME_QUALITY, &frame_quality,
 		sizeof(frame_quality));
 	if (rc)
-		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
-
-	return rc;
-}
-
-int msm_venc_set_grid(struct msm_vidc_inst *inst)
-{
-	int rc = 0;
-	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
-	struct hfi_heic_grid_enable grid_enable;
-
-	if (!inst || !inst->core) {
-		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
-		return -EINVAL;
-	}
-	hdev = inst->core->device;
-
-	if (inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
-		return 0;
+		dprintk(VIDC_ERR, "%s: set frame quality failed\n", __func__);
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE);
 
@@ -2824,12 +2893,16 @@ int msm_venc_set_grid(struct msm_vidc_inst *inst)
 	else
 		grid_enable.grid_enable = true;
 
-	dprintk(VIDC_HIGH, "%s: %d\n", __func__, grid_enable.grid_enable);
+	dprintk(VIDC_HIGH, "%s: grid enable: %d\n", __func__,
+		grid_enable.grid_enable);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
 		HFI_PROPERTY_CONFIG_HEIC_GRID_ENABLE, &grid_enable,
 		sizeof(grid_enable));
 	if (rc)
-		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
+		dprintk(VIDC_ERR, "%s: set grid enable failed\n", __func__);
+
+	set_all_intra_preconditions(inst);
+	set_heif_preconditions(inst);
 
 	return rc;
 }
@@ -3189,7 +3262,7 @@ int msm_venc_enable_hybrid_hp(struct msm_vidc_inst *inst)
 	ctrl = get_ctrl(inst,
 		V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
 	layer = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
-	if (ctrl->val != layer->val)
+	if (ctrl->val == 0 || ctrl->val != layer->val)
 		return 0;
 
 	/*
@@ -3715,7 +3788,7 @@ int msm_venc_set_ltr_useframe(struct msm_vidc_inst *inst)
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_USELTRFRAME);
 	use_ltr.ref_ltr = ctrl->val;
-	use_ltr.use_constrnt = false;
+	use_ltr.use_constrnt = true;
 	use_ltr.frames = 0;
 	dprintk(VIDC_HIGH, "%s: %d\n", __func__, use_ltr.ref_ltr);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
@@ -3872,6 +3945,13 @@ int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst)
 		frame_sz.width = f->fmt.pix_mp.width;
 		frame_sz.height = f->fmt.pix_mp.height;
 		dprintk(VIDC_HIGH, "Disable both auto and external blur\n");
+	} else if (ctrl->val != 0){
+		if (check_blur_restrictions(inst)) {
+			/* reject external blur */
+			dprintk(VIDC_ERR,
+			"External blur is unsupported with rotation/flip/scalar\n");
+			return -EINVAL;
+		}
 	}
 
 	dprintk(VIDC_HIGH, "%s: type %u, height %u, width %u\n", __func__,
@@ -3989,10 +4069,112 @@ int msm_venc_set_lossless(struct msm_vidc_inst *inst)
 	return rc;
 }
 
+int handle_all_intra_restrictions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL;
+	u32 n_fps, fps_max;
+	struct msm_vidc_capability *capability;
+	struct v4l2_format *f;
+	enum hal_video_codec codec;
+	struct hfi_intra_period intra_period;
+
+	if (!inst || !inst->core) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
+		return 0;
+
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_GOP_SIZE);
+	intra_period.pframes = ctrl->val;
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
+	intra_period.bframes = ctrl->val;
+
+	if (!intra_period.pframes && !intra_period.bframes)
+		inst->all_intra = true;
+	else
+		return 0;
+
+	dprintk(VIDC_HIGH, "All Intra(IDRs) Encoding\n");
+	/* check codec and profile */
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	codec = get_hal_codec(f->fmt.pix_mp.pixelformat);
+	if (codec != HAL_VIDEO_CODEC_HEVC && codec != HAL_VIDEO_CODEC_H264) {
+		dprintk(VIDC_ERR, "Unsupported codec for all intra\n");
+		return -ENOTSUPP;
+	}
+	if (codec == HAL_VIDEO_CODEC_HEVC &&
+		inst->profile == HFI_HEVC_PROFILE_MAIN10) {
+		dprintk(VIDC_ERR, "Unsupported HEVC profile for all intra\n");
+		return -ENOTSUPP;
+	}
+
+	/* check supported bit rate mode and frame rate */
+	capability = &inst->capability;
+	n_fps = inst->clk_data.frame_rate >> 16;
+	fps_max = capability->cap[CAP_ALLINTRA_MAX_FPS].max;
+	if ((inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_VBR &&
+		inst->rc_type != RATE_CONTROL_OFF &&
+		inst->rc_type != RATE_CONTROL_LOSSLESS) ||
+		n_fps > fps_max) {
+		dprintk(VIDC_ERR, "Unsupported bitrate mode or frame rate\n");
+		return -ENOTSUPP;
+	}
+
+	set_all_intra_preconditions(inst);
+
+	return 0;
+}
+
+int check_blur_restrictions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *rotation = NULL;
+	struct v4l2_ctrl *hflip = NULL;
+	struct v4l2_ctrl *vflip = NULL;
+	struct v4l2_format *f;
+	u32 output_height, output_width, input_height, input_width;
+	bool scalar_enable = false;
+	bool rotation_enable = false;
+	bool flip_enable = false;
+
+	/* Only need to check static VPSS conditions */
+	if (inst->state == MSM_VIDC_START_DONE)
+		return 0;
+
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	output_height = f->fmt.pix_mp.height;
+	output_width = f->fmt.pix_mp.width;
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	input_height = f->fmt.pix_mp.height;
+	input_width = f->fmt.pix_mp.width;
+
+	if (output_height != input_height || output_width != input_width)
+		scalar_enable = true;
+
+	rotation = get_ctrl(inst, V4L2_CID_ROTATE);
+	if (rotation->val != 0)
+		rotation_enable = true;
+
+	hflip = get_ctrl(inst, V4L2_CID_HFLIP);
+	vflip = get_ctrl(inst, V4L2_CID_VFLIP);
+	if ((hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE) ||
+		(vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE))
+		flip_enable = true;
+
+	if (scalar_enable || rotation_enable || flip_enable)
+		return -ENOTSUPP;
+	else
+		return 0;
+}
+
 int msm_venc_set_properties(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 
+	rc = handle_all_intra_restrictions(inst);
+	if (rc)
+		goto exit;
 	rc = msm_venc_set_frame_size(inst);
 	if (rc)
 		goto exit;
@@ -4041,10 +4223,7 @@ int msm_venc_set_properties(struct msm_vidc_inst *inst)
 	rc = msm_venc_set_qp_range(inst);
 	if (rc)
 		goto exit;
-	rc = msm_venc_set_frame_quality(inst);
-	if (rc)
-		goto exit;
-	rc = msm_venc_set_grid(inst);
+	rc = msm_venc_set_image_properties(inst);
 	if (rc)
 		goto exit;
 	rc = msm_venc_set_au_delimiter_mode(inst);

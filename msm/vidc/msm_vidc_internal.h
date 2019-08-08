@@ -82,6 +82,17 @@
 	(((c) && (c)->core_ops && (c)->core_ops->op) ? \
 	((c)->core_ops->op(__VA_ARGS__)) : 0)
 
+/*
+ * Convert Q16 number into Integer and Fractional part upto 2 places.
+ * Ex : 105752 / 65536 = 1.61; 1.61 in Q16 = 105752;
+ * Integer part =  105752 / 65536 = 1;
+ * Reminder = 105752 * 0xFFFF = 40216; Last 16 bits.
+ * Fractional part = 40216 * 100 / 65536 = 61;
+ * Now convert to FP(1, 61, 100).
+ */
+#define Q16_INT(q) ((q) >> 16)
+#define Q16_FRAC(q) ((((q) & 0xFFFF) * 100) >> 16)
+
 struct msm_vidc_inst;
 
 enum vidc_ports {
@@ -442,6 +453,7 @@ struct msm_vidc_core {
 	struct msm_vidc_capability *capabilities;
 	struct delayed_work fw_unload_work;
 	struct work_struct ssr_work;
+	struct workqueue_struct *vidc_core_workq;
 	enum hal_ssr_trigger_type ssr_type;
 	bool smmu_fault_handled;
 	bool trigger_ssr;
@@ -508,8 +520,6 @@ struct msm_vidc_inst {
 	u32 colour_space;
 	u32 profile;
 	u32 level;
-	u32 grid_enable;
-	u32 frame_quality;
 	u32 rc_type;
 	u32 hybrid_hp;
 	u32 layer_bitrate;
@@ -518,8 +528,10 @@ struct msm_vidc_inst {
 	struct msm_vidc_codec_data *codec_data;
 	struct hal_hdr10_pq_sei hdr10_sei_params;
 	struct batch_mode batch;
+	struct delayed_work batch_work;
 	struct msm_vidc_inst_smem_ops *smem_ops;
 	int (*buffer_size_calculators)(struct msm_vidc_inst *inst);
+	bool all_intra;
 };
 
 extern struct msm_vidc_drv *vidc_driver;
@@ -546,7 +558,6 @@ void handle_cmd_response(enum hal_command_response cmd, void *data);
 int msm_vidc_trigger_ssr(struct msm_vidc_core *core,
 	enum hal_ssr_trigger_type type);
 int msm_vidc_noc_error_info(struct msm_vidc_core *core);
-bool heic_encode_session_supported(struct msm_vidc_inst *inst);
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst);
 int msm_vidc_check_scaling_supported(struct msm_vidc_inst *inst);
 void msm_vidc_queue_v4l2_event(struct msm_vidc_inst *inst, int event_type);

@@ -658,11 +658,6 @@ struct hfi_bit_depth {
 	u32 bit_depth;
 };
 
-struct hfi_picture_type {
-	u32 is_sync_frame;
-	u32 picture_type;
-};
-
 /* Base Offset for UBWC color formats  */
 #define HFI_COLOR_FORMAT_UBWC_BASE        (0x8000)
 /* Base Offset for 10-bit color formats */

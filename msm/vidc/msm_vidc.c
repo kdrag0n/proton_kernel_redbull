@@ -826,15 +826,6 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 		is_secondary_output_mode(inst))
 		b.buffer_type = HFI_BUFFER_OUTPUT2;
 
-	/* HEIC HW/FWK tiling encode is supported only for CQ RC mode */
-	if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ) {
-		if (!heic_encode_session_supported(inst)) {
-			dprintk(VIDC_ERR,
-				"HEIC Encode session not supported\n");
-			return -ENOTSUPP;
-		}
-	}
-
 	/* Check if current session is under HW capability */
 	rc = msm_vidc_check_session_supported(inst);
 	if (rc) {
@@ -1105,6 +1096,7 @@ static inline int stop_streaming(struct msm_vidc_inst *inst)
 			dprintk(VIDC_ERR,
 				"%s: failed to unprepare preprocess\n",
 				__func__);
+		inst->all_intra = false;
 	}
 
 	msm_clock_data_reset(inst);
@@ -1439,9 +1431,6 @@ static int try_get_ctrl_for_instance(struct msm_vidc_inst *inst,
 			V4L2_CID_MPEG_VIDEO_HEVC_PROFILE,
 			inst->profile);
 		break;
-	case V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE:
-		ctrl->val = inst->grid_enable;
-		break;
 	case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
 		ctrl->val = msm_comm_hfi_to_v4l2(
 			V4L2_CID_MPEG_VIDEO_H264_LEVEL,
@@ -1536,6 +1525,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	INIT_MSM_VIDC_LIST(&inst->etb_data);
 	INIT_MSM_VIDC_LIST(&inst->fbd_data);
 
+	INIT_DELAYED_WORK(&inst->batch_work, msm_vidc_batch_handler);
 	kref_init(&inst->kref);
 
 	inst->session_type = session_type;
@@ -1550,6 +1540,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	inst->smem_ops = &msm_vidc_smem_ops;
 	inst->rc_type = RATE_CONTROL_OFF;
 	inst->dpb_extra_binfo = NULL;
+	inst->all_intra = false;
 
 	for (i = SESSION_MSG_INDEX(SESSION_MSG_START);
 		i <= SESSION_MSG_INDEX(SESSION_MSG_END); i++) {
@@ -1695,6 +1686,8 @@ static void msm_vidc_cleanup_instance(struct msm_vidc_inst *inst)
 		kref_put_mbuf(temp);
 	}
 	mutex_unlock(&inst->registeredbufs.lock);
+
+	cancel_batch_work(inst);
 
 	msm_comm_free_freq_table(inst);
 

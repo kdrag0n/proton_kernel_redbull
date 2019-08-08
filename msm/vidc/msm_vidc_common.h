@@ -84,6 +84,14 @@ static inline u32 get_v4l2_codec(struct msm_vidc_inst *inst)
 	return f->fmt.pix_mp.pixelformat;
 }
 
+static inline bool is_image_session(struct msm_vidc_inst *inst)
+{
+	/* Grid may or may not be enabled for an image encode session */
+	return inst->session_type == MSM_VIDC_ENCODER &&
+		get_v4l2_codec(inst) == V4L2_PIX_FMT_HEVC &&
+		inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ;
+}
+
 static inline bool is_realtime_session(struct msm_vidc_inst *inst)
 {
 	return !!(inst->flags & VIDC_REALTIME);
@@ -286,12 +294,17 @@ void msm_comm_store_mark_data(struct msm_vidc_list *data_list,
 void msm_comm_fetch_mark_data(struct msm_vidc_list *data_list,
 		u32 index, u32 *mark_data, u32 *mark_target);
 int msm_comm_release_mark_data(struct msm_vidc_inst *inst);
+int msm_comm_qbufs_batch(struct msm_vidc_inst *inst,
+		struct msm_vidc_buffer *mbuf);
 int msm_comm_qbuf_decode_batch(struct msm_vidc_inst *inst,
 		struct msm_vidc_buffer *mbuf);
+int schedule_batch_work(struct msm_vidc_inst *inst);
+int cancel_batch_work(struct msm_vidc_inst *inst);
 int msm_comm_num_queued_bufs(struct msm_vidc_inst *inst, u32 type);
 int msm_comm_set_index_extradata(struct msm_vidc_inst *inst,
 		uint32_t extradata_id, uint32_t value);
 int msm_comm_set_extradata(struct msm_vidc_inst *inst, uint32_t extradata_id,
 		uint32_t value);
 bool msm_comm_check_for_inst_overload(struct msm_vidc_core *core);
+void msm_vidc_batch_handler(struct work_struct *work);
 #endif

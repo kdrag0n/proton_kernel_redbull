@@ -1571,6 +1571,9 @@ static void handle_session_init_done(enum hal_command_response cmd, void *data)
 		&inst->capability.cap[CAP_LOSSLESS_FRAME_HEIGHT]);
 	print_cap("lossless_mbs_per_frame",
 		&inst->capability.cap[CAP_LOSSLESS_MBS_PER_FRAME]);
+	/* All intra encoding usecase specific */
+	print_cap("all_intra_frame_rate",
+		&inst->capability.cap[CAP_ALLINTRA_MAX_FPS]);
 
 	msm_vidc_comm_update_ctrl_limits(inst);
 
@@ -2384,48 +2387,6 @@ int msm_comm_vb2_buffer_done(struct msm_vidc_inst *inst,
 	return 0;
 }
 
-bool heic_encode_session_supported(struct msm_vidc_inst *inst)
-{
-	u32 slice_mode;
-	u32 idr_period = IDR_PERIOD;
-	u32 n_bframes;
-	u32 n_pframes;
-	struct v4l2_format *f;
-
-	slice_mode =  msm_comm_g_ctrl_for_id(inst,
-		V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE);
-	n_bframes =  msm_comm_g_ctrl_for_id(inst,
-		V4L2_CID_MPEG_VIDEO_B_FRAMES);
-	n_pframes =  msm_comm_g_ctrl_for_id(inst,
-		V4L2_CID_MPEG_VIDEO_GOP_SIZE);
-
-	/*
-	 * HEIC Encode is supported for Constant Quality RC mode only.
-	 * All configurations below except grid_enable are required for any
-	 * HEIC session including FWK tiled HEIC encode.
-	 * grid_enable flag along with dimension check enables HW tiling.
-	 */
-	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
-	if (inst->session_type == MSM_VIDC_ENCODER &&
-		get_hal_codec(f->fmt.pix_mp.pixelformat) ==
-			HAL_VIDEO_CODEC_HEVC &&
-		inst->frame_quality >= MIN_FRAME_QUALITY &&
-		inst->frame_quality <= MAX_FRAME_QUALITY &&
-		slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE &&
-		idr_period == 1 &&
-		n_bframes == 0 &&
-		n_pframes == 0) {
-		if (inst->grid_enable > 0) {
-			if (f->fmt.pix_mp.width < HEIC_GRID_DIMENSION ||
-				f->fmt.pix_mp.height < HEIC_GRID_DIMENSION)
-				return false;
-			}
-		return true;
-	} else {
-		return false;
-	}
-}
-
 static bool is_eos_buffer(struct msm_vidc_inst *inst, u32 device_addr)
 {
 	struct eos_buf *temp, *next;
@@ -2521,8 +2482,6 @@ static void handle_ebd(enum hal_command_response cmd, void *data)
 		dprintk(VIDC_LOW, "Failed : Corrupted input stream\n");
 		mbuf->vvb.flags |= V4L2_BUF_FLAG_DATA_CORRUPT;
 	}
-	if (empty_buf_done->flags & HAL_BUFFERFLAG_SYNCFRAME)
-		mbuf->vvb.flags |= V4L2_BUF_FLAG_KEYFRAME;
 
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
 	if (f->fmt.pix_mp.num_planes > 1)
@@ -4351,6 +4310,35 @@ err_bad_input:
 	return rc;
 }
 
+void msm_vidc_batch_handler(struct work_struct *work)
+{
+	int rc = 0;
+	struct msm_vidc_inst *inst;
+
+	inst = container_of(work, struct msm_vidc_inst, batch_work.work);
+
+	inst = get_inst(get_vidc_core(MSM_VIDC_CORE_VENUS), inst);
+	if (!inst) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return;
+	}
+
+	if (inst->state == MSM_VIDC_CORE_INVALID) {
+		dprintk(VIDC_ERR, "%s: invalid state\n", __func__);
+		goto exit;
+	}
+
+	dprintk(VIDC_HIGH, "%s: %x: queue pending batch buffers\n",
+		__func__, hash32_ptr(inst->session));
+
+	rc = msm_comm_qbufs_batch(inst, NULL);
+	if (rc)
+		dprintk(VIDC_ERR, "%s: batch qbufs failed\n", __func__);
+
+exit:
+	put_inst(inst);
+}
+
 static int msm_comm_qbuf_superframe_to_hfi(struct msm_vidc_inst *inst,
 		struct msm_vidc_buffer *mbuf)
 {
@@ -4562,6 +4550,45 @@ int msm_comm_qbufs(struct msm_vidc_inst *inst)
 	return rc;
 }
 
+int msm_comm_qbufs_batch(struct msm_vidc_inst *inst,
+		struct msm_vidc_buffer *mbuf)
+{
+	int rc = 0;
+	struct msm_vidc_buffer *buf;
+
+	rc = msm_comm_scale_clocks_and_bus(inst);
+	if (rc)
+		dprintk(VIDC_ERR, "%s: scale clocks failed\n", __func__);
+
+	mutex_lock(&inst->registeredbufs.lock);
+	list_for_each_entry(buf, &inst->registeredbufs.list, list) {
+		/* Don't queue if buffer is not OUTPUT_MPLANE */
+		if (buf->vvb.vb2_buf.type != OUTPUT_MPLANE)
+			goto loop_end;
+		/* Don't queue if buffer is not a deferred buffer */
+		if (!(buf->flags & MSM_VIDC_FLAG_DEFERRED))
+			goto loop_end;
+		/* Don't queue if RBR event is pending on this buffer */
+		if (buf->flags & MSM_VIDC_FLAG_RBR_PENDING)
+			goto loop_end;
+
+		print_vidc_buffer(VIDC_HIGH, "batch-qbuf", inst, buf);
+		rc = msm_comm_qbuf_to_hfi(inst, buf);
+		if (rc) {
+			dprintk(VIDC_ERR, "%s: Failed batch qbuf to hfi: %d\n",
+				__func__, rc);
+			break;
+		}
+loop_end:
+		/* Queue pending buffers till the current buffer only */
+		if (buf == mbuf)
+			break;
+	}
+	mutex_unlock(&inst->registeredbufs.lock);
+
+	return rc;
+}
+
 /*
  * msm_comm_qbuf_decode_batch - count the buffers which are not queued to
  *              firmware yet (count includes rbr pending buffers too) and
@@ -4574,9 +4601,8 @@ int msm_comm_qbuf_decode_batch(struct msm_vidc_inst *inst,
 {
 	int rc = 0;
 	u32 count = 0;
-	struct msm_vidc_buffer *buf;
 
-	if (!inst || !mbuf) {
+	if (!inst || !inst->core || !mbuf) {
 		dprintk(VIDC_ERR, "%s: Invalid arguments\n", __func__);
 		return -EINVAL;
 	}
@@ -4601,41 +4627,53 @@ int msm_comm_qbuf_decode_batch(struct msm_vidc_inst *inst,
 		if (count < inst->batch.size) {
 			print_vidc_buffer(VIDC_HIGH,
 				"batch-qbuf deferred", inst, mbuf);
+			schedule_batch_work(inst);
 			return 0;
 		}
+
+		/*
+		 * Batch completed - queing bufs to firmware.
+		 * so cancel pending work if any.
+		 */
+		cancel_batch_work(inst);
 	}
 
-	rc = msm_comm_scale_clocks_and_bus(inst);
+	rc = msm_comm_qbufs_batch(inst, mbuf);
 	if (rc)
-		dprintk(VIDC_ERR, "%s: scale clocks failed\n", __func__);
-
-	mutex_lock(&inst->registeredbufs.lock);
-	list_for_each_entry(buf, &inst->registeredbufs.list, list) {
-		/* Don't queue if buffer is not CAPTURE_MPLANE */
-		if (buf->vvb.vb2_buf.type != OUTPUT_MPLANE)
-			goto loop_end;
-		/* Don't queue if buffer is not a deferred buffer */
-		if (!(buf->flags & MSM_VIDC_FLAG_DEFERRED))
-			goto loop_end;
-		/* Don't queue if RBR event is pending on this buffer */
-		if (buf->flags & MSM_VIDC_FLAG_RBR_PENDING)
-			goto loop_end;
-
-		print_vidc_buffer(VIDC_HIGH, "batch-qbuf", inst, buf);
-		rc = msm_comm_qbuf_to_hfi(inst, buf);
-		if (rc) {
-			dprintk(VIDC_ERR, "%s: Failed qbuf to hfi: %d\n",
-				__func__, rc);
-			break;
-		}
-loop_end:
-		/* Queue pending buffers till the current buffer only */
-		if (buf == mbuf)
-			break;
-	}
-	mutex_unlock(&inst->registeredbufs.lock);
+		dprintk(VIDC_ERR, "%s: Failed qbuf to hfi: %d\n",
+			__func__, rc);
 
 	return rc;
+}
+
+int schedule_batch_work(struct msm_vidc_inst *inst)
+{
+	struct msm_vidc_core *core;
+	struct msm_vidc_platform_resources *res;
+
+	if (!inst || !inst->core) {
+		dprintk(VIDC_ERR, "%s: Invalid arguments\n", __func__);
+		return -EINVAL;
+	}
+	core = inst->core;
+	res = &core->resources;
+
+	cancel_delayed_work(&inst->batch_work);
+	queue_delayed_work(core->vidc_core_workq, &inst->batch_work,
+		msecs_to_jiffies(res->batch_timeout));
+
+	return 0;
+}
+
+int cancel_batch_work(struct msm_vidc_inst *inst)
+{
+	if (!inst) {
+		dprintk(VIDC_ERR, "%s: Invalid arguments\n", __func__);
+		return -EINVAL;
+	}
+	cancel_delayed_work(&inst->batch_work);
+
+	return 0;
 }
 
 int msm_comm_try_get_bufreqs(struct msm_vidc_inst *inst)
@@ -5331,6 +5369,7 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 
 	msm_clock_data_reset(inst);
 
+	cancel_batch_work(inst);
 	if (inst->state == MSM_VIDC_CORE_INVALID) {
 		dprintk(VIDC_ERR,
 				"Core %pK and inst %pK are in bad state\n",
@@ -5504,6 +5543,9 @@ static int msm_vidc_check_mbpf_supported(struct msm_vidc_inst *inst)
 		/* ignore thumbnail session */
 		if (is_thumbnail_session(temp))
 			continue;
+		/* ignore HEIF sessions */
+		if (is_image_session(temp))
+			continue;
 		mbpf += NUM_MBS_PER_FRAME(
 			temp->fmts[INPUT_PORT].v4l2_fmt.fmt.pix_mp.height,
 			temp->fmts[INPUT_PORT].v4l2_fmt.fmt.pix_mp.width);
@@ -5548,10 +5590,15 @@ int msm_vidc_check_scaling_supported(struct msm_vidc_inst *inst)
 	u32 x_min, x_max, y_min, y_max;
 	u32 input_height, input_width, output_height, output_width;
 	struct v4l2_format *f;
+	struct v4l2_ctrl *ctrl = NULL;
 
-	if (inst->grid_enable > 0) {
-		dprintk(VIDC_HIGH, "Skip scaling check for HEIC\n");
-		return 0;
+	/* Grid get_ctrl allowed for encode session only */
+	if (is_image_session(inst)) {
+		ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE);
+		if (ctrl->val > 0) {
+			dprintk(VIDC_HIGH, "Skip scaling check for HEIC\n");
+			return 0;
+		}
 	}
 
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
@@ -5638,6 +5685,7 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 	u32 width_min, width_max, height_min, height_max;
 	u32 mbpf_max;
 	struct v4l2_format *f;
+	struct v4l2_ctrl *ctrl = NULL;
 
 	if (!inst || !inst->core || !inst->core->device) {
 		dprintk(VIDC_ERR, "%s: Invalid parameter\n", __func__);
@@ -5692,6 +5740,48 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
 	input_height = f->fmt.pix_mp.height;
 	input_width = f->fmt.pix_mp.width;
+
+	if (is_image_session(inst)) {
+		if (is_secure_session(inst)) {
+			dprintk(VIDC_ERR,
+				"Secure image encode isn't supported!\n");
+			return -ENOTSUPP;
+		}
+
+		ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE);
+		if (ctrl->val > 0) {
+			if (inst->fmts[INPUT_PORT].v4l2_fmt.fmt.pix_mp.pixelformat !=
+				V4L2_PIX_FMT_NV12 &&
+				inst->fmts[INPUT_PORT].v4l2_fmt.fmt.pix_mp.pixelformat !=
+				V4L2_PIX_FMT_NV12_512)
+				return -ENOTSUPP;
+
+			width_min =
+				capability->cap[CAP_HEIC_IMAGE_FRAME_WIDTH].min;
+			width_max =
+				capability->cap[CAP_HEIC_IMAGE_FRAME_WIDTH].max;
+			height_min =
+				capability->cap[CAP_HEIC_IMAGE_FRAME_HEIGHT].min;
+			height_max =
+				capability->cap[CAP_HEIC_IMAGE_FRAME_HEIGHT].max;
+			mbpf_max = capability->cap[CAP_MBS_PER_FRAME].max;
+
+			input_height = ALIGN(input_height, 512);
+			input_width = ALIGN(input_width, 512);
+			output_height = input_height;
+			output_width = input_width;
+		} else {
+			width_min =
+				capability->cap[CAP_HEVC_IMAGE_FRAME_WIDTH].min;
+			width_max =
+				capability->cap[CAP_HEVC_IMAGE_FRAME_WIDTH].max;
+			height_min =
+				capability->cap[CAP_HEVC_IMAGE_FRAME_HEIGHT].min;
+			height_max =
+				capability->cap[CAP_HEVC_IMAGE_FRAME_HEIGHT].max;
+			mbpf_max = capability->cap[CAP_MBS_PER_FRAME].max;
+		}
+	}
 
 	if (inst->session_type == MSM_VIDC_ENCODER && (input_width % 2 != 0 ||
 			input_height % 2 != 0 || output_width % 2 != 0 ||
