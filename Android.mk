@@ -3,7 +3,7 @@ MY_LOCAL_PATH := $(call my-dir)
 
 UAPI_OUT := $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/include
 
-ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito),true)
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito bengal),true)
 $(shell mkdir -p $(UAPI_OUT)/linux;)
 $(shell mkdir -p $(UAPI_OUT)/sound;)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/ipc/Module.symvers)
@@ -17,36 +17,37 @@ include $(MY_LOCAL_PATH)/include/uapi/Android.mk
 include $(MY_LOCAL_PATH)/ipc/Android.mk
 include $(MY_LOCAL_PATH)/dsp/Android.mk
 include $(MY_LOCAL_PATH)/dsp/codecs/Android.mk
+include $(MY_LOCAL_PATH)/soc/Android.mk
 include $(MY_LOCAL_PATH)/asoc/Android.mk
 include $(MY_LOCAL_PATH)/asoc/codecs/Android.mk
 endif
 
 ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET)),true)
-ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
+ifneq ($(TARGET_BOARD_AUTO),true)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd934x/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/wcd934x/Android.mk
-endif
-endif
-
-ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
+$(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/soc/Module.symvers)
 include $(MY_LOCAL_PATH)/soc/Android.mk
+endif
 endif
 
 ifeq ($(call is-board-platform-in-list,msmnile),true)
-ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
+ifneq ($(TARGET_BOARD_AUTO),true)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/aqt1000/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/aqt1000/Android.mk
 endif
 endif
 
 ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) $(TRINKET)),true)
+ifneq ($(TARGET_BOARD_AUTO),true)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/bolero/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/bolero/Android.mk
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd937x/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/wcd937x/Android.mk
 endif
+endif
 
-ifeq ($(call is-board-platform-in-list, kona lito),true)
+ifeq ($(call is-board-platform-in-list, kona lito bengal),true)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/bolero/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/bolero/Android.mk
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd938x/Module.symvers)

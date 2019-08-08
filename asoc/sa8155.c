@@ -45,9 +45,11 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/info.h>
+#include <soc/snd_event.h>
 #include <dsp/audio_notifier.h>
 #include <dsp/q6afe-v2.h>
 #include <dsp/q6core.h>
+#include <soc/qcom/boot_stats.h>
 #include "device_event.h"
 #include "msm-pcm-routing-v2.h"
 
@@ -422,7 +424,7 @@ static unsigned int tdm_rx_slot_offset
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
-		{0xFFFF}, /* not used */
+		{28, 0xFFFF},
 	}
 };
 
@@ -477,7 +479,7 @@ static unsigned int tdm_tx_slot_offset
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
-		{0xFFFF}, /* not used */
+		{20, 0xFFFF},
 	}
 };
 
@@ -538,7 +540,7 @@ static unsigned int tdm_rx_slot_offset_custom
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
-		{0xFFFF}, /* not used */
+		{0, 0xFFFF},
 	}
 };
 
@@ -592,7 +594,7 @@ static unsigned int tdm_tx_slot_offset_custom
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
 		{0xFFFF}, /* not used */
-		{0xFFFF}, /* not used */
+		{0, 0xFFFF},
 	}
 };
 
@@ -692,9 +694,6 @@ static SOC_ENUM_SINGLE_EXT_DECL(mi2s_rx_format, bit_format_text);
 static SOC_ENUM_SINGLE_EXT_DECL(mi2s_tx_format, bit_format_text);
 static SOC_ENUM_SINGLE_EXT_DECL(aux_pcm_rx_format, bit_format_text);
 static SOC_ENUM_SINGLE_EXT_DECL(aux_pcm_tx_format, bit_format_text);
-
-static bool is_initial_boot = true;
-static struct platform_device *spdev;
 
 static struct afe_clk_set mi2s_clk[MI2S_MAX] = {
 	{
@@ -4329,6 +4328,14 @@ static int msm_tdm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 		rate->min = rate->max =
 				tdm_rx_cfg[TDM_QUIN][TDM_3].sample_rate;
 		break;
+	case AFE_PORT_ID_QUINARY_TDM_RX_7:
+		channels->min = channels->max =
+				tdm_rx_cfg[TDM_QUIN][TDM_7].channels;
+		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+				tdm_rx_cfg[TDM_QUIN][TDM_7].bit_format);
+		rate->min = rate->max =
+				tdm_rx_cfg[TDM_QUIN][TDM_7].sample_rate;
+		break;
 	case AFE_PORT_ID_QUINARY_TDM_TX:
 		channels->min = channels->max =
 				tdm_tx_cfg[TDM_QUIN][TDM_0].channels;
@@ -4360,6 +4367,14 @@ static int msm_tdm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				tdm_tx_cfg[TDM_QUIN][TDM_3].bit_format);
 		rate->min = rate->max =
 				tdm_tx_cfg[TDM_QUIN][TDM_3].sample_rate;
+		break;
+	case AFE_PORT_ID_QUINARY_TDM_TX_7:
+		channels->min = channels->max =
+				tdm_tx_cfg[TDM_QUIN][TDM_7].channels;
+		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+				tdm_tx_cfg[TDM_QUIN][TDM_7].bit_format);
+		rate->min = rate->max =
+				tdm_tx_cfg[TDM_QUIN][TDM_7].sample_rate;
 		break;
 	default:
 		pr_err("%s: dai id 0x%x not supported\n",
@@ -4631,6 +4646,11 @@ static int sa8155_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 		slot_width = tdm_slot[TDM_QUIN].width;
 		slot_offset = tdm_rx_slot_offset[TDM_QUIN][TDM_3];
 		break;
+	case AFE_PORT_ID_QUINARY_TDM_RX_7:
+		slots = tdm_slot[TDM_QUIN].num;
+		slot_width = tdm_slot[TDM_QUIN].width;
+		slot_offset = tdm_rx_slot_offset[TDM_QUIN][TDM_7];
+		break;
 	case AFE_PORT_ID_QUINARY_TDM_TX:
 		slots = tdm_slot[TDM_QUIN].num;
 		slot_width = tdm_slot[TDM_QUIN].width;
@@ -4650,6 +4670,11 @@ static int sa8155_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 		slots = tdm_slot[TDM_QUIN].num;
 		slot_width = tdm_slot[TDM_QUIN].width;
 		slot_offset = tdm_tx_slot_offset[TDM_QUIN][TDM_3];
+		break;
+	case AFE_PORT_ID_QUINARY_TDM_TX_7:
+		slots = tdm_slot[TDM_QUIN].num;
+		slot_width = tdm_slot[TDM_QUIN].width;
+		slot_offset = tdm_tx_slot_offset[TDM_QUIN][TDM_7];
 		break;
 	default:
 		pr_err("%s: dai id 0x%x not supported\n",
@@ -5799,6 +5824,36 @@ static struct snd_soc_dai_link msm_auto_fe_dai_links[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
+	{
+		.name = "Quinary TDM RX 7 Hostless",
+		.stream_name = "Quinary TDM RX 7 Hostless",
+		.cpu_dai_name = "QUIN_TDM_RX_7_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_playback = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+	{
+		.name = "Quinary TDM TX 7 Hostless",
+		.stream_name = "Quinary TDM TX 7 Hostless",
+		.cpu_dai_name = "QUIN_TDM_TX_7_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_capture = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
 };
 
 static struct snd_soc_dai_link msm_custom_fe_dai_links[] = {
@@ -6660,6 +6715,34 @@ static struct snd_soc_dai_link msm_auto_be_dai_links[] = {
 		.ops = &sa8155_tdm_be_ops,
 		.ignore_suspend = 1,
 	},
+	{
+		.name = LPASS_BE_QUIN_TDM_RX_7,
+		.stream_name = "Quinary TDM7 Playback",
+		.cpu_dai_name = "msm-dai-q6-tdm.36942",
+		.platform_name = "msm-pcm-routing",
+		.codec_name = "msm-stub-codec.1",
+		.codec_dai_name = "msm-stub-rx",
+		.no_pcm = 1,
+		.dpcm_playback = 1,
+		.id = MSM_BACKEND_DAI_QUIN_TDM_RX_7,
+		.be_hw_params_fixup = msm_tdm_be_hw_params_fixup,
+		.ops = &sa8155_tdm_be_ops,
+		.ignore_suspend = 1,
+	},
+	{
+		.name = LPASS_BE_QUIN_TDM_TX_7,
+		.stream_name = "Quinary TDM7 Capture",
+		.cpu_dai_name = "msm-dai-q6-tdm.36943",
+		.platform_name = "msm-pcm-routing",
+		.codec_name = "msm-stub-codec.1",
+		.codec_dai_name = "msm-stub-rx",
+		.no_pcm = 1,
+		.dpcm_capture = 1,
+		.id = MSM_BACKEND_DAI_QUIN_TDM_TX_7,
+		.be_hw_params_fixup = msm_tdm_be_hw_params_fixup,
+		.ops = &sa8155_tdm_be_ops,
+		.ignore_suspend = 1,
+	},
 };
 
 static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
@@ -7298,12 +7381,90 @@ static void msm_i2s_auxpcm_deinit(struct platform_device *pdev)
 		pdata->mi2s_intf_conf[count].msm_is_mi2s_master = 0;
 	}
 }
+
+static int sa8155_ssr_enable(struct device *dev, void *data)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+	int ret = 0;
+
+	if (!card) {
+		dev_err(dev, "%s: card is NULL\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	dev_info(dev, "%s: setting snd_card to ONLINE\n", __func__);
+	snd_soc_card_change_online_state(card, 1);
+
+err:
+	return ret;
+}
+
+static void sa8155_ssr_disable(struct device *dev, void *data)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+
+	if (!card) {
+		dev_err(dev, "%s: card is NULL\n", __func__);
+		return;
+	}
+
+	dev_info(dev, "%s: setting snd_card to OFFLINE\n", __func__);
+	snd_soc_card_change_online_state(card, 0);
+}
+
+static const struct snd_event_ops sa8155_ssr_ops = {
+	.enable = sa8155_ssr_enable,
+	.disable = sa8155_ssr_disable,
+};
+
+static int msm_audio_ssr_compare(struct device *dev, void *data)
+{
+	struct device_node *node = data;
+
+	dev_dbg(dev, "%s: dev->of_node = 0x%p, node = 0x%p\n",
+		__func__, dev->of_node, node);
+	return (dev->of_node && dev->of_node == node);
+}
+
+static int msm_audio_ssr_register(struct device *dev)
+{
+	struct device_node *np = dev->of_node;
+	struct snd_event_clients *ssr_clients = NULL;
+	struct device_node *node;
+	int ret;
+	int i;
+
+	for (i = 0; ; i++) {
+		node = of_parse_phandle(np, "qcom,msm_audio_ssr_devs", i);
+		if (!node)
+			break;
+		snd_event_mstr_add_client(&ssr_clients,
+					msm_audio_ssr_compare, node);
+	}
+
+	ret = snd_event_master_register(dev, &sa8155_ssr_ops,
+					ssr_clients, NULL);
+	if (!ret)
+		snd_event_notify(dev, SND_EVENT_UP);
+
+	return ret;
+}
+
 static int msm_asoc_machine_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card;
 	struct msm_asoc_mach_data *pdata;
 	int ret;
 	enum apr_subsys_state q6_state;
+	static int first_probe = 1;
+
+	if (first_probe) {
+		place_marker("M - DRIVER Audio Init");
+		first_probe = 0;
+	}
 
 	if (!pdev->dev.of_node) {
 		dev_err(&pdev->dev, "No platform supplied from device tree\n");
@@ -7364,7 +7525,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		goto err;
 	}
 	dev_info(&pdev->dev, "Sound card %s registered\n", card->name);
-	spdev = pdev;
 
 	/* Parse pinctrl info from devicetree */
 	ret = msm_get_pinctrl(pdev);
@@ -7379,6 +7539,12 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 
 	msm_i2s_auxpcm_init(pdev);
 
+	ret = msm_audio_ssr_register(&pdev->dev);
+	if (ret)
+		pr_err("%s: Registration with SND event FWK failed ret = %d\n",
+			__func__, ret);
+
+	place_marker("M - DRIVER Audio Ready");
 	return 0;
 err:
 	msm_release_pinctrl(pdev);
@@ -7407,58 +7573,9 @@ static struct platform_driver sa8155_asoc_machine_driver = {
 	.remove = msm_asoc_machine_remove,
 };
 
-static int sa8155_notifier_service_cb(struct notifier_block *this,
-					 unsigned long opcode, void *ptr)
-{
-	struct snd_soc_card *card = NULL;
-
-	pr_debug("%s: Service opcode 0x%lx\n", __func__, opcode);
-
-	switch (opcode) {
-	case AUDIO_NOTIFIER_SERVICE_DOWN:
-		if (!spdev)
-			return -EINVAL;
-		card = platform_get_drvdata(spdev);
-		if (card == NULL){
-			pr_err("%s: card is NULL\n",__func__);
-			return -EINVAL;
-		} else {
-			pr_debug("%s: setting snd_card to OFFLINE\n", __func__);
-			snd_soc_card_change_online_state(card, 0);
-		}
-		break;
-	case AUDIO_NOTIFIER_SERVICE_UP:
-		if (is_initial_boot) {
-			is_initial_boot = false;
-			break;
-		}
-		if (!spdev)
-			return -EINVAL;
-		card = platform_get_drvdata(spdev);
-		if (card == NULL){
-			pr_err("%s: card is NULL\n",__func__);
-			return -EINVAL;
-		} else {
-			pr_debug("%s: setting snd_card to ONLINE\n", __func__);
-			snd_soc_card_change_online_state(card, 1);
-		}
-		break;
-	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block service_nb = {
-	.notifier_call  = sa8155_notifier_service_cb,
-	.priority = -INT_MAX,
-};
-
 int __init sa8155_init(void)
 {
 	pr_debug("%s\n", __func__);
-	audio_notifier_register("sa8155", AUDIO_NOTIFIER_ADSP_DOMAIN,
-				      &service_nb);
 	return platform_driver_register(&sa8155_asoc_machine_driver);
 }
 
@@ -7466,7 +7583,6 @@ void sa8155_exit(void)
 {
 	pr_debug("%s\n", __func__);
 	platform_driver_unregister(&sa8155_asoc_machine_driver);
-	audio_notifier_deregister("sa8155");
 }
 
 module_init(sa8155_init);

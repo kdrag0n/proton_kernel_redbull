@@ -699,10 +699,11 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.key_code[6] = 0,
 	.key_code[7] = 0,
 	.linein_th = 5000,
-	.moisture_en = true,
+	.moisture_en = false,
 	.mbhc_micbias = MIC_BIAS_2,
 	.anc_micbias = MIC_BIAS_2,
 	.enable_anc_mic_detect = false,
+	.moisture_duty_cycle_en = true,
 };
 
 static inline int param_is_mask(int p)
@@ -4915,6 +4916,8 @@ static const struct snd_soc_dapm_widget msm_int_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Digital Mic3", msm_dmic_event),
 	SND_SOC_DAPM_MIC("Digital Mic4", msm_dmic_event),
 	SND_SOC_DAPM_MIC("Digital Mic5", msm_dmic_event),
+	SND_SOC_DAPM_MIC("Digital Mic6", NULL),
+	SND_SOC_DAPM_MIC("Digital Mic7", NULL),
 };
 
 static int msm_wcn_init(struct snd_soc_pcm_runtime *rtd)
@@ -4981,6 +4984,8 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic3");
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic4");
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic5");
+	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic6");
+	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic7");
 
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic1");
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic2");
@@ -5552,6 +5557,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		 /* this dainlink has playback support */
 		.id = MSM_FRONTEND_DAI_MULTIMEDIA16,
+		.ops = &msm_fe_qos_ops,
 	},
 	{/* hw:x,30 */
 		.name = "CDC_DMA Hostless",
@@ -5697,6 +5703,19 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
+	},
+	{/* hw:x,39 */
+		.name = LPASS_BE_TX_CDC_DMA_TX_5,
+		.stream_name = "TX CDC DMA5 Capture",
+		.cpu_dai_name = "msm-dai-cdc-dma-dev.45115",
+		.platform_name = "msm-pcm-hostless",
+		.codec_name = "bolero_codec",
+		.codec_dai_name = "tx_macro_tx3",
+		.id = MSM_BACKEND_DAI_TX_CDC_DMA_TX_5,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ignore_suspend = 1,
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ops = &msm_cdc_dma_be_ops,
 	},
 };
 

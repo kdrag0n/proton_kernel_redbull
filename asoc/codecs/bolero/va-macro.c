@@ -283,8 +283,14 @@ static int va_macro_swr_pwr_event(struct snd_soc_dapm_widget *w,
 					"%s: lpass audio hw enable failed\n",
 					__func__);
 		}
+		if (!ret)
+			if (bolero_tx_clk_switch(component))
+				dev_dbg(va_dev, "%s: clock switch failed\n",
+					__func__);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		if (bolero_tx_clk_switch(component))
+			dev_dbg(va_dev, "%s: clock switch failed\n",__func__);
 		if (va_priv->lpass_audio_hw_vote)
 			clk_disable_unprepare(va_priv->lpass_audio_hw_vote);
 		break;
@@ -311,18 +317,18 @@ static int va_macro_mclk_event(struct snd_soc_dapm_widget *w,
 	dev_dbg(va_dev, "%s: event = %d\n", __func__, event);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		ret = va_macro_mclk_enable(va_priv, 1, true);
 		ret = bolero_clk_rsc_request_clock(va_priv->dev,
 						   va_priv->default_clk_id,
 						   TX_CORE_CLK,
 						   true);
+		ret = va_macro_mclk_enable(va_priv, 1, true);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		va_macro_mclk_enable(va_priv, 0, true);
 		bolero_clk_rsc_request_clock(va_priv->dev,
 					   va_priv->default_clk_id,
 					   TX_CORE_CLK,
 					   false);
-		va_macro_mclk_enable(va_priv, 0, true);
 		break;
 	default:
 		dev_err(va_priv->dev,
@@ -409,7 +415,12 @@ static int va_macro_put_dec_enum(struct snd_kcontrol *kcontrol,
 				snd_soc_dapm_to_component(widget->dapm);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int val;
-	u16 mic_sel_reg;
+	u16 mic_sel_reg, dmic_clk_reg;
+	struct device *va_dev = NULL;
+	struct va_macro_priv *va_priv = NULL;
+
+	if (!va_macro_get_data(component, &va_dev, &va_priv, __func__))
+		return -EINVAL;
 
 	val = ucontrol->value.enumerated.item[0];
 	if (val > e->items - 1)
@@ -450,14 +461,24 @@ static int va_macro_put_dec_enum(struct snd_kcontrol *kcontrol,
 	}
 	if (strnstr(widget->name, "SMIC", strlen(widget->name))) {
 		if (val != 0) {
-			if (val < 5)
+			if (val < 5) {
 				snd_soc_component_update_bits(component,
 							mic_sel_reg,
 							1 << 7, 0x0 << 7);
-			else
+			} else {
 				snd_soc_component_update_bits(component,
 							mic_sel_reg,
 							1 << 7, 0x1 << 7);
+				snd_soc_component_update_bits(component,
+					BOLERO_CDC_VA_TOP_CSR_DMIC_CFG,
+					0x80, 0x00);
+				dmic_clk_reg =
+					BOLERO_CDC_TX_TOP_CSR_SWR_DMIC0_CTL +
+						((val - 5)/2) * 4;
+				snd_soc_component_update_bits(component,
+					dmic_clk_reg,
+					0x0E, va_priv->dmic_clk_div << 0x1);
+			}
 		}
 	} else {
 		/* DMIC selected */

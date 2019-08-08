@@ -4,15 +4,19 @@
 
 # Check if this driver needs be built for current target
 ifeq ($(call is-board-platform,msmnile),true)
-ifeq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
+ifeq ($(TARGET_BOARD_AUTO),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
 else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
 endif
 endif
 
-ifeq ($(call is-board-platform,$(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(TARGET_BOARD_AUTO),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SA6155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM6150=m
+endif
 endif
 
 ifeq ($(call is-board-platform, kona),true)
@@ -25,7 +29,7 @@ endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito),true)
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito bengal),true)
 
 LOCAL_PATH := $(call my-dir)
 
@@ -75,8 +79,9 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
-############################################################
-ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
+###########################################################
+# target specific build
+ifneq ($(TARGET_BOARD_AUTO),true)
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_usf.ko
 LOCAL_MODULE_KBUILD_NAME  := usf_dlkm.ko
@@ -84,7 +89,7 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
-##########################################################
+###########################################################
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_q6_pdr.ko
 LOCAL_MODULE_KBUILD_NAME  := q6_pdr_dlkm.ko
@@ -92,9 +97,7 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
-endif
 ###########################################################
-###########################################################
-
+endif # target specific build
 endif # DLKM check
 endif # supported target check

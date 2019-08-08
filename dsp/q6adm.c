@@ -42,6 +42,8 @@
 #define DS2_ADM_COPP_TOPOLOGY_ID 0xFFFFFFFF
 #endif
 
+#define SESSION_TYPE_RX 0
+
 /* ENUM for adm_status */
 enum adm_cal_status {
 	ADM_STATUS_CALIBRATION_REQUIRED = 0,
@@ -101,6 +103,7 @@ struct adm_ctl {
 	int num_ec_ref_rx_chans_downmixed;
 	uint16_t ec_ref_chmixer_weights[PCM_FORMAT_MAX_NUM_CHANNEL_V8]
 						[PCM_FORMAT_MAX_NUM_CHANNEL_V8];
+	int ffecns_port_id;
 	int native_mode;
 };
 
@@ -572,7 +575,7 @@ int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 	adm_pspd_params[3] = ch_mixer->input_channels[channel_index];
 	index = 4;
 
-	path_type = (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_RX) ?
+	path_type = (session_type == SESSION_TYPE_RX) ?
 				ADM_PATH_PLAYBACK : ADM_PATH_LIVE_REC;
 
 	if (ch_mixer->override_out_ch_map) {
@@ -2683,6 +2686,39 @@ static int adm_arrange_mch_map_v8(
 			ep_payload->dev_channel_mapping[13] = PCM_CHANNEL_FRC;
 			ep_payload->dev_channel_mapping[14] = PCM_CHANNEL_RLC;
 			ep_payload->dev_channel_mapping[15] = PCM_CHANNEL_RRC;
+		} else if (channel_mode == 32) {
+			ep_payload->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+			ep_payload->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+			ep_payload->dev_channel_mapping[2] = PCM_CHANNEL_LFE;
+			ep_payload->dev_channel_mapping[3] = PCM_CHANNEL_FC;
+			ep_payload->dev_channel_mapping[4] = PCM_CHANNEL_LS;
+			ep_payload->dev_channel_mapping[5] = PCM_CHANNEL_RS;
+			ep_payload->dev_channel_mapping[6] = PCM_CHANNEL_LB;
+			ep_payload->dev_channel_mapping[7] = PCM_CHANNEL_RB;
+			ep_payload->dev_channel_mapping[8] = PCM_CHANNEL_CS;
+			ep_payload->dev_channel_mapping[9] = PCM_CHANNEL_TS;
+			ep_payload->dev_channel_mapping[10] = PCM_CHANNEL_CVH;
+			ep_payload->dev_channel_mapping[11] = PCM_CHANNEL_MS;
+			ep_payload->dev_channel_mapping[12] = PCM_CHANNEL_FLC;
+			ep_payload->dev_channel_mapping[13] = PCM_CHANNEL_FRC;
+			ep_payload->dev_channel_mapping[14] = PCM_CHANNEL_RLC;
+			ep_payload->dev_channel_mapping[15] = PCM_CHANNEL_RRC;
+			ep_payload->dev_channel_mapping[16] = PCM_CHANNEL_LFE2;
+			ep_payload->dev_channel_mapping[17] = PCM_CHANNEL_SL;
+			ep_payload->dev_channel_mapping[18] = PCM_CHANNEL_SR;
+			ep_payload->dev_channel_mapping[19] = PCM_CHANNEL_TFL;
+			ep_payload->dev_channel_mapping[20] = PCM_CHANNEL_TFR;
+			ep_payload->dev_channel_mapping[21] = PCM_CHANNEL_TC;
+			ep_payload->dev_channel_mapping[22] = PCM_CHANNEL_TBL;
+			ep_payload->dev_channel_mapping[23] = PCM_CHANNEL_TBR;
+			ep_payload->dev_channel_mapping[24] = PCM_CHANNEL_TSL;
+			ep_payload->dev_channel_mapping[25] = PCM_CHANNEL_TSR;
+			ep_payload->dev_channel_mapping[26] = PCM_CHANNEL_TBC;
+			ep_payload->dev_channel_mapping[27] = PCM_CHANNEL_BFC;
+			ep_payload->dev_channel_mapping[28] = PCM_CHANNEL_BFL;
+			ep_payload->dev_channel_mapping[29] = PCM_CHANNEL_BFR;
+			ep_payload->dev_channel_mapping[30] = PCM_CHANNEL_LW;
+			ep_payload->dev_channel_mapping[31] = PCM_CHANNEL_RW;
 		} else {
 			pr_err("%s: invalid num_chan %d\n", __func__,
 				channel_mode);
@@ -2782,6 +2818,39 @@ static int adm_arrange_mch_ep2_map_v8(
 		ep_payload->dev_channel_mapping[13] = PCM_CHANNEL_FRC;
 		ep_payload->dev_channel_mapping[14] = PCM_CHANNEL_RLC;
 		ep_payload->dev_channel_mapping[15] = PCM_CHANNEL_RRC;
+	} else if (channel_mode == 32) {
+		ep_payload->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		ep_payload->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		ep_payload->dev_channel_mapping[2] = PCM_CHANNEL_LFE;
+		ep_payload->dev_channel_mapping[3] = PCM_CHANNEL_FC;
+		ep_payload->dev_channel_mapping[4] = PCM_CHANNEL_LS;
+		ep_payload->dev_channel_mapping[5] = PCM_CHANNEL_RS;
+		ep_payload->dev_channel_mapping[6] = PCM_CHANNEL_LB;
+		ep_payload->dev_channel_mapping[7] = PCM_CHANNEL_RB;
+		ep_payload->dev_channel_mapping[8] = PCM_CHANNEL_CS;
+		ep_payload->dev_channel_mapping[9] = PCM_CHANNEL_TS;
+		ep_payload->dev_channel_mapping[10] = PCM_CHANNEL_CVH;
+		ep_payload->dev_channel_mapping[11] = PCM_CHANNEL_MS;
+		ep_payload->dev_channel_mapping[12] = PCM_CHANNEL_FLC;
+		ep_payload->dev_channel_mapping[13] = PCM_CHANNEL_FRC;
+		ep_payload->dev_channel_mapping[14] = PCM_CHANNEL_RLC;
+		ep_payload->dev_channel_mapping[15] = PCM_CHANNEL_RRC;
+		ep_payload->dev_channel_mapping[16] = PCM_CHANNEL_LFE2;
+		ep_payload->dev_channel_mapping[17] = PCM_CHANNEL_SL;
+		ep_payload->dev_channel_mapping[18] = PCM_CHANNEL_SR;
+		ep_payload->dev_channel_mapping[19] = PCM_CHANNEL_TFL;
+		ep_payload->dev_channel_mapping[20] = PCM_CHANNEL_TFR;
+		ep_payload->dev_channel_mapping[21] = PCM_CHANNEL_TC;
+		ep_payload->dev_channel_mapping[22] = PCM_CHANNEL_TBL;
+		ep_payload->dev_channel_mapping[23] = PCM_CHANNEL_TBR;
+		ep_payload->dev_channel_mapping[24] = PCM_CHANNEL_TSL;
+		ep_payload->dev_channel_mapping[25] = PCM_CHANNEL_TSR;
+		ep_payload->dev_channel_mapping[26] = PCM_CHANNEL_TBC;
+		ep_payload->dev_channel_mapping[27] = PCM_CHANNEL_BFC;
+		ep_payload->dev_channel_mapping[28] = PCM_CHANNEL_BFL;
+		ep_payload->dev_channel_mapping[29] = PCM_CHANNEL_BFR;
+		ep_payload->dev_channel_mapping[30] = PCM_CHANNEL_LW;
+		ep_payload->dev_channel_mapping[31] = PCM_CHANNEL_RW;
 	} else {
 		pr_err("%s: invalid num_chan %d\n", __func__,
 			channel_mode);
@@ -2985,6 +3054,12 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		rate = 16000;
 	}
 
+	if (topology == FFECNS_TOPOLOGY) {
+		this_adm.ffecns_port_id = port_id;
+		pr_debug("%s: ffecns port id =%x\n", __func__,
+				this_adm.ffecns_port_id);
+	}
+
 	if (topology == VPM_TX_VOICE_SMECNS_V2_COPP_TOPOLOGY)
 		channel_mode = 1;
 
@@ -3062,8 +3137,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 
 		if ((q6core_get_avcs_api_version_per_service(
 				APRV2_IDS_SERVICE_ID_ADSP_ADM_V) >=
-					ADSP_ADM_API_VERSION_V3) &&
-					q6core_use_Q6_32ch_support()) {
+					ADSP_ADM_API_VERSION_V3)) {
 			memset(&open_v8, 0, sizeof(open_v8));
 			memset(&ep1_payload, 0, sizeof(ep1_payload));
 			memset(&ep2_payload, 0, sizeof(ep2_payload));
@@ -3099,6 +3173,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 				if (this_adm.num_ec_ref_rx_chans != 0) {
 					open_v8.endpoint_id_2 =
 						this_adm.ec_ref_rx;
+					this_adm.ec_ref_rx = AFE_PORT_INVALID;
 				} else {
 					pr_err("%s: EC channels not set %d\n",
 						__func__,
@@ -3842,6 +3917,10 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 		pr_debug("%s: remove adm device from rtac\n", __func__);
 		rtac_remove_adm_device(port_id, copp_id);
 	}
+
+	if (port_id == this_adm.ffecns_port_id)
+		this_adm.ffecns_port_id = -1;
+
 	return 0;
 }
 EXPORT_SYMBOL(adm_close);
@@ -4441,6 +4520,48 @@ int adm_send_set_multichannel_ec_primary_mic_ch(int port_id, int copp_idx,
 	return rc;
 }
 EXPORT_SYMBOL(adm_send_set_multichannel_ec_primary_mic_ch);
+
+/**
+ * adm_set_ffecns_effect -
+ *      command to set effect for ffecns module
+ *
+ * @effect: effect payload
+ *
+ * Returns 0 on success or error on failure
+ */
+int adm_set_ffecns_effect(int effect)
+{
+	struct ffecns_effect ffecns_params;
+	struct param_hdr_v3 param_hdr;
+	int rc = 0;
+	int copp_idx = 0;
+
+	copp_idx = adm_get_default_copp_idx(this_adm.ffecns_port_id);
+	if ((copp_idx < 0) || (copp_idx >= MAX_COPPS_PER_PORT)) {
+		pr_err("%s, no active copp to query rms copp_idx:%d\n",
+			__func__, copp_idx);
+		return -EINVAL;
+	}
+
+	memset(&ffecns_params, 0, sizeof(ffecns_params));
+	memset(&param_hdr, 0, sizeof(param_hdr));
+
+	param_hdr.module_id = FFECNS_MODULE_ID;
+	param_hdr.instance_id = INSTANCE_ID_0;
+	param_hdr.param_id = FLUENCE_CMN_GLOBAL_EFFECT_PARAM_ID;
+	param_hdr.param_size = sizeof(ffecns_params);
+
+	ffecns_params.payload = effect;
+
+	rc = adm_pack_and_set_one_pp_param(this_adm.ffecns_port_id, copp_idx,
+					param_hdr, (uint8_t *) &ffecns_params);
+	if (rc)
+		pr_err("%s: Failed to set ffecns effect, err %d\n",
+		       __func__, rc);
+
+	return rc;
+}
+EXPORT_SYMBOL(adm_set_ffecns_effect);
 
 /**
  * adm_param_enable -
@@ -5296,6 +5417,7 @@ int __init adm_init(void)
 	int i = 0, j;
 
 	this_adm.ec_ref_rx = -1;
+	this_adm.ffecns_port_id = -1;
 	init_waitqueue_head(&this_adm.matrix_map_wait);
 	init_waitqueue_head(&this_adm.adm_wait);
 
