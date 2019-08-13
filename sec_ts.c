@@ -4589,9 +4589,6 @@ static int sec_ts_screen_state_chg_callback(struct notifier_block *nb,
 		return NOTIFY_DONE;
 	}
 
-	/* finish processing any events on queue */
-	flush_workqueue(ts->event_wq);
-
 	blank = *((unsigned int *)evdata->data);
 	switch (blank) {
 	case DRM_PANEL_BLANK_POWERDOWN:
