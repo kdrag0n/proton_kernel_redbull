@@ -488,6 +488,43 @@ int parseBinFile(u8 *fw_data, int fw_size, Firmware *fwData, int keep_cx)
 		pr_info("parseBinFile: CX Version = %04X\n", fwData->cx_ver);
 
 		fwData->data_size = dimension;
+		index = FLASH_ORG_INFO_INDEX;
+		fwData->fw_code_size = fw_data[index++];
+		fwData->panel_config_size = fw_data[index++];
+		fwData->cx_area_size = fw_data[index++];
+		fwData->fw_config_size = fw_data[index];
+
+		pr_info("parseBinFile: Code Pages: %d panel area Pages: %d"
+			" cx area Pages: %d fw config Pages: %d !\n",
+			fwData->fw_code_size, fwData->panel_config_size,
+			fwData->cx_area_size, fwData->fw_config_size);
+
+		if ((fwData->fw_code_size == 0) ||
+			(fwData->panel_config_size == 0) ||
+			(fwData->cx_area_size == 0) ||
+			(fwData->fw_config_size == 0)) {
+			pr_info("parseBinFile: Using default flash Address\n");
+			fwData->code_start_addr = FLASH_ADDR_CODE;
+			fwData->cx_start_addr = FLASH_ADDR_CX;
+			fwData->config_start_addr = FLASH_ADDR_CONFIG;
+		} else {
+			fwData->code_start_addr = FLASH_ADDR_CODE;
+			fwData->cx_start_addr = (FLASH_ADDR_CODE +
+						(((fwData->fw_code_size +
+						fwData->panel_config_size) *
+						FLASH_PAGE_SIZE) / 4));
+			fwData->config_start_addr = (FLASH_ADDR_CODE +
+						(((fwData->fw_code_size +
+						fwData->panel_config_size +
+						fwData->cx_area_size) *
+						FLASH_PAGE_SIZE) / 4));
+		}
+
+		pr_info("parseBinFile: Code start addr: 0x%08X"
+			" cx start addr: 0x%08X"
+			" fw start addr: 0x%08X !\n",
+			fwData->code_start_addr, fwData->cx_start_addr,
+			fwData->config_start_addr);
 
 		pr_info("READ FW DONE %d bytes!\n", fwData->data_size);
 		res = OK;
@@ -623,9 +660,15 @@ int flash_full_erase(void)
   * be deleted
   * @return OK if success or an error code which specify the type of error
   */
-int flash_erase_page_by_page(ErasePage keep_cx)
+int flash_erase_page_by_page(ErasePage keep_cx, Firmware *fw)
 {
 	u8 status, i = 0;
+
+	u8 flash_cx_start_page = FLASH_CX_PAGE_START;
+	u8 flash_cx_end_page = FLASH_CX_PAGE_END;
+	u8 flash_panel_start_page = FLASH_PANEL_PAGE_START;
+	u8 flash_panel_end_page = FLASH_PANEL_PAGE_END;
+
 	u8 cmd1[6] = { FTS_CMD_HW_REG_W,      0x20,	 0x00,	    0x00,
 		       FLASH_ERASE_CODE0 + 1, 0x00 };
 	u8 cmd[6] = { FTS_CMD_HW_REG_W, 0x20, 0x00, 0x00, FLASH_ERASE_CODE0,
@@ -639,14 +682,39 @@ int flash_erase_page_by_page(ErasePage keep_cx)
 	int buff_len = sizeof(buff);
 	int index = 0;
 
-	for (i = FLASH_CX_PAGE_START; i <= FLASH_CX_PAGE_END && keep_cx >=
+	if ((fw->fw_code_size == 0) ||
+	(fw->panel_config_size == 0) ||
+	(fw->cx_area_size == 0) || (fw->fw_config_size == 0)) {
+		pr_info(" using default page address!\n");
+	} else {
+		flash_panel_start_page = fw->fw_code_size;
+		if (fw->panel_config_size > 1)
+			flash_panel_end_page = flash_panel_start_page +
+				(fw->panel_config_size - 1);
+		else
+			flash_panel_end_page = flash_panel_start_page;
+
+		flash_cx_start_page = flash_panel_end_page + 1;
+		if (fw->cx_area_size > 1)
+			flash_cx_end_page = flash_cx_start_page +
+				(fw->cx_area_size - 1);
+		else
+			flash_cx_end_page = flash_cx_start_page;
+	}
+
+	pr_info(" CX Start page: %d CX end page: %d Panel Start Page: %d"
+		"Panel End page: %d!\n", flash_cx_start_page,
+		flash_cx_end_page, flash_panel_start_page,
+		flash_panel_end_page);
+
+	for (i = flash_cx_start_page; i <= flash_cx_end_page && keep_cx >=
 	     SKIP_PANEL_CX_INIT; i++) {
 		pr_info("Skipping erase CX page %d!\n", i);
 		fromIDtoMask(i, mask, 4);
 	}
 
 
-	for (i = FLASH_PANEL_PAGE_START; i <= FLASH_PANEL_PAGE_END && keep_cx >=
+	for (i = flash_panel_start_page; i <= flash_panel_end_page && keep_cx >=
 	     SKIP_PANEL_INIT; i++) {
 		pr_info("Skipping erase Panel Init page %d!\n", i);
 		fromIDtoMask(i, mask, 4);
@@ -963,11 +1031,11 @@ start:
 	pr_info(" 6) FLASH ERASE:\n");
 	if (keep_cx > 0) {
 		if (fw.sec2_size != 0 && force_burn == CRC_CX)
-			res = flash_erase_page_by_page(SKIP_PANEL_INIT);
+			res = flash_erase_page_by_page(SKIP_PANEL_INIT, &fw);
 		else
-			res = flash_erase_page_by_page(SKIP_PANEL_CX_INIT);
+			res = flash_erase_page_by_page(SKIP_PANEL_CX_INIT, &fw);
 	} else {
-		res = flash_erase_page_by_page(SKIP_PANEL_INIT);
+		res = flash_erase_page_by_page(SKIP_PANEL_INIT, &fw);
 		if (fw.sec2_size == 0)
 			pr_err("WARNING!!! Erasing CX memory but no CX in fw file! touch will not work right after fw update!\n");
 	}
@@ -980,7 +1048,7 @@ start:
 	pr_info("   flash erase COMPLETED!\n\n");
 
 	pr_info(" 7) LOAD PROGRAM:\n");
-	res = fillFlash(FLASH_ADDR_CODE, &fw.data[0], fw.sec0_size);
+	res = fillFlash(fw.code_start_addr, &fw.data[0], fw.sec0_size);
 	if (res < OK) {
 		pr_err("   load program ERROR %08X\n",
 			 ERROR_FLASH_BURN_FAILED);
@@ -989,7 +1057,7 @@ start:
 	pr_info("   load program DONE!\n");
 
 	pr_info(" 8) LOAD CONFIG:\n");
-	res = fillFlash(FLASH_ADDR_CONFIG, &(fw.data[fw.sec0_size]),
+	res = fillFlash(fw.config_start_addr, &(fw.data[fw.sec0_size]),
 			fw.sec1_size);
 	if (res < OK) {
 		pr_err("   load config ERROR %08X\n",
@@ -1000,7 +1068,7 @@ start:
 
 	if (fw.sec2_size != 0 && (force_burn == CRC_CX || keep_cx <= 0)) {
 		pr_info(" 8.1) LOAD CX:\n");
-		res = fillFlash(FLASH_ADDR_CX,
+		res = fillFlash(fw.cx_start_addr,
 				&(fw.data[fw.sec0_size + fw.sec1_size]),
 				fw.sec2_size);
 		if (res < OK) {

@@ -307,10 +307,10 @@ int checkEcho(u8 *cmd, int size)
 		pr_err("checkEcho: Error Size = %d not valid!\n", size);
 		return ERROR_OP_NOT_ALLOW;
 	} else {
-		if ((size + 3) > FIFO_EVENT_SIZE)
-			size = FIFO_EVENT_SIZE - 3;
+		if ((size + 4) > FIFO_EVENT_SIZE)
+			size = FIFO_EVENT_SIZE - 4;
 		/* Echo event 0x43 0x01 xx xx xx xx xx fifo_status
-		 * therefore command with more than 5 bytes will be trunked */
+		 * therefore command with more than 4 bytes will be trunked */
 
 		event_to_search[0] = EVT_ID_STATUS_UPDATE;
 		event_to_search[1] = EVT_TYPE_STATUS_ECHO;

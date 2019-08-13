@@ -50,11 +50,24 @@
 #define PATH_FILE_FW		"ftm5_fw.ftb"	/* new FW bin file name */
 #endif
 
+#ifdef ALIX
+#define FLASH_CHUNK		(32 * 1024)	/* /< Max number of bytes that
+						 * the
+						  * DMA can burn on flash in
+						  *one shot in FTI */
+#else
 #define FLASH_CHUNK		(64 * 1024)	/* /< Max number of bytes that
-						 * the DMA can burn on the flash
-						 * in one shot in FTI */
+						 * the
+						  * DMA can burn on flash in
+						  *one shot in FTI */
+#endif
+
 #define DMA_CHUNK		32	/* /< Max number of bytes that can be
 					 * written in I2C to the DMA */
+
+#define FLASH_ORG_INFO_INDEX	280
+
+#define FLASH_PAGE_SIZE		(4 * 1024) //page size of 4KB
 
 /**
   * Define which kind of erase page by page should be performed
@@ -87,6 +100,17 @@ typedef struct {
 	u32 sec1_size;	/* /< dimension of section 1 (Config) in .ftb file */
 	u32 sec2_size;	/* /< dimension of section 2 (Cx) in .ftb file */
 	u32 sec3_size;	/* /< dimension of section 3 (TBD) in .ftb file */
+	u8 fw_code_size; /* /< size of fw code in pages in
+			.ftb file */
+	u8 panel_config_size;/* /< size of panel area in pages in
+			.ftb file */
+	u8 cx_area_size;/* /< size of cx area in pages in
+			 .ftb file */
+	u8 fw_config_size;/* /< size of fw config in pages in
+			.ftb file */
+	u32 code_start_addr;  /* start addr for fw code */
+	u32 cx_start_addr; /* start addr for cx area */
+	u32 config_start_addr; /* start addr for config area */
 } Firmware;
 
 /** @}*/
@@ -99,7 +123,7 @@ int wait_for_flash_ready(u8 type);
 int hold_m3(void);
 int flash_erase_unlock(void);
 int flash_full_erase(void);
-int flash_erase_page_by_page(ErasePage keep_cx);
+int flash_erase_page_by_page(ErasePage keep_cx, Firmware *fw);
 int start_flash_dma(void);
 int fillFlash(u32 address, u8 *data, int size);
 
