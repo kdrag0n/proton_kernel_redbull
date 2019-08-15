@@ -1,3 +1,5 @@
+ifeq (,$(filter y, $(CONFIG_BOARD_BRAMBLE) $(CONFIG_BOARD_REDFIN)))
+
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
         dtbo-$(CONFIG_ARCH_KONA) += \
                 kona-cdp-overlay.dtbo \
@@ -52,6 +54,8 @@ bengal-rumi-overlay.dtbo-base := bengal.dtb
 else
 dtb-$(CONFIG_ARCH_BENGAL) += bengal-rumi.dtb
 endif
+
+endif #CONFIG_BOARD_BRAMBLE CONFIG_BOARD_REDFIN
 
 always		:= $(dtb-y)
 subdir-y	:= $(dts-dirs)
