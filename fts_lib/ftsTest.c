@@ -6822,7 +6822,7 @@ int tp_sensitivity_compute_gains(MutualSenseFrame *frame, short target,
 {
 	int ret = OK;
 	int i = 0;
-	u8 gains[frame->node_data_size];
+	u8 *gains;
 
 	if ((frame->node_data == NULL) || (frame->node_data_size == 0)) {
 		pr_err("%s: Invalid frame data passed as argument! ERROR %08X\n",
@@ -6830,7 +6830,9 @@ int tp_sensitivity_compute_gains(MutualSenseFrame *frame, short target,
 		return ERROR_OP_NOT_ALLOW;
 	}
 
-	memset(gains, 0, frame->node_data_size);
+	gains = kzalloc(frame->node_data_size * sizeof(u8), GFP_KERNEL);
+	if (gains == NULL)
+		return ERROR_ALLOC;
 
 	pr_info("%s: Start to compute Digital Gains...\n", __func__);
 	for (i = 0; i < frame->node_data_size; i++)
@@ -6868,6 +6870,7 @@ int tp_sensitivity_compute_gains(MutualSenseFrame *frame, short target,
 		ret = OK;
 	}
 
+	kfree(gains);
 	return ret;
 }
 
