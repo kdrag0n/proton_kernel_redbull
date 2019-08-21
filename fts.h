@@ -43,6 +43,10 @@
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
+#ifdef CONFIG_DRM
+#undef CONFIG_DRM
+#endif
+
 
 /****************** CONFIGURATION SECTION ******************/
 /** @defgroup conf_section	 Driver Configuration Section
@@ -432,7 +436,9 @@ struct fts_ts_info {
 
 	struct fts_disp_extinfo extinfo;	/* Display extended info */
 
+#ifdef CONFIG_DRM
 	struct notifier_block notifier;	/* Notify on suspend/resume */
+#endif
 	int display_refresh_rate;	/* Display rate in Hz */
 	bool sensor_sleep;		/* True if suspend called */
 	struct wakeup_source wakesrc;	/* Wake Lock struct */

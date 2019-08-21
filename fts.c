@@ -4560,9 +4560,11 @@ static int fts_init_sensing(struct fts_ts_info *info)
 {
 	int error = 0;
 
+#ifdef CONFIG_DRM
 	error |= msm_drm_register_client(&info->notifier);/* register the
 							   * suspend/resume
 							   * function */
+#endif
 	error |= fts_interrupt_install(info);	/* register event handler */
 	error |= fts_mode_handler(info, 0);	/* enable the features and
 						 * sensing */
@@ -4932,6 +4934,7 @@ int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
   * This function schedule a suspend or resume work according to the event
   * received.
   */
+#ifdef CONFIG_DRM
 static int fts_screen_state_chg_callback(struct notifier_block *nb,
 					 unsigned long val, void *data)
 {
@@ -4982,6 +4985,7 @@ static int fts_screen_state_chg_callback(struct notifier_block *nb,
 static struct notifier_block fts_noti_block = {
 	.notifier_call = fts_screen_state_chg_callback,
 };
+#endif
 
 /**
   * From the name of the power regulator get/put the actual regulator structs
@@ -5541,7 +5545,9 @@ static int fts_probe(struct spi_device *client)
 	info->grip_enabled = 0;
 
 	info->resume_bit = 1;
+#ifdef CONFIG_DRM
 	info->notifier = fts_noti_block;
+#endif
 
 	/* Set initial heatmap mode based on the device tree configuration.
 	 * Default is partial heatmap mode.
@@ -5652,7 +5658,9 @@ ProbeErrorExit_7:
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
 
+#ifdef CONFIG_DRM
 	msm_drm_unregister_client(&info->notifier);
+#endif
 
 	heatmap_remove(&info->v4l2);
 
@@ -5722,7 +5730,9 @@ static int fts_remove(struct spi_device *client)
 
 	pm_qos_remove_request(&info->pm_qos_req);
 
+#ifdef CONFIG_DRM
 	msm_drm_unregister_client(&info->notifier);
+#endif
 
 	/* unregister the device */
 	input_unregister_device(info->input_dev);
