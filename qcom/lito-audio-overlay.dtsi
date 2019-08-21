@@ -284,7 +284,11 @@
 		"VA SWR_MIC6", "DMIC7_OUTPUT",
 		"VA SWR_MIC7", "DMIC8_OUTPUT",
 		"Stereo1 DMIC Mux", "Audio LDO Mic1",
-		"Stereo2 DMIC Mux", "Audio LDO Mic2";
+		"Stereo2 DMIC Mux", "Audio LDO Mic2",
+		"DSP_IN1", "Audio LDO Mic1",
+		"DSP_IN1", "Audio LDO Mic2",
+		"DSP_IN2", "Audio LDO Mic1",
+		"DSP_IN2", "Audio LDO Mic2";
 	qcom,msm-mbhc-hphl-swh = <1>;
 	qcom,msm-mbhc-gnd-swh = <1>;
 	qcom,cdc-dmic01-gpios = <&cdc_dmic01_gpios>;
@@ -606,7 +610,7 @@
 };
 
 &qupv3_se4_spi {
-//	status = "ok";
+	status = "ok";
 	mnh-spi@0 {
 		compatible = "realtek,rt5514";
 		reg = <0>;
