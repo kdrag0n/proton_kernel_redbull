@@ -1065,6 +1065,9 @@ int wcd938x_mbhc_init(struct wcd938x_mbhc **mbhc,
 	}
 	wcd_mbhc->micb_mv = pdata->micbias.micb2_mv;
 
+	wcd938x_mbhc_micb_adjust_voltage(component,
+			pdata->micbias.micb2_mv, MIC_BIAS_2);
+
 	ret = wcd_mbhc_init(wcd_mbhc, component, &mbhc_cb,
 				&intr_ids, wcd_mbhc_registers,
 				WCD938X_ZDET_SUPPORTED);

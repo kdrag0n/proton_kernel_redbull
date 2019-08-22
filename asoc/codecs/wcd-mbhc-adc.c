@@ -650,16 +650,18 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	WCD_MBHC_RSC_UNLOCK(mbhc);
 
 	/* Check for cross connection */
-	do {
-		cross_conn = wcd_check_cross_conn(mbhc);
-		try++;
-	} while (try < mbhc->swap_thr);
+	if (mbhc->swap_detect) {
+		do {
+			cross_conn = wcd_check_cross_conn(mbhc);
+			try++;
+		} while (try < mbhc->swap_thr);
 
-	if (cross_conn > 0) {
-		plug_type = MBHC_PLUG_TYPE_GND_MIC_SWAP;
-		pr_debug("%s: cross connection found, Plug type %d\n",
-			 __func__, plug_type);
-		goto correct_plug_type;
+		if (cross_conn > 0) {
+			plug_type = MBHC_PLUG_TYPE_GND_MIC_SWAP;
+			pr_debug("%s: cross connection found, Plug type %d\n",
+				 __func__, plug_type);
+			goto correct_plug_type;
+		}
 	}
 	/* Find plug type */
 	output_mv = wcd_measure_adc_continuous(mbhc);
@@ -738,7 +740,7 @@ correct_plug_type:
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(
 					mbhc->component);
 
-		if ((output_mv <= hs_threshold) &&
+		if (mbhc->swap_detect && (output_mv <= hs_threshold) &&
 		    (!is_pa_on)) {
 			/* Check for cross connection*/
 			ret = wcd_check_cross_conn(mbhc);
@@ -790,6 +792,8 @@ correct_plug_type:
 					continue;
 				}
 			}
+		} else if (!mbhc->swap_detect) {
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
 		}
 
 		if (output_mv > hs_threshold) {

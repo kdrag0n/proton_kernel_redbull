@@ -5095,7 +5095,9 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm;
 	struct snd_card *card;
 	struct snd_info_entry *entry;
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 	struct snd_soc_component *aux_comp;
+#endif
 	struct msm_asoc_mach_data *pdata =
 				snd_soc_card_get_drvdata(rtd->card);
 
@@ -5139,11 +5141,12 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic4");
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic5");
 
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_SPK1 OUT");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_SPK2 OUT");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA AIF VI");
 	snd_soc_dapm_ignore_suspend(dapm, "VIINPUT_WSA");
-
+#endif
 	snd_soc_dapm_sync(dapm);
 
 	/*
@@ -5154,6 +5157,7 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		__func__, rtd->card->num_aux_devs);
 	if (rtd->card->num_aux_devs &&
 	    !list_empty(&rtd->card->component_dev_list)) {
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 		aux_comp = list_first_entry(
 				&rtd->card->component_dev_list,
 				struct snd_soc_component,
@@ -5165,6 +5169,7 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 			wsa_macro_set_spkr_gain_offset(component,
 					WSA_MACRO_GAIN_OFFSET_M1P5_DB);
 		}
+#endif
 		bolero_set_port_map(component, ARRAY_SIZE(sm_port_map),
 				    sm_port_map);
 	}
@@ -5207,12 +5212,12 @@ static void *def_wcd_mbhc_cal(void)
 
 	btn_high[0] = 75;
 	btn_high[1] = 150;
-	btn_high[2] = 237;
-	btn_high[3] = 500;
-	btn_high[4] = 500;
-	btn_high[5] = 500;
-	btn_high[6] = 500;
-	btn_high[7] = 500;
+	btn_high[2] = (u16)237.5;
+	btn_high[3] = (u16)437.5;
+	btn_high[4] = (u16)437.5;
+	btn_high[5] = (u16)437.5;
+	btn_high[6] = (u16)437.5;
+	btn_high[7] = (u16)437.5;
 
 	return wcd_mbhc_cal;
 }
@@ -5751,6 +5756,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 	},
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 static struct snd_soc_dai_link msm_bolero_fe_dai_links[] = {
 	{/* hw:x,33 */
 		.name = LPASS_BE_WSA_CDC_DMA_TX_0,
@@ -5766,6 +5772,7 @@ static struct snd_soc_dai_link msm_bolero_fe_dai_links[] = {
 		.ops = &msm_cdc_dma_be_ops,
 	},
 };
+#endif
 
 static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 	{/* hw:x,34 */
@@ -6701,6 +6708,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 	},
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 	/* WSA CDC DMA Backend DAI Links */
 	{
@@ -6749,6 +6757,7 @@ static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 		.ops = &msm_cdc_dma_be_ops,
 	},
 };
+#endif
 
 static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 	/* RX CDC DMA Backend DAI Links */
@@ -6761,6 +6770,9 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.codec_dai_name = "rx_macro_rx1",
 		.no_pcm = 1,
 		.dpcm_playback = 1,
+#if !IS_ENABLED(CONFIG_SND_SOC_WSA)
+		.init = &msm_int_audrx_init,
+#endif
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_0,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ignore_pmdown_time = 1,
@@ -6907,12 +6919,16 @@ static struct snd_soc_dai_link msm_afe_rxtx_lb_be_dai_link[] = {
 
 static struct snd_soc_dai_link msm_kona_dai_links[
 			ARRAY_SIZE(msm_common_dai_links) +
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 			ARRAY_SIZE(msm_bolero_fe_dai_links) +
+#endif
 			ARRAY_SIZE(msm_common_misc_fe_dai_links) +
 			ARRAY_SIZE(msm_common_be_dai_links) +
 			ARRAY_SIZE(msm_mi2s_be_dai_links) +
 			ARRAY_SIZE(msm_auxpcm_be_dai_links) +
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 			ARRAY_SIZE(msm_wsa_cdc_dma_be_dai_links) +
+#endif
 			ARRAY_SIZE(msm_rx_tx_cdc_dma_be_dai_links) +
 			ARRAY_SIZE(msm_va_cdc_dma_be_dai_links) +
 			ARRAY_SIZE(ext_disp_be_dai_link) +
@@ -7141,11 +7157,13 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		       sizeof(msm_common_dai_links));
 		total_links += ARRAY_SIZE(msm_common_dai_links);
 
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_bolero_fe_dai_links,
 		       sizeof(msm_bolero_fe_dai_links));
 		total_links +=
 			ARRAY_SIZE(msm_bolero_fe_dai_links);
+#endif
 
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_common_misc_fe_dai_links,
@@ -7157,11 +7175,13 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		       sizeof(msm_common_be_dai_links));
 		total_links += ARRAY_SIZE(msm_common_be_dai_links);
 
+#if IS_ENABLED(CONFIG_SND_SOC_WSA)
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_wsa_cdc_dma_be_dai_links,
 		       sizeof(msm_wsa_cdc_dma_be_dai_links));
 		total_links +=
 			ARRAY_SIZE(msm_wsa_cdc_dma_be_dai_links);
+#endif
 
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_rx_tx_cdc_dma_be_dai_links,
@@ -7825,11 +7845,9 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	if (0) {
-		ret = msm_init_aux_dev(pdev, card);
-		if (ret)
-			goto err;
-	}
+	ret = msm_init_aux_dev(pdev, card);
+	if (ret)
+		goto err;
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret == -EPROBE_DEFER) {

@@ -487,22 +487,24 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 			plug_type = MBHC_PLUG_TYPE_INVALID;
 	}
 
-	do {
-		cross_conn = wcd_check_cross_conn(mbhc);
-		try++;
-	} while (try < mbhc->swap_thr);
+	if (mbhc->swap_detect) {
+		do {
+			cross_conn = wcd_check_cross_conn(mbhc);
+			try++;
+		} while (try < mbhc->swap_thr);
 
-	/*
-	 * Check for cross connection 4 times.
-	 * Consider the result of the fourth iteration.
-	 */
-	if (cross_conn > 0) {
-		pr_debug("%s: cross con found, start polling\n",
-			 __func__);
-		plug_type = MBHC_PLUG_TYPE_GND_MIC_SWAP;
-		pr_debug("%s: Plug found, plug type is %d\n",
-			 __func__, plug_type);
-		goto correct_plug_type;
+		/*
+		 * Check for cross connection 4 times.
+		 * Consider the result of the fourth iteration.
+		 */
+		if (cross_conn > 0) {
+			pr_debug("%s: cross con found, start polling\n",
+				 __func__);
+			plug_type = MBHC_PLUG_TYPE_GND_MIC_SWAP;
+			pr_debug("%s: Plug found, plug type is %d\n",
+				 __func__, plug_type);
+			goto correct_plug_type;
+		}
 	}
 
 	if ((plug_type == MBHC_PLUG_TYPE_HEADSET ||
@@ -584,7 +586,7 @@ correct_plug_type:
 			}
 		}
 
-		if ((!hs_comp_res) && (!is_pa_on)) {
+		if (mbhc->swap_detect && (!hs_comp_res) && (!is_pa_on)) {
 			/* Check for cross connection*/
 			ret = wcd_check_cross_conn(mbhc);
 			if (ret < 0) {
@@ -634,6 +636,8 @@ correct_plug_type:
 					continue;
 				}
 			}
+		} else if (!mbhc->swap_detect) {
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
 		}
 
 		WCD_MBHC_REG_READ(WCD_MBHC_HPHL_SCHMT_RESULT, hphl_sch);

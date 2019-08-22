@@ -1708,12 +1708,21 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_component *component,
 	int gnd_swh = 0;
 	u32 hph_moist_config[3];
 	struct snd_soc_card *card = component->card;
+	const char *mbhc_swap_detect = "qcom,mbhc-swap-detect";
 	const char *hph_switch = "qcom,msm-mbhc-hphl-swh";
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 	const char *hs_thre = "qcom,msm-mbhc-hs-mic-max-threshold-mv";
 	const char *hph_thre = "qcom,msm-mbhc-hs-mic-min-threshold-mv";
 
 	pr_debug("%s: enter\n", __func__);
+
+	if (!of_property_read_bool(card->dev->of_node, mbhc_swap_detect)) {
+		dev_err(card->dev,
+			"%s: missing %s in dt node\n", __func__, mbhc_swap_detect);
+		mbhc->swap_detect = false;
+	} else {
+		mbhc->swap_detect = true;
+	}
 
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {
