@@ -4334,39 +4334,6 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 				__func__, ret);
 			goto end;
 		}
-
-		if (cpu_dai->id == AFE_PORT_ID_PRIMARY_TDM_TX) {
-			ret = snd_soc_dai_set_tdm_slot(codec_dai, 1, 0, 8, 32);
-			if (ret < 0) {
-				pr_err("%s: failed to set tdm codec slot, err:%d\n",
-					__func__, ret);
-			}
-
-			ret = snd_soc_dai_set_fmt(codec_dai,
-				SND_SOC_DAIFMT_DSP_B|SND_SOC_DAIFMT_IB_IF);
-			if (ret < 0) {
-				pr_err("%s: failed to set tdm codec fmt, err:%d\n",
-					__func__, ret);
-			}
-
-			ret = snd_soc_dai_set_pll(codec_dai, 0, 1,
-				Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ,
-				Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ);
-
-			if (ret < 0) {
-				pr_err("%s: failed to set codec pll, err:%d\n",
-					__func__, ret);
-			}
-
-			ret = snd_soc_dai_set_sysclk(codec_dai, 1,
-				Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ,
-				SND_SOC_CLOCK_IN);
-
-			if (ret < 0) {
-				pr_err("%s: failed to set codec clk, err:%d\n",
-					__func__, ret);
-			}
-		}
 	} else {
 		ret = -EINVAL;
 		pr_err("%s: invalid use case, err:%d\n",
@@ -4380,6 +4347,39 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		pr_err("%s: failed to set tdm clk, err:%d\n",
 			__func__, ret);
+
+	if (cpu_dai->id == AFE_PORT_ID_PRIMARY_TDM_TX) {
+		ret = snd_soc_dai_set_tdm_slot(codec_dai, 1, 0, 8, 32);
+		if (ret < 0) {
+			pr_err("%s: failed to set tdm codec slot, err:%d\n",
+				__func__, ret);
+		}
+
+		ret = snd_soc_dai_set_fmt(codec_dai,
+			SND_SOC_DAIFMT_DSP_B|SND_SOC_DAIFMT_IB_IF);
+		if (ret < 0) {
+			pr_err("%s: failed to set tdm codec fmt, err:%d\n",
+				__func__, ret);
+		}
+
+		ret = snd_soc_dai_set_pll(codec_dai, 0, 1,
+			Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ,
+			Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ);
+
+		if (ret < 0) {
+			pr_err("%s: failed to set codec pll, err:%d\n",
+				__func__, ret);
+		}
+
+		ret = snd_soc_dai_set_sysclk(codec_dai, 1,
+			Q6AFE_LPASS_IBIT_CLK_12_P288_MHZ,
+			SND_SOC_CLOCK_IN);
+
+		if (ret < 0) {
+			pr_err("%s: failed to set codec clk, err:%d\n",
+				__func__, ret);
+		}
+	}
 
 end:
 	return ret;
@@ -6237,6 +6237,81 @@ static struct snd_soc_dai_link msm_wcn_btfm_be_dai_links[] = {
 	},
 };
 
+static struct snd_soc_dai_link msm_spi_dai_links[] = {
+	{
+	 .name = "SoundTrigger_1",
+	 .stream_name = "SoundTrigger Capture",
+	 .cpu_dai_name = "rt5514-dsp-fe-dai1",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dynamic = 1,
+	 .dpcm_capture = 1,
+	 .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+		     SND_SOC_DPCM_TRIGGER_POST},
+	},
+	{
+	 .name = "SoundTrigger 2",
+	 .stream_name = "SoundTrigger Capture 2",
+	 .cpu_dai_name = "rt5514-dsp-fe-dai2",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dynamic = 1,
+	 .dpcm_capture = 1,
+	 .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+		     SND_SOC_DPCM_TRIGGER_POST},
+	},
+	{
+	 .name = "ADC Capture",
+	 .stream_name = "ADC Capture",
+	 .cpu_dai_name = "rt5514-dsp-fe-dai3",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dynamic = 1,
+	 .dpcm_capture = 1,
+	 .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+		     SND_SOC_DPCM_TRIGGER_POST},
+	},
+	{
+	 .name = "SPI PCM 1",
+	 .stream_name = "SPI Capture",
+	 .cpu_dai_name = "rt5514-dsp-be-dai1",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dpcm_capture = 1,
+	 .no_pcm = 1,
+	},
+	{
+	 .name = "SPI PCM 2",
+	 .stream_name = "SPI Capture 2",
+	 .cpu_dai_name = "rt5514-dsp-be-dai2",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dpcm_capture = 1,
+	 .no_pcm = 1,
+	},
+	{
+	 .name = "SPI PCM 3",
+	 .stream_name = "SPI Capture 3",
+	 .cpu_dai_name = "rt5514-dsp-be-dai3",
+	 .platform_name = "spi0.0",
+	 .codec_name = "msm-stub-codec.1",
+	 .codec_dai_name = "msm-stub-tx",
+	 .ignore_suspend = 1,
+	 .dpcm_capture = 1,
+	 .no_pcm = 1,
+	},
+};
+
 static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
 	/* DISP PORT BACK END DAI Link */
 	{
@@ -6843,7 +6918,8 @@ static struct snd_soc_dai_link msm_kona_dai_links[
 			ARRAY_SIZE(ext_disp_be_dai_link) +
 			ARRAY_SIZE(msm_wcn_be_dai_links) +
 			ARRAY_SIZE(msm_afe_rxtx_lb_be_dai_link) +
-			ARRAY_SIZE(msm_wcn_btfm_be_dai_links)];
+			ARRAY_SIZE(msm_wcn_btfm_be_dai_links) +
+			ARRAY_SIZE(msm_spi_dai_links)];
 
 static int msm_populate_dai_link_component_of_node(
 					struct snd_soc_card *card)
@@ -6864,6 +6940,7 @@ static int msm_populate_dai_link_component_of_node(
 
 		/* populate platform_of_node for snd card dai links */
 		if (dai_link[i].platform_name &&
+		    strcmp(dai_link[i].platform_name, "spi0.0") &&
 		    !dai_link[i].platform_of_node) {
 			index = of_property_match_string(cdev->of_node,
 						"asoc-platform-names",
@@ -7174,6 +7251,12 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 					ARRAY_SIZE(msm_wcn_btfm_be_dai_links);
 			}
 		}
+
+		memcpy(msm_kona_dai_links + total_links,
+		       msm_spi_dai_links,
+		       sizeof(msm_spi_dai_links));
+		total_links += ARRAY_SIZE(msm_spi_dai_links);
+
 		dailink = msm_kona_dai_links;
 	} else if(!strcmp(match->data, "stub_codec")) {
 		card = &snd_soc_card_stub_msm;
