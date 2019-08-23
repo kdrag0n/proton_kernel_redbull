@@ -69,8 +69,8 @@ int initTestToDo(void)
 #ifndef COMPUTE_INIT_METHOD
 	tests.MutualRawAdjITO = 1;
 
-	tests.MutualRaw = 1;
-	tests.MutualRawMap = 0;
+	tests.MutualRaw = 0;
+	tests.MutualRawMap = 1;
 	tests.MutualRawGap = 0;
 	tests.MutualRawAdj = 0;
 	tests.MutualRawAdjGap = 0;
@@ -78,7 +78,7 @@ int initTestToDo(void)
 
 	tests.MutualRawLP = 0;
 	tests.MutualRawGapLP = 0;
-	tests.MutualRawMapLP = 0;
+	tests.MutualRawMapLP = 1;
 	tests.MutualRawAdjLP = 0;
 
 	tests.MutualCx1 = 0;
@@ -88,8 +88,8 @@ int initTestToDo(void)
 	tests.MutualCxTotalAdj = 0;
 
 	tests.MutualCx1LP = 0;
-	tests.MutualCx2LP = 1;
-	tests.MutualCx2AdjLP = 1;
+	tests.MutualCx2LP = 0;
+	tests.MutualCx2AdjLP = 0;
 	tests.MutualCxTotalLP = 0;
 	tests.MutualCxTotalAdjLP = 0;
 
@@ -106,16 +106,18 @@ int initTestToDo(void)
 	tests.MutualKeyCxTotal = 0;
 #endif
 
-	tests.SelfForceRaw = 1;
+	tests.SelfForceRaw = 0;
 	tests.SelfForceRawGap = 0;
+	tests.SelfForceRawMap = 1;
 
-	tests.SelfForceRawLP = 1;
+	tests.SelfForceRawLP = 0;
 	tests.SelfForceRawGapLP = 0;
+	tests.SelfForceRawMapLP = 1;
 
 	tests.SelfForceIx1 = 0;
 	tests.SelfForceIx2 = 0;
 	tests.SelfForceIx2Adj = 0;
-	tests.SelfForceIxTotal = 1;
+	tests.SelfForceIxTotal = 0;
 	tests.SelfForceIxTotalAdj = 0;
 	tests.SelfForceCx1 = 0;
 	tests.SelfForceCx2 = 0;
@@ -125,7 +127,7 @@ int initTestToDo(void)
 	tests.SelfForceIx1LP = 0;
 	tests.SelfForceIx2LP = 0;
 	tests.SelfForceIx2AdjLP = 0;
-	tests.SelfForceIxTotalLP = 1;
+	tests.SelfForceIxTotalLP = 0;
 	tests.SelfForceIxTotalAdjLP = 0;
 	tests.SelfForceCx1LP = 0;
 	tests.SelfForceCx2LP = 0;
@@ -133,16 +135,18 @@ int initTestToDo(void)
 	tests.SelfForceCxTotalLP = 0;
 	tests.SelfForceCxTotalAdjLP = 0;
 
-	tests.SelfSenseRaw = 1;
+	tests.SelfSenseRaw = 0;
 	tests.SelfSenseRawGap = 0;
+	tests.SelfSenseRawMap = 1;
 
 	tests.SelfSenseRawLP = 0;
 	tests.SelfSenseRawGapLP = 0;
+	tests.SelfSenseRawMapLP = 1;
 
 	tests.SelfSenseIx1 = 0;
 	tests.SelfSenseIx2 = 0;
 	tests.SelfSenseIx2Adj = 0;
-	tests.SelfSenseIxTotal = 1;
+	tests.SelfSenseIxTotal = 0;
 	tests.SelfSenseIxTotalAdj = 0;
 	tests.SelfSenseCx1 = 0;
 	tests.SelfSenseCx2 = 0;
@@ -1767,7 +1771,7 @@ int production_test_ms_raw_lp(const char *path_limits, int stop_on_fail,
 	/************** Mutual Sense Test **************/
 	pr_info("MS RAW LP DATA TEST:\n");
 	if (todo->MutualRawLP == 1 || todo->MutualRawGapLP == 1 ||
-	    todo->MutualRawAdjLP == 1) {
+	    todo->MutualRawAdjLP == 1 || todo->MutualRawMapLP) {
 		ret = setScanMode(SCAN_MODE_LOCKED, LOCKED_LP_ACTIVE);
 		msleep(WAIT_FOR_FRESH_FRAMES);
 		ret |= setScanMode(SCAN_MODE_ACTIVE, 0x00);

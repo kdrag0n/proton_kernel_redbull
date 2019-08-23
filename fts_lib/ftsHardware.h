@@ -305,6 +305,10 @@
 								 * GPIO config
 								 * register */
 
+#define ADDR_GPIO_CONFIG_REG3	((u64)0x000000002000003E)	/* /< address of
+								 * GPIO config
+								 * register */
+
 /**@}*/
 
 

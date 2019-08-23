@@ -294,6 +294,16 @@ int hold_m3(void)
 			return ret;
 		}
 
+#ifdef ALIX
+		cmd[0] = 0x70;
+		ret = fts_writeU8UX(FTS_CMD_HW_REG_W, ADDR_SIZE_HW_REG,
+				    ADDR_GPIO_CONFIG_REG3, cmd, 1);
+		if (ret < OK) {
+			pr_err("%s: can not set gpio config ERROR %08X\n",
+				__func__, ret);
+			return ret;
+		}
+#else
 		cmd[0] = 0x07;
 		ret = fts_writeU8UX(FTS_CMD_HW_REG_W, ADDR_SIZE_HW_REG,
 				    ADDR_GPIO_CONFIG_REG2, cmd, 1);
@@ -302,6 +312,7 @@ int hold_m3(void)
 				__func__, ret);
 			return ret;
 		}
+#endif
 
 		cmd[0] = 0x30;
 		ret = fts_writeU8UX(FTS_CMD_HW_REG_W, ADDR_SIZE_HW_REG,
