@@ -378,8 +378,10 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 		const struct drm_format_info *info;
 
 		info = drm_format_info(mode_cmd->pixel_format);
-		if (!info || num_planes > ARRAY_SIZE(info->cpp))
+		if (!info || num_planes > ARRAY_SIZE(info->cpp)) {
+			ret = -EINVAL;
 			goto fail;
+		}
 
 		for (i = 0; i < num_planes; i++) {
 			unsigned int width = mode_cmd->width / (i ? hsub : 1);
@@ -393,7 +395,7 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 				 + width * cpp
 				 + mode_cmd->offsets[i];
 
-			if (bos[i]->size < min_size) {
+			if (!bos[i] || bos[i]->size < min_size) {
 				ret = -EINVAL;
 				goto fail;
 			}
