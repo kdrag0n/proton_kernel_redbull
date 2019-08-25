@@ -13,18 +13,6 @@
 
 #define MAX_BUFFER_TYPES 32
 
-struct dcvs_table {
-	u32 load;
-	u32 load_low;
-	u32 load_high;
-	u32 supported_codecs;
-};
-
-struct dcvs_limit {
-	u32 min_mbpf;
-	u32 fps;
-};
-
 struct reg_value_pair {
 	u32 reg;
 	u32 value;
@@ -156,9 +144,6 @@ struct msm_vidc_platform_resources {
 	struct allowed_clock_rates_table *allowed_clks_tbl;
 	u32 allowed_clks_tbl_size;
 	struct clock_freq_table clock_freq_tbl;
-	struct dcvs_table *dcvs_tbl;
-	uint32_t dcvs_tbl_size;
-	struct dcvs_limit *dcvs_limit;
 	bool sys_cache_present;
 	bool sys_cache_res_set;
 	struct subcache_set subcache_set;
@@ -208,6 +193,7 @@ struct msm_vidc_platform_resources {
 	uint32_t vpu_ver;
 	uint32_t fw_cycles;
 	uint32_t fw_vpp_cycles;
+	uint32_t avsync_window_size;
 	struct msm_vidc_ubwc_config_data *ubwc_config;
 	uint32_t clk_freq_threshold;
 	struct cx_ipeak_client *cx_ipeak_context;

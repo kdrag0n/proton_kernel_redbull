@@ -7,6 +7,9 @@
 #include "msm_cvp_external.h"
 #include "msm_vidc_common.h"
 
+#define LOWER32(a) ((u32)((u64)a))
+#define UPPER32(a) ((u32)((u64)a >> 32))
+
 static void print_cvp_buffer(u32 tag, const char *str,
 		struct msm_vidc_inst *inst, struct msm_cvp_buf *cbuf)
 {
@@ -20,6 +23,22 @@ static void print_cvp_buffer(u32 tag, const char *str,
 		"%s: %x : idx %d fd %d size %d offset %d dbuf %pK kvaddr %pK\n",
 		str, cvp->session_id, cbuf->index, cbuf->fd, cbuf->size,
 		cbuf->offset, cbuf->dbuf, cbuf->kvaddr);
+}
+
+static int fill_cvp_buffer(struct msm_cvp_buffer_type *dst,
+		struct msm_cvp_buf *src)
+{
+	if (!dst || !src) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	dst->buffer_addr = -1;
+	dst->reserved1 = LOWER32(src->dbuf);
+	dst->reserved2 = UPPER32(src->dbuf);
+	dst->size = src->size;
+
+	return 0;
 }
 
 static int msm_cvp_get_version_info(struct msm_vidc_inst *inst)
@@ -189,7 +208,6 @@ static int msm_cvp_allocate_buffer(struct msm_vidc_inst *inst,
 	int ion_flags = 0;
 	unsigned long heap_mask = 0;
 	struct dma_buf *dbuf;
-	int fd;
 
 	if (!inst || !inst->cvp || !buffer) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -212,14 +230,7 @@ static int msm_cvp_allocate_buffer(struct msm_vidc_inst *inst,
 		goto error;
 	}
 	buffer->dbuf = dbuf;
-
-	fd = dma_buf_fd(dbuf, O_CLOEXEC);
-	if (fd < 0) {
-		dprintk(VIDC_ERR, "%s: failed to get fd\n", __func__);
-		rc = -ENOMEM;
-		goto error;
-	}
-	buffer->fd = fd;
+	buffer->fd = -1;
 
 	if (kernel_map) {
 		buffer->kvaddr = dma_buf_vmap(dbuf);
@@ -250,7 +261,6 @@ static int msm_cvp_set_clocks_and_bus(struct msm_vidc_inst *inst)
 	struct cvp_kmd_usecase_desc desc;
 	struct cvp_kmd_request_power power;
 	const u32 fps_max = CVP_FRAME_RATE_MAX;
-	u32 fps;
 
 	if (!inst || !inst->cvp) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -262,16 +272,13 @@ static int msm_cvp_set_clocks_and_bus(struct msm_vidc_inst *inst)
 	memset(&power, 0, sizeof(struct cvp_kmd_request_power));
 
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
-	fps = max(inst->clk_data.operating_rate,
-			inst->clk_data.frame_rate) >> 16;
-
 	desc.fullres_width = cvp->width;
 	desc.fullres_height = cvp->height;
 	desc.downscale_width = cvp->ds_width;
 	desc.downscale_height = cvp->ds_height;
 	desc.is_downscale = cvp->downscale;
-	desc.fps = min(fps, fps_max);
-	desc.op_rate = min(fps, fps_max);
+	desc.fps = min(cvp->frame_rate >> 16, fps_max);
+	desc.op_rate = cvp->operating_rate >> 16;
 	desc.colorfmt = msm_comm_convert_color_fmt(f->fmt.pix_mp.pixelformat);
 	rc = msm_cvp_est_cycles(&desc, &power);
 	if (rc) {
@@ -539,10 +546,8 @@ static void msm_cvp_deinit_internal_buffers(struct msm_vidc_inst *inst)
 			HFI_CMD_SESSION_CVP_RELEASE_PERSIST_BUFFERS;
 		persist2_packet.session_id = cvp->session_id;
 		persist2_packet.cvp_op = CVP_DME;
-		persist2_packet.persist2_buffer.buffer_addr =
-			cvp->persist2_buffer.fd;
-		persist2_packet.persist2_buffer.size =
-			cvp->persist2_buffer.size;
+		fill_cvp_buffer(&persist2_packet.persist2_buffer,
+				&cvp->persist2_buffer);
 
 		arg = kzalloc(sizeof(struct cvp_kmd_arg), GFP_KERNEL);
 		if (arg) {
@@ -610,8 +615,8 @@ static int msm_cvp_init_internal_buffers(struct msm_vidc_inst *inst)
 	persist2_packet.packet_type = HFI_CMD_SESSION_CVP_SET_PERSIST_BUFFERS;
 	persist2_packet.session_id = cvp->session_id;
 	persist2_packet.cvp_op = CVP_DME;
-	persist2_packet.persist2_buffer.buffer_addr = cvp->persist2_buffer.fd;
-	persist2_packet.persist2_buffer.size = cvp->persist2_buffer.size;
+	fill_cvp_buffer(&persist2_packet.persist2_buffer,
+			&cvp->persist2_buffer);
 
 	memset(arg, 0, sizeof(struct cvp_kmd_arg));
 	arg->type = CVP_KMD_HFI_PERSIST_CMD;
@@ -816,7 +821,7 @@ static int msm_cvp_frame_process(struct msm_vidc_inst *inst,
 	struct cvp_kmd_arg *arg;
 	struct msm_cvp_dme_frame_packet *frame;
 	const u32 fps_max = CVP_FRAME_RATE_MAX;
-	u32 fps, skip_framecount;
+	u32 fps, operating_rate, skip_framecount;
 	bool skipframe = false;
 
 	if (!inst || !inst->cvp || !inst->cvp->arg || !mbuf) {
@@ -831,10 +836,37 @@ static int msm_cvp_frame_process(struct msm_vidc_inst *inst,
 	cvp->fullres_buffer.fd = vb->planes[0].m.fd;
 	cvp->fullres_buffer.size = vb->planes[0].length;
 	cvp->fullres_buffer.offset = vb->planes[0].data_offset;
+	cvp->fullres_buffer.dbuf = mbuf->smem[0].dma_buf;
 
+	/* handle framerate or operarating rate changes dynamically */
+	if (cvp->frame_rate != inst->clk_data.frame_rate ||
+		cvp->operating_rate != inst->clk_data.operating_rate) {
+		/* update cvp parameters */
+		cvp->frame_rate = inst->clk_data.frame_rate;
+		cvp->operating_rate = inst->clk_data.operating_rate;
+		rc = msm_cvp_set_clocks_and_bus(inst);
+		if (rc) {
+			dprintk(VIDC_ERR,
+				"%s: unsupported dynamic changes %#x %#x\n",
+				__func__, cvp->frame_rate, cvp->operating_rate);
+			goto error;
+		}
+	}
+
+	/*
+	 * Special handling for operating rate INT_MAX,
+	 * client's intention is not to skip cvp preprocess
+	 * based on operating rate, skip logic can still be
+	 * executed based on framerate though.
+	 */
+	if (cvp->operating_rate == INT_MAX)
+		operating_rate = fps_max << 16;
+	else
+		operating_rate = cvp->operating_rate;
+
+	mbuf->vvb.flags &= ~V4L2_BUF_FLAG_CVPMETADATA_SKIP;
 	/* frame skip logic */
-	fps = max(inst->clk_data.operating_rate,
-			inst->clk_data.frame_rate) >> 16;
+	fps = max(cvp->frame_rate, operating_rate) >> 16;
 	if (fps > fps_max) {
 		/*
 		 * fps <= 120: 0, 2, 4, 6 .. are not skipped
@@ -842,15 +874,16 @@ static int msm_cvp_frame_process(struct msm_vidc_inst *inst,
 		 * fps <= 240: 0, 4, 8, 12 .. are not skipped
 		 * fps <= 960: 0, 16, 32, 48 .. are not skipped
 		 */
-		fps = ALIGN(fps, fps_max);
+		fps = roundup(fps, fps_max);
 		skip_framecount = fps / fps_max;
-		skipframe = !(cvp->framecount % skip_framecount);
+		skipframe = cvp->framecount % skip_framecount;
 	}
 	if (skipframe) {
-		print_cvp_buffer(VIDC_LOW, "input frame skipped",
+		print_cvp_buffer(VIDC_LOW, "input frame with skipflag",
 			inst, &cvp->fullres_buffer);
 		cvp->framecount++;
 		cvp->metadata_available = false;
+		mbuf->vvb.flags |= V4L2_BUF_FLAG_CVPMETADATA_SKIP;
 		return 0;
 	}
 
@@ -875,25 +908,19 @@ static int msm_cvp_frame_process(struct msm_vidc_inst *inst,
 	frame->descmatch_threshold = 52;
 	frame->ncc_robustness_threshold = 0;
 
-	frame->fullres_srcbuffer.buffer_addr = cvp->fullres_buffer.fd;
-	frame->fullres_srcbuffer.size = cvp->fullres_buffer.size;
-	frame->videospatialtemporal_statsbuffer.buffer_addr =
-			cvp->output_buffer.fd;
-	frame->videospatialtemporal_statsbuffer.size =
-			cvp->output_buffer.size;
-
-	frame->src_buffer.buffer_addr = cvp->fullres_buffer.fd;
-	frame->src_buffer.size = cvp->fullres_buffer.size;
+	fill_cvp_buffer(&frame->fullres_srcbuffer,
+				&cvp->fullres_buffer);
+	fill_cvp_buffer(&frame->videospatialtemporal_statsbuffer,
+				&cvp->output_buffer);
+	fill_cvp_buffer(&frame->src_buffer, &cvp->fullres_buffer);
 	if (cvp->downscale) {
-		frame->src_buffer.buffer_addr = cvp->src_buffer.fd;
-		frame->src_buffer.size = cvp->src_buffer.size;
-		frame->ref_buffer.buffer_addr = cvp->ref_buffer.fd;
-		frame->ref_buffer.size = cvp->ref_buffer.size;
+		fill_cvp_buffer(&frame->src_buffer, &cvp->src_buffer);
+		fill_cvp_buffer(&frame->ref_buffer, &cvp->ref_buffer);
 	}
-	frame->srcframe_contextbuffer.buffer_addr = cvp->context_buffer.fd;
-	frame->srcframe_contextbuffer.size = cvp->context_buffer.size;
-	frame->refframe_contextbuffer.buffer_addr = cvp->refcontext_buffer.fd;
-	frame->refframe_contextbuffer.size = cvp->refcontext_buffer.size;
+	fill_cvp_buffer(&frame->srcframe_contextbuffer,
+				&cvp->context_buffer);
+	fill_cvp_buffer(&frame->refframe_contextbuffer,
+				&cvp->refcontext_buffer);
 
 	print_cvp_buffer(VIDC_LOW, "input frame", inst, &cvp->fullres_buffer);
 	rc = msm_cvp_private(cvp->priv, CVP_KMD_SEND_CMD_PKT, arg);
@@ -1037,6 +1064,8 @@ static int msm_vidc_cvp_init(struct msm_vidc_inst *inst)
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
 	cvp->width = f->fmt.pix_mp.width;
 	cvp->height = f->fmt.pix_mp.height;
+	cvp->frame_rate = inst->clk_data.frame_rate;
+	cvp->operating_rate = inst->clk_data.operating_rate;
 	color_fmt = msm_comm_convert_color_fmt(f->fmt.pix_mp.pixelformat);
 
 	/* enable downscale always */
@@ -1050,8 +1079,7 @@ static int msm_vidc_cvp_init(struct msm_vidc_inst *inst)
 		__func__, f->fmt.pix_mp.pixelformat,
 		cvp->width, cvp->height, cvp->downscale,
 		cvp->ds_width, cvp->ds_height,
-		inst->clk_data.frame_rate >> 16,
-		inst->clk_data.operating_rate >> 16);
+		cvp->frame_rate >> 16, cvp->operating_rate >> 16);
 
 	rc = msm_cvp_set_priority(inst);
 	if (rc)

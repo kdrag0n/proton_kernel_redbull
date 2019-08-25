@@ -158,7 +158,8 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					(struct hfi_frame_size *) data_ptr;
 				event_notify.width = frame_sz->width;
 				event_notify.height = frame_sz->height;
-				dprintk(VIDC_HIGH, "height: %d width: %d\n",
+				dprintk(VIDC_HIGH|VIDC_PERF,
+					"height: %d width: %d\n",
 					frame_sz->height, frame_sz->width);
 				data_ptr +=
 					sizeof(struct hfi_frame_size);
@@ -173,7 +174,8 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 					(struct hfi_profile_level *) data_ptr;
 				event_notify.profile = profile_level->profile;
 				event_notify.level = profile_level->level;
-				dprintk(VIDC_HIGH, "profile: %d level: %d\n",
+				dprintk(VIDC_HIGH|VIDC_PERF,
+					"profile: %d level: %d\n",
 					profile_level->profile,
 					profile_level->level);
 				data_ptr +=
@@ -209,7 +211,7 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						MSM_VIDC_BIT_DEPTH_10;
 				else
 					event_notify.bit_depth = luma_bit_depth;
-				dprintk(VIDC_HIGH,
+				dprintk(VIDC_HIGH|VIDC_PERF,
 					"bitdepth(%d), luma_bit_depth(%d), chroma_bit_depth(%d)\n",
 					event_notify.bit_depth, luma_bit_depth,
 					chroma_bit_depth);
@@ -224,7 +226,7 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 				pic_struct = (struct hfi_pic_struct *) data_ptr;
 				event_notify.pic_struct =
 					pic_struct->progressive_only;
-				dprintk(VIDC_HIGH,
+				dprintk(VIDC_HIGH|VIDC_PERF,
 					"Progressive only flag: %d\n",
 						pic_struct->progressive_only);
 				data_ptr +=
@@ -253,7 +255,7 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 				data_ptr = data_ptr + sizeof(u32);
 				entropy_mode = *(u32 *)data_ptr;
 				event_notify.entropy_mode = entropy_mode;
-				dprintk(VIDC_HIGH,
+				dprintk(VIDC_HIGH|VIDC_PERF,
 					"Entropy Mode: 0x%x\n", entropy_mode);
 				data_ptr +=
 					sizeof(u32);
@@ -269,7 +271,7 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 						data_ptr;
 				event_notify.capture_buf_count =
 					buf_req->buffer_count_min;
-				dprintk(VIDC_HIGH,
+				dprintk(VIDC_HIGH|VIDC_PERF,
 					"Capture Count : 0x%x\n",
 						event_notify.capture_buf_count);
 				data_ptr +=
@@ -778,7 +780,7 @@ static int hfi_process_session_etb_done(u32 device_id,
 	data_done.session_id = (void *)(uintptr_t)pkt->session_id;
 	data_done.status = hfi_map_err_status(pkt->error_type);
 	data_done.size = sizeof(struct msm_vidc_cb_data_done);
-	data_done.clnt_data = pkt->input_tag;
+	data_done.input_done.input_tag = pkt->input_tag;
 	data_done.input_done.recon_stats.buffer_index =
 		pkt->ubwc_cr_stats.frame_index;
 	memcpy(&data_done.input_done.recon_stats.ubwc_stats_info,
@@ -855,13 +857,11 @@ static int hfi_process_session_ftb_done(
 		data_done.session_id = (void *)(uintptr_t)pkt->session_id;
 		data_done.status = hfi_map_err_status(pkt->error_type);
 		data_done.size = sizeof(struct msm_vidc_cb_data_done);
-		data_done.clnt_data = 0;
 
+		data_done.output_done.input_tag = pkt->input_tag;
 		data_done.output_done.timestamp_hi = pkt->time_stamp_hi;
 		data_done.output_done.timestamp_lo = pkt->time_stamp_lo;
 		data_done.output_done.flags1 = pkt->flags;
-		data_done.output_done.mark_target = pkt->mark_target;
-		data_done.output_done.mark_data = pkt->mark_data;
 		data_done.output_done.stats = pkt->stats;
 		data_done.output_done.offset1 = pkt->offset;
 		data_done.output_done.alloc_len1 = pkt->alloc_len;
@@ -890,15 +890,12 @@ static int hfi_process_session_ftb_done(
 		data_done.session_id = (void *)(uintptr_t)pkt->session_id;
 		data_done.status = hfi_map_err_status(pkt->error_type);
 		data_done.size = sizeof(struct msm_vidc_cb_data_done);
-		data_done.clnt_data = 0;
 
 		data_done.output_done.stream_id = pkt->stream_id;
 		data_done.output_done.view_id = pkt->view_id;
 		data_done.output_done.timestamp_hi = pkt->time_stamp_hi;
 		data_done.output_done.timestamp_lo = pkt->time_stamp_lo;
 		data_done.output_done.flags1 = pkt->flags;
-		data_done.output_done.mark_target = pkt->mark_target;
-		data_done.output_done.mark_data = pkt->mark_data;
 		data_done.output_done.stats = pkt->stats;
 		data_done.output_done.alloc_len1 = pkt->alloc_len;
 		data_done.output_done.filled_len1 = pkt->filled_len;
@@ -907,7 +904,8 @@ static int hfi_process_session_ftb_done(
 		data_done.output_done.frame_height = pkt->frame_height;
 		data_done.output_done.start_x_coord = pkt->start_x_coord;
 		data_done.output_done.start_y_coord = pkt->start_y_coord;
-		data_done.output_done.input_tag1 = pkt->input_tag;
+		data_done.output_done.input_tag = pkt->input_tag;
+		data_done.output_done.input_tag2 = pkt->input_tag2;
 		data_done.output_done.picture_type = pkt->picture_type;
 		data_done.output_done.packet_buffer1 = pkt->packet_buffer;
 		data_done.output_done.extra_data_buffer =
