@@ -2453,8 +2453,14 @@ static int swrm_runtime_resume(struct device *dev)
 					SWR_WAKE_IRQ_DEREGISTER, (void *)swrm);
 		}
 
-		if (swrm_clk_request(swrm, true))
+		if (swrm_clk_request(swrm, true)) {
+			/*
+			 * Set autosuspend timer to 1 for
+			 * master to enter into suspend.
+			 */
+			auto_suspend_timer = 1;
 			goto exit;
+		}
 		if (!swrm->clk_stop_mode0_supp || swrm->state == SWR_MSTR_SSR) {
 			list_for_each_entry(swr_dev, &mstr->devices, dev_list) {
 				ret = swr_device_up(swr_dev);
@@ -2474,6 +2480,8 @@ static int swrm_runtime_resume(struct device *dev)
 			swr_master_write(swrm, SWRM_COMP_SW_RESET, 0x01);
 			swr_master_write(swrm, SWRM_COMP_SW_RESET, 0x01);
 			swrm_master_init(swrm);
+			/* wait for hw enumeration to complete */
+			usleep_range(100, 105);
 			swrm_cmd_fifo_wr_cmd(swrm, 0x4, 0xF, 0x0,
 						SWRS_SCP_INT_STATUS_MASK_1);
 			if (swrm->state == SWR_MSTR_SSR) {
@@ -2494,6 +2502,7 @@ exit:
 	if (!hw_core_err)
 		swrm_request_hw_vote(swrm, LPASS_HW_CORE, false);
 	pm_runtime_set_autosuspend_delay(&pdev->dev, auto_suspend_timer);
+	auto_suspend_timer = SWR_AUTO_SUSPEND_DELAY * 1000;
 	mutex_unlock(&swrm->reslock);
 
 	return ret;
@@ -2614,22 +2623,14 @@ static int swrm_device_down(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct swr_mstr_ctrl *swrm = platform_get_drvdata(pdev);
-	int ret = 0;
 
 	dev_dbg(dev, "%s: swrm state: %d\n", __func__, swrm->state);
 
 	mutex_lock(&swrm->force_down_lock);
 	swrm->state = SWR_MSTR_SSR;
 	mutex_unlock(&swrm->force_down_lock);
-	if (!pm_runtime_enabled(dev) || !pm_runtime_suspended(dev)) {
-		ret = swrm_runtime_suspend(dev);
-		if (!ret) {
-			pm_runtime_disable(dev);
-			pm_runtime_set_suspended(dev);
-			pm_runtime_enable(dev);
-		}
-	}
 
+	swrm_device_suspend(dev);
 	return 0;
 }
 
@@ -2763,6 +2764,14 @@ int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 			ret = -EINVAL;
 		} else {
 			mutex_lock(&swrm->mlock);
+			if (swrm->mclk_freq != *(int *)data) {
+				dev_dbg(swrm->dev, "%s: freq change: force mstr down\n", __func__);
+				if (swrm->state == SWR_MSTR_DOWN)
+					dev_dbg(swrm->dev, "%s:SWR master is already Down:%d\n",
+						__func__, swrm->state);
+				else
+					swrm_device_suspend(&pdev->dev);
+			}
 			swrm->mclk_freq = *(int *)data;
 			mutex_unlock(&swrm->mlock);
 		}

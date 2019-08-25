@@ -1147,18 +1147,6 @@ static int rx_macro_mclk_event(struct snd_soc_dapm_widget *w,
 	dev_dbg(rx_dev, "%s: event = %d\n", __func__, event);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		/* if swr_clk_users > 0, call device down */
-		if (rx_priv->swr_clk_users > 0) {
-			if ((rx_priv->clk_id == rx_priv->default_clk_id &&
-			     rx_priv->is_native_on) ||
-			    (rx_priv->clk_id == RX_CORE_CLK &&
-			     !rx_priv->is_native_on)) {
-				if (rx_priv->swr_ctrl_data)
-					swrm_wcd_notify(
-					rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-					SWR_DEVICE_DOWN, NULL);
-			}
-		}
 		if (rx_priv->is_native_on)
 			mclk_freq = MCLK_FREQ_NATIVE;
 		if (rx_priv->swr_ctrl_data)
@@ -1235,8 +1223,15 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
 				SWR_DEVICE_SSR_DOWN, NULL);
 		}
-		if (!pm_runtime_status_suspended(rx_dev))
-			bolero_runtime_suspend(rx_dev);
+		if ((!pm_runtime_enabled(rx_dev) ||
+		     !pm_runtime_suspended(rx_dev))) {
+			ret = bolero_runtime_suspend(rx_dev);
+			if (!ret) {
+				pm_runtime_disable(rx_dev);
+				pm_runtime_set_suspended(rx_dev);
+				pm_runtime_enable(rx_dev);
+			}
+		}
 		break;
 	case BOLERO_MACRO_EVT_SSR_UP:
 		rx_priv->dev_up = true;

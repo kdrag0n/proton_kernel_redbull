@@ -4035,6 +4035,8 @@ struct afe_id_aptx_adaptive_enc_init
 
 #define CAPI_V2_PARAM_ID_APTX_ENC_SWITCH_TO_MONO    0x0001332A
 
+#define CAPI_V2_PARAM_ID_APTX_AD_ENC_SWITCH_TO_MONO    0x00013354
+
 struct aptx_channel_mode_param_t {
 	u32 channel_mode;
 } __packed;
@@ -5668,6 +5670,24 @@ struct asm_softvolume_params {
 
 /* Mark unused channel. */
 #define PCM_CHANNEL_UNUSED  47
+
+#define PCM_CUSTOM_CHANNEL_MAP_1   48
+#define PCM_CUSTOM_CHANNEL_MAP_2   49
+#define PCM_CUSTOM_CHANNEL_MAP_3   50
+#define PCM_CUSTOM_CHANNEL_MAP_4   51
+#define PCM_CUSTOM_CHANNEL_MAP_5   52
+#define PCM_CUSTOM_CHANNEL_MAP_6   53
+#define PCM_CUSTOM_CHANNEL_MAP_7   54
+#define PCM_CUSTOM_CHANNEL_MAP_8   55
+#define PCM_CUSTOM_CHANNEL_MAP_9   56
+#define PCM_CUSTOM_CHANNEL_MAP_10  57
+#define PCM_CUSTOM_CHANNEL_MAP_11  58
+#define PCM_CUSTOM_CHANNEL_MAP_12  59
+#define PCM_CUSTOM_CHANNEL_MAP_13  60
+#define PCM_CUSTOM_CHANNEL_MAP_14  61
+#define PCM_CUSTOM_CHANNEL_MAP_15  62
+#define PCM_CUSTOM_CHANNEL_MAP_16  63
+#define PCM_MAX_CHANNEL_MAP   63
 
 /* Max valid channel map index */
 #define PCM_MAX_CHMAP_ID PCM_CHANNEL_RSD
@@ -12566,8 +12586,8 @@ struct afe_doa_tracking_mon_get_param_resp {
 
 #define AUDPROC_MODULE_ID_FFECNS 0x00010952
 #define AUDPROC_MODULE_ID_FFNS 0x00010962
-#define AUDPROC_PARAM_ID_FFV_DOA_TRACKING_PARAM 0x11003
-#define AUDPROC_PARAM_ID_FFV_DOA_TRACKING_MONITOR 0x11004
+#define AUDPROC_PARAM_ID_FFV_DOA_TRACKING_PARAM 0x0001097C
+#define AUDPROC_PARAM_ID_FFV_DOA_TRACKING_MONITOR 0x0001097D
 
 struct admx_sec_primary_mic_ch {
 	uint16_t version;
