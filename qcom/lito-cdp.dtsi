@@ -1,7 +1,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "lito-audio-overlay.dtsi"
 #include "lito-pmic-overlay.dtsi"
-#include "lito-camera-sensor-cdp.dtsi"
+#include "camera/lito-camera-sensor-cdp.dtsi"
 #include "lito-sde-display.dtsi"
 #include "lito-thermal-overlay.dtsi"
 
@@ -69,29 +69,25 @@
 	};
 };
 
-&spmi_bus {
-	qcom,pm7250b@2 {
-		pm7250b_adc_tm_iio: adc_tm@3400 {
-			compatible = "qcom,adc-tm5-iio";
-			reg = <0x3400 0x100>;
-			#thermal-sensor-cells = <1>;
-			io-channels = <&pm7250b_vadc ADC_GPIO3_PU2>;
+&pm7250b_adc_tm {
+	io-channels = <&pm7250b_vadc ADC_AMUX_THM1_PU2>,
+			<&pm7250b_vadc ADC_GPIO2_PU2>,
+			<&pm7250b_vadc ADC_GPIO3_PU2>,
+			<&pm7250b_vadc ADC_GPIO4_PU2>;
 
-			bmr_s_therm {
-				reg = <ADC_GPIO3_PU2>;
-				qcom,ratiometric;
-				qcom,hw-settle-time = <200>;
-			};
-		};
+	bmr_s_therm@54 {
+		reg = <ADC_GPIO3_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
 	};
 };
 
 &thermal_zones {
 	mmw-pa4-usr {
 		polling-delay-passive = <0>;
-		polling-delay = <5000>;
+		polling-delay = <0>;
 		thermal-governor = "user_space";
-		thermal-sensors = <&pm7250b_adc_tm_iio ADC_GPIO3_PU2>;
+		thermal-sensors = <&pm7250b_adc_tm ADC_GPIO3_PU2>;
 		wake-capable-sensor;
 		trips {
 			active-config0 {
@@ -335,7 +331,9 @@
 &qupv3_se7_i2c {
 	#address-cells = <1>;
 	#size-cells = <0>;
+
 	status = "ok";
+	qcom,i2c-touch-active = "st,fts";
 
 	st_fts@49 {
 		compatible = "st,fts";
@@ -360,7 +358,7 @@
 		reg = <0x22>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <39 0x2008>;
-		vdd-supply = <&pm8150a_l1>;
+		vdd-supply = <&pm8150_s4>;
 		avdd-supply = <&pm8150_l13>;
 		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend",
 							"pmx_ts_release";
@@ -370,16 +368,17 @@
 		synaptics,pwr-reg-name = "avdd";
 		synaptics,bus-reg-name = "vdd";
 		synaptics,ub-i2c-addr = <0x22>;
-		synaptics,max-y-for-2d = <2559>;
-		synaptics,irq-gpio = <&tlmm 39 0x2008>;
-		synaptics,reset-gpio = <&tlmm 38 0x0>;
+		synaptics,max-y-for-2d = <1859>;
+		synaptics,irq-gpio = <&tlmm 9 0x2008>;
+		synaptics,reset-gpio = <&tlmm 8 0x0>;
 		synaptics,irq-on-state = <0>;
 		synaptics,power-delay-ms = <200>;
 		synaptics,reset-delay-ms = <200>;
 		synaptics,reset-on-state = <0>;
 		synaptics,reset-active-ms = <20>;
 
-		panel = <&dsi_sharp_qsync_wqhd_cmd &dsi_sharp_qsync_wqhd_video>;
+		panel = <&dsi_sharp_qsync_wqhd_cmd &dsi_sharp_qsync_wqhd_video
+			&dsi_sharp_qsync_fhd_video &dsi_sharp_qsync_fhd_cmd>;
 	};
 
 };
@@ -497,6 +496,27 @@
 };
 
 &dsi_sharp_qsync_wqhd_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_external";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+	qcom,platform-en-gpio = <&pm8150l_gpios 9 0>;
+	qcom,platform-bklight-en-gpio = <&pm8150l_gpios 10 0>;
+};
+
+&dsi_sharp_qsync_fhd_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_external";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+	qcom,platform-en-gpio = <&pm8150l_gpios 9 0>;
+	qcom,platform-bklight-en-gpio = <&pm8150l_gpios 10 0>;
+};
+
+&dsi_sharp_qsync_fhd_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_external";
 	qcom,mdss-dsi-bl-min-level = <1>;
