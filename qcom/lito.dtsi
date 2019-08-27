@@ -370,7 +370,7 @@
 			compatible = "android,firmware";
 			android_vbmeta: vbmeta {
 				compatible = "android,vbmeta";
-				parts = "product,vbmeta,boot,system,vendor,dtbo";
+				parts = "vbmeta,boot,system,vendor,dtbo";
 			};
 
 			android_fstab: fstab {
@@ -383,13 +383,6 @@
 					fsmgr_flags = "wait,slotselect,avb";
 					status = "ok";
 				};
-				product {
-                                       compatible = "android,product";
-                                       dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/product";
-                                       type = "ext4";
-                                       mnt_flags = "ro";
-                                       fsmgr_flags = "wait,slotselect,avb";
-                                };
 			};
 		};
 	};
