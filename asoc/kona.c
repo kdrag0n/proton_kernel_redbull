@@ -6319,6 +6319,40 @@ static struct snd_soc_dai_link msm_spi_dai_links[] = {
 	},
 };
 
+static struct snd_soc_dai_link msm_tdm_fe_dai_link[] = {
+	{
+		.name = "Primary TDM TX 0 Hostless",
+		.stream_name = "Primary TDM TX 0 Hostless",
+		.cpu_dai_name = "PRI_TDM_TX_0_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_capture = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+	{
+		.name = "Quinary TDM RX 0 Hostless",
+		.stream_name = "Quinary TDM RX 0 Hostless",
+		.cpu_dai_name = "QUIN_TDM_RX_0_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_playback = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+};
+
+
 static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
 	/* DISP PORT BACK END DAI Link */
 	{
@@ -6935,6 +6969,7 @@ static struct snd_soc_dai_link msm_kona_dai_links[
 			ARRAY_SIZE(msm_wcn_be_dai_links) +
 			ARRAY_SIZE(msm_afe_rxtx_lb_be_dai_link) +
 			ARRAY_SIZE(msm_wcn_btfm_be_dai_links) +
+			ARRAY_SIZE(msm_tdm_fe_dai_link) +
 			ARRAY_SIZE(msm_spi_dai_links)];
 
 static int msm_populate_dai_link_component_of_node(
@@ -7271,6 +7306,11 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 					ARRAY_SIZE(msm_wcn_btfm_be_dai_links);
 			}
 		}
+
+		memcpy(msm_kona_dai_links + total_links,
+			msm_tdm_fe_dai_link,
+			sizeof(msm_tdm_fe_dai_link));
+		total_links += ARRAY_SIZE(msm_tdm_fe_dai_link);
 
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_spi_dai_links,

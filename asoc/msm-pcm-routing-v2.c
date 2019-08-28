@@ -68,6 +68,7 @@ static int quin_mi2s_switch_enable;
 static int sen_mi2s_switch_enable;
 static int fm_pcmrx_switch_enable;
 static int usb_switch_enable;
+static int tdm_switch_enable;
 static int lsm_port_index;
 static int slim0_rx_aanc_fb_port;
 static int msm_route_ec_ref_rx;
@@ -2717,6 +2718,34 @@ static int msm_routing_put_usb_switch_mixer(struct snd_kcontrol *kcontrol,
 		snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol,
 						0, update);
 	usb_switch_enable = ucontrol->value.integer.value[0];
+	return 1;
+}
+
+static int msm_routing_get_tdm_switch_mixer(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = tdm_switch_enable;
+	pr_debug("%s: TDM Switch enable %ld\n", __func__,
+		ucontrol->value.integer.value[0]);
+	return 0;
+}
+
+static int msm_routing_quin_tdm_switch_mixer(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget *widget =
+		snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_dapm_update *update = NULL;
+
+	pr_debug("%s: TDM Switch enable %ld\n", __func__,
+			ucontrol->value.integer.value[0]);
+	if (ucontrol->value.integer.value[0])
+		snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol,
+						1, update);
+	else
+		snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol,
+						0, update);
+	tdm_switch_enable = ucontrol->value.integer.value[0];
 	return 1;
 }
 
@@ -18047,6 +18076,11 @@ static const struct snd_kcontrol_new quin_tdm_rx_0_port_mixer_controls[] = {
 		MSM_BACKEND_DAI_SEN_TDM_TX_3, 1, 0,
 		msm_routing_get_port_mixer,
 		msm_routing_put_port_mixer),
+	SOC_DOUBLE_EXT("PRI_TDM_TX_0", SND_SOC_NOPM,
+		MSM_BACKEND_DAI_QUIN_TDM_RX_0,
+		MSM_BACKEND_DAI_PRI_TDM_TX_0, 1, 0,
+		msm_routing_get_port_mixer,
+		msm_routing_put_port_mixer),
 };
 
 static const struct snd_kcontrol_new quin_tdm_rx_1_port_mixer_controls[] = {
@@ -19533,6 +19567,11 @@ static const struct snd_kcontrol_new usb_switch_mixer_controls =
 	SOC_SINGLE_EXT("Switch", SND_SOC_NOPM,
 	0, 1, 0, msm_routing_get_usb_switch_mixer,
 	msm_routing_put_usb_switch_mixer);
+
+static const struct snd_kcontrol_new quin_tdm_rx_switch_mixer_controls =
+	SOC_SINGLE_EXT("Switch", SND_SOC_NOPM,
+	0, 1, 0, msm_routing_get_tdm_switch_mixer,
+	msm_routing_quin_tdm_switch_mixer);
 
 static const struct snd_kcontrol_new a2dp_slim7_switch_mixer_controls =
 	SOC_SINGLE_EXT("Switch", SND_SOC_NOPM,
@@ -21800,6 +21839,8 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 				&cdc_dma_wsa_switch_mixer_controls),
 	SND_SOC_DAPM_SWITCH("RX_CDC_DMA_RX_0_DL_HL", SND_SOC_NOPM, 0, 0,
 				&cdc_dma_rx_switch_mixer_controls),
+	SND_SOC_DAPM_SWITCH("QUIN_TDM_RX_DL_HL", SND_SOC_NOPM, 0, 0,
+				&quin_tdm_rx_switch_mixer_controls),
 
 	/* Mixer definitions */
 	SND_SOC_DAPM_MIXER("PRI_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
@@ -25217,6 +25258,9 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_MI2S_RX_DL_HL", "Switch", "TERT_MI2S_DL_HL"},
 	{"TERT_MI2S_RX", NULL, "TERT_MI2S_RX_DL_HL"},
 
+	{"QUIN_TDM_RX_DL_HL", "Switch", "QUIN_TDM_RX_0_DL_HL"},
+	{"QUIN_TDM_RX_0", NULL, "QUIN_TDM_RX_DL_HL"},
+
 	{"QUAT_MI2S_RX_DL_HL", "Switch", "QUAT_MI2S_DL_HL"},
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX_DL_HL"},
 	{"QUIN_MI2S_RX_DL_HL", "Switch", "QUIN_MI2S_DL_HL"},
@@ -25274,7 +25318,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_TX_1_UL_HL", NULL, "QUIN_TDM_TX_1"},
 	{"QUIN_TDM_TX_2_UL_HL", NULL, "QUIN_TDM_TX_2"},
 	{"QUIN_TDM_TX_3_UL_HL", NULL, "QUIN_TDM_TX_3"},
-	{"QUIN_TDM_RX_0", NULL, "QUIN_TDM_RX_0_DL_HL"},
 	{"QUIN_TDM_RX_1", NULL, "QUIN_TDM_RX_1_DL_HL"},
 	{"QUIN_TDM_RX_2", NULL, "QUIN_TDM_RX_2_DL_HL"},
 	{"QUIN_TDM_RX_3", NULL, "QUIN_TDM_RX_3_DL_HL"},
@@ -25733,6 +25776,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_0 Port Mixer", "SEN_TDM_TX_1", "SEN_TDM_TX_1"},
 	{"QUIN_TDM_RX_0 Port Mixer", "SEN_TDM_TX_2", "SEN_TDM_TX_2"},
 	{"QUIN_TDM_RX_0 Port Mixer", "SEN_TDM_TX_3", "SEN_TDM_TX_3"},
+	{"QUIN_TDM_RX_0 Port Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
 	{"QUIN_TDM_RX_0", NULL, "QUIN_TDM_RX_0 Port Mixer"},
 
 	{"QUIN_TDM_RX_1 Port Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
