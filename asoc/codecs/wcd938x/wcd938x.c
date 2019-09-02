@@ -1308,7 +1308,7 @@ int wcd938x_mbhc_micb_adjust_voltage(struct snd_soc_component *component,
 		goto exit;
 	}
 
-	dev_dbg(component->dev, "%s: micb_num: %d, cur_mv: %d, req_mv: %d, micb_en: %d\n",
+	dev_info(component->dev, "%s: micb_num: %d, cur_mv: %d, req_mv: %d, micb_en: %d\n",
 		 __func__, micb_num, WCD_VOUT_CTL_TO_MICB(cur_vout_ctl),
 		 req_volt, micb_en);
 
