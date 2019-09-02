@@ -18,6 +18,7 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst,
 		struct v4l2_format *f);
 int msm_venc_g_fmt(struct msm_vidc_inst *inst,
 		struct v4l2_format *f);
+int msm_venc_set_default_profile(struct msm_vidc_inst *inst);
 int msm_venc_s_ctrl(struct msm_vidc_inst *inst,
 		struct v4l2_ctrl *ctrl);
 int msm_venc_set_properties(struct msm_vidc_inst *inst);
@@ -36,6 +37,10 @@ int msm_venc_set_intra_refresh_mode(struct msm_vidc_inst *inst);
 int msm_venc_set_hp_max_layer(struct msm_vidc_inst *inst);
 int msm_venc_set_hp_layer(struct msm_vidc_inst *inst);
 int msm_venc_set_base_layer_priority_id(struct msm_vidc_inst *inst);
+int msm_venc_check_dynamic_flip_constraints(struct msm_vidc_inst *inst);
+int msm_venc_set_dynamic_flip(struct msm_vidc_inst *inst);
 int msm_venc_set_lossless(struct msm_vidc_inst *inst);
 int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst);
+int handle_all_intra_restrictions(struct msm_vidc_inst *inst);
+int check_blur_restrictions(struct msm_vidc_inst *inst);
 #endif

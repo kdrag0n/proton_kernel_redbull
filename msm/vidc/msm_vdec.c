@@ -343,9 +343,9 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE,
 		.name = "CAPTURE Count",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = MIN_NUM_OUTPUT_BUFFERS,
+		.minimum = SINGLE_OUTPUT_BUFFER,
 		.maximum = MAX_NUM_OUTPUT_BUFFERS,
-		.default_value = MIN_NUM_OUTPUT_BUFFERS,
+		.default_value = SINGLE_OUTPUT_BUFFER,
 		.step = 1,
 		.qmenu = NULL,
 	},
@@ -353,9 +353,9 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
 		.name = "OUTPUT Count",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = MIN_NUM_INPUT_BUFFERS,
+		.minimum = SINGLE_INPUT_BUFFER,
 		.maximum = MAX_NUM_INPUT_BUFFERS,
-		.default_value = MIN_NUM_INPUT_BUFFERS,
+		.default_value = SINGLE_INPUT_BUFFER,
 		.step = 1,
 		.qmenu = NULL,
 	},
@@ -375,14 +375,14 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
 		.minimum = V4L2_MPEG_MSM_VIDC_DISABLE,
 		.maximum = V4L2_MPEG_MSM_VIDC_ENABLE,
-		.default_value = V4L2_MPEG_MSM_VIDC_DISABLE,
+		.default_value = V4L2_MPEG_MSM_VIDC_ENABLE,
 		.step = 1,
 	},
 	{
 		.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE,
-		.name = "Set Decoder Operating rate",
+		.name = "Decoder Operating rate",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = (MINIMUM_FPS << 16),
+		.minimum = (DEFAULT_FPS << 16),/* Power Vote min fps */
 		.maximum = INT_MAX,
 		.default_value =  (DEFAULT_FPS << 16),
 		.step = 1,
@@ -395,6 +395,15 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.minimum = V4L2_MPEG_MSM_VIDC_DISABLE,
 		.maximum = V4L2_MPEG_MSM_VIDC_ENABLE,
 		.default_value = V4L2_MPEG_MSM_VIDC_DISABLE,
+		.step = 1,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_SUPERFRAME,
+		.name = "Superframe",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = 0,
+		.default_value = 0,
 		.step = 1,
 	},
 };
@@ -652,6 +661,17 @@ int msm_vdec_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		memcpy(f, &fmt->v4l2_fmt, sizeof(struct v4l2_format));
 	}
 
+	/*
+	 * if batching enabled previously then you may chose
+	 * to disable it based on recent configuration changes.
+	 * if batching already disabled do not enable it again
+	 * as sufficient extra buffers (required for batch mode
+	 * on both ports) may not have been updated to client.
+	 */
+	if (inst->batch.enable)
+		inst->batch.enable = is_batching_allowed(inst);
+	msm_dcvs_try_enable(inst);
+
 err_invalid_fmt:
 	return rc;
 }
@@ -773,24 +793,8 @@ int msm_vdec_inst_init(struct msm_vidc_inst *inst)
 	inst->clk_data.frame_rate = (DEFAULT_FPS << 16);
 	inst->clk_data.operating_rate = (DEFAULT_FPS << 16);
 	if (core->resources.decode_batching) {
-		struct msm_vidc_inst *temp;
-
-		inst->batch.size = MAX_DEC_BATCH_SIZE;
 		inst->batch.enable = true;
-
-		mutex_lock(&core->lock);
-		list_for_each_entry(temp, &core->instances, list) {
-			if (temp != inst &&
-				temp->state != MSM_VIDC_CORE_INVALID &&
-				is_decode_session(temp) &&
-				!is_thumbnail_session(temp)) {
-				inst->batch.enable = false;
-				dprintk(VIDC_HIGH,
-				"Disable decode-batching in multi sessions\n");
-				break;
-			}
-		}
-		mutex_unlock(&core->lock);
+		inst->batch.size = MAX_DEC_BATCH_SIZE;
 	}
 
 	inst->buff_req.buffer[1].buffer_type = HAL_BUFFER_INPUT;
@@ -862,9 +866,11 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		if (ctrl->val)
 			inst->flags |= VIDC_THUMBNAIL;
 
-		rc = msm_vidc_set_buffer_count_for_thumbnail(inst);
+		rc = msm_vidc_calculate_buffer_counts(inst);
 		if (rc) {
-			dprintk(VIDC_ERR, "Failed to set buffer count\n");
+			dprintk(VIDC_ERR,
+				"%s: %x : failed to calculate thumbnail buffer count\n",
+				__func__, hash32_ptr(inst->session));
 			return rc;
 		}
 		break;
@@ -897,12 +903,12 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		inst->buffer_size_limit = ctrl->val;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY:
-		inst->flags &= ~VIDC_REALTIME;
-		if (ctrl->val)
-			inst->flags |= VIDC_REALTIME;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE:
 		inst->clk_data.operating_rate = ctrl->val;
+		inst->flags &= ~VIDC_TURBO;
+		if (ctrl->val == INT_MAX)
+			inst->flags |= VIDC_TURBO;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_LOWLATENCY_MODE:
 		inst->clk_data.low_latency_mode = !!ctrl->val;
@@ -1264,7 +1270,6 @@ int msm_vdec_set_priority(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
 	struct hfi_enable hfi_property;
 
 	if (!inst || !inst->core) {
@@ -1273,8 +1278,7 @@ int msm_vdec_set_priority(struct msm_vidc_inst *inst)
 	}
 	hdev = inst->core->device;
 
-	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY);
-	hfi_property.enable = (bool)ctrl->val;
+	hfi_property.enable = is_realtime_session(inst);
 
 	dprintk(VIDC_HIGH, "%s: %#x\n", __func__, hfi_property.enable);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,

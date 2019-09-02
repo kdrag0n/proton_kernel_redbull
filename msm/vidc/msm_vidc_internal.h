@@ -42,8 +42,8 @@
 #define DEFAULT_FPS 30
 #define MINIMUM_FPS 1
 #define MAXIMUM_FPS 960
-#define MIN_NUM_INPUT_BUFFERS 1
-#define MIN_NUM_OUTPUT_BUFFERS 1
+#define SINGLE_INPUT_BUFFER 1
+#define SINGLE_OUTPUT_BUFFER 1
 #define MAX_NUM_INPUT_BUFFERS VIDEO_MAX_FRAME // same as VB2_MAX_FRAME
 #define MAX_NUM_OUTPUT_BUFFERS VIDEO_MAX_FRAME // same as VB2_MAX_FRAME
 
@@ -51,11 +51,17 @@
 
 /* Maintains the number of FTB's between each FBD over a window */
 #define DCVS_FTB_WINDOW 16
+/* Superframe can have maximum of 32 frames */
+#define VIDC_SUPERFRAME_MAX 32
 
 #define V4L2_EVENT_VIDC_BASE  10
 #define INPUT_MPLANE V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
 #define OUTPUT_MPLANE V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 
+/* EXTRADATA_ENC_INPUT_KK_CVP is an extension of
+   v4l2_mpeg_vidc_extradata for internal usage.
+   This is needed to indicate internal kernel to kernel CVP usage. */
+#define EXTRADATA_ENC_INPUT_KK_CVP (1UL << 31)
 #define RATE_CONTROL_OFF (V4L2_MPEG_VIDEO_BITRATE_MODE_CQ + 1)
 #define RATE_CONTROL_LOSSLESS (V4L2_MPEG_VIDEO_BITRATE_MODE_CQ + 2)
 #define SYS_MSG_START HAL_SYS_INIT_DONE
@@ -67,6 +73,9 @@
 
 #define MAX_NAME_LENGTH 64
 
+#define DB_DISABLE_SLICE_BOUNDARY \
+	V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
+
 #define NUM_MBS_PER_SEC(__height, __width, __fps) \
 	(NUM_MBS_PER_FRAME(__height, __width) * __fps)
 
@@ -76,6 +85,17 @@
 #define call_core_op(c, op, ...)			\
 	(((c) && (c)->core_ops && (c)->core_ops->op) ? \
 	((c)->core_ops->op(__VA_ARGS__)) : 0)
+
+/*
+ * Convert Q16 number into Integer and Fractional part upto 2 places.
+ * Ex : 105752 / 65536 = 1.61; 1.61 in Q16 = 105752;
+ * Integer part =  105752 / 65536 = 1;
+ * Reminder = 105752 * 0xFFFF = 40216; Last 16 bits.
+ * Fractional part = 40216 * 100 / 65536 = 61;
+ * Now convert to FP(1, 61, 100).
+ */
+#define Q16_INT(q) ((q) >> 16)
+#define Q16_FRAC(q) ((((q) & 0xFFFF) * 100) >> 16)
 
 struct msm_vidc_inst;
 
@@ -185,9 +205,21 @@ struct msm_vidc_csc_coeff {
 struct msm_vidc_buf_data {
 	struct list_head list;
 	u32 index;
-	u32 mark_data;
-	u32 mark_target;
+	u32 input_tag;
+	u32 input_tag2;
 	u32 filled_length;
+};
+
+struct msm_vidc_window_data {
+	struct list_head list;
+	u32 frame_size;
+	u32 etb_count;
+};
+
+struct msm_vidc_client_data {
+	struct list_head list;
+	u32 id;
+	u32 input_tag;
 };
 
 struct msm_vidc_common_data {
@@ -367,9 +399,10 @@ struct clock_data {
 	u64 load_norm;
 	u64 load_high;
 	int min_threshold;
+	int nom_threshold;
 	int max_threshold;
-	enum hal_buffer buffer_type;
 	bool dcvs_mode;
+	u32 dcvs_window;
 	unsigned long bitrate;
 	unsigned long min_freq;
 	unsigned long curr_freq;
@@ -388,6 +421,27 @@ struct clock_data {
 	u32 work_route;
 	u32 dcvs_flags;
 	u32 frame_rate;
+};
+
+struct vidc_bus_vote_data {
+	enum hal_domain domain;
+	enum hal_video_codec codec;
+	enum hal_uncompressed_format color_formats[2];
+	int num_formats; /* 1 = DPB-OPB unified; 2 = split */
+	int input_height, input_width, bitrate;
+	int output_height, output_width;
+	int rotation;
+	int compression_ratio;
+	int complexity_factor;
+	int input_cr;
+	unsigned int lcu_size;
+	unsigned int fps;
+	enum msm_vidc_power_mode power_mode;
+	u32 work_mode;
+	bool use_sys_cache;
+	bool b_frames_enabled;
+	unsigned long calc_bw_ddr;
+	unsigned long calc_bw_llcc;
 };
 
 struct profile_data {
@@ -410,7 +464,6 @@ enum msm_vidc_modes {
 	VIDC_TURBO = BIT(1),
 	VIDC_THUMBNAIL = BIT(2),
 	VIDC_LOW_POWER = BIT(3),
-	VIDC_REALTIME = BIT(4),
 };
 
 struct msm_vidc_core_ops {
@@ -418,6 +471,7 @@ struct msm_vidc_core_ops {
 	int (*decide_work_route)(struct msm_vidc_inst *inst);
 	int (*decide_work_mode)(struct msm_vidc_inst *inst);
 	int (*decide_core_and_power_mode)(struct msm_vidc_inst *inst);
+	int (*calc_bw)(struct vidc_bus_vote_data *vidc_data);
 };
 
 struct msm_vidc_core {
@@ -437,6 +491,7 @@ struct msm_vidc_core {
 	struct msm_vidc_capability *capabilities;
 	struct delayed_work fw_unload_work;
 	struct work_struct ssr_work;
+	struct workqueue_struct *vidc_core_workq;
 	enum hal_ssr_trigger_type ssr_type;
 	bool smmu_fault_handled;
 	bool trigger_ssr;
@@ -470,13 +525,16 @@ struct msm_vidc_inst {
 	struct msm_vidc_list persistbufs;
 	struct msm_vidc_list pending_getpropq;
 	struct msm_vidc_list outputbufs;
-	struct msm_vidc_list reconbufs;
+	struct msm_vidc_list refbufs;
 	struct msm_vidc_list eosbufs;
 	struct msm_vidc_list registeredbufs;
 	struct msm_vidc_list cvpbufs;
 	struct msm_vidc_list etb_data;
 	struct msm_vidc_list fbd_data;
+	struct msm_vidc_list window_data;
+	struct msm_vidc_list client_data;
 	struct buffer_requirements buff_req;
+	struct vidc_frame_data superframe_data[VIDC_SUPERFRAME_MAX];
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct completion completions[SESSION_MSG_END - SESSION_MSG_START + 1];
 	struct v4l2_ctrl **cluster;
@@ -488,6 +546,7 @@ struct msm_vidc_inst {
 	struct msm_vidc_debug debug;
 	struct buf_count count;
 	struct clock_data clk_data;
+	struct vidc_bus_vote_data bus_data;
 	enum msm_vidc_modes flags;
 	struct msm_vidc_capability capability;
 	u32 buffer_size_limit;
@@ -495,25 +554,30 @@ struct msm_vidc_inst {
 	enum multi_stream stream_output_mode;
 	struct v4l2_ctrl **ctrls;
 	u32 num_ctrls;
+	u32 etb_counter;
 	int bit_depth;
 	struct kref kref;
 	bool in_flush;
+	bool out_flush;
 	u32 pic_struct;
 	u32 colour_space;
 	u32 profile;
 	u32 level;
-	u32 grid_enable;
-	u32 frame_quality;
+	u32 entropy_mode;
 	u32 rc_type;
 	u32 hybrid_hp;
 	u32 layer_bitrate;
 	u32 client_set_ctrls;
+	bool static_rotation_flip_enabled;
 	struct internal_buf *dpb_extra_binfo;
 	struct msm_vidc_codec_data *codec_data;
 	struct hal_hdr10_pq_sei hdr10_sei_params;
 	struct batch_mode batch;
+	struct delayed_work batch_work;
 	struct msm_vidc_inst_smem_ops *smem_ops;
 	int (*buffer_size_calculators)(struct msm_vidc_inst *inst);
+	bool all_intra;
+	bool is_perf_eligible_session;
 };
 
 extern struct msm_vidc_drv *vidc_driver;
@@ -540,7 +604,6 @@ void handle_cmd_response(enum hal_command_response cmd, void *data);
 int msm_vidc_trigger_ssr(struct msm_vidc_core *core,
 	enum hal_ssr_trigger_type type);
 int msm_vidc_noc_error_info(struct msm_vidc_core *core);
-bool heic_encode_session_supported(struct msm_vidc_inst *inst);
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst);
 int msm_vidc_check_scaling_supported(struct msm_vidc_inst *inst);
 void msm_vidc_queue_v4l2_event(struct msm_vidc_inst *inst, int event_type);

@@ -398,6 +398,9 @@ struct hfi_buffer_info {
 #define HFI_PROPERTY_CONFIG_VPE_COMMON_START				\
 	(HFI_DOMAIN_BASE_VPE + HFI_ARCH_COMMON_OFFSET + 0x8000)
 
+#define HFI_PROPERTY_CONFIG_VPE_FLIP			\
+	(HFI_PROPERTY_CONFIG_VPE_COMMON_START + 0x001)
+
 struct hfi_pic_struct {
 	u32 progressive_only;
 };
@@ -658,11 +661,6 @@ struct hfi_bit_depth {
 	u32 bit_depth;
 };
 
-struct hfi_picture_type {
-	u32 is_sync_frame;
-	u32 picture_type;
-};
-
 /* Base Offset for UBWC color formats  */
 #define HFI_COLOR_FORMAT_UBWC_BASE        (0x8000)
 /* Base Offset for 10-bit color formats */
@@ -837,6 +835,11 @@ struct vidc_hal_session_cmd_pkt {
 	u32 size;
 	u32 packet_type;
 	u32 session_id;
+};
+
+struct hfi_packet_header {
+	u32 size;
+	u32 packet_type;
 };
 
 struct hfi_cmd_sys_init_packet {
