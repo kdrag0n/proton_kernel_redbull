@@ -13,6 +13,7 @@
 #include <linux/msm-bus.h>
 #include <linux/of_fdt.h>
 #include <drm/drmP.h>
+#include "sde_hw_mdss.h"
 
 /**
  * Max hardware block count: For ex: max 12 SSPP pipes or
@@ -915,9 +916,11 @@ struct sde_pingpong_cfg  {
  * @base               register offset of this block
  * @len:               length of hardware block
  * @features           bit mask identifying sub-blocks/features
+ * @dsc_pair_mask:     Bitmask of DSCs that can be controlled by same CTL
  */
 struct sde_dsc_cfg {
 	SDE_HW_BLK_INFO;
+	DECLARE_BITMAP(dsc_pair_mask, DSC_MAX);
 };
 
 /**
@@ -1185,6 +1188,7 @@ struct sde_perf_cfg {
  * register offsets, capabilities of the all MDSS HW sub-blocks.
  *
  * @max_sspp_linewidth max source pipe line width support.
+ * @vig_sspp_linewidth max vig source pipe line width support.
  * @max_mixer_width    max layer mixer line width support.
  * @max_mixer_blendstages max layer mixer blend stages or
  *                       supported z order
@@ -1251,6 +1255,7 @@ struct sde_mdss_cfg {
 	u32 hwversion;
 
 	u32 max_sspp_linewidth;
+	u32 vig_sspp_linewidth;
 	u32 max_mixer_width;
 	u32 max_mixer_blendstages;
 	u32 max_wb_linewidth;

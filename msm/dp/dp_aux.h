@@ -21,6 +21,7 @@
 #define DP_STATE_LINK_MAINTENANCE_STARTED   BIT(9)
 #define DP_STATE_LINK_MAINTENANCE_COMPLETED BIT(10)
 #define DP_STATE_LINK_MAINTENANCE_FAILED    BIT(11)
+#define DP_STATE_AUX_TIMEOUT                BIT(12)
 
 enum dp_aux_error {
 	DP_AUX_ERR_NONE	= 0,
@@ -38,6 +39,8 @@ struct dp_aux {
 	u32 state;
 
 	bool read;
+
+	struct mutex *access_lock;
 
 	struct drm_dp_aux *drm_aux;
 	int (*drm_aux_register)(struct dp_aux *aux);

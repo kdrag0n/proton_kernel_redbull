@@ -620,6 +620,18 @@ static inline enum sde_crtc_client_type sde_crtc_get_client_type(
 }
 
 /**
+ * sde_crtc_is_rt_client - check if real-time client or not
+ * @crtc: Pointer to crtc
+ */
+static inline bool sde_crtc_is_rt_client(struct drm_crtc *crtc)
+{
+	if (!crtc || !crtc->state)
+		return true;
+
+	return (sde_crtc_get_intf_mode(crtc) != INTF_MODE_WB_LINE);
+}
+
+/**
  * sde_crtc_is_enabled - check if sde crtc is enabled or not
  * @crtc: Pointer to crtc
  */

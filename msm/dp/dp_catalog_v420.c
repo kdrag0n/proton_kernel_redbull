@@ -3,15 +3,24 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
 
 #include "dp_catalog.h"
 #include "dp_reg.h"
+#include "dp_debug.h"
 
 #define dp_catalog_get_priv_v420(x) ({ \
-	struct dp_catalog *dp_catalog; \
-	dp_catalog = container_of(x, struct dp_catalog, x); \
-	dp_catalog->priv.data; \
+	struct dp_catalog *catalog; \
+	catalog = container_of(x, struct dp_catalog, x); \
+	container_of(catalog->sub, \
+		struct dp_catalog_private_v420, sub); \
+})
+
+#define dp_read(x) ({ \
+	catalog->sub.read(catalog->dpc, io_data, x); \
+})
+
+#define dp_write(x, y) ({ \
+	catalog->sub.write(catalog->dpc, io_data, x, y); \
 })
 
 #define MAX_VOLTAGE_LEVELS 4
@@ -60,26 +69,11 @@ static u8 const dp_swing_hbr_rbr[MAX_VOLTAGE_LEVELS][MAX_PRE_EMP_LEVELS] = {
 	{0x1F, 0xFF, 0xFF, 0xFF}  /* sw1, 1.2v */
 };
 
-struct dp_catalog_io {
-	struct dp_io_data *dp_ahb;
-	struct dp_io_data *dp_aux;
-	struct dp_io_data *dp_link;
-	struct dp_io_data *dp_p0;
-	struct dp_io_data *dp_phy;
-	struct dp_io_data *dp_ln_tx0;
-	struct dp_io_data *dp_ln_tx1;
-	struct dp_io_data *dp_mmss_cc;
-	struct dp_io_data *dp_pll;
-	struct dp_io_data *usb3_dp_com;
-	struct dp_io_data *hdcp_physical;
-	struct dp_io_data *dp_p1;
-};
-
 struct dp_catalog_private_v420 {
 	struct device *dev;
+	struct dp_catalog_sub sub;
 	struct dp_catalog_io *io;
-
-	char exe_mode[SZ_4];
+	struct dp_catalog *dpc;
 };
 
 static void dp_catalog_aux_setup_v420(struct dp_catalog_aux *aux,
@@ -90,62 +84,57 @@ static void dp_catalog_aux_setup_v420(struct dp_catalog_aux *aux,
 	int i = 0;
 
 	if (!aux || !cfg) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	catalog = dp_catalog_get_priv_v420(aux);
 
 	io_data = catalog->io->dp_phy;
-	dp_write(catalog->exe_mode, io_data, DP_PHY_PD_CTL, 0x67);
+	dp_write(DP_PHY_PD_CTL, 0x67);
 	wmb(); /* make sure PD programming happened */
 
 	/* Turn on BIAS current for PHY/PLL */
 	io_data = catalog->io->dp_pll;
-	dp_write(catalog->exe_mode, io_data, QSERDES_COM_BIAS_EN_CLKBUFLR_EN,
-			0x17);
+	dp_write(QSERDES_COM_BIAS_EN_CLKBUFLR_EN, 0x17);
 	wmb(); /* make sure BIAS programming happened */
 
 	io_data = catalog->io->dp_phy;
 	/* DP AUX CFG register programming */
 	for (i = 0; i < PHY_AUX_CFG_MAX; i++) {
-		pr_debug("%s: offset=0x%08x, value=0x%08x\n",
+		DP_DEBUG("%s: offset=0x%08x, value=0x%08x\n",
 			dp_phy_aux_config_type_to_string(i),
 			cfg[i].offset, cfg[i].lut[cfg[i].current_index]);
-		dp_write(catalog->exe_mode, io_data, cfg[i].offset,
-			cfg[i].lut[cfg[i].current_index]);
+		dp_write(cfg[i].offset, cfg[i].lut[cfg[i].current_index]);
 	}
 	wmb(); /* make sure DP AUX CFG programming happened */
 
-	dp_write(catalog->exe_mode, io_data, DP_PHY_AUX_INTERRUPT_MASK_V420,
-			0x1F);
+	dp_write(DP_PHY_AUX_INTERRUPT_MASK_V420, 0x1F);
 }
 
-static void dp_catalog_aux_clear_hw_interrupts_v420(struct dp_catalog_aux *aux)
+static void dp_catalog_aux_clear_hw_int_v420(struct dp_catalog_aux *aux)
 {
 	struct dp_catalog_private_v420 *catalog;
 	struct dp_io_data *io_data;
 	u32 data = 0;
 
 	if (!aux) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	catalog = dp_catalog_get_priv_v420(aux);
 	io_data = catalog->io->dp_phy;
 
-	data = dp_read(catalog->exe_mode, io_data,
-		DP_PHY_AUX_INTERRUPT_STATUS_V420);
+	data = dp_read(DP_PHY_AUX_INTERRUPT_STATUS_V420);
 
-	dp_write(catalog->exe_mode, io_data,
-		DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0x1f);
+	dp_write(DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0x1f);
 	wmb(); /* make sure 0x1f is written before next write */
-	dp_write(catalog->exe_mode, io_data,
-		DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0x9f);
+
+	dp_write(DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0x9f);
 	wmb(); /* make sure 0x9f is written before next write */
-	dp_write(catalog->exe_mode, io_data,
-		DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0);
+
+	dp_write(DP_PHY_AUX_INTERRUPT_CLEAR_V420, 0);
 	wmb(); /* make sure register is cleared */
 }
 
@@ -161,12 +150,12 @@ static void dp_catalog_panel_config_msa_v420(struct dp_catalog_panel *panel,
 	struct dp_io_data *io_data;
 
 	if (!panel || !rate) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
 	if (panel->stream_id >= DP_STREAM_MAX) {
-		pr_err("invalid stream id:%d\n", panel->stream_id);
+		DP_ERR("invalid stream id:%d\n", panel->stream_id);
 		return;
 	}
 
@@ -176,11 +165,9 @@ static void dp_catalog_panel_config_msa_v420(struct dp_catalog_panel *panel,
 	if (panel->stream_id == DP_STREAM_1)
 		reg_off = MMSS_DP_PIXEL1_M_V420 - MMSS_DP_PIXEL_M_V420;
 
-	pixel_m = dp_read(catalog->exe_mode, io_data,
-			MMSS_DP_PIXEL_M_V420 + reg_off);
-	pixel_n = dp_read(catalog->exe_mode, io_data,
-			MMSS_DP_PIXEL_N_V420 + reg_off);
-	pr_debug("pixel_m=0x%x, pixel_n=0x%x\n", pixel_m, pixel_n);
+	pixel_m = dp_read(MMSS_DP_PIXEL_M_V420 + reg_off);
+	pixel_n = dp_read(MMSS_DP_PIXEL_N_V420 + reg_off);
+	DP_DEBUG("pixel_m=0x%x, pixel_n=0x%x\n", pixel_m, pixel_n);
 
 	mvid = (pixel_m & 0xFFFF) * 5;
 	nvid = (0xFFFF & (~pixel_n)) + (pixel_m & 0xFFFF);
@@ -193,7 +180,7 @@ static void dp_catalog_panel_config_msa_v420(struct dp_catalog_panel *panel,
 		nvid = temp;
 	}
 
-	pr_debug("rate = %d\n", rate);
+	DP_DEBUG("rate = %d\n", rate);
 
 	if (panel->widebus_en)
 		mvid <<= 1;
@@ -211,9 +198,9 @@ static void dp_catalog_panel_config_msa_v420(struct dp_catalog_panel *panel,
 		nvid_off = DP1_SOFTWARE_NVID - DP_SOFTWARE_NVID;
 	}
 
-	pr_debug("mvid=0x%x, nvid=0x%x\n", mvid, nvid);
-	dp_write(catalog->exe_mode, io_data, DP_SOFTWARE_MVID + mvid_off, mvid);
-	dp_write(catalog->exe_mode, io_data, DP_SOFTWARE_NVID + nvid_off, nvid);
+	DP_DEBUG("mvid=0x%x, nvid=0x%x\n", mvid, nvid);
+	dp_write(DP_SOFTWARE_MVID + mvid_off, mvid);
+	dp_write(DP_SOFTWARE_NVID + nvid_off, nvid);
 }
 
 static void dp_catalog_ctrl_phy_lane_cfg_v420(struct dp_catalog_ctrl *ctrl,
@@ -221,11 +208,11 @@ static void dp_catalog_ctrl_phy_lane_cfg_v420(struct dp_catalog_ctrl *ctrl,
 {
 	u32 info = 0x0;
 	struct dp_catalog_private_v420 *catalog;
-	u8 orientation = BIT(!!flipped);
 	struct dp_io_data *io_data;
+	u8 orientation = BIT(!!flipped);
 
 	if (!ctrl) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
@@ -234,9 +221,9 @@ static void dp_catalog_ctrl_phy_lane_cfg_v420(struct dp_catalog_ctrl *ctrl,
 
 	info |= (ln_cnt & 0x0F);
 	info |= ((orientation & 0x0F) << 4);
-	pr_debug("Shared Info = 0x%x\n", info);
+	DP_DEBUG("Shared Info = 0x%x\n", info);
 
-	dp_write(catalog->exe_mode, io_data, DP_PHY_SPARE0_V420, info);
+	dp_write(DP_PHY_SPARE0_V420, info);
 }
 
 static void dp_catalog_ctrl_update_vx_px_v420(struct dp_catalog_ctrl *ctrl,
@@ -249,16 +236,16 @@ static void dp_catalog_ctrl_update_vx_px_v420(struct dp_catalog_ctrl *ctrl,
 
 	if (!ctrl || !((v_level < MAX_VOLTAGE_LEVELS)
 		&& (p_level < MAX_PRE_EMP_LEVELS))) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return;
 	}
 
-	pr_debug("hw: v=%d p=%d, high=%d\n", v_level, p_level, high);
+	DP_DEBUG("hw: v=%d p=%d, high=%d\n", v_level, p_level, high);
 
 	catalog = dp_catalog_get_priv_v420(ctrl);
 
 	io_data = catalog->io->dp_ahb;
-	version = dp_read(catalog->exe_mode, io_data, DP_HW_VERSION);
+	version = dp_read(DP_HW_VERSION);
 
 	if (version == 0x10020003) {
 		if (high) {
@@ -275,12 +262,12 @@ static void dp_catalog_ctrl_update_vx_px_v420(struct dp_catalog_ctrl *ctrl,
 
 	/* program default setting first */
 	io_data = catalog->io->dp_ln_tx0;
-	dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420, 0x2A);
-	dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL, 0x20);
+	dp_write(TXn_TX_DRV_LVL_V420, 0x2A);
+	dp_write(TXn_TX_EMP_POST1_LVL, 0x20);
 
 	io_data = catalog->io->dp_ln_tx1;
-	dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420, 0x2A);
-	dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL, 0x20);
+	dp_write(TXn_TX_DRV_LVL_V420, 0x2A);
+	dp_write(TXn_TX_EMP_POST1_LVL, 0x20);
 
 	/* Enable MUX to use Cursor values from these registers */
 	value0 |= BIT(5);
@@ -289,21 +276,17 @@ static void dp_catalog_ctrl_update_vx_px_v420(struct dp_catalog_ctrl *ctrl,
 	/* Configure host and panel only if both values are allowed */
 	if (value0 != 0xFF && value1 != 0xFF) {
 		io_data = catalog->io->dp_ln_tx0;
-		dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420,
-				value0);
-		dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL,
-				value1);
+		dp_write(TXn_TX_DRV_LVL_V420, value0);
+		dp_write(TXn_TX_EMP_POST1_LVL, value1);
 
 		io_data = catalog->io->dp_ln_tx1;
-		dp_write(catalog->exe_mode, io_data, TXn_TX_DRV_LVL_V420,
-				value0);
-		dp_write(catalog->exe_mode, io_data, TXn_TX_EMP_POST1_LVL,
-				value1);
+		dp_write(TXn_TX_DRV_LVL_V420, value0);
+		dp_write(TXn_TX_EMP_POST1_LVL, value1);
 
-		pr_debug("hw: vx_value=0x%x px_value=0x%x\n",
+		DP_DEBUG("hw: vx_value=0x%x px_value=0x%x\n",
 			value0, value1);
 	} else {
-		pr_err("invalid vx (0x%x=0x%x), px (0x%x=0x%x\n",
+		DP_ERR("invalid vx (0x%x=0x%x), px (0x%x=0x%x\n",
 			v_level, value0, p_level, value1);
 	}
 }
@@ -326,66 +309,50 @@ static void dp_catalog_ctrl_lane_pnswap_v420(struct dp_catalog_ctrl *ctrl,
 	cfg1 |= ((ln_pnswap >> 3) & 0x1) << 2;
 
 	io_data = catalog->io->dp_ln_tx0;
-	dp_write(catalog->exe_mode, io_data, TXn_TX_POL_INV_V420, cfg0);
+	dp_write(TXn_TX_POL_INV_V420, cfg0);
 
 	io_data = catalog->io->dp_ln_tx1;
-	dp_write(catalog->exe_mode, io_data, TXn_TX_POL_INV_V420, cfg1);
+	dp_write(TXn_TX_POL_INV_V420, cfg1);
 }
 
 static void dp_catalog_put_v420(struct dp_catalog *catalog)
 {
 	struct dp_catalog_private_v420 *catalog_priv;
 
-	if (!catalog || !catalog->priv.data)
+	if (!catalog)
 		return;
 
-	catalog_priv = catalog->priv.data;
+	catalog_priv = container_of(catalog->sub,
+			struct dp_catalog_private_v420, sub);
 	devm_kfree(catalog_priv->dev, catalog_priv);
 }
 
-static void dp_catalog_set_exe_mode_v420(struct dp_catalog *catalog, char *mode)
-{
-	struct dp_catalog_private_v420 *catalog_priv;
-
-	if (!catalog || !catalog->priv.data)
-		return;
-
-	catalog_priv = catalog->priv.data;
-
-	strlcpy(catalog_priv->exe_mode, mode, sizeof(catalog_priv->exe_mode));
-}
-
-int dp_catalog_get_v420(struct device *dev, struct dp_catalog *catalog,
-		void *io)
+struct dp_catalog_sub *dp_catalog_get_v420(struct device *dev,
+		struct dp_catalog *catalog, struct dp_catalog_io *io)
 {
 	struct dp_catalog_private_v420 *catalog_priv;
 
 	if (!dev || !catalog) {
-		pr_err("invalid input\n");
-		return -EINVAL;
+		DP_ERR("invalid input\n");
+		return ERR_PTR(-EINVAL);
 	}
 
 	catalog_priv = devm_kzalloc(dev, sizeof(*catalog_priv), GFP_KERNEL);
 	if (!catalog_priv)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	catalog_priv->dev = dev;
 	catalog_priv->io = io;
-	catalog->priv.data = catalog_priv;
+	catalog_priv->dpc = catalog;
 
-	catalog->priv.put          = dp_catalog_put_v420;
-	catalog->priv.set_exe_mode = dp_catalog_set_exe_mode_v420;
+	catalog_priv->sub.put      = dp_catalog_put_v420;
 
 	catalog->aux.setup         = dp_catalog_aux_setup_v420;
-	catalog->aux.clear_hw_interrupts =
-				dp_catalog_aux_clear_hw_interrupts_v420;
+	catalog->aux.clear_hw_interrupts = dp_catalog_aux_clear_hw_int_v420;
 	catalog->panel.config_msa  = dp_catalog_panel_config_msa_v420;
 	catalog->ctrl.phy_lane_cfg = dp_catalog_ctrl_phy_lane_cfg_v420;
 	catalog->ctrl.update_vx_px = dp_catalog_ctrl_update_vx_px_v420;
 	catalog->ctrl.lane_pnswap = dp_catalog_ctrl_lane_pnswap_v420;
 
-	/* Set the default execution mode to hardware mode */
-	dp_catalog_set_exe_mode_v420(catalog, "hw");
-
-	return 0;
+	return &catalog_priv->sub;
 }

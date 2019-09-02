@@ -369,7 +369,53 @@ int sde_connector_get_dither_cfg(struct drm_connector *conn,
 	return 0;
 }
 
-int sde_connector_get_mode_info(struct drm_connector_state *conn_state,
+static void sde_connector_get_avail_res_info(struct drm_connector *conn,
+		struct msm_resource_caps_info *avail_res)
+{
+	struct msm_drm_private *priv;
+	struct sde_kms *sde_kms;
+	struct drm_encoder *drm_enc = NULL;
+
+	if (!conn || !conn->dev || !conn->dev->dev_private)
+		return;
+
+	priv = conn->dev->dev_private;
+	sde_kms = to_sde_kms(priv->kms);
+
+	if (!sde_kms)
+		return;
+
+	if (conn->state && conn->state->best_encoder)
+		drm_enc = conn->state->best_encoder;
+	else
+		drm_enc = conn->encoder;
+
+	sde_rm_get_resource_info(&sde_kms->rm, drm_enc, avail_res);
+
+	avail_res->max_mixer_width = sde_kms->catalog->max_mixer_width;
+}
+
+int sde_connector_get_mode_info(struct drm_connector *conn,
+		const struct drm_display_mode *drm_mode,
+		struct msm_mode_info *mode_info)
+{
+	struct sde_connector *sde_conn;
+	struct msm_resource_caps_info avail_res;
+
+	memset(&avail_res, 0, sizeof(avail_res));
+
+	sde_conn = to_sde_connector(conn);
+
+	if (!sde_conn)
+		return -EINVAL;
+
+	sde_connector_get_avail_res_info(conn, &avail_res);
+
+	return sde_conn->ops.get_mode_info(conn, drm_mode,
+			mode_info, sde_conn->display, &avail_res);
+}
+
+int sde_connector_state_get_mode_info(struct drm_connector_state *conn_state,
 	struct msm_mode_info *mode_info)
 {
 	struct sde_connector_state *sde_conn_state = NULL;
@@ -564,6 +610,19 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 	return rc;
 }
 
+void sde_connector_set_colorspace(struct sde_connector *c_conn)
+{
+	int rc = 0;
+
+	if (c_conn->ops.set_colorspace)
+		rc = c_conn->ops.set_colorspace(&c_conn->base,
+			c_conn->display);
+
+	if (rc)
+		SDE_ERROR_CONN(c_conn, "cannot apply new colorspace %d\n", rc);
+
+}
+
 void sde_connector_set_qsync_params(struct drm_connector *connector)
 {
 	struct sde_connector *c_conn = to_sde_connector(connector);
@@ -636,6 +695,12 @@ static int _sde_connector_update_dirty_properties(
 			/* nothing to do for most properties */
 			break;
 		}
+	}
+
+	/* if colorspace needs to be updated do it first */
+	if (c_conn->colorspace_updated) {
+		c_conn->colorspace_updated = false;
+		sde_connector_set_colorspace(c_conn);
 	}
 
 	/*
@@ -1208,7 +1273,8 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 	struct sde_connector *c_conn;
 	struct sde_connector_state *c_state;
 	int idx, rc;
-	uint64_t fence_fd;
+	uint64_t fence_user_fd;
+	uint64_t __user prev_user_fd;
 
 	if (!connector || !state || !property) {
 		SDE_ERROR("invalid argument(s), conn %pK, state %pK, prp %pK\n",
@@ -1251,23 +1317,42 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		if (!val)
 			goto end;
 
-		/*
-		 * update the the offset to a timeline for commit completion
-		 */
-		rc = sde_fence_create(c_conn->retire_fence, &fence_fd, 1);
+		rc = copy_from_user(&prev_user_fd, (void __user *)val,
+				sizeof(uint64_t));
 		if (rc) {
-			SDE_ERROR("fence create failed rc:%d\n", rc);
+			SDE_ERROR("copy from user failed rc:%d\n", rc);
+			rc = -EFAULT;
 			goto end;
 		}
 
-		rc = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
-			sizeof(uint64_t));
-		if (rc) {
-			SDE_ERROR("copy to user failed rc:%d\n", rc);
-			/* fence will be released with timeline update */
-			put_unused_fd(fence_fd);
-			rc = -EFAULT;
-			goto end;
+		/*
+		 * client is expected to reset the property to -1 before
+		 * requesting for the retire fence
+		 */
+		if (prev_user_fd == -1) {
+			/*
+			 * update the offset to a timeline for
+			 * commit completion
+			 */
+			rc = sde_fence_create(c_conn->retire_fence,
+						&fence_user_fd, 1);
+			if (rc) {
+				SDE_ERROR("fence create failed rc:%d\n", rc);
+				goto end;
+			}
+
+			rc = copy_to_user((uint64_t __user *)(uintptr_t)val,
+					&fence_user_fd, sizeof(uint64_t));
+			if (rc) {
+				SDE_ERROR("copy to user failed rc:%d\n", rc);
+				/*
+				 * fence will be released with timeline
+				 * update
+				 */
+				put_unused_fd(fence_user_fd);
+				rc = -EFAULT;
+				goto end;
+			}
 		}
 		break;
 	case CONNECTOR_PROP_ROI_V1:
@@ -1416,6 +1501,20 @@ static void sde_connector_update_hdr_props(struct drm_connector *connector)
 
 	msm_property_set_blob(&c_conn->property_info, &c_conn->blob_ext_hdr,
 			&hdr, sizeof(hdr), CONNECTOR_PROP_EXT_HDR_INFO);
+}
+
+static void sde_connector_update_colorspace(struct drm_connector *connector)
+{
+	int ret;
+
+	ret = msm_property_set_property(
+			sde_connector_get_propinfo(connector),
+			sde_connector_get_property_state(connector->state),
+			CONNECTOR_PROP_SUPPORTED_COLORSPACES,
+				connector->color_enc_fmt);
+
+	if (ret)
+		SDE_ERROR("failed to set colorspace property for connector\n");
 }
 
 static enum drm_connector_status
@@ -1636,6 +1735,7 @@ static ssize_t _sde_debugfs_conn_cmd_tx_sts_read(struct file *file,
 		return 0;
 	}
 
+	blen = min_t(size_t, MAX_CMD_PAYLOAD_SIZE, count);
 	if (copy_to_user(buf, buffer, blen)) {
 		SDE_ERROR("copy to user buffer failed\n");
 		return -EFAULT;
@@ -1830,6 +1930,7 @@ static const struct drm_connector_funcs sde_connector_ops = {
 static int sde_connector_get_modes(struct drm_connector *connector)
 {
 	struct sde_connector *c_conn;
+	struct msm_resource_caps_info avail_res;
 	int mode_count = 0;
 
 	if (!connector) {
@@ -1843,7 +1944,11 @@ static int sde_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-	mode_count = c_conn->ops.get_modes(connector, c_conn->display);
+	memset(&avail_res, 0, sizeof(avail_res));
+	sde_connector_get_avail_res_info(connector, &avail_res);
+
+	mode_count = c_conn->ops.get_modes(connector, c_conn->display,
+			&avail_res);
 	if (!mode_count) {
 		SDE_ERROR_CONN(c_conn, "failed to get modes\n");
 		return 0;
@@ -1851,6 +1956,9 @@ static int sde_connector_get_modes(struct drm_connector *connector)
 
 	if (c_conn->hdr_capable)
 		sde_connector_update_hdr_props(connector);
+
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DisplayPort)
+		sde_connector_update_colorspace(connector);
 
 	return mode_count;
 }
@@ -1860,6 +1968,7 @@ sde_connector_mode_valid(struct drm_connector *connector,
 		struct drm_display_mode *mode)
 {
 	struct sde_connector *c_conn;
+	struct msm_resource_caps_info avail_res;
 
 	if (!connector || !mode) {
 		SDE_ERROR("invalid argument(s), conn %pK, mode %pK\n",
@@ -1869,8 +1978,12 @@ sde_connector_mode_valid(struct drm_connector *connector,
 
 	c_conn = to_sde_connector(connector);
 
+	memset(&avail_res, 0, sizeof(avail_res));
+	sde_connector_get_avail_res_info(connector, &avail_res);
+
 	if (c_conn->ops.mode_valid)
-		return c_conn->ops.mode_valid(connector, mode, c_conn->display);
+		return c_conn->ops.mode_valid(connector, mode, c_conn->display,
+				&avail_res);
 
 	/* assume all modes okay by default */
 	return MODE_OK;
@@ -2045,6 +2158,7 @@ static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
 	.get_modes =    sde_connector_get_modes,
 	.mode_valid =   sde_connector_mode_valid,
 	.best_encoder = sde_connector_best_encoder,
+	.atomic_check = sde_connector_atomic_check,
 };
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops_v2 = {
@@ -2084,9 +2198,8 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 
 		memset(&mode_info, 0, sizeof(mode_info));
 
-		rc = c_conn->ops.get_mode_info(&c_conn->base, mode, &mode_info,
-			sde_kms->catalog->max_mixer_width,
-			c_conn->display);
+		rc = sde_connector_get_mode_info(&c_conn->base, mode,
+				&mode_info);
 		if (rc) {
 			SDE_ERROR_CONN(c_conn,
 				"failed to get mode info for mode %s\n",
@@ -2095,6 +2208,9 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 		}
 
 		sde_kms_info_add_keystr(info, "mode_name", mode->name);
+
+		sde_kms_info_add_keyint(info, "bit_clk_rate",
+					mode_info.clk_rate);
 
 		topology_idx = (int)sde_rm_get_topology_name(
 							mode_info.topology);
@@ -2220,6 +2336,7 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 {
 	struct dsi_display *dsi_display;
 	int rc;
+	struct drm_connector *connector;
 
 	msm_property_install_blob(&c_conn->property_info, "capabilities",
 			DRM_MODE_PROP_IMMUTABLE, CONNECTOR_PROP_SDE_INFO);
@@ -2231,6 +2348,8 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 			"failed to setup connector info, rc = %d\n", rc);
 		return rc;
 	}
+
+	connector = &c_conn->base;
 
 	msm_property_install_blob(&c_conn->property_info, "mode_properties",
 			DRM_MODE_PROP_IMMUTABLE, CONNECTOR_PROP_MODE_INFO);
@@ -2275,6 +2394,11 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 			      &hdr,
 			      sizeof(hdr),
 			      CONNECTOR_PROP_EXT_HDR_INFO);
+
+		/* create and attach colorspace property for DP */
+		if (!drm_mode_create_colorspace_property(connector))
+			drm_object_attach_property(&connector->base,
+				connector->colorspace_property, 0);
 	}
 
 	msm_property_install_volatile_range(&c_conn->property_info,
@@ -2313,6 +2437,12 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 	c_conn->bl_scale_dirty = false;
 	c_conn->bl_scale = MAX_BL_SCALE_LEVEL;
 	c_conn->bl_scale_sv = MAX_SV_BL_SCALE_LEVEL;
+
+	if (connector_type == DRM_MODE_CONNECTOR_DisplayPort)
+		msm_property_install_range(&c_conn->property_info,
+			"supported_colorspaces",
+			DRM_MODE_PROP_IMMUTABLE, 0, 0xffff, 0,
+			CONNECTOR_PROP_SUPPORTED_COLORSPACES);
 
 	/* enum/bitmask properties */
 	msm_property_install_enum(&c_conn->property_info, "topology_name",
@@ -2374,9 +2504,9 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 
 	spin_lock_init(&c_conn->event_lock);
 
+	c_conn->base.panel = panel;
 	c_conn->connector_type = connector_type;
 	c_conn->encoder = encoder;
-	c_conn->panel = panel;
 	c_conn->display = display;
 
 	c_conn->dpms_mode = DRM_MODE_DPMS_ON;

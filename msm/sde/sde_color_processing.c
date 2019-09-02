@@ -1453,8 +1453,7 @@ int sde_cp_crtc_set_property(struct drm_crtc *crtc,
 	 * crtc. Check LM and dspp counts based on whether feature is a
 	 * dspp/lm feature.
 	 */
-	if (!sde_crtc->num_mixers ||
-	    sde_crtc->num_mixers > ARRAY_SIZE(sde_crtc->mixers)) {
+	if (sde_crtc->num_mixers > ARRAY_SIZE(sde_crtc->mixers)) {
 		DRM_INFO("Invalid mixer config act cnt %d max cnt %ld\n",
 			sde_crtc->num_mixers,
 				(long)ARRAY_SIZE(sde_crtc->mixers));
@@ -1588,10 +1587,8 @@ void sde_cp_crtc_destroy_properties(struct drm_crtc *crtc)
 	mutex_destroy(&sde_crtc->crtc_cp_lock);
 	INIT_LIST_HEAD(&sde_crtc->active_list);
 	INIT_LIST_HEAD(&sde_crtc->dirty_list);
-	INIT_LIST_HEAD(&sde_crtc->feature_list);
 	INIT_LIST_HEAD(&sde_crtc->ad_dirty);
 	INIT_LIST_HEAD(&sde_crtc->ad_active);
-	mutex_destroy(&sde_crtc->ltm_buffer_lock);
 	INIT_LIST_HEAD(&sde_crtc->ltm_buf_free);
 	INIT_LIST_HEAD(&sde_crtc->ltm_buf_busy);
 }
@@ -1645,6 +1642,7 @@ void sde_cp_crtc_clear(struct drm_crtc *crtc)
 {
 	struct sde_crtc *sde_crtc = NULL;
 	unsigned long flags;
+	u32 i = 0;
 
 	if (!crtc) {
 		DRM_ERROR("crtc %pK\n", crtc);
@@ -1666,6 +1664,21 @@ void sde_cp_crtc_clear(struct drm_crtc *crtc)
 	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
 	list_del_init(&sde_crtc->user_event_list);
 	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
+
+	for (i = 0; i < sde_crtc->ltm_buffer_cnt; i++) {
+		if (sde_crtc->ltm_buffers[i]) {
+			msm_gem_put_vaddr(sde_crtc->ltm_buffers[i]->gem);
+			drm_framebuffer_put(sde_crtc->ltm_buffers[i]->fb);
+			msm_gem_put_iova(sde_crtc->ltm_buffers[i]->gem,
+					sde_crtc->ltm_buffers[i]->aspace);
+			kfree(sde_crtc->ltm_buffers[i]);
+			sde_crtc->ltm_buffers[i] = NULL;
+		}
+	}
+	sde_crtc->ltm_buffer_cnt = 0;
+	sde_crtc->ltm_hist_en = false;
+	INIT_LIST_HEAD(&sde_crtc->ltm_buf_free);
+	INIT_LIST_HEAD(&sde_crtc->ltm_buf_busy);
 }
 
 static void dspp_pcc_install_property(struct drm_crtc *crtc)
@@ -1870,9 +1883,21 @@ static void dspp_ltm_install_property(struct drm_crtc *crtc)
 	char feature_name[256];
 	struct sde_kms *kms = NULL;
 	struct sde_mdss_cfg *catalog = NULL;
-	u32 version;
+	u32 version = 0, ltm_sw_fuse = 0;
 
 	kms = get_kms(crtc);
+	if (!kms || !kms->hw_sw_fuse) {
+		DRM_ERROR("!kms = %d\n", !kms);
+		return;
+	}
+
+	ltm_sw_fuse = sde_hw_get_ltm_sw_fuse_value(kms->hw_sw_fuse);
+	DRM_DEBUG_DRIVER("ltm_sw_fuse value: 0x%x\n", ltm_sw_fuse);
+	if (ltm_sw_fuse != SW_FUSE_ENABLE) {
+		pr_info("ltm_sw_fuse is not enabled: 0x%x\n", ltm_sw_fuse);
+		return;
+	}
+
 	catalog = kms->catalog;
 	version = catalog->dspp[0].sblk->ltm.version >> 16;
 	snprintf(feature_name, ARRAY_SIZE(feature_name), "%s%d",
@@ -2876,15 +2901,9 @@ static void _sde_cp_crtc_disable_ltm_hist(struct sde_crtc *sde_crtc,
 	struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *hw_cfg)
 {
 	unsigned long irq_flags;
-	struct sde_hw_mixer *hw_lm = hw_cfg->mixer_info;
 	u32 i = 0;
 
 	spin_lock_irqsave(&sde_crtc->ltm_lock, irq_flags);
-	if (!hw_lm->cfg.right_mixer && !sde_crtc->ltm_hist_en) {
-		/* histogram is already disabled */
-		spin_unlock_irqrestore(&sde_crtc->ltm_lock, irq_flags);
-		return;
-	}
 	sde_crtc->ltm_hist_en = false;
 	INIT_LIST_HEAD(&sde_crtc->ltm_buf_free);
 	INIT_LIST_HEAD(&sde_crtc->ltm_buf_busy);

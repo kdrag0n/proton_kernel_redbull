@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2015-2019, The Linux Foundation.All rights reserved.
+ * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _DSI_DISPLAY_H_
@@ -410,13 +410,14 @@ int dsi_display_validate_mode(struct dsi_display *display,
 			      u32 flags);
 
 /**
- * dsi_display_validate_mode_vrr() - validates mode if variable refresh case
+ * dsi_display_validate_mode_change() - validates mode if variable refresh case
+ *				or dynamic clk change case
  * @display:             Handle to display.
  * @mode:                Mode to be validated..
  *
  * Return: 0 if  error code.
  */
-int dsi_display_validate_mode_vrr(struct dsi_display *display,
+int dsi_display_validate_mode_change(struct dsi_display *display,
 			struct dsi_display_mode *cur_dsi_mode,
 			struct dsi_display_mode *mode);
 
@@ -583,6 +584,15 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable);
 
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
+
+/**
+ * dsi_display_get_drm_panel() - get drm_panel from display.
+ * @display:            Handle to display.
+ * Get drm_panel which was inclued in dsi_display's dsi_panel.
+ *
+ * Return: drm_panel/NULL.
+ */
+struct drm_panel *dsi_display_get_drm_panel(struct dsi_display *display);
 
 /**
  * dsi_display_enable_event() - enable interrupt based connector event

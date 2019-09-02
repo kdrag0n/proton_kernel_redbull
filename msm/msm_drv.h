@@ -190,6 +190,7 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_ROI_V1,
 	CONNECTOR_PROP_BL_SCALE,
 	CONNECTOR_PROP_SV_BL_SCALE,
+	CONNECTOR_PROP_SUPPORTED_COLORSPACES,
 
 	/* enum/bitmask properties */
 	CONNECTOR_PROP_TOPOLOGY_NAME,
@@ -357,6 +358,7 @@ struct msm_roi_caps {
  * @range_max_qp:            Max QP allowed.
  * @range_bpg_offset:        Bits per group adjustment.
  * @extra_width:             Extra width required in timing calculations.
+ * @pps_delay_ms:            Post PPS command delay in milliseconds.
  */
 struct msm_display_dsc_info {
 	u8 version;
@@ -414,6 +416,7 @@ struct msm_display_dsc_info {
 	char *range_bpg_offset;
 
 	u32 extra_width;
+	u32 pps_delay_ms;
 };
 
 /**
@@ -471,6 +474,22 @@ struct msm_mode_info {
 	struct msm_roi_caps roi_caps;
 	bool wide_bus_en;
 	u32 mdp_transfer_time_us;
+};
+
+/**
+ * struct msm_resource_caps_info - defines hw resources
+ * @num_lm              number of layer mixers available
+ * @num_dsc             number of dsc available
+ * @num_ctl             number of ctl available
+ * @num_3dmux           number of 3d mux available
+ * @max_mixer_width:    max width supported by layer mixer
+ */
+struct msm_resource_caps_info {
+	uint32_t num_lm;
+	uint32_t num_dsc;
+	uint32_t num_ctl;
+	uint32_t num_3dmux;
+	uint32_t max_mixer_width;
 };
 
 /**
@@ -621,6 +640,7 @@ struct msm_drm_private {
 
 	/* crtcs pending async atomic updates: */
 	uint32_t pending_crtcs;
+	uint32_t pending_planes;
 	wait_queue_head_t pending_crtcs_event;
 
 	unsigned int num_planes;

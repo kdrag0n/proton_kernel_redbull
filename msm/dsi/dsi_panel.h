@@ -26,7 +26,7 @@
 #define MAX_SV_BL_SCALE_LEVEL 65535
 #define DSI_CMD_PPS_SIZE 135
 
-#define DSI_MODE_MAX 5
+#define DSI_MODE_MAX 32
 
 enum dsi_panel_rotation {
 	DSI_PANEL_ROTATE_NONE = 0,
@@ -63,10 +63,18 @@ enum dsi_dms_mode {
 };
 
 struct dsi_dfps_capabilities {
-	bool dfps_support;
 	enum dsi_dfps_type type;
 	u32 min_refresh_rate;
 	u32 max_refresh_rate;
+	u32 *dfps_list;
+	u32 dfps_list_len;
+	bool dfps_support;
+};
+
+struct dsi_dyn_clk_caps {
+	bool dyn_clk_support;
+	u32 *bit_clk_list;
+	u32 bit_clk_list_len;
 };
 
 struct dsi_pinctrl_info {
@@ -94,10 +102,9 @@ struct dsi_backlight_config {
 
 	int en_gpio;
 	/* PWM params */
-	bool pwm_pmi_control;
-	u32 pwm_pmic_bank;
+	struct pwm_device *pwm_bl;
+	bool pwm_enabled;
 	u32 pwm_period_usecs;
-	int pwm_gpio;
 
 	/* WLED params */
 	struct led_trigger *wled;
@@ -164,6 +171,7 @@ struct dsi_panel {
 	bool panel_mode_switch_enabled;
 
 	struct dsi_dfps_capabilities dfps_caps;
+	struct dsi_dyn_clk_caps dyn_clk_caps;
 	struct dsi_panel_phy_props phy_props;
 
 	struct dsi_display_mode *cur_mode;
@@ -194,6 +202,8 @@ struct dsi_panel {
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
+
+	int panel_test_gpio;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -309,6 +319,6 @@ int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
 
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
-		struct dsi_mode_info *timing);
+		struct dsi_display_mode *mode, u32 frame_threshold_us);
 
 #endif /* _DSI_PANEL_H_ */

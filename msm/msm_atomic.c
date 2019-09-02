@@ -15,9 +15,7 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <linux/msm_drm_notify.h>
-#include <linux/notifier.h>
+#include <drm/drm_panel.h>
 
 #include "msm_drv.h"
 #include "msm_gem.h"
@@ -30,6 +28,7 @@ struct msm_commit {
 	struct drm_device *dev;
 	struct drm_atomic_state *state;
 	uint32_t crtc_mask;
+	uint32_t plane_mask;
 	bool nonblock;
 	struct kthread_work commit_work;
 };
@@ -87,7 +86,8 @@ static inline bool _msm_seamless_for_crtc(struct drm_atomic_state *state,
 
 	if (msm_is_mode_seamless(&crtc_state->mode) ||
 		msm_is_mode_seamless_vrr(&crtc_state->adjusted_mode) ||
-		msm_is_mode_seamless_poms(&crtc_state->adjusted_mode))
+		msm_is_mode_seamless_poms(&crtc_state->adjusted_mode) ||
+		msm_is_mode_seamless_dyn_clk(&crtc_state->adjusted_mode))
 		return true;
 
 	if (msm_is_mode_seamless_dms(&crtc_state->adjusted_mode) && !enable)
@@ -132,6 +132,10 @@ static inline bool _msm_seamless_for_conn(struct drm_connector *connector,
 			&connector->encoder->crtc->state->adjusted_mode))
 		return true;
 
+	if (msm_is_mode_seamless_dyn_clk(
+			 &connector->encoder->crtc->state->adjusted_mode))
+		return true;
+
 	if (msm_is_mode_seamless_dms(
 			&connector->encoder->crtc->state->adjusted_mode))
 		return true;
@@ -144,11 +148,13 @@ static void commit_destroy(struct msm_commit *c)
 {
 	struct msm_drm_private *priv = c->dev->dev_private;
 	uint32_t crtc_mask = c->crtc_mask;
+	uint32_t plane_mask = c->plane_mask;
 
 	/* End_atomic */
 	spin_lock(&priv->pending_crtcs_event.lock);
 	DBG("end: %08x", crtc_mask);
 	priv->pending_crtcs &= ~crtc_mask;
+	priv->pending_planes &= ~plane_mask;
 	wake_up_all_locked(&priv->pending_crtcs_event);
 	spin_unlock(&priv->pending_crtcs_event.lock);
 
@@ -170,12 +176,7 @@ static void msm_atomic_wait_for_commit_done(
 		if (!new_crtc_state->active)
 			continue;
 
-		if (drm_crtc_vblank_get(crtc))
-			continue;
-
 		kms->funcs->wait_for_crtc_commit_done(kms, crtc);
-
-		drm_crtc_vblank_put(crtc);
 	}
 }
 
@@ -194,7 +195,6 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		const struct drm_encoder_helper_funcs *funcs;
 		struct drm_encoder *encoder;
 		struct drm_crtc_state *old_crtc_state;
-		unsigned int crtc_idx;
 
 		/*
 		 * Shut down everything that's in the changeset and currently
@@ -203,7 +203,6 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		if (!old_conn_state->crtc)
 			continue;
 
-		crtc_idx = drm_crtc_index(old_conn_state->crtc);
 		old_crtc_state = drm_atomic_get_old_crtc_state(old_state,
 							old_conn_state->crtc);
 
@@ -326,6 +325,7 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		DRM_DEBUG_ATOMIC("modeset on [ENCODER:%d:%s]\n",
 				 encoder->base.id, encoder->name);
 
+		SDE_ATRACE_BEGIN("msm_set_mode");
 		/*
 		 * Each encoder has at most one connector (since we always steal
 		 * it away), so we won't call mode_set hooks twice.
@@ -334,6 +334,7 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 			funcs->mode_set(encoder, mode, adjusted_mode);
 
 		drm_bridge_mode_set(encoder->bridge, mode, adjusted_mode);
+		SDE_ATRACE_END("msm_set_mode");
 	}
 }
 
@@ -718,6 +719,7 @@ int msm_atomic_commit(struct drm_device *dev,
 
 			drm_atomic_set_fence_for_plane(new_plane_state, fence);
 		}
+		c->plane_mask |= (1 << drm_plane_index(plane));
 	}
 
 	/*
@@ -728,10 +730,12 @@ int msm_atomic_commit(struct drm_device *dev,
 	/* Start Atomic */
 	spin_lock(&priv->pending_crtcs_event.lock);
 	ret = wait_event_interruptible_locked(priv->pending_crtcs_event,
-			!(priv->pending_crtcs & c->crtc_mask));
+			!(priv->pending_crtcs & c->crtc_mask) &&
+			!(priv->pending_planes & c->plane_mask));
 	if (ret == 0) {
 		DBG("start: %08x", c->crtc_mask);
 		priv->pending_crtcs |= c->crtc_mask;
+		priv->pending_planes |= c->plane_mask;
 	}
 	spin_unlock(&priv->pending_crtcs_event.lock);
 

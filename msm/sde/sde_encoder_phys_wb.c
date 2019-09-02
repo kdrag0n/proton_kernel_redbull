@@ -368,6 +368,7 @@ static void sde_encoder_phys_wb_setup_fb(struct sde_encoder_phys *phys_enc,
 	/* cache framebuffer for cleanup in writeback done */
 	wb_enc->wb_fb = fb;
 	wb_enc->wb_aspace = aspace;
+	drm_framebuffer_get(fb);
 
 	format = msm_framebuffer_format(fb);
 	if (!format) {
@@ -499,7 +500,7 @@ static void _sde_encoder_phys_wb_setup_cwb(struct sde_encoder_phys *phys_enc,
 			hw_wb->ops.bind_pingpong_blk(hw_wb, enable, hw_pp->idx);
 
 		if (hw_ctl->ops.update_cwb_cfg) {
-			hw_ctl->ops.update_cwb_cfg(hw_ctl, &intf_cfg);
+			hw_ctl->ops.update_cwb_cfg(hw_ctl, &intf_cfg, enable);
 			SDE_DEBUG("in CWB mode on CTL_%d PP-%d merge3d:%d\n",
 					hw_ctl->idx - CTL_0,
 					hw_pp->idx - PINGPONG_0,
@@ -816,7 +817,7 @@ static int sde_encoder_phys_wb_atomic_check(
 }
 
 static void _sde_encoder_phys_wb_update_cwb_flush(
-		struct sde_encoder_phys *phys_enc)
+		struct sde_encoder_phys *phys_enc, bool enable)
 {
 	struct sde_encoder_phys_wb *wb_enc;
 	struct sde_hw_wb *hw_wb;
@@ -878,7 +879,7 @@ static void _sde_encoder_phys_wb_update_cwb_flush(
 
 			if (hw_wb->ops.program_cwb_ctrl)
 				hw_wb->ops.program_cwb_ctrl(hw_wb, cwb_idx,
-						src_pp_idx, dspp_out);
+						src_pp_idx, dspp_out, enable);
 
 			if (hw_ctl->ops.update_bitmask_cwb)
 				hw_ctl->ops.update_bitmask_cwb(hw_ctl,
@@ -1217,7 +1218,7 @@ static int _sde_encoder_phys_wb_wait_for_commit_done(
 	u32 event = 0;
 	u64 wb_time = 0;
 	int rc = 0;
-	struct sde_encoder_wait_info wait_info;
+	struct sde_encoder_wait_info wait_info = {0};
 
 	/* Return EWOULDBLOCK since we know the wait isn't necessary */
 	if (phys_enc->enable_state == SDE_ENC_DISABLED) {
@@ -1256,6 +1257,7 @@ static int _sde_encoder_phys_wb_wait_for_commit_done(
 	/* cleanup writeback framebuffer */
 	if (wb_enc->wb_fb && wb_enc->wb_aspace) {
 		msm_framebuffer_cleanup(wb_enc->wb_fb, wb_enc->wb_aspace);
+		drm_framebuffer_put(wb_enc->wb_fb);
 		wb_enc->wb_fb = NULL;
 		wb_enc->wb_aspace = NULL;
 	}
@@ -1274,6 +1276,7 @@ skip_wait:
 	/* cleanup previous buffer if pending */
 	if (wb_enc->cwb_old_fb && wb_enc->cwb_old_aspace) {
 		msm_framebuffer_cleanup(wb_enc->cwb_old_fb, wb_enc->cwb_old_aspace);
+		drm_framebuffer_put(wb_enc->cwb_old_fb);
 		wb_enc->cwb_old_fb = NULL;
 		wb_enc->cwb_old_aspace = NULL;
 	}
@@ -1321,7 +1324,7 @@ static int sde_encoder_phys_wb_prepare_for_kickoff(
 
 	_sde_encoder_phys_wb_update_flush(phys_enc);
 
-	_sde_encoder_phys_wb_update_cwb_flush(phys_enc);
+	_sde_encoder_phys_wb_update_cwb_flush(phys_enc, true);
 
 	/* vote for iommu/clk/bus */
 	wb_enc->start_time = ktime_get();
@@ -1559,6 +1562,7 @@ static void sde_encoder_phys_wb_disable(struct sde_encoder_phys *phys_enc)
 	/* avoid reset frame for CWB */
 	if (phys_enc->in_clone_mode) {
 		_sde_encoder_phys_wb_setup_cwb(phys_enc, false);
+		_sde_encoder_phys_wb_update_cwb_flush(phys_enc, false);
 		phys_enc->in_clone_mode = false;
 		goto exit;
 	}

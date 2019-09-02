@@ -41,8 +41,11 @@
 /* max mixer blend stages */
 #define DEFAULT_SDE_MIXER_BLENDSTAGES 7
 
-/* max bank bit for macro tile and ubwc format */
-#define DEFAULT_SDE_HIGHEST_BANK_BIT 15
+/*
+ * max bank bit for macro tile and ubwc format.
+ * this value is left shifted and written to register
+ */
+#define DEFAULT_SDE_HIGHEST_BANK_BIT 0x02
 
 /* default ubwc version */
 #define DEFAULT_SDE_UBWC_VERSION SDE_HW_UBWC_VER_10
@@ -89,7 +92,7 @@
  * support.
  */
 #define MAX_DISPLAY_HEIGHT_WITH_DECIMATION		2160
-#define MAX_DISPLAY_HEIGHT				5120
+#define MAX_DISPLAY_HEIGHT				5760
 #define MIN_DISPLAY_HEIGHT				0
 #define MIN_DISPLAY_WIDTH				0
 #define MAX_LM_PER_DISPLAY				2
@@ -161,6 +164,7 @@ enum sde_prop {
 	SDE_OFF,
 	SDE_LEN,
 	SSPP_LINEWIDTH,
+	VIG_SSPP_LINEWIDTH,
 	MIXER_LINEWIDTH,
 	MIXER_BLEND,
 	WB_LINEWIDTH,
@@ -293,6 +297,7 @@ enum {
 enum {
 	DSC_OFF,
 	DSC_LEN,
+	DSC_PAIR_MASK,
 	DSC_PROP_MAX,
 };
 
@@ -450,6 +455,7 @@ static struct sde_prop_type sde_prop[] = {
 	{SDE_OFF, "qcom,sde-off", true, PROP_TYPE_U32},
 	{SDE_LEN, "qcom,sde-len", false, PROP_TYPE_U32},
 	{SSPP_LINEWIDTH, "qcom,sde-sspp-linewidth", false, PROP_TYPE_U32},
+	{VIG_SSPP_LINEWIDTH, "qcom,sde-vig-sspp-linewidth", false, PROP_TYPE_U32},
 	{MIXER_LINEWIDTH, "qcom,sde-mixer-linewidth", false, PROP_TYPE_U32},
 	{MIXER_BLEND, "qcom,sde-mixer-blendstages", false, PROP_TYPE_U32},
 	{WB_LINEWIDTH, "qcom,sde-wb-linewidth", false, PROP_TYPE_U32},
@@ -679,6 +685,7 @@ static struct sde_prop_type pp_prop[] = {
 static struct sde_prop_type dsc_prop[] = {
 	{DSC_OFF, "qcom,sde-dsc-off", false, PROP_TYPE_U32_ARRAY},
 	{DSC_LEN, "qcom,sde-dsc-size", false, PROP_TYPE_U32},
+	{DSC_PAIR_MASK, "qcom,sde-dsc-pair-mask", false, PROP_TYPE_U32_ARRAY},
 };
 
 static struct sde_prop_type cdm_prop[] = {
@@ -1037,6 +1044,7 @@ static void _sde_sspp_setup_vig(struct sde_mdss_cfg *sde_cfg,
 	struct sde_sspp_cfg *sspp, struct sde_sspp_sub_blks *sblk,
 	bool *prop_exists, struct sde_prop_value *prop_value, u32 *vig_count)
 {
+	sblk->maxlinewidth = sde_cfg->vig_sspp_linewidth;
 	sblk->maxupscale = MAX_UPSCALE_RATIO;
 	sblk->maxdwnscale = MAX_DOWNSCALE_RATIO;
 	sspp->id = SSPP_VIG0 + *vig_count;
@@ -1653,6 +1661,16 @@ void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
 				cnt++;
 			}
 
+			/*
+			 * When all primary prefs have been set,
+			 * and if 2 lms are required for secondary
+			 * preference must be set with an lm pair
+			 */
+			if (cnt == num_lm && sec_cnt > 1 &&
+					!test_bit(sde_cfg->mixer[i+1].id,
+					&sde_cfg->mixer[i].lm_pair_mask))
+				continue;
+
 			/* After primary pref is set, now re apply secondary */
 			if (cnt >= num_lm && cnt < (num_lm + sec_cnt)) {
 				set_bit(SDE_DISP_SECONDARY_PREF,
@@ -1664,6 +1682,15 @@ void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
 		for (i = 0; i < sde_cfg->mixer_count; i++) {
 			clear_bit(SDE_DISP_SECONDARY_PREF,
 					&sde_cfg->mixer[i].features);
+
+			/*
+			 * If 2 lms are required for secondary
+			 * preference must be set with an lm pair
+			 */
+			if (cnt == 0 && num_lm > 1 &&
+					!test_bit(sde_cfg->mixer[i+1].id,
+					&sde_cfg->mixer[i].lm_pair_mask))
+				continue;
 
 			if (cnt < num_lm && !(sde_cfg->mixer[i].features &
 					BIT(SDE_DISP_PRIMARY_PREF))) {
@@ -2534,7 +2561,7 @@ static int sde_dsc_parse_dt(struct device_node *np,
 	int rc, prop_count[MAX_BLOCKS], i;
 	struct sde_prop_value *prop_value = NULL;
 	bool prop_exists[DSC_PROP_MAX];
-	u32 off_count;
+	u32 off_count, dsc_pair_mask;
 	struct sde_dsc_cfg *dsc;
 
 	if (!sde_cfg) {
@@ -2575,6 +2602,11 @@ static int sde_dsc_parse_dt(struct device_node *np,
 
 		if (IS_SDE_CTL_REV_100(sde_cfg->ctl_rev))
 			set_bit(SDE_DSC_OUTPUT_CTRL, &dsc->features);
+
+		dsc_pair_mask = PROP_VALUE_ACCESS(prop_value,
+				DSC_PAIR_MASK, i);
+		if (dsc_pair_mask)
+			set_bit(dsc_pair_mask, dsc->dsc_pair_mask);
 	}
 
 end:
@@ -3057,6 +3089,11 @@ static int _sde_parse_prop_check(struct sde_mdss_cfg *cfg,
 	if (!prop_exists[SSPP_LINEWIDTH])
 		cfg->max_sspp_linewidth = DEFAULT_SDE_LINE_WIDTH;
 
+	cfg->vig_sspp_linewidth = PROP_VALUE_ACCESS(prop_value,
+			VIG_SSPP_LINEWIDTH, 0);
+	if (!prop_exists[VIG_SSPP_LINEWIDTH])
+		cfg->vig_sspp_linewidth = cfg->max_sspp_linewidth;
+
 	cfg->max_mixer_width = PROP_VALUE_ACCESS(prop_value,
 			MIXER_LINEWIDTH, 0);
 	if (!prop_exists[MIXER_LINEWIDTH])
@@ -3071,18 +3108,19 @@ static int _sde_parse_prop_check(struct sde_mdss_cfg *cfg,
 	if (!prop_exists[WB_LINEWIDTH])
 		cfg->max_wb_linewidth = DEFAULT_SDE_LINE_WIDTH;
 
+	cfg->ubwc_version = SDE_HW_UBWC_VER(PROP_VALUE_ACCESS(prop_value,
+			 UBWC_VERSION, 0));
+	if (!prop_exists[UBWC_VERSION])
+		cfg->ubwc_version = DEFAULT_SDE_UBWC_VERSION;
+
 	cfg->mdp[0].highest_bank_bit = PROP_VALUE_ACCESS(prop_value,
 			BANK_BIT, 0);
 	if (!prop_exists[BANK_BIT])
 		cfg->mdp[0].highest_bank_bit = DEFAULT_SDE_HIGHEST_BANK_BIT;
 
-	if (of_fdt_get_ddrtype() == LP_DDR4_TYPE)
+	if (cfg->ubwc_version == SDE_HW_UBWC_VER_40 &&
+			of_fdt_get_ddrtype() == LP_DDR4_TYPE)
 		cfg->mdp[0].highest_bank_bit = 0x02;
-
-	cfg->ubwc_version = SDE_HW_UBWC_VER(PROP_VALUE_ACCESS(prop_value,
-			UBWC_VERSION, 0));
-	if (!prop_exists[UBWC_VERSION])
-		cfg->ubwc_version = DEFAULT_SDE_UBWC_VERSION;
 
 	cfg->macrotile_mode = PROP_VALUE_ACCESS(prop_value, MACROTILE_MODE, 0);
 	if (!prop_exists[MACROTILE_MODE])

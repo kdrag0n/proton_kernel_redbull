@@ -25,8 +25,6 @@
  * OF THIS SOFTWARE.
  */
 
-#define pr_fmt(fmt)	"[drm-dp-mst]: %s: " fmt, __func__
-
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/errno.h>
@@ -41,9 +39,10 @@
 #include "msm_kms.h"
 #include "sde_connector.h"
 #include "dp_drm.h"
+#include "dp_debug.h"
 
-#define DP_MST_DEBUG(fmt, ...) pr_debug(fmt, ##__VA_ARGS__)
-#define DP_MST_INFO_LOG(fmt, ...) pr_debug(fmt, ##__VA_ARGS__)
+#define DP_MST_DEBUG(fmt, ...) DP_DEBUG(fmt, ##__VA_ARGS__)
+#define DP_MST_INFO_LOG(fmt, ...) DP_DEBUG(fmt, ##__VA_ARGS__)
 
 #define MAX_DP_MST_DRM_ENCODERS		2
 #define MAX_DP_MST_DRM_BRIDGES		2
@@ -94,9 +93,16 @@ struct dp_mst_sim_port_data {
 	u8 num_sdp_stream_sinks;
 };
 
+struct dp_mst_sim_port_edid {
+	u8 port_number;
+	u8 edid[SZ_256];
+	bool valid;
+};
+
 struct dp_mst_sim_mode {
 	bool mst_state;
 	struct edid *edid;
+	struct dp_mst_sim_port_edid port_edids[DP_MST_SIM_MAX_PORTS];
 	struct work_struct probe_work;
 	const struct drm_dp_mst_topology_cbs *cbs;
 	u32 port_cnt;
@@ -156,7 +162,21 @@ static void dp_mst_sim_destroy_port(struct kref *ref)
 {
 	struct drm_dp_mst_port *port = container_of(ref,
 			struct drm_dp_mst_port, kref);
-	kfree(port);
+	struct drm_dp_mst_topology_mgr *mgr = port->mgr;
+
+	if (port->cached_edid)
+		kfree(port->cached_edid);
+
+	if (port->connector) {
+		mutex_lock(&mgr->destroy_connector_lock);
+		kref_get(&port->parent->kref);
+		list_add(&port->next, &mgr->destroy_connector_list);
+		mutex_unlock(&mgr->destroy_connector_lock);
+		schedule_work(&mgr->destroy_connector_work);
+		return;
+	} else {
+		kfree(port);
+	}
 }
 
 /* DRM DP MST Framework simulator OPs */
@@ -218,7 +238,7 @@ static void dp_mst_sim_link_probe_work(struct work_struct *work)
 	struct dp_mst_sim_mode *sim;
 	struct dp_mst_private *mst;
 	struct dp_mst_sim_port_data port_data;
-	u8 cnt;
+	u8 cnt, i;
 
 	DP_MST_DEBUG("enter\n");
 	sim = container_of(work, struct dp_mst_sim_mode, probe_work);
@@ -233,8 +253,21 @@ static void dp_mst_sim_link_probe_work(struct work_struct *work)
 	port_data.num_sdp_streams = 0;
 	port_data.num_sdp_stream_sinks = 0;
 
+	for (i = 0; i < DP_MST_SIM_MAX_PORTS; i++)
+		sim->port_edids[i].valid = false;
+
 	for (cnt = 0; cnt < sim->port_cnt; cnt++) {
 		port_data.port_number = cnt;
+
+		for (i = 0; i < DP_MST_SIM_MAX_PORTS; i++) {
+			if (sim->port_edids[i].valid) continue;
+
+			sim->port_edids[i].port_number = port_data.port_number;
+			memcpy(sim->port_edids[i].edid, sim->edid, SZ_256);
+			sim->port_edids[i].valid = true;
+			break;
+		}
+
 		dp_mst_sim_add_port(mst, &port_data);
 	}
 
@@ -296,7 +329,7 @@ static int dp_mst_sim_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr)
 
 	for (i = 0; i < mgr->max_payloads; i++) {
 		if (mgr->payloads[i].payload_state == DP_PAYLOAD_DELETE_LOCAL) {
-			pr_debug("removing payload %d\n", i);
+			DP_DEBUG("removing payload %d\n", i);
 			for (j = i; j < mgr->max_payloads - 1; j++) {
 				memcpy(&mgr->payloads[j],
 					&mgr->payloads[j + 1],
@@ -334,7 +367,7 @@ static int dp_mst_sim_update_payload_part2(struct drm_dp_mst_topology_mgr *mgr)
 		port = container_of(mgr->proposed_vcpis[i],
 				struct drm_dp_mst_port, vcpi);
 
-		pr_debug("payload %d %d\n", i, mgr->payloads[i].payload_state);
+		DP_DEBUG("payload %d %d\n", i, mgr->payloads[i].payload_state);
 		if (mgr->payloads[i].payload_state == DP_PAYLOAD_LOCAL)
 			mgr->payloads[i].payload_state = DP_PAYLOAD_REMOTE;
 		else if (mgr->payloads[i].payload_state ==
@@ -351,8 +384,19 @@ static struct edid *dp_mst_sim_get_edid(struct drm_connector *connector,
 {
 	struct dp_mst_private *mst = container_of(mgr,
 			struct dp_mst_private, mst_mgr);
+	int i;
 
-	return drm_edid_duplicate(mst->simulator.edid);
+	for (i = 0; i < DP_MST_SIM_MAX_PORTS; i++) {
+		if (mst->simulator.port_edids[i].valid &&
+				mst->simulator.port_edids[i].port_number ==
+				port->port_num) {
+			return drm_edid_duplicate((struct edid *)
+					(mst->simulator.port_edids[i].edid));
+		}
+	}
+
+	DRM_ERROR("edid not found for connector %d\n", connector->base.id);
+	return NULL;
 }
 
 static int dp_mst_sim_topology_mgr_set_mst(
@@ -368,6 +412,83 @@ static int dp_mst_sim_topology_mgr_set_mst(
 
 	mst->simulator.mst_state = mst_state;
 	return 0;
+}
+
+static void dp_mst_sim_handle_hpd_irq(void *dp_display,
+		struct dp_mst_hpd_info *info)
+{
+	struct dp_display *dp;
+	struct dp_mst_private *mst;
+	struct drm_dp_mst_port *port;
+	struct dp_mst_sim_port_data port_data;
+	struct drm_dp_mst_branch *mstb;
+	int i;
+	bool in_list, port_available;
+
+	dp = dp_display;
+	mst = dp->dp_mst_prv_info;
+
+	if (info->mst_sim_add_con) {
+		port_available = false;
+		for (i = 0; i < DP_MST_SIM_MAX_PORTS; i++) {
+			if (mst->simulator.port_edids[i].valid) continue;
+
+			port_data.port_number = i;
+			mst->simulator.port_edids[i].port_number = i;
+			memcpy(mst->simulator.port_edids[i].edid, info->edid,
+					SZ_256);
+			mst->simulator.port_edids[i].valid = true;
+			port_available = true;
+			break;
+		}
+
+		if (!port_available) {
+			DRM_ERROR("add port failed, limit (%d) reached\n",
+					DP_MST_SIM_MAX_PORTS);
+			return;
+		}
+
+		port_data.input_port = false;
+		port_data.peer_device_type = DP_PEER_DEVICE_SST_SINK;
+		port_data.mcs = false;
+		port_data.ddps = true;
+		port_data.legacy_device_plug_status = false;
+		port_data.dpcd_revision = 0;
+		port_data.num_sdp_streams = 0;
+		port_data.num_sdp_stream_sinks = 0;
+
+		dp_mst_sim_add_port(mst, &port_data);
+	} else if (info->mst_sim_remove_con) {
+		mstb = mst->mst_mgr.mst_primary;
+		in_list = false;
+
+		mutex_lock(&mst->mst_mgr.lock);
+		list_for_each_entry(port,
+				&mstb->ports, next) {
+			if (port->connector && port->connector->base.id ==
+					info->mst_sim_remove_con_id) {
+				in_list = true;
+				list_del(&port->next);
+				break;
+			}
+		}
+		mutex_unlock(&mst->mst_mgr.lock);
+
+		if (!in_list) {
+			DRM_ERROR("invalid connector id %d\n",
+					info->mst_sim_remove_con_id);
+			return;
+		}
+
+		for (i = 0; i < DP_MST_SIM_MAX_PORTS; i++) {
+			if (mst->simulator.port_edids[i].port_number ==
+					port->port_num) {
+				mst->simulator.port_edids[i].valid = false;
+			}
+		}
+
+		kref_put(&port->kref, dp_mst_sim_destroy_port);
+	}
 }
 
 static void _dp_mst_get_vcpi_info(
@@ -389,7 +510,7 @@ static void _dp_mst_get_vcpi_info(
 	}
 	mutex_unlock(&mgr->payload_lock);
 
-	pr_info("vcpi_info. vcpi:%d, start_slot:%d, num_slots:%d\n",
+	DP_INFO("vcpi_info. vcpi:%d, start_slot:%d, num_slots:%d\n",
 			vcpi, *start_slot, *num_slots);
 }
 
@@ -406,7 +527,7 @@ static int dp_mst_calc_pbn_mode(struct dp_display_mode *dp_mode)
 	pbn = drm_dp_calc_pbn_mode(dp_mode->timing.pixel_clk_khz, bpp);
 	pbn_fp = drm_fixp_from_fraction(pbn, 1);
 
-	pr_debug("before overhead pbn:%d, bpp:%d\n", pbn, bpp);
+	DP_DEBUG("before overhead pbn:%d, bpp:%d\n", pbn, bpp);
 
 	if (dsc_en)
 		pbn_fp = drm_fixp_mul(pbn_fp, dp_mode->dsc_overhead_fp);
@@ -416,7 +537,7 @@ static int dp_mst_calc_pbn_mode(struct dp_display_mode *dp_mode)
 
 	pbn = drm_fixp2int(pbn_fp);
 
-	pr_debug("after overhead pbn:%d, bpp:%d\n", pbn, bpp);
+	DP_DEBUG("after overhead pbn:%d, bpp:%d\n", pbn, bpp);
 	return pbn;
 }
 
@@ -463,7 +584,7 @@ static int dp_mst_bridge_attach(struct drm_bridge *dp_bridge)
 	DP_MST_DEBUG("enter\n");
 
 	if (!dp_bridge) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return -EINVAL;
 	}
 
@@ -486,20 +607,20 @@ static bool dp_mst_bridge_mode_fixup(struct drm_bridge *drm_bridge,
 	DP_MST_DEBUG("enter\n");
 
 	if (!drm_bridge || !mode || !adjusted_mode) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		ret = false;
 		goto end;
 	}
 
 	bridge = to_dp_mst_bridge(drm_bridge);
 	if (!bridge->connector) {
-		pr_err("Invalid connector\n");
+		DP_ERR("Invalid connector\n");
 		ret = false;
 		goto end;
 	}
 
 	if (!bridge->dp_panel) {
-		pr_err("Invalid dp_panel\n");
+		DP_ERR("Invalid dp_panel\n");
 		ret = false;
 		goto end;
 	}
@@ -529,7 +650,7 @@ static int _dp_mst_compute_config(struct drm_atomic_state *state,
 	slots = mst->mst_fw_cbs->atomic_find_vcpi_slots(state,
 			&mst->mst_mgr, c_conn->mst_port, pbn);
 	if (slots < 0) {
-		pr_err("mst: failed to find vcpi slots. pbn:%d, slots:%d\n",
+		DP_ERR("mst: failed to find vcpi slots. pbn:%d, slots:%d\n",
 				pbn, slots);
 		return slots;
 	}
@@ -568,7 +689,7 @@ static void _dp_mst_update_timeslots(struct dp_mst_private *mst,
 				dp_bridge->id, start_slot, num_slots, pbn,
 				dp_bridge->vcpi);
 
-		pr_info("bridge:%d vcpi:%d start_slot:%d num_slots:%d, pbn:%d\n",
+		DP_INFO("bridge:%d vcpi:%d start_slot:%d num_slots:%d, pbn:%d\n",
 			dp_bridge->id, dp_bridge->vcpi,
 			start_slot, num_slots, pbn);
 	}
@@ -619,13 +740,13 @@ static void _dp_mst_bridge_pre_enable_part1(struct dp_mst_bridge *dp_bridge)
 
 	slots = mst->mst_fw_cbs->find_vcpi_slots(&mst->mst_mgr, pbn);
 
-	pr_info("bridge:%d, pbn:%d, slots:%d\n", dp_bridge->id,
+	DP_INFO("bridge:%d, pbn:%d, slots:%d\n", dp_bridge->id,
 			dp_bridge->pbn, dp_bridge->num_slots);
 
 	ret = mst->mst_fw_cbs->allocate_vcpi(&mst->mst_mgr,
 				       port, pbn, slots);
 	if (!ret) {
-		pr_err("mst: failed to allocate vcpi. bridge:%d\n",
+		DP_ERR("mst: failed to allocate vcpi. bridge:%d\n",
 				dp_bridge->id);
 		return;
 	}
@@ -722,7 +843,7 @@ static void dp_mst_bridge_pre_enable(struct drm_bridge *drm_bridge)
 	struct dp_mst_private *mst;
 
 	if (!drm_bridge) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return;
 	}
 
@@ -733,7 +854,7 @@ static void dp_mst_bridge_pre_enable(struct drm_bridge *drm_bridge)
 	bridge->old_dp_panel = NULL;
 
 	if (!bridge->connector) {
-		pr_err("Invalid connector\n");
+		DP_ERR("Invalid connector\n");
 		return;
 	}
 
@@ -744,14 +865,14 @@ static void dp_mst_bridge_pre_enable(struct drm_bridge *drm_bridge)
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dp->set_mode(dp, bridge->dp_panel, &bridge->dp_mode);
 	if (rc) {
-		pr_err("[%d] failed to perform a mode set, rc=%d\n",
+		DP_ERR("[%d] failed to perform a mode set, rc=%d\n",
 		       bridge->id, rc);
 		goto end;
 	}
 
 	rc = dp->prepare(dp, bridge->dp_panel);
 	if (rc) {
-		pr_err("[%d] DP display prepare failed, rc=%d\n",
+		DP_ERR("[%d] DP display prepare failed, rc=%d\n",
 		       bridge->id, rc);
 		goto end;
 	}
@@ -760,7 +881,7 @@ static void dp_mst_bridge_pre_enable(struct drm_bridge *drm_bridge)
 
 	rc = dp->enable(dp, bridge->dp_panel);
 	if (rc) {
-		pr_err("[%d] DP display enable failed, rc=%d\n",
+		DP_ERR("[%d] DP display enable failed, rc=%d\n",
 		       bridge->id, rc);
 		dp->unprepare(dp, bridge->dp_panel);
 		goto end;
@@ -787,13 +908,13 @@ static void dp_mst_bridge_enable(struct drm_bridge *drm_bridge)
 	struct dp_display *dp;
 
 	if (!drm_bridge) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return;
 	}
 
 	bridge = to_dp_mst_bridge(drm_bridge);
 	if (!bridge->connector) {
-		pr_err("Invalid connector\n");
+		DP_ERR("Invalid connector\n");
 		return;
 	}
 
@@ -801,7 +922,7 @@ static void dp_mst_bridge_enable(struct drm_bridge *drm_bridge)
 
 	rc = dp->post_enable(dp, bridge->dp_panel);
 	if (rc) {
-		pr_err("mst bridge [%d] post enable failed, rc=%d\n",
+		DP_ERR("mst bridge [%d] post enable failed, rc=%d\n",
 		       bridge->id, rc);
 		return;
 	}
@@ -818,13 +939,13 @@ static void dp_mst_bridge_disable(struct drm_bridge *drm_bridge)
 	struct dp_mst_private *mst;
 
 	if (!drm_bridge) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return;
 	}
 
 	bridge = to_dp_mst_bridge(drm_bridge);
 	if (!bridge->connector) {
-		pr_err("Invalid connector\n");
+		DP_ERR("Invalid connector\n");
 		return;
 	}
 
@@ -840,7 +961,7 @@ static void dp_mst_bridge_disable(struct drm_bridge *drm_bridge)
 
 	rc = dp->pre_disable(dp, bridge->dp_panel);
 	if (rc)
-		pr_err("[%d] DP display pre disable failed, rc=%d\n",
+		DP_ERR("[%d] DP display pre disable failed, rc=%d\n",
 		       bridge->id, rc);
 
 	_dp_mst_bridge_pre_disable_part2(bridge);
@@ -858,13 +979,13 @@ static void dp_mst_bridge_post_disable(struct drm_bridge *drm_bridge)
 	struct dp_mst_private *mst;
 
 	if (!drm_bridge) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return;
 	}
 
 	bridge = to_dp_mst_bridge(drm_bridge);
 	if (!bridge->connector) {
-		pr_err("Invalid connector\n");
+		DP_ERR("Invalid connector\n");
 		return;
 	}
 
@@ -873,12 +994,12 @@ static void dp_mst_bridge_post_disable(struct drm_bridge *drm_bridge)
 
 	rc = dp->disable(dp, bridge->dp_panel);
 	if (rc)
-		pr_info("[%d] DP display disable failed, rc=%d\n",
+		DP_INFO("[%d] DP display disable failed, rc=%d\n",
 		       bridge->id, rc);
 
 	rc = dp->unprepare(dp, bridge->dp_panel);
 	if (rc)
-		pr_info("[%d] DP display unprepare failed, rc=%d\n",
+		DP_INFO("[%d] DP display unprepare failed, rc=%d\n",
 		       bridge->id, rc);
 
 	/* maintain the connector to encoder link during suspend/resume */
@@ -907,14 +1028,14 @@ static void dp_mst_bridge_mode_set(struct drm_bridge *drm_bridge,
 	DP_MST_DEBUG("enter\n");
 
 	if (!drm_bridge || !mode || !adjusted_mode) {
-		pr_err("Invalid params\n");
+		DP_ERR("Invalid params\n");
 		return;
 	}
 
 	bridge = to_dp_mst_bridge(drm_bridge);
 	if (!bridge->connector) {
 		if (!bridge->old_connector) {
-			pr_err("Invalid connector\n");
+			DP_ERR("Invalid connector\n");
 			return;
 		}
 		bridge->connector = bridge->old_connector;
@@ -923,7 +1044,7 @@ static void dp_mst_bridge_mode_set(struct drm_bridge *drm_bridge,
 
 	if (!bridge->dp_panel) {
 		if (!bridge->old_dp_panel) {
-			pr_err("Invalid dp_panel\n");
+			DP_ERR("Invalid dp_panel\n");
 			return;
 		}
 		bridge->dp_panel = bridge->old_dp_panel;
@@ -968,14 +1089,14 @@ int dp_mst_drm_bridge_init(void *data, struct drm_encoder *encoder)
 
 	if (!mst || !mst->mst_initialized) {
 		if (dp_mst_enc_cache.cnt >= MAX_DP_MST_DRM_BRIDGES) {
-			pr_info("exceeding max bridge cnt %d\n",
+			DP_INFO("exceeding max bridge cnt %d\n",
 					dp_mst_enc_cache.cnt);
 			return 0;
 		}
 
 		dp_mst_enc_cache.mst_enc[dp_mst_enc_cache.cnt] = encoder;
 		dp_mst_enc_cache.cnt++;
-		pr_info("mst not initialized. cache encoder information\n");
+		DP_INFO("mst not initialized. cache encoder information\n");
 		return 0;
 	}
 
@@ -990,7 +1111,7 @@ int dp_mst_drm_bridge_init(void *data, struct drm_encoder *encoder)
 	}
 
 	if (i == MAX_DP_MST_DRM_BRIDGES) {
-		pr_err("mst supports only %d bridges\n", i);
+		DP_ERR("mst supports only %d bridges\n", i);
 		rc = -EACCES;
 		goto end;
 	}
@@ -1004,7 +1125,7 @@ int dp_mst_drm_bridge_init(void *data, struct drm_encoder *encoder)
 
 	rc = drm_bridge_attach(encoder, &bridge->base, NULL);
 	if (rc) {
-		pr_err("failed to attach bridge, rc=%d\n", rc);
+		DP_ERR("failed to attach bridge, rc=%d\n", rc);
 		goto end;
 	}
 
@@ -1024,7 +1145,7 @@ int dp_mst_drm_bridge_init(void *data, struct drm_encoder *encoder)
 			dp_mst_drm_fixed_connector_init(display,
 				bridge->encoder);
 		if (bridge->fixed_connector == NULL) {
-			pr_err("failed to create fixed connector\n");
+			DP_ERR("failed to create fixed connector\n");
 			rc = -ENOMEM;
 			goto end;
 		}
@@ -1075,7 +1196,7 @@ dp_mst_connector_detect(struct drm_connector *connector, bool force,
 }
 
 static int dp_mst_connector_get_modes(struct drm_connector *connector,
-		void *display)
+		void *display, const struct msm_resource_caps_info *avail_res)
 {
 	struct sde_connector *c_conn = to_sde_connector(connector);
 	struct dp_display *dp_display = display;
@@ -1102,7 +1223,7 @@ static int dp_mst_connector_get_modes(struct drm_connector *connector,
 enum drm_mode_status dp_mst_connector_mode_valid(
 		struct drm_connector *connector,
 		struct drm_display_mode *mode,
-		void *display)
+		void *display, const struct msm_resource_caps_info *avail_res)
 {
 	struct dp_display *dp_display = display;
 	struct dp_mst_private *mst;
@@ -1115,7 +1236,7 @@ enum drm_mode_status dp_mst_connector_mode_valid(
 	const u32 tot_slots = 63;
 
 	if (!connector || !mode || !display) {
-		pr_err("invalid input\n");
+		DP_ERR("invalid input\n");
 		return 0;
 	}
 
@@ -1137,7 +1258,7 @@ enum drm_mode_status dp_mst_connector_mode_valid(
 	if (active_enc_cnt < DP_STREAM_MAX)
 		available_slots = tot_slots - slots_in_use;
 	else {
-		pr_debug("all mst streams are active\n");
+		DP_DEBUG("all mst streams are active\n");
 		return MODE_BAD;
 	}
 
@@ -1149,11 +1270,11 @@ enum drm_mode_status dp_mst_connector_mode_valid(
 			&mst->mst_mgr, required_pbn);
 
 	if (required_pbn > available_pbn || required_slots > available_slots) {
-		pr_debug("mode:%s not supported\n", mode->name);
+		DP_DEBUG("mode:%s not supported\n", mode->name);
 		return MODE_BAD;
 	}
 
-	return dp_connector_mode_valid(connector, mode, display);
+	return dp_connector_mode_valid(connector, mode, display, avail_res);
 }
 
 int dp_mst_connector_get_info(struct drm_connector *connector,
@@ -1187,14 +1308,15 @@ int dp_mst_connector_get_info(struct drm_connector *connector,
 int dp_mst_connector_get_mode_info(struct drm_connector *connector,
 		const struct drm_display_mode *drm_mode,
 		struct msm_mode_info *mode_info,
-		u32 max_mixer_width, void *display)
+		void *display,
+		const struct msm_resource_caps_info *avail_res)
 {
 	int rc;
 
 	DP_MST_DEBUG("enter:\n");
 
 	rc = dp_connector_get_mode_info(connector, drm_mode, mode_info,
-			max_mixer_width, display);
+			display, avail_res);
 
 	DP_MST_DEBUG("mst connector:%d get mode info. rc:%d\n",
 			connector->base.id, rc);
@@ -1317,7 +1439,7 @@ static int dp_mst_connector_atomic_check(struct drm_connector *connector,
 		rc = mst->mst_fw_cbs->atomic_release_vcpi_slots(state,
 				&mst->mst_mgr, slots);
 		if (rc) {
-			pr_err("failed releasing %d vcpi slots rc:%d\n",
+			DP_ERR("failed releasing %d vcpi slots rc:%d\n",
 					slots, rc);
 			goto end;
 		}
@@ -1429,14 +1551,14 @@ dp_mst_add_connector(struct drm_dp_mst_topology_mgr *mgr,
 				DRM_MODE_CONNECTOR_DisplayPort);
 
 	if (!connector) {
-		pr_err("mst sde_connector_init failed\n");
+		DP_ERR("mst sde_connector_init failed\n");
 		drm_modeset_unlock_all(dev);
 		return connector;
 	}
 
 	rc = dp_display->mst_connector_install(dp_display, connector);
 	if (rc) {
-		pr_err("mst connector install failed\n");
+		DP_ERR("mst connector install failed\n");
 		sde_connector_destroy(connector);
 		drm_modeset_unlock_all(dev);
 		return NULL;
@@ -1752,13 +1874,13 @@ dp_mst_drm_fixed_connector_init(struct dp_display *dp_display,
 				DRM_MODE_CONNECTOR_DisplayPort);
 
 	if (!connector) {
-		pr_err("mst sde_connector_init failed\n");
+		DP_ERR("mst sde_connector_init failed\n");
 		return NULL;
 	}
 
 	rc = dp_display->mst_connector_install(dp_display, connector);
 	if (rc) {
-		pr_err("mst connector install failed\n");
+		DP_ERR("mst connector install failed\n");
 		sde_connector_destroy(connector);
 		return NULL;
 	}
@@ -1857,19 +1979,33 @@ static void dp_mst_display_hpd_irq(void *dp_display,
 	bool handled;
 
 	if (info->mst_hpd_sim) {
+		if (info->mst_sim_add_con || info->mst_sim_remove_con) {
+			dp_mst_sim_handle_hpd_irq(dp_display, info);
+
+			/*
+			 * When removing a connector, hpd_irq -> sim_destroy ->
+			 * destroy_connector_work will be executed in a thread.
+			 * This thread will perform the dp_mst_hotplug at the
+			 * appropriate time. Do not perform hotplug here
+			 * because it may be too early.
+			 */
+			if (info->mst_sim_remove_con)
+				return;
+		}
+
 		dp_mst_hotplug(&mst->mst_mgr);
 		return;
 	}
 
 	if (!mst->mst_session_state) {
-		pr_err("mst_hpd_irq received before mst session start\n");
+		DP_ERR("mst_hpd_irq received before mst session start\n");
 		return;
 	}
 
 	rc = drm_dp_dpcd_read(mst->caps.drm_aux, DP_SINK_COUNT_ESI,
 		esi, 14);
 	if (rc != 14) {
-		pr_err("dpcd sink status read failed, rlen=%d\n", rc);
+		DP_ERR("dpcd sink status read failed, rlen=%d\n", rc);
 		return;
 	}
 
@@ -1883,7 +2019,7 @@ static void dp_mst_display_hpd_irq(void *dp_display,
 		rc = drm_dp_dpcd_write(mst->caps.drm_aux, esi_res, &esi[1], 3);
 
 		if (rc != 3)
-			pr_err("dpcd esi_res failed. rlen=%d\n", rc);
+			DP_ERR("dpcd esi_res failed. rlen=%d\n", rc);
 	}
 
 	DP_MST_DEBUG("mst display hpd_irq handled:%d rc:%d\n", handled, rc);
@@ -1895,7 +2031,7 @@ static void dp_mst_set_state(void *dp_display, enum dp_drv_state mst_state)
 	struct dp_mst_private *mst = dp->dp_mst_prv_info;
 
 	if (!mst) {
-		pr_debug("mst not initialized\n");
+		DP_DEBUG("mst not initialized\n");
 		return;
 	}
 
@@ -1941,7 +2077,7 @@ int dp_mst_init(struct dp_display *dp_display)
 	memset(&dp_mst, 0, sizeof(dp_mst));
 
 	if (!dp_display) {
-		pr_err("invalid params\n");
+		DP_ERR("invalid params\n");
 		return 0;
 	}
 
@@ -1974,7 +2110,7 @@ int dp_mst_init(struct dp_display *dp_display)
 					dp_mst.caps.max_streams_supported,
 					conn_base_id);
 	if (ret) {
-		pr_err("dp drm mst topology manager init failed\n");
+		DP_ERR("dp drm mst topology manager init failed\n");
 		goto error;
 	}
 
@@ -2007,7 +2143,7 @@ void dp_mst_deinit(struct dp_display *dp_display)
 	struct dp_mst_private *mst;
 
 	if (!dp_display) {
-		pr_err("invalid params\n");
+		DP_ERR("invalid params\n");
 		return;
 	}
 
