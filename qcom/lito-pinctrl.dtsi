@@ -10,12 +10,12 @@
 
 		trigout_a: trigout_a {
 			mux {
-				pins = "gpio63";
+				pins = "gpio4";
 				function = "qdss_cti";
 			};
 
 			config {
-				pins = "gpio63";
+				pins = "gpio4";
 				drive-strength = <2>;
 				bias-disable;
 			};
@@ -1395,13 +1395,13 @@
 			qupv3_se6_spi_active: qupv3_se6_spi_active {
 				mux {
 					pins = "gpio59", "gpio60", "gpio61",
-								"gpio62";
+								"gpio62", "gpio63";
 					function = "qup10";
 				};
 
 				config {
 					pins = "gpio59", "gpio60", "gpio61",
-								"gpio62";
+								"gpio62", "gpio63";
 					drive-strength = <6>;
 					bias-disable;
 				};
@@ -1410,13 +1410,13 @@
 			qupv3_se6_spi_sleep: qupv3_se6_spi_sleep {
 				mux {
 					pins = "gpio59", "gpio60", "gpio61",
-								"gpio62";
+								"gpio62", "gpio63";
 					function = "gpio";
 				};
 
 				config {
 					pins = "gpio59", "gpio60", "gpio61",
-								"gpio62";
+								"gpio62", "gpio63";
 					drive-strength = <6>;
 					bias-disable;
 				};
@@ -1490,14 +1490,12 @@
 		qupv3_se9_spi_pins: qupv3_se9_spi_pins {
 			qupv3_se9_spi_active: qupv3_se9_spi_active {
 				mux {
-					pins = "gpio46", "gpio47", "gpio48",
-								"gpio63";
+					pins = "gpio46", "gpio47", "gpio48";
 					function = "qup13";
 				};
 
 				config {
-					pins = "gpio46", "gpio47", "gpio48",
-								"gpio63";
+					pins = "gpio46", "gpio47", "gpio48";
 					drive-strength = <6>;
 					bias-disable;
 				};
@@ -1505,14 +1503,12 @@
 
 			qupv3_se9_spi_sleep: qupv3_se9_spi_sleep {
 				mux {
-					pins = "gpio46", "gpio47", "gpio48",
-								"gpio63";
+					pins = "gpio46", "gpio47", "gpio48";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio46", "gpio47", "gpio48",
-								"gpio63";
+					pins = "gpio46", "gpio47", "gpio48";
 					drive-strength = <6>;
 					bias-disable;
 				};
