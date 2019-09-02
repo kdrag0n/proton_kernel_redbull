@@ -18,6 +18,9 @@
 #define CBR_MB_LIMIT                           (((1280+15)/16)*((720+15)/16)*30)
 #define CBR_VFR_MB_LIMIT                       (((640+15)/16)*((480+15)/16)*30)
 #define V4L2_CID_MPEG_VIDEO_UNKNOWN (V4L2_CID_MPEG_MSM_VIDC_BASE + 0xFFF)
+#define MAX_BITRATE_DECODER_CAVLC              220000000
+#define MAX_BITRATE_DECODER_2STAGE_CABAC       200000000
+#define MAX_BITRATE_DECODER_1STAGE_CABAC        70000000
 
 struct vb2_buf_entry {
 	struct list_head list;
@@ -30,10 +33,8 @@ struct getprop_buf {
 };
 
 enum load_calc_quirks {
-	LOAD_CALC_NO_QUIRKS = 0,
-	LOAD_CALC_IGNORE_TURBO_LOAD = 1 << 0,
-	LOAD_CALC_IGNORE_THUMBNAIL_LOAD = 1 << 1,
-	LOAD_CALC_IGNORE_NON_REALTIME_LOAD = 1 << 2,
+	LOAD_POWER = 0,
+	LOAD_ADMISSION_CONTROL = 1,
 };
 
 enum client_set_controls {
@@ -73,6 +74,19 @@ static inline struct v4l2_ctrl *get_ctrl(struct msm_vidc_inst *inst,
 	return inst->ctrls[0];
 }
 
+static inline void update_ctrl(struct v4l2_ctrl *ctrl, s32 val)
+{
+	switch (ctrl->type) {
+	case V4L2_CTRL_TYPE_INTEGER:
+		*ctrl->p_cur.p_s32 = val;
+		memcpy(ctrl->p_new.p, ctrl->p_cur.p,
+			ctrl->elems * ctrl->elem_size);
+		break;
+	default:
+		dprintk(VIDC_ERR, "unhandled control type");
+	}
+}
+
 static inline u32 get_v4l2_codec(struct msm_vidc_inst *inst)
 {
 	struct v4l2_format *f;
@@ -84,9 +98,19 @@ static inline u32 get_v4l2_codec(struct msm_vidc_inst *inst)
 	return f->fmt.pix_mp.pixelformat;
 }
 
+static inline bool is_image_session(struct msm_vidc_inst *inst)
+{
+	/* Grid may or may not be enabled for an image encode session */
+	return inst->session_type == MSM_VIDC_ENCODER &&
+		get_v4l2_codec(inst) == V4L2_PIX_FMT_HEVC &&
+		inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ;
+}
+
 static inline bool is_realtime_session(struct msm_vidc_inst *inst)
 {
-	return !!(inst->flags & VIDC_REALTIME);
+	struct v4l2_ctrl *ctrl;
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY);
+	return !!ctrl->val;
 }
 
 static inline bool is_secure_session(struct msm_vidc_inst *inst)
@@ -119,6 +143,16 @@ static inline bool in_port_reconfig(struct msm_vidc_inst *inst)
 	return inst->in_reconfig && inst->bufq[INPUT_PORT].vb2_bufq.streaming;
 }
 
+static inline bool is_input_buffer(struct msm_vidc_buffer *mbuf)
+{
+	return mbuf->vvb.vb2_buf.type == INPUT_MPLANE;
+}
+
+static inline bool is_output_buffer(struct msm_vidc_buffer *mbuf)
+{
+	return mbuf->vvb.vb2_buf.type == OUTPUT_MPLANE;
+}
+
 static inline int msm_comm_g_ctrl(struct msm_vidc_inst *inst,
 		struct v4l2_control *ctrl)
 {
@@ -130,6 +164,9 @@ static inline int msm_comm_s_ctrl(struct msm_vidc_inst *inst,
 {
 	return v4l2_s_ctrl(NULL, &inst->ctrl_handler, ctrl);
 }
+
+bool is_single_session(struct msm_vidc_inst *inst, u32 ignore_flags);
+int msm_comm_get_num_perf_sessions(struct msm_vidc_inst *inst);
 bool is_batching_allowed(struct msm_vidc_inst *inst);
 enum hal_buffer get_hal_buffer_type(unsigned int type,
 		unsigned int plane_num);
@@ -202,7 +239,7 @@ int msm_comm_get_inst_load(struct msm_vidc_inst *inst,
 			enum load_calc_quirks quirks);
 int msm_comm_get_inst_load_per_core(struct msm_vidc_inst *inst,
 			enum load_calc_quirks quirks);
-int msm_comm_get_load(struct msm_vidc_core *core,
+int msm_comm_get_device_load(struct msm_vidc_core *core,
 			enum session_type type, enum load_calc_quirks quirks);
 int msm_comm_set_color_format(struct msm_vidc_inst *inst,
 		enum hal_buffer buffer_type, int fourcc);
@@ -269,17 +306,31 @@ void msm_comm_store_filled_length(struct msm_vidc_list *data_list,
 		u32 index, u32 filled_length);
 void msm_comm_fetch_filled_length(struct msm_vidc_list *data_list,
 		u32 index, u32 *filled_length);
-void msm_comm_store_mark_data(struct msm_vidc_list *data_list,
-		u32 index, u32 mark_data, u32 mark_target);
-void msm_comm_fetch_mark_data(struct msm_vidc_list *data_list,
-		u32 index, u32 *mark_data, u32 *mark_target);
-int msm_comm_release_mark_data(struct msm_vidc_inst *inst);
+void msm_comm_store_input_tag(struct msm_vidc_list *data_list,
+		u32 index, u32 itag, u32 itag2);
+int msm_comm_fetch_input_tag(struct msm_vidc_list *data_list,
+		u32 index, u32 *itag, u32 *itag2);
+int msm_comm_release_input_tag(struct msm_vidc_inst *inst);
+struct msm_vidc_client_data *msm_comm_store_client_data(
+	struct msm_vidc_inst *inst, u32 itag);
+void msm_comm_fetch_client_data(struct msm_vidc_inst *inst, bool remove,
+	u32 itag, u32 itag2, u32 *mdata, u32 *mtarget);
+void msm_comm_release_client_data(struct msm_vidc_inst *inst);
+int msm_comm_qbufs_batch(struct msm_vidc_inst *inst,
+		struct msm_vidc_buffer *mbuf);
 int msm_comm_qbuf_decode_batch(struct msm_vidc_inst *inst,
 		struct msm_vidc_buffer *mbuf);
+int schedule_batch_work(struct msm_vidc_inst *inst);
+int cancel_batch_work(struct msm_vidc_inst *inst);
 int msm_comm_num_queued_bufs(struct msm_vidc_inst *inst, u32 type);
 int msm_comm_set_index_extradata(struct msm_vidc_inst *inst,
 		uint32_t extradata_id, uint32_t value);
 int msm_comm_set_extradata(struct msm_vidc_inst *inst, uint32_t extradata_id,
 		uint32_t value);
 bool msm_comm_check_for_inst_overload(struct msm_vidc_core *core);
+void msm_vidc_batch_handler(struct work_struct *work);
+int msm_comm_check_window_bitrate(struct msm_vidc_inst *inst,
+		struct vidc_frame_data *frame_data);
+void msm_comm_clear_window_data(struct msm_vidc_inst *inst);
+void msm_comm_release_window_data(struct msm_vidc_inst *inst);
 #endif

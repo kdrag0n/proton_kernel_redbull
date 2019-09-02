@@ -37,6 +37,7 @@
 #define HFI_BUFFERFLAG_DROP_FRAME               0x20000000
 #define HFI_BUFFERFLAG_TEI			0x40000000
 #define HFI_BUFFERFLAG_DISCONTINUITY		0x80000000
+#define HFI_BUFFERFLAG_CVPMETADATA_REPEAT	    0x00000800
 
 
 #define HFI_ERR_SESSION_EMPTY_BUFFER_DONE_OUTPUT_PENDING	\
@@ -397,8 +398,8 @@ struct hfi_cmd_session_empty_buffer_compressed_packet {
 	u32 time_stamp_hi;
 	u32 time_stamp_lo;
 	u32 flags;
-	u32 mark_target;
-	u32 mark_data;
+	u32 mark_target;    /* not used anywhere */
+	u32 mark_data;      /* not used anywhere */
 	u32 offset;
 	u32 alloc_len;
 	u32 filled_len;
@@ -416,8 +417,8 @@ struct hfi_cmd_session_empty_buffer_uncompressed_plane0_packet {
 	u32 time_stamp_hi;
 	u32 time_stamp_lo;
 	u32 flags;
-	u32 mark_target;
-	u32 mark_data;
+	u32 mark_target;    /* not used anywhere */
+	u32 mark_data;      /* not used anywhere */
 	u32 alloc_len;
 	u32 filled_len;
 	u32 offset;
@@ -589,7 +590,8 @@ struct hfi_msg_session_empty_buffer_done_packet {
 	u32 extra_data_buffer;
 	u32 flags;
 	struct hfi_frame_cr_stats_type ubwc_cr_stats;
-	u32 rgData[0];
+	/* no usage of sync_frame flag in EBD, rgData[1] is not used */
+	u32 rgData[1];
 };
 
 struct hfi_msg_session_fill_buffer_done_compressed_packet {
@@ -600,8 +602,8 @@ struct hfi_msg_session_fill_buffer_done_compressed_packet {
 	u32 time_stamp_lo;
 	u32 error_type;
 	u32 flags;
-	u32 mark_target;
-	u32 mark_data;
+	u32 mark_target;    /* not used anywhere */
+	u32 mark_data;      /* not used anywhere */
 	u32 stats;
 	u32 offset;
 	u32 alloc_len;
@@ -624,8 +626,8 @@ struct hfi_msg_session_fbd_uncompressed_plane0_packet {
 	u32 time_stamp_hi;
 	u32 time_stamp_lo;
 	u32 flags;
-	u32 mark_target;
-	u32 mark_data;
+	u32 mark_target;    /* not used anywhere */
+	u32 mark_data;      /* not used anywhere */
 	u32 stats;
 	u32 alloc_len;
 	u32 filled_len;
@@ -818,7 +820,6 @@ struct hal_session {
 	enum hal_video_codec codec;
 	enum hal_domain domain;
 	u32 flags;
-	void *device;
 };
 
 struct hal_device_data {

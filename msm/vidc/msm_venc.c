@@ -41,8 +41,8 @@
 #define MAX_CBR_H 720
 #define LEGACY_CBR_BUF_SIZE 500
 #define CBR_PLUS_BUF_SIZE 1000
+#define MAX_GOP 0xFFFFFFF
 
-#define L_MODE V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
 #define MIN_NUM_ENC_OUTPUT_BUFFERS 4
 #define MIN_NUM_ENC_CAPTURE_BUFFERS 5
 
@@ -91,7 +91,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.name = "Intra Period for P frames",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = 0,
-		.maximum = INT_MAX,
+		.maximum = MAX_GOP,
 		.default_value = 2*DEFAULT_FPS-1,
 		.step = 1,
 		.qmenu = NULL,
@@ -160,9 +160,9 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE,
 		.name = "CAPTURE Count",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = MIN_NUM_OUTPUT_BUFFERS,
+		.minimum = SINGLE_OUTPUT_BUFFER,
 		.maximum = MAX_NUM_OUTPUT_BUFFERS,
-		.default_value = MIN_NUM_OUTPUT_BUFFERS,
+		.default_value = SINGLE_OUTPUT_BUFFER,
 		.step = 1,
 		.qmenu = NULL,
 	},
@@ -170,9 +170,9 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
 		.name = "OUTPUT Count",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = MIN_NUM_INPUT_BUFFERS,
+		.minimum = SINGLE_INPUT_BUFFER,
 		.maximum = MAX_NUM_INPUT_BUFFERS,
-		.default_value = MIN_NUM_INPUT_BUFFERS,
+		.default_value = SINGLE_INPUT_BUFFER,
 		.step = 1,
 		.qmenu = NULL,
 	},
@@ -470,12 +470,12 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.name = "H.264 Loop Filter Mode",
 		.type = V4L2_CTRL_TYPE_MENU,
 		.minimum = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED,
-		.maximum = L_MODE,
-		.default_value = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED,
+		.maximum = DB_DISABLE_SLICE_BOUNDARY,
+		.default_value = V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED,
 		.menu_skip_mask = ~(
 		(1 << V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED) |
 		(1 << V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED) |
-		(1 << L_MODE)
+		(1 << DB_DISABLE_SLICE_BOUNDARY)
 		),
 	},
 	{
@@ -755,14 +755,14 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
 		.minimum = V4L2_MPEG_MSM_VIDC_DISABLE,
 		.maximum = V4L2_MPEG_MSM_VIDC_ENABLE,
-		.default_value = V4L2_MPEG_MSM_VIDC_DISABLE,
+		.default_value = V4L2_MPEG_MSM_VIDC_ENABLE,
 		.step = 1,
 	},
 	{
 		.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE,
-		.name = "Set Encoder Operating rate",
+		.name = "Encoder Operating rate",
 		.type = V4L2_CTRL_TYPE_INTEGER,
-		.minimum = (MINIMUM_FPS << 16),
+		.minimum = (DEFAULT_FPS << 16),/* Power Vote min fps */
 		.maximum = INT_MAX,
 		.default_value = (DEFAULT_FPS << 16),
 		.step = 1,
@@ -850,7 +850,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
 		.minimum = 0,
 		.maximum = 1,
-		.default_value = 0,
+		.default_value = 1,
 		.step = 1,
 	},
 	{
@@ -947,6 +947,15 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.default_value = 0,
 		.step = 500,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_SUPERFRAME,
+		.name = "Superframe",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = VIDC_SUPERFRAME_MAX,
+		.default_value = 0,
+		.step = 1,
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(msm_venc_ctrls)
@@ -1037,6 +1046,45 @@ struct msm_vidc_format_constraint enc_pix_format_constraints[] = {
 	},
 };
 
+u32 v4l2_to_hfi_flip(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *hflip = NULL;
+	struct v4l2_ctrl *vflip = NULL;
+	u32 flip = HFI_FLIP_NONE;
+
+	hflip = get_ctrl(inst, V4L2_CID_HFLIP);
+	vflip = get_ctrl(inst, V4L2_CID_VFLIP);
+
+	if ((hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE) &&
+		(vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE))
+		flip = HFI_FLIP_HORIZONTAL | HFI_FLIP_VERTICAL;
+	else if (hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE)
+		flip = HFI_FLIP_HORIZONTAL;
+	else if (vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE)
+		flip = HFI_FLIP_VERTICAL;
+
+	return flip;
+}
+
+inline bool vidc_scalar_enabled(struct msm_vidc_inst *inst)
+{
+	struct v4l2_format *f;
+	u32 output_height, output_width, input_height, input_width;
+	bool scalar_enable = false;
+
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	output_height = f->fmt.pix_mp.height;
+	output_width = f->fmt.pix_mp.width;
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	input_height = f->fmt.pix_mp.height;
+	input_width = f->fmt.pix_mp.width;
+
+	if (output_height != input_height || output_width != input_width)
+		scalar_enable = true;
+
+	return scalar_enable;
+}
+
 
 static int msm_venc_set_csc(struct msm_vidc_inst *inst,
 					u32 color_primaries, u32 custom_matrix);
@@ -1125,7 +1173,7 @@ int msm_venc_inst_init(struct msm_vidc_inst *inst)
 	inst->buff_req.buffer[12].buffer_type = HAL_BUFFER_INTERNAL_CMD_QUEUE;
 	inst->buff_req.buffer[13].buffer_type = HAL_BUFFER_INTERNAL_RECON;
 	msm_vidc_init_buffer_size_calculators(inst);
-
+	inst->static_rotation_flip_enabled = false;
 	return rc;
 }
 
@@ -1248,6 +1296,15 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		mplane->width = f->fmt.pix_mp.width;
 		mplane->height = f->fmt.pix_mp.height;
 		mplane->pixelformat = f->fmt.pix_mp.pixelformat;
+
+		if (!inst->profile) {
+			rc = msm_venc_set_default_profile(inst);
+			if (rc) {
+				dprintk(VIDC_ERR, "%s: Failed to set default profile type\n", __func__);
+				goto exit;
+			}
+		}
+
 		rc = msm_comm_try_state(inst, MSM_VIDC_OPEN_DONE);
 		if (rc) {
 			dprintk(VIDC_ERR, "Failed to open instance\n");
@@ -1324,6 +1381,26 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 	}
 exit:
 	return rc;
+}
+
+int msm_venc_set_default_profile(struct msm_vidc_inst *inst)
+{
+	if (!inst) {
+		dprintk(VIDC_ERR,
+			"%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	if (get_v4l2_codec(inst) == V4L2_PIX_FMT_HEVC)
+		inst->profile = HFI_HEVC_PROFILE_MAIN;
+	else if (get_v4l2_codec(inst) == V4L2_PIX_FMT_VP8)
+		inst->profile = HFI_VP8_PROFILE_MAIN;
+	else if (get_v4l2_codec(inst) == V4L2_PIX_FMT_H264)
+		inst->profile = HFI_H264_PROFILE_HIGH;
+	else
+		dprintk(VIDC_ERR,
+			"%s: Invalid codec type %#x\n", __func__, get_v4l2_codec(inst));
+	return 0;
 }
 
 int msm_venc_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
@@ -1439,6 +1516,12 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	switch (ctrl->id) {
 	case V4L2_CID_MPEG_VIDEO_GOP_SIZE:
 		if (inst->state == MSM_VIDC_START_DONE) {
+			if (inst->all_intra) {
+				dprintk(VIDC_HIGH,
+					"%s: ignore dynamic gop size for all intra\n",
+					__func__);
+				break;
+			}
 			rc = msm_venc_set_intra_period(inst);
 			if (rc)
 				dprintk(VIDC_ERR,
@@ -1462,12 +1545,6 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 				"%s: set bitrate mode failed\n", __func__);
 		break;
 	}
-	case V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY:
-		inst->frame_quality = ctrl->val;
-		break;
-	case V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE:
-		inst->grid_enable = ctrl->val;
-		break;
 	case V4L2_CID_MPEG_VIDEO_BITRATE:
 		inst->clk_data.bitrate = ctrl->val;
 		if (inst->state == MSM_VIDC_START_DONE) {
@@ -1479,6 +1556,8 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_FRAME_RATE:
 		inst->clk_data.frame_rate = ctrl->val;
+		if (inst->state < MSM_VIDC_LOAD_RESOURCES)
+			msm_vidc_calculate_buffer_counts(inst);
 		if (inst->state == MSM_VIDC_START_DONE) {
 			rc = msm_venc_set_frame_rate(inst);
 			if (rc)
@@ -1522,6 +1601,12 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE:
 		inst->clk_data.operating_rate = ctrl->val;
+		inst->flags &= ~VIDC_TURBO;
+		if (ctrl->val == INT_MAX)
+			inst->flags |= VIDC_TURBO;
+
+		if (inst->state < MSM_VIDC_LOAD_RESOURCES)
+			msm_vidc_calculate_buffer_counts(inst);
 		if (inst->state == MSM_VIDC_START_DONE) {
 			rc = msm_venc_set_operating_rate(inst);
 			if (rc)
@@ -1730,13 +1815,23 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 					__func__);
 		}
 		break;
+	case V4L2_CID_HFLIP:
+	case V4L2_CID_VFLIP:
+		if (inst->state == MSM_VIDC_START_DONE) {
+			rc = msm_venc_set_dynamic_flip(inst);
+			if (rc)
+				dprintk(VIDC_ERR,
+				"%s: set flip failed\n",
+					__func__);
+		}
+		break;
+	case V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY:
+	case V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE:
 	case V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER:
 	case V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_TYPE:
 	case V4L2_CID_ROTATE:
 	case V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT:
 	case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
-	case V4L2_CID_HFLIP:
-	case V4L2_CID_VFLIP:
 	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE:
 	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA:
 	case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA:
@@ -1768,6 +1863,7 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDC_VENC_RC_TIMESTAMP_DISABLE:
 	case V4L2_CID_MPEG_VIDEO_VBV_DELAY:
 	case V4L2_CID_MPEG_VIDC_VENC_BITRATE_SAVINGS:
+	case V4L2_CID_MPEG_VIDC_SUPERFRAME:
 		dprintk(VIDC_HIGH, "Control set: ID : %x Val : %d\n",
 			ctrl->id, ctrl->val);
 		break;
@@ -1830,12 +1926,27 @@ int msm_venc_set_frame_rate(struct msm_vidc_inst *inst)
 	int rc = 0;
 	struct hfi_device *hdev;
 	struct hfi_frame_rate frame_rate;
+	struct msm_vidc_capability *capability;
+	u32 fps_max;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
 		return -EINVAL;
 	}
 	hdev = inst->core->device;
+	capability = &inst->capability;
+
+	/* Check frame rate */
+	if (inst->all_intra)
+		fps_max = capability->cap[CAP_ALLINTRA_MAX_FPS].max;
+	else
+		fps_max = capability->cap[CAP_FRAMERATE].max;
+
+	if (inst->clk_data.frame_rate >> 16 > fps_max) {
+		dprintk(VIDC_ERR, "%s: Unsupported frame rate\n",
+			__func__);
+		return -ENOTSUPP;
+	}
 
 	frame_rate.buffer_type = HFI_BUFFER_OUTPUT;
 	frame_rate.frame_rate = inst->clk_data.frame_rate;
@@ -1960,7 +2071,6 @@ int msm_venc_set_priority(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
 	struct hfi_enable enable;
 
 	if (!inst || !inst->core) {
@@ -1969,8 +2079,7 @@ int msm_venc_set_priority(struct msm_vidc_inst *inst)
 	}
 	hdev = inst->core->device;
 
-	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY);
-	enable.enable = !!ctrl->val;
+	enable.enable = is_realtime_session(inst);
 
 	dprintk(VIDC_HIGH, "%s: %d\n", __func__, enable.enable);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
@@ -2126,7 +2235,7 @@ void msm_venc_decide_bframe(struct msm_vidc_inst *inst)
 			 * Hence, forcefully enable bframe
 			 */
 			inst->prop.bframe_changed = true;
-			bframe_ctrl->val = MAX_NUM_B_FRAMES;
+			update_ctrl(bframe_ctrl, MAX_NUM_B_FRAMES);
 			dprintk(VIDC_HIGH, "Bframe is forcefully enabled\n");
 		} else {
 			/*
@@ -2136,6 +2245,12 @@ void msm_venc_decide_bframe(struct msm_vidc_inst *inst)
 			goto disable_bframe;
 		}
 	}
+
+	/* do not enable bframe if superframe is enabled */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_SUPERFRAME);
+	if (ctrl->val)
+		goto disable_bframe;
+
 	dprintk(VIDC_HIGH, "Bframe can be enabled!\n");
 
 	return;
@@ -2147,7 +2262,7 @@ disable_bframe:
 		 * Hence, forcefully disable bframe
 		 */
 		inst->prop.bframe_changed = true;
-		bframe_ctrl->val = 0;
+		update_ctrl(bframe_ctrl, 0);
 		dprintk(VIDC_HIGH, "Bframe is forcefully disabled!\n");
 	} else {
 		dprintk(VIDC_HIGH, "Bframe is disabled\n");
@@ -2182,6 +2297,7 @@ void msm_venc_adjust_gop_size(struct msm_vidc_inst *inst)
 	struct v4l2_ctrl *hier_ctrl;
 	struct v4l2_ctrl *bframe_ctrl;
 	struct v4l2_ctrl *gop_size_ctrl;
+	s32 val;
 
 	gop_size_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_GOP_SIZE);
 	if (inst->prop.bframe_changed) {
@@ -2192,19 +2308,19 @@ void msm_venc_adjust_gop_size(struct msm_vidc_inst *inst)
 		bframe_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
 		if (!bframe_ctrl->val)
 			/* Forcefully disabled */
-			gop_size_ctrl->val = gop_size_ctrl->val *
-					(1 + MAX_NUM_B_FRAMES);
+			val = gop_size_ctrl->val * (1 + MAX_NUM_B_FRAMES);
 		else
 			/* Forcefully enabled */
-			gop_size_ctrl->val = gop_size_ctrl->val /
-					(1 + MAX_NUM_B_FRAMES);
+			val = gop_size_ctrl->val / (1 + MAX_NUM_B_FRAMES);
+
+		update_ctrl(gop_size_ctrl, val);
 	}
 
 	/*
 	 * Layer encoding needs GOP size to be multiple of subgop size
 	 * And subgop size is 2 ^ number of enhancement layers
 	 */
-	hier_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
+	hier_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
 	if (hier_ctrl->val > 1) {
 		u32 min_gop_size;
 		u32 num_subgops;
@@ -2213,9 +2329,11 @@ void msm_venc_adjust_gop_size(struct msm_vidc_inst *inst)
 		num_subgops = (gop_size_ctrl->val + (min_gop_size >> 1)) /
 				min_gop_size;
 		if (num_subgops)
-			gop_size_ctrl->val = num_subgops * min_gop_size;
+			val = num_subgops * min_gop_size;
 		else
-			gop_size_ctrl->val = min_gop_size;
+			val = min_gop_size;
+
+		update_ctrl(gop_size_ctrl, val);
 	}
 }
 
@@ -2243,6 +2361,14 @@ int msm_venc_set_intra_period(struct msm_vidc_inst *inst)
 	 */
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
 	intra_period.bframes = ctrl->val;
+
+	if (inst->state == MSM_VIDC_START_DONE &&
+		!intra_period.pframes && !intra_period.bframes) {
+		dprintk(VIDC_HIGH,
+			"%s: Switch from IPPP to All Intra is not allowed\n",
+			__func__);
+		return rc;
+	}
 
 	dprintk(VIDC_HIGH, "%s: %d %d\n", __func__, intra_period.pframes,
 		intra_period.bframes);
@@ -2360,11 +2486,10 @@ int msm_venc_set_rate_control(struct msm_vidc_inst *inst)
 int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
+	bool is_legacy_cbr;
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
-	u32 codec;
-	u32 height, width, fps, mbpf, mbps;
-	u32 max_fps = 15;
+	u32 codec, height, width, buf_size;
 	struct hfi_vbv_hrd_buf_size hrd_buf_size;
 	struct v4l2_format *f;
 
@@ -2378,10 +2503,6 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 	codec = get_v4l2_codec(inst);
 	height = f->fmt.pix_mp.height;
 	width = f->fmt.pix_mp.width;
-	mbpf = NUM_MBS_PER_FRAME(height, width);
-	fps = inst->clk_data.frame_rate >> 16;
-	mbpf = NUM_MBS_PER_FRAME(height, width);
-	mbps = NUM_MBS_PER_SEC(height, width, fps);
 
 	/* vbv delay is required for CBR_CFR and CBR_VFR only */
 	if (inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_CBR &&
@@ -2392,34 +2513,39 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 	if (codec == V4L2_PIX_FMT_VP8)
 		return 0;
 
-	/* default behavior */
-	inst->clk_data.is_legacy_cbr = false;
-	hrd_buf_size.vbv_hrd_buf_size = CBR_PLUS_BUF_SIZE;
+	/* Default behavior */
+	is_legacy_cbr = false;
+	buf_size = CBR_PLUS_BUF_SIZE;
 
-	/* if resolution greater than MAX_CBR (720p), default behavior */
-	if (res_is_greater_than(width, height, MAX_CBR_W, MAX_CBR_H))
-		goto set_vbv_delay;
-
-	/* enable legacy cbr if resolution less than MIN_CBRPLUS (VGA) */
-	if (res_is_less_than(width, height, MIN_CBRPLUS_W, MIN_CBRPLUS_H) &&
-		mbps <= NUM_MBS_PER_SEC(MIN_CBRPLUS_H, MIN_CBRPLUS_W,
-			max_fps)) {
-		inst->clk_data.is_legacy_cbr = true;
-		hrd_buf_size.vbv_hrd_buf_size = LEGACY_CBR_BUF_SIZE;
-		goto set_vbv_delay;
-	}
-
-	/* enable legacy cbr if rate control is CBR_VFR and VBV delay is 500 */
-	if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR_VFR) {
+	/*
+	 * Client can set vbv delay only when
+	 * resolution is between VGA and 720p
+	 */
+	if (res_is_greater_than_or_equal_to(width, height, MIN_CBRPLUS_W,
+		MIN_CBRPLUS_H) && res_is_less_than_or_equal_to(width, height,
+		MAX_CBR_W, MAX_CBR_H)) {
 		ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_VBV_DELAY);
 		if (ctrl->val == LEGACY_CBR_BUF_SIZE) {
-		    inst->clk_data.is_legacy_cbr = true;
-		    hrd_buf_size.vbv_hrd_buf_size = LEGACY_CBR_BUF_SIZE;
-		    goto set_vbv_delay;
+			is_legacy_cbr = true;
+			buf_size = LEGACY_CBR_BUF_SIZE;
+			goto set_vbv_delay;
+		} else if (ctrl->val == CBR_PLUS_BUF_SIZE) {
+			is_legacy_cbr = false;
+			buf_size = CBR_PLUS_BUF_SIZE;
+			goto set_vbv_delay;
 		}
 	}
 
+	/* Enable legacy cbr if resolution < MIN_CBRPLUS (720p) */
+	if (res_is_less_than(width, height, MAX_CBR_W, MAX_CBR_H)) {
+		is_legacy_cbr = true;
+		buf_size = LEGACY_CBR_BUF_SIZE;
+		goto set_vbv_delay;
+	}
+
 set_vbv_delay:
+	inst->clk_data.is_legacy_cbr = is_legacy_cbr;
+	hrd_buf_size.vbv_hrd_buf_size = buf_size;
 	dprintk(VIDC_HIGH, "Set hrd_buf_size %d",
 				hrd_buf_size.vbv_hrd_buf_size);
 	rc = call_hfi_op(hdev, session_set_property,
@@ -2726,12 +2852,74 @@ int msm_venc_set_qp_range(struct msm_vidc_inst *inst)
 	return rc;
 }
 
-int msm_venc_set_frame_quality(struct msm_vidc_inst *inst)
+static void set_all_intra_preconditions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL, *ctrl_t = NULL;
+
+	/* Disable multi slice */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Disable multi slice for all intra\n");
+		update_ctrl(ctrl, V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE);
+	}
+
+	/* Disable LTR */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Disable LTR for all intra\n");
+		update_ctrl(ctrl, 0);
+	}
+
+	/* Disable Layer encoding */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
+	ctrl_t = get_ctrl(inst,
+		V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
+	if (ctrl->val || ctrl_t->val) {
+		dprintk(VIDC_HIGH, "Disable layer encoding for all intra\n");
+		update_ctrl(ctrl, 0);
+		update_ctrl(ctrl_t, 0);
+	}
+
+	/* Disable IR */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_INTRA_REFRESH_RANDOM);
+	ctrl_t = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_CYCLIC_INTRA_REFRESH_MB);
+	if (ctrl->val || ctrl_t->val) {
+		dprintk(VIDC_HIGH, "Disable IR for all intra\n");
+		update_ctrl(ctrl, 0);
+		update_ctrl(ctrl_t, 0);
+	}
+
+	return;
+}
+
+static void set_heif_preconditions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL;
+
+	/* Reset PFrames */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_GOP_SIZE);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Reset P-frame count for HEIF\n");
+		update_ctrl(ctrl, 0);
+	}
+
+	/* Reset BFrames */
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
+	if (ctrl->val) {
+		dprintk(VIDC_HIGH, "Reset B-frame count for HEIF\n");
+		update_ctrl(ctrl, 0);
+	}
+
+	return;
+}
+
+int msm_venc_set_image_properties(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
 	struct hfi_heic_frame_quality frame_quality;
+	struct hfi_heic_grid_enable grid_enable;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -2745,31 +2933,13 @@ int msm_venc_set_frame_quality(struct msm_vidc_inst *inst)
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_COMPRESSION_QUALITY);
 	frame_quality.frame_quality = ctrl->val;
 
-	dprintk(VIDC_HIGH, "%s: %d\n", __func__, frame_quality.frame_quality);
+	dprintk(VIDC_HIGH, "%s: frame quality: %d\n", __func__,
+		frame_quality.frame_quality);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
 		HFI_PROPERTY_CONFIG_HEIC_FRAME_QUALITY, &frame_quality,
 		sizeof(frame_quality));
 	if (rc)
-		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
-
-	return rc;
-}
-
-int msm_venc_set_grid(struct msm_vidc_inst *inst)
-{
-	int rc = 0;
-	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
-	struct hfi_heic_grid_enable grid_enable;
-
-	if (!inst || !inst->core) {
-		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
-		return -EINVAL;
-	}
-	hdev = inst->core->device;
-
-	if (inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
-		return 0;
+		dprintk(VIDC_ERR, "%s: set frame quality failed\n", __func__);
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_IMG_GRID_SIZE);
 
@@ -2779,12 +2949,16 @@ int msm_venc_set_grid(struct msm_vidc_inst *inst)
 	else
 		grid_enable.grid_enable = true;
 
-	dprintk(VIDC_HIGH, "%s: %d\n", __func__, grid_enable.grid_enable);
+	dprintk(VIDC_HIGH, "%s: grid enable: %d\n", __func__,
+		grid_enable.grid_enable);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
 		HFI_PROPERTY_CONFIG_HEIC_GRID_ENABLE, &grid_enable,
 		sizeof(grid_enable));
 	if (rc)
-		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
+		dprintk(VIDC_ERR, "%s: set grid enable failed\n", __func__);
+
+	set_all_intra_preconditions(inst);
+	set_heif_preconditions(inst);
 
 	return rc;
 }
@@ -2856,7 +3030,7 @@ int msm_venc_set_slice_control_mode(struct msm_vidc_inst *inst)
 		goto set_and_exit;
 	}
 
-	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
 	output_width = f->fmt.pix_mp.width;
 	output_height = f->fmt.pix_mp.height;
 	if ((codec == V4L2_PIX_FMT_HEVC) &&
@@ -2908,8 +3082,8 @@ int msm_venc_set_slice_control_mode(struct msm_vidc_inst *inst)
 	}
 
 	if (slice_mode == HFI_MULTI_SLICE_OFF) {
-		ctrl->val = V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE;
-		ctrl_t->val = 0;
+		update_ctrl(ctrl, V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE);
+		update_ctrl(ctrl_t, 0);
 	}
 
 set_and_exit:
@@ -3023,6 +3197,7 @@ int msm_venc_set_loop_filter_mode(struct msm_vidc_inst *inst)
 	struct v4l2_ctrl *ctrl_a;
 	struct v4l2_ctrl *ctrl_b;
 	struct hfi_h264_db_control h264_db_control;
+	u32 codec;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -3030,7 +3205,8 @@ int msm_venc_set_loop_filter_mode(struct msm_vidc_inst *inst)
 	}
 	hdev = inst->core->device;
 
-	if (get_v4l2_codec(inst) != V4L2_PIX_FMT_H264)
+	codec = get_v4l2_codec(inst);
+	if (codec != V4L2_PIX_FMT_H264 && codec != V4L2_PIX_FMT_HEVC)
 		return 0;
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE);
@@ -3142,7 +3318,7 @@ int msm_venc_enable_hybrid_hp(struct msm_vidc_inst *inst)
 	ctrl = get_ctrl(inst,
 		V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
 	layer = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
-	if (ctrl->val != layer->val)
+	if (ctrl->val == 0 || ctrl->val != layer->val)
 		return 0;
 
 	/*
@@ -3387,8 +3563,6 @@ int msm_venc_set_rotation(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct v4l2_ctrl *rotation = NULL;
-	struct v4l2_ctrl *hflip = NULL;
-	struct v4l2_ctrl *vflip = NULL;
 	struct hfi_device *hdev;
 	struct hfi_vpe_rotation_type vpe_rotation;
 
@@ -3404,17 +3578,7 @@ int msm_venc_set_rotation(struct msm_vidc_inst *inst)
 	else if (rotation->val ==  270)
 		vpe_rotation.rotation = HFI_ROTATE_270;
 
-	hflip = get_ctrl(inst, V4L2_CID_HFLIP);
-	vflip = get_ctrl(inst, V4L2_CID_VFLIP);
-
-	vpe_rotation.flip = HFI_FLIP_NONE;
-	if ((hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE) &&
-		(vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE))
-		vpe_rotation.flip = HFI_FLIP_HORIZONTAL | HFI_FLIP_VERTICAL;
-	else if (hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE)
-		vpe_rotation.flip = HFI_FLIP_HORIZONTAL;
-	else if (vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE)
-		vpe_rotation.flip = HFI_FLIP_VERTICAL;
+	vpe_rotation.flip = v4l2_to_hfi_flip(inst);
 
 	dprintk(VIDC_HIGH, "Set rotation = %d, flip = %d\n",
 			vpe_rotation.rotation, vpe_rotation.flip);
@@ -3424,6 +3588,95 @@ int msm_venc_set_rotation(struct msm_vidc_inst *inst)
 				&vpe_rotation, sizeof(vpe_rotation));
 	if (rc) {
 		dprintk(VIDC_ERR, "Set rotation/flip failed\n");
+		return rc;
+	}
+
+	/* Mark static rotation/flip set */
+	inst->static_rotation_flip_enabled = false;
+	if ((vpe_rotation.rotation != HFI_ROTATE_NONE ||
+		vpe_rotation.flip != HFI_FLIP_NONE) &&
+		inst->state < MSM_VIDC_START_DONE)
+		inst->static_rotation_flip_enabled = true;
+
+	return rc;
+}
+
+int msm_venc_check_dynamic_flip_constraints(struct msm_vidc_inst *inst)
+{
+	int rc = 0;
+	struct v4l2_ctrl *blur = NULL;
+	struct v4l2_format *f = NULL;
+	bool scalar_enable = false;
+	bool blur_enable = false;
+	u32 input_height, input_width;
+
+	/* Dynamic flip is not allowed with scalar when static
+	 * rotation/flip is disabled
+	 */
+	scalar_enable = vidc_scalar_enabled(inst);
+
+	/* Check blur configs
+	 * blur value = 0 -> enable auto blur
+	 * blur value  = 2 or input resolution -> disable all blur
+	 * For other values -> enable external blur
+	 * Dynamic flip is not allowed with external blur enabled
+	 */
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	input_height = f->fmt.pix_mp.height;
+	input_width = f->fmt.pix_mp.width;
+
+	blur = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_BLUR_DIMENSIONS);
+	if (blur->val != 0 && blur->val != 2 &&
+		((blur->val & 0xFFFF) != input_height ||
+		(blur->val & 0x7FFF0000) >> 16 != input_width))
+		blur_enable = true;
+
+	if (blur_enable) {
+		/* Reject dynamic flip with external blur enabled */
+		dprintk(VIDC_ERR,
+			"Unsupported dynamic flip with external blur\n");
+		rc = -EINVAL;
+	} else if (scalar_enable && !inst->static_rotation_flip_enabled) {
+		/* Reject dynamic flip with scalar enabled */
+		dprintk(VIDC_ERR, "Unsupported dynamic flip with scalar\n");
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+
+int msm_venc_set_dynamic_flip(struct msm_vidc_inst *inst)
+{
+	int rc = 0;
+	struct hfi_device *hdev;
+	u32 dynamic_flip;
+
+	hdev = inst->core->device;
+
+	rc = msm_venc_check_dynamic_flip_constraints(inst);
+	if (rc) {
+		dprintk(VIDC_ERR,
+			"%s: Dynamic flip unsupported\n", __func__);
+		return rc;
+	}
+
+	/* Require IDR frame first */
+	dprintk(VIDC_HIGH, "Set dynamic IDR frame\n");
+	rc = msm_venc_set_request_keyframe(inst);
+	if (rc) {
+		dprintk(VIDC_ERR,
+			"%s: Dynamic IDR failed\n", __func__);
+		return rc;
+	}
+
+	dynamic_flip = v4l2_to_hfi_flip(inst);
+	dprintk(VIDC_HIGH, "Dynamic flip = %d\n", dynamic_flip);
+	rc = call_hfi_op(hdev, session_set_property,
+				(void *)inst->session,
+				HFI_PROPERTY_CONFIG_VPE_FLIP,
+				&dynamic_flip, sizeof(dynamic_flip));
+	if (rc) {
+		dprintk(VIDC_ERR, "Set dynamic flip failed\n");
 		return rc;
 	}
 
@@ -3574,6 +3827,19 @@ int msm_venc_set_nal_stream_format(struct msm_vidc_inst *inst)
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_HEVC_SIZE_OF_LENGTH_FIELD);
 	stream_format.nal_stream_format_select = BIT(ctrl->val);
+
+	/*
+	 * Secure encode session supports 0x00000001 satrtcode based
+	 * encoding only
+	 */
+	if (is_secure_session(inst) &&
+		ctrl->val != V4L2_MPEG_VIDEO_HEVC_SIZE_0) {
+		dprintk(VIDC_ERR,
+			"%s: Invalid stream format setting for secure session\n",
+			__func__);
+		return -EINVAL;
+	}
+
 	switch (ctrl->val) {
 	case V4L2_MPEG_VIDEO_HEVC_SIZE_0:
 		stream_format.nal_stream_format_select =
@@ -3606,6 +3872,7 @@ int msm_venc_set_nal_stream_format(struct msm_vidc_inst *inst)
 int msm_venc_set_ltr_mode(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
+	bool is_ltr = true;
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
 	struct hfi_ltr_mode ltr;
@@ -3616,17 +3883,21 @@ int msm_venc_set_ltr_mode(struct msm_vidc_inst *inst)
 		return -EINVAL;
 	}
 	hdev = inst->core->device;
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
 
 	codec = get_v4l2_codec(inst);
-	if (!(codec == V4L2_PIX_FMT_HEVC || codec == V4L2_PIX_FMT_H264))
-		return 0;
+	if (!(codec == V4L2_PIX_FMT_HEVC || codec == V4L2_PIX_FMT_H264)) {
+		is_ltr = false;
+		goto disable_ltr;
+	}
 
 	if (!(inst->rc_type == RATE_CONTROL_OFF ||
 		inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR ||
-		inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR_VFR))
-		return 0;
+		inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR_VFR)) {
+			is_ltr = false;
+			goto disable_ltr;
+		}
 
-	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
 	if (!ctrl->val)
 		return 0;
 	if (ctrl->val > inst->capability.cap[CAP_LTR_COUNT].max) {
@@ -3645,6 +3916,15 @@ int msm_venc_set_ltr_mode(struct msm_vidc_inst *inst)
 	if (rc)
 		dprintk(VIDC_ERR, "%s: set property failed\n", __func__);
 
+disable_ltr:
+	/*
+	 * Forcefully setting LTR count to zero when
+	 * client sets unsupported codec/rate control.
+	 */
+	if (!is_ltr) {
+		update_ctrl(ctrl, 0);
+		dprintk(VIDC_HIGH, "LTR is forcefully disabled!\n");
+	}
 	return rc;
 }
 
@@ -3662,13 +3942,17 @@ int msm_venc_set_ltr_useframe(struct msm_vidc_inst *inst)
 	}
 	hdev = inst->core->device;
 
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
+	if (!ctrl->val)
+		return 0;
+
 	codec = get_v4l2_codec(inst);
 	if (!(codec == V4L2_PIX_FMT_HEVC || codec == V4L2_PIX_FMT_H264))
 		return 0;
 
 	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_USELTRFRAME);
 	use_ltr.ref_ltr = ctrl->val;
-	use_ltr.use_constrnt = false;
+	use_ltr.use_constrnt = true;
 	use_ltr.frames = 0;
 	dprintk(VIDC_HIGH, "%s: %d\n", __func__, use_ltr.ref_ltr);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
@@ -3693,6 +3977,10 @@ int msm_venc_set_ltr_markframe(struct msm_vidc_inst *inst)
 		return -EINVAL;
 	}
 	hdev = inst->core->device;
+
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT);
+	if (!ctrl->val)
+		return 0;
 
 	codec = get_v4l2_codec(inst);
 	if (!(codec == V4L2_PIX_FMT_HEVC || codec == V4L2_PIX_FMT_H264))
@@ -3791,6 +4079,7 @@ int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst)
 	struct hfi_device *hdev;
 	struct v4l2_ctrl *ctrl;
 	struct hfi_frame_size frame_sz;
+	struct v4l2_format *f;
 
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
@@ -3803,6 +4092,36 @@ int msm_venc_set_blur_resolution(struct msm_vidc_inst *inst)
 	frame_sz.buffer_type = HFI_BUFFER_INPUT;
 	frame_sz.height = ctrl->val & 0xFFFF;
 	frame_sz.width = (ctrl->val & 0x7FFF0000) >> 16;
+
+	/*
+	 * 0x0 is default value, internal blur enabled, external blur disabled
+	 * 0x1 means dynamic external blur, blur resolution will be set
+	 *     after start, internal blur disabled
+	 * 0x2 means disable both internal and external blur
+	 */
+	if (ctrl->val == 0x2) {
+		if (inst->state == MSM_VIDC_START_DONE) {
+			dprintk(VIDC_ERR,
+				"Dynamic disable all blur not supported\n");
+			return -EINVAL;
+		}
+		f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+		/*
+		 * Use original input width/height (before VPSS) to inform FW
+		 * to disable all blur.
+		 */
+		frame_sz.width = f->fmt.pix_mp.width;
+		frame_sz.height = f->fmt.pix_mp.height;
+		dprintk(VIDC_HIGH, "Disable both auto and external blur\n");
+	} else if (ctrl->val != 0){
+		if (check_blur_restrictions(inst)) {
+			/* reject external blur */
+			dprintk(VIDC_ERR,
+			"External blur is unsupported with rotation/flip/scalar\n");
+			return -EINVAL;
+		}
+	}
+
 	dprintk(VIDC_HIGH, "%s: type %u, height %u, width %u\n", __func__,
 		frame_sz.buffer_type, frame_sz.height, frame_sz.width);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
@@ -3847,7 +4166,6 @@ int msm_venc_set_hdr_info(struct msm_vidc_inst *inst)
 int msm_venc_set_extradata(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
-	u32 value = 0x0;
 	u32 codec;
 
 	codec = get_v4l2_codec(inst);
@@ -3883,13 +4201,11 @@ int msm_venc_set_extradata(struct msm_vidc_inst *inst)
 		}
 	}
 
-	if (inst->prop.extradata_ctrls & EXTRADATA_ENC_INPUT_CVP)
-		value = 0x1;
-	dprintk(VIDC_HIGH, "%s: CVP extradata %d\n", __func__, value);
-	rc = msm_comm_set_extradata(inst,
-		HFI_PROPERTY_PARAM_VENC_CVP_METADATA_EXTRADATA, value);
-	if (rc)
-		dprintk(VIDC_ERR, "%s: set CVP extradata failed\n", __func__);
+	if(!msm_vidc_cvp_usage)
+		inst->prop.extradata_ctrls &= ~EXTRADATA_ENC_INPUT_CVP;
+
+	/* CVP extradata is common between user space and external CVP kernel to kernel.
+	   Hence, skipping here and will be set after msm_vidc_prepare_preprocess in start_streaming*/
 
 	return rc;
 }
@@ -3918,10 +4234,112 @@ int msm_venc_set_lossless(struct msm_vidc_inst *inst)
 	return rc;
 }
 
+int handle_all_intra_restrictions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *ctrl = NULL;
+	u32 n_fps, fps_max;
+	struct msm_vidc_capability *capability;
+	struct v4l2_format *f;
+	enum hal_video_codec codec;
+	struct hfi_intra_period intra_period;
+
+	if (!inst || !inst->core) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
+		return 0;
+
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_GOP_SIZE);
+	intra_period.pframes = ctrl->val;
+	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
+	intra_period.bframes = ctrl->val;
+
+	if (!intra_period.pframes && !intra_period.bframes)
+		inst->all_intra = true;
+	else
+		return 0;
+
+	dprintk(VIDC_HIGH, "All Intra(IDRs) Encoding\n");
+	/* check codec and profile */
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	codec = get_hal_codec(f->fmt.pix_mp.pixelformat);
+	if (codec != HAL_VIDEO_CODEC_HEVC && codec != HAL_VIDEO_CODEC_H264) {
+		dprintk(VIDC_ERR, "Unsupported codec for all intra\n");
+		return -ENOTSUPP;
+	}
+	if (codec == HAL_VIDEO_CODEC_HEVC &&
+		inst->profile == HFI_HEVC_PROFILE_MAIN10) {
+		dprintk(VIDC_ERR, "Unsupported HEVC profile for all intra\n");
+		return -ENOTSUPP;
+	}
+
+	/* check supported bit rate mode and frame rate */
+	capability = &inst->capability;
+	n_fps = inst->clk_data.frame_rate >> 16;
+	fps_max = capability->cap[CAP_ALLINTRA_MAX_FPS].max;
+	if ((inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_VBR &&
+		inst->rc_type != RATE_CONTROL_OFF &&
+		inst->rc_type != RATE_CONTROL_LOSSLESS) ||
+		n_fps > fps_max) {
+		dprintk(VIDC_ERR, "Unsupported bitrate mode or frame rate\n");
+		return -ENOTSUPP;
+	}
+
+	set_all_intra_preconditions(inst);
+
+	return 0;
+}
+
+int check_blur_restrictions(struct msm_vidc_inst *inst)
+{
+	struct v4l2_ctrl *rotation = NULL;
+	struct v4l2_ctrl *hflip = NULL;
+	struct v4l2_ctrl *vflip = NULL;
+	struct v4l2_format *f;
+	u32 output_height, output_width, input_height, input_width;
+	bool scalar_enable = false;
+	bool rotation_enable = false;
+	bool flip_enable = false;
+
+	/* Only need to check static VPSS conditions */
+	if (inst->state == MSM_VIDC_START_DONE)
+		return 0;
+
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	output_height = f->fmt.pix_mp.height;
+	output_width = f->fmt.pix_mp.width;
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	input_height = f->fmt.pix_mp.height;
+	input_width = f->fmt.pix_mp.width;
+
+	if (output_height != input_height || output_width != input_width)
+		scalar_enable = true;
+
+	rotation = get_ctrl(inst, V4L2_CID_ROTATE);
+	if (rotation->val != 0)
+		rotation_enable = true;
+
+	hflip = get_ctrl(inst, V4L2_CID_HFLIP);
+	vflip = get_ctrl(inst, V4L2_CID_VFLIP);
+	if ((hflip->val == V4L2_MPEG_MSM_VIDC_ENABLE) ||
+		(vflip->val == V4L2_MPEG_MSM_VIDC_ENABLE))
+		flip_enable = true;
+
+	if (scalar_enable || rotation_enable || flip_enable)
+		return -ENOTSUPP;
+	else
+		return 0;
+}
+
 int msm_venc_set_properties(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 
+	rc = handle_all_intra_restrictions(inst);
+	if (rc)
+		goto exit;
 	rc = msm_venc_set_frame_size(inst);
 	if (rc)
 		goto exit;
@@ -3970,10 +4388,7 @@ int msm_venc_set_properties(struct msm_vidc_inst *inst)
 	rc = msm_venc_set_qp_range(inst);
 	if (rc)
 		goto exit;
-	rc = msm_venc_set_frame_quality(inst);
-	if (rc)
-		goto exit;
-	rc = msm_venc_set_grid(inst);
+	rc = msm_venc_set_image_properties(inst);
 	if (rc)
 		goto exit;
 	rc = msm_venc_set_au_delimiter_mode(inst);

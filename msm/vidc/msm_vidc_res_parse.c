@@ -827,12 +827,16 @@ int read_platform_resources_from_drv_data(
 			"qcom,domain-attr-cache-pagetables");
 	res->decode_batching = find_key_value(platform_data,
 			"qcom,decode-batching");
+	res->batch_timeout = find_key_value(platform_data,
+			"qcom,batch-timeout");
 	res->dcvs = find_key_value(platform_data,
 			"qcom,dcvs");
 	res->fw_cycles = find_key_value(platform_data,
 			"qcom,fw-cycles");
 	res->fw_vpp_cycles = find_key_value(platform_data,
 			"qcom,fw-vpp-cycles");
+	res->avsync_window_size = find_key_value(platform_data,
+			"qcom,avsync-window-size");
 
 	res->csc_coeff_data = &platform_data->csc_data;
 

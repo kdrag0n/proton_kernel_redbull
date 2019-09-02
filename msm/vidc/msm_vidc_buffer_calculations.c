@@ -8,15 +8,32 @@
 #include "msm_vidc_buffer_calculations.h"
 #include "msm_vidc_clocks.h"
 
-#define MIN_NUM_THUMBNAIL_MODE_INPUT_BUFFERS MIN_NUM_INPUT_BUFFERS
-#define MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS MIN_NUM_OUTPUT_BUFFERS
-#define MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS_VP9 8
+#define VP9_REFERENCE_COUNT 8
 
-/* extra o/p buffers in case of encoder dcvs */
-#define DCVS_ENC_EXTRA_INPUT_BUFFERS 4
+/* minimum number of input buffers */
+#define MIN_INPUT_BUFFERS 4
+/* Max number of PERF eligible sessions */
+#define MAX_PERF_ELIGIBLE_SESSIONS 4
 
-/* extra o/p buffers in case of decoder dcvs */
-#define DCVS_DEC_EXTRA_OUTPUT_BUFFERS 4
+/* Decoder buffer count macros */
+/* total input buffers in case of decoder batch */
+#define BATCH_DEC_TOTAL_INPUT_BUFFERS 6
+
+/* total input buffers for decoder HFR usecase */
+#define HFR_DEC_TOTAL_INPUT_BUFFERS 12
+
+/* extra output buffers in case of decoder batch */
+#define BATCH_DEC_EXTRA_OUTPUT_BUFFERS 6
+
+/* Encoder buffer count macros */
+/* total input buffers for encoder HFR usecase */
+#define HFR_ENC_TOTAL_INPUT_BUFFERS 8
+
+/* minimum number of output buffers */
+#define MIN_ENC_OUTPUT_BUFFERS 4
+
+/* extra output buffers for encoder HFR usecase */
+#define HFR_ENC_TOTAL_OUTPUT_BUFFERS 12
 
 #define HFI_COLOR_FORMAT_YUV420_NV12_UBWC_Y_TILE_WIDTH 32
 #define HFI_COLOR_FORMAT_YUV420_NV12_UBWC_Y_TILE_HEIGHT 8
@@ -207,15 +224,15 @@
 #define SIZE_VP8D_LB_FE_TOP_DATA(width, height) \
 	((ALIGN(width, 16) + 8) * 10 * 2)
 #define SIZE_VP9D_LB_FE_TOP_DATA(width, height) \
-	((ALIGN(ALIGN(width, 8), 64) + 8) * 10 * 2)
+	((ALIGN(ALIGN(width, 16), 64) + 8) * 10 * 2)
 #define SIZE_VP8D_LB_PE_TOP_DATA(width, height) \
 	((ALIGN(width, 16) >> 4) * 64)
 #define SIZE_VP9D_LB_PE_TOP_DATA(width, height) \
-	((ALIGN(ALIGN(width, 8), 64) >> 6) * 176)
+	((ALIGN(ALIGN(width, 16), 64) >> 6) * 176)
 #define SIZE_VP8D_LB_VSP_TOP(width, height) \
 	(((ALIGN(width, 16) >> 4) * 64 / 2) + 256)
 #define SIZE_VP9D_LB_VSP_TOP(width, height) \
-	(((ALIGN(ALIGN(width, 8), 64) >> 6) * 64 * 8) + 256)
+	(((ALIGN(ALIGN(width, 16), 64) >> 6) * 64 * 8) + 256)
 
 
 #define HFI_IRIS2_VP9D_COMV_SIZE \
@@ -257,6 +274,9 @@
 #define MB_SIZE_IN_PIXEL (16 * 16)
 #define HDR10PLUS_PAYLOAD_SIZE 1024
 #define HDR10_HIST_EXTRADATA_SIZE 4096
+
+static int msm_vidc_get_extra_input_buff_count(struct msm_vidc_inst *inst);
+static int msm_vidc_get_extra_output_buff_count(struct msm_vidc_inst *inst);
 
 static inline u32 calculate_h264d_scratch_size(struct msm_vidc_inst *inst,
 	u32 width, u32 height, bool is_interlaced);
@@ -456,7 +476,7 @@ int msm_vidc_get_num_ref_frames(struct msm_vidc_inst *inst)
 		num_ref = num_ref + ltr_count;
 
 	layer_ctrl = get_ctrl(inst,
-		V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_LAYER);
+		V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
 	num_hp_layers = layer_ctrl->val;
 	codec = get_v4l2_codec(inst);
 	if (num_hp_layers > 0) {
@@ -505,7 +525,7 @@ int msm_vidc_get_encoder_internal_buffer_sizes(struct msm_vidc_inst *inst)
 		return -EINVAL;
 	}
 
-	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
 	width = f->fmt.pix_mp.width;
 	height = f->fmt.pix_mp.height;
 	bframe = get_ctrl(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES);
@@ -591,29 +611,33 @@ void msm_vidc_init_buffer_size_calculators(struct msm_vidc_inst *inst)
 			msm_vidc_calculate_internal_buffer_sizes;
 }
 
-int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
+int msm_vidc_calculate_input_buffer_count(struct msm_vidc_inst *inst)
 {
 	struct msm_vidc_format *fmt;
 	int extra_buff_count = 0;
-	u32 codec, input_min_count = 4, output_min_count = 4;
+
+	if (!inst) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+	fmt = &inst->fmts[INPUT_PORT];
 
 	if (!is_decode_session(inst) && !is_encode_session(inst))
 		return 0;
 
-	codec = get_v4l2_codec(inst);
-	/*
-	 * Update input buff counts
-	 * Extradata uses same count as input port
-	 */
-	fmt = &inst->fmts[INPUT_PORT];
+	/* do not change buffer count while session is running  */
+	if (inst->state == MSM_VIDC_START_DONE)
+		return 0;
+
+	if (is_thumbnail_session(inst)) {
+		fmt->count_min = fmt->count_min_host = fmt->count_actual =
+			SINGLE_INPUT_BUFFER;
+		return 0;
+	}
+
 	extra_buff_count = msm_vidc_get_extra_buff_count(inst,
 				HAL_BUFFER_INPUT);
-	fmt->count_min = input_min_count;
-	/* batching needs minimum batch size count of input buffers */
-	if (inst->batch.enable &&
-		is_decode_session(inst) &&
-		fmt->count_min < inst->batch.size)
-		fmt->count_min = inst->batch.size;
+	fmt->count_min = MIN_INPUT_BUFFERS;
 	fmt->count_min_host = fmt->count_actual =
 		fmt->count_min + extra_buff_count;
 
@@ -621,27 +645,52 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 		__func__, hash32_ptr(inst->session),
 		fmt->count_min, fmt->count_min_host, fmt->count_actual);
 
+	return 0;
+}
+
+int msm_vidc_calculate_output_buffer_count(struct msm_vidc_inst *inst)
+{
+	struct msm_vidc_format *fmt;
+	int extra_buff_count = 0;
+	u32 codec, output_min_count;
+
+	if (!inst) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
+	}
+	fmt = &inst->fmts[OUTPUT_PORT];
+	codec = get_v4l2_codec(inst);
+
+	if (!is_decode_session(inst) && !is_encode_session(inst))
+		return 0;
+
+	/* do not change buffer count while session is running  */
+	if (inst->state == MSM_VIDC_START_DONE)
+		return 0;
+
+	if (is_thumbnail_session(inst)) {
+		fmt->count_min = (codec == V4L2_PIX_FMT_VP9) ?
+			VP9_REFERENCE_COUNT : SINGLE_OUTPUT_BUFFER;
+		fmt->count_min_host = fmt->count_actual = fmt->count_min;
+		return 0;
+	}
+
 	/* Update output buff count: Changes for decoder based on codec */
 	if (is_decode_session(inst)) {
 		switch (codec) {
 		case V4L2_PIX_FMT_MPEG2:
-			output_min_count = 6;
-			break;
-		case V4L2_PIX_FMT_H264:
-			output_min_count = 8;
-			break;
-		case V4L2_PIX_FMT_HEVC:
-			output_min_count = 8;
-			break;
 		case V4L2_PIX_FMT_VP8:
 			output_min_count = 6;
 			break;
 		case V4L2_PIX_FMT_VP9:
 			output_min_count = 9;
 			break;
+		default:
+			output_min_count = 8; //H264, HEVC
 		}
+	} else {
+		output_min_count = MIN_ENC_OUTPUT_BUFFERS;
 	}
-	fmt = &inst->fmts[OUTPUT_PORT];
 	extra_buff_count = msm_vidc_get_extra_buff_count(inst,
 				HAL_BUFFER_OUTPUT);
 	fmt->count_min = output_min_count;
@@ -654,70 +703,175 @@ int msm_vidc_init_buffer_count(struct msm_vidc_inst *inst)
 
 	return 0;
 }
-u32 msm_vidc_set_buffer_count_for_thumbnail(struct msm_vidc_inst *inst)
+
+int msm_vidc_calculate_buffer_counts(struct msm_vidc_inst *inst)
 {
-	struct msm_vidc_format *fmt;
+	int rc;
 
-	fmt = &inst->fmts[INPUT_PORT];
-	fmt->count_min = MIN_NUM_THUMBNAIL_MODE_INPUT_BUFFERS;
-	fmt->count_min_host = MIN_NUM_THUMBNAIL_MODE_INPUT_BUFFERS;
-	fmt->count_actual = MIN_NUM_THUMBNAIL_MODE_INPUT_BUFFERS;
+	rc = msm_vidc_calculate_input_buffer_count(inst);
+	if (rc)
+		return rc;
+	rc = msm_vidc_calculate_output_buffer_count(inst);
+	if (rc)
+		return rc;
 
-	fmt = &inst->fmts[OUTPUT_PORT];
-	/* VP9 super frame requires multiple frames decoding */
-	if (get_v4l2_codec(inst) == V4L2_PIX_FMT_VP9) {
-		fmt->count_min = MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS_VP9;
-		fmt->count_min_host =
-			MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS_VP9;
-		fmt->count_actual =
-			MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS_VP9;
-	} else {
-		fmt->count_min = MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS;
-		fmt->count_min_host = MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS;
-		fmt->count_actual = MIN_NUM_THUMBNAIL_MODE_OUTPUT_BUFFERS;
-	}
-	return 0;
+	return rc;
 }
 
 int msm_vidc_get_extra_buff_count(struct msm_vidc_inst *inst,
 	enum hal_buffer buffer_type)
 {
-	unsigned int count = 0;
-
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s Invalid args\n", __func__);
 		return 0;
 	}
-	/*
-	 * no extra buffers for thumbnail session because
-	 * neither dcvs nor batching will be enabled
-	 */
-	if (is_thumbnail_session(inst))
+
+	if (!is_decode_session(inst) && !is_encode_session(inst))
 		return 0;
 
-	/* Add DCVS extra buffer count */
-	if (inst->core->resources.dcvs) {
-		if (is_decode_session(inst) &&
-			buffer_type == HAL_BUFFER_OUTPUT) {
-			count += DCVS_DEC_EXTRA_OUTPUT_BUFFERS;
-		} else if ((is_encode_session(inst) &&
-			buffer_type == HAL_BUFFER_INPUT)) {
-			count += DCVS_ENC_EXTRA_INPUT_BUFFERS;
-		}
+	if (buffer_type == HAL_BUFFER_OUTPUT)
+		return msm_vidc_get_extra_output_buff_count(inst);
+	else if (buffer_type == HAL_BUFFER_INPUT)
+		return msm_vidc_get_extra_input_buff_count(inst);
+
+	return 0;
+}
+
+static int msm_vidc_get_extra_input_buff_count(struct msm_vidc_inst *inst)
+{
+	unsigned int extra_input_count = 0;
+	struct msm_vidc_core *core;
+	struct v4l2_format *f;
+
+	if (!inst || !inst->core) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
 	}
+
+	core = inst->core;
 
 	/*
-	 * if platform supports decode batching ensure minimum
-	 * batch size count of extra buffers added on output port
+	 * For a non-realtime session, extra buffers are not required.
+	 * For thumbnail session, extra buffers are not required as
+	 * neither dcvs nor batching will be enabled.
 	 */
-	if (buffer_type == HAL_BUFFER_OUTPUT) {
-		if (inst->batch.enable &&
-			is_decode_session(inst) &&
-			count < inst->batch.size)
-			count = inst->batch.size;
+	if (!is_realtime_session(inst) || is_thumbnail_session(inst))
+		return extra_input_count;
+
+	/*
+	 * Batch mode and HFR not supported for resolution greater than
+	 * UHD. Hence extra buffers are not required.
+	 */
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	if (res_is_greater_than(f->fmt.pix_mp.width, f->fmt.pix_mp.height,
+		4096, 2160))
+		return extra_input_count;
+
+	if (is_decode_session(inst)) {
+
+		/*
+		 * Allocating 2 extra buffers, assuming current session is
+		 * always batch eligible. Cannot rely on inst->batch.enable
+		 * as it can be enabled/disabled based on clip fps etc. But
+		 * decoder input can not be reallocated at run time.
+		 */
+		if (core->resources.decode_batching)
+			extra_input_count = (BATCH_DEC_TOTAL_INPUT_BUFFERS -
+				MIN_INPUT_BUFFERS);
+
+		/*
+		 * HFR decode session needs more buffers and we do not know
+		 * whether a decode session is HFR or not until input buffers
+		 * queued but by then input buffers are already allocated and
+		 * we do not have option to increase input buffer count then.
+		 * So have more buffers for initial 4 elgible sessions (and
+		 * not for all sessions to avoid over memory usage issues).
+		 */
+		if (!is_secure_session(inst) &&
+			msm_comm_get_num_perf_sessions(inst) <
+			MAX_PERF_ELIGIBLE_SESSIONS) {
+			inst->is_perf_eligible_session = true;
+			extra_input_count = (HFR_DEC_TOTAL_INPUT_BUFFERS -
+				MIN_INPUT_BUFFERS);
+		}
+	} else if (is_encode_session(inst)) {
+		/*
+		 * Both DCVS and HFR needs extra 4 buffers. Since all sessions
+		 * are DCVS eligible, we do not need extra handling for HFR as
+		 * we are making sure initial 4 sessions have extra 4 buffers.
+		 * For the remaining non-perf sessions, no extra buffers are
+		 * allocated and total number of buffers will be 4 with best
+		 * effort performance.
+		 */
+		if (msm_comm_get_num_perf_sessions(inst) <
+			MAX_PERF_ELIGIBLE_SESSIONS) {
+			inst->is_perf_eligible_session = true;
+			extra_input_count = (HFR_ENC_TOTAL_INPUT_BUFFERS -
+				MIN_INPUT_BUFFERS);
+		}
+	}
+	return extra_input_count;
+}
+
+static int msm_vidc_get_extra_output_buff_count(struct msm_vidc_inst *inst)
+{
+	unsigned int extra_output_count = 0;
+	struct msm_vidc_core *core;
+	struct v4l2_format *f;
+
+	if (!inst || !inst->core) {
+		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
+		return -EINVAL;
 	}
 
-	return count;
+	core = inst->core;
+
+	/*
+	 * For a non-realtime session, extra buffers are not required.
+	 * For thumbnail session, extra buffers are not required as
+	 * neither dcvs nor batching will be enabled.
+	 */
+	if (!is_realtime_session(inst) || is_thumbnail_session(inst))
+		return extra_output_count;
+
+	/*
+	 * Batch mode and HFR not supported for resolution greater than
+	 * UHD. Hence extra buffers are not required.
+	 */
+	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	if (res_is_greater_than(f->fmt.pix_mp.width, f->fmt.pix_mp.height,
+		4096, 2160))
+		return extra_output_count;
+
+	if (is_decode_session(inst)) {
+		/*
+		 * Minimum number of decoder output buffers is codec specific.
+		 * If platform supports decode batching ensure minimum 6 extra
+		 * output buffers. Else add 4 extra output buffers for DCVS.
+		 */
+		if (core->resources.decode_batching)
+			extra_output_count = BATCH_DEC_EXTRA_OUTPUT_BUFFERS;
+		else if (core->resources.dcvs)
+			extra_output_count = DCVS_DEC_EXTRA_OUTPUT_BUFFERS;
+	} else if (is_encode_session(inst)) {
+		/*
+		 * Batching and DCVS are based on input. We assume that encoder
+		 * output buffers can be re-cycled quickly. Hence it is assumed
+		 * that output buffer count does not impact for DCVS/batching.
+		 * For HFR, we are increasing buffer count to avoid latency/perf
+		 * issue to re-cycle buffers.
+		 */
+		if (msm_vidc_get_fps(inst) >= 120 &&
+			!res_is_greater_than(f->fmt.pix_mp.width,
+			f->fmt.pix_mp.height, 1920, 1088) &&
+			msm_comm_get_num_perf_sessions(inst) <
+			MAX_PERF_ELIGIBLE_SESSIONS) {
+			inst->is_perf_eligible_session = true;
+			extra_output_count = (HFR_ENC_TOTAL_OUTPUT_BUFFERS -
+				MIN_ENC_OUTPUT_BUFFERS);
+			}
+	}
+	return extra_output_count;
 }
 
 u32 msm_vidc_calculate_dec_input_frame_size(struct msm_vidc_inst *inst)
@@ -832,7 +986,7 @@ u32 msm_vidc_calculate_enc_output_frame_size(struct msm_vidc_inst *inst)
 		frame_size = frame_size << 1;
 
 	if (inst->rc_type == RATE_CONTROL_LOSSLESS)
-		frame_size = (width * height * 6);
+		frame_size = (width * height * 9) >> 2;
 
 	/*
 	 * In case of opaque color format bitdepth will be known
@@ -930,10 +1084,10 @@ static inline u32 size_vpss_lb(u32 width, u32 height)
 	opb_wr_top_line_luma_buf_size = ALIGN(opb_wr_top_line_luma_buf_size,
 		VENUS_DMA_ALIGNMENT) + (MAX_TILE_COLUMNS - 1) * 256;
 	opb_wr_top_line_luma_buf_size = max(opb_wr_top_line_luma_buf_size,
-		(32 * ALIGN(height, 8)));
+		(32 * ALIGN(height, 16)));
 	opb_wr_top_line_chroma_buf_size = opb_wr_top_line_luma_buf_size;
 	opb_lb_wr_llb_uv_buffer_size = opb_lb_wr_llb_y_buffer_size =
-		ALIGN((ALIGN(height, 8) / 2) *
+		ALIGN((ALIGN(height, 16) / 2) *
 			64, BUFFER_ALIGNMENT_SIZE(32));
 	size = NUM_OF_VPP_PIPES * 2 * (vpss_4tap_top_buffer_size +
 		vpss_div2_top_buffer_size) +
@@ -1068,11 +1222,13 @@ static inline u32 size_h265d_bse_cmd_buf(u32 width, u32 height)
 {
 	u32 size;
 
-	size = ALIGN(((ALIGN(width, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) +
-		(ALIGN(height, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS)) *
-		NUM_HW_PIC_BUF, VENUS_DMA_ALIGNMENT);
+	size = (ALIGN(width, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) *
+		(ALIGN(height, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) *
+		NUM_HW_PIC_BUF;
 	size = min_t(u32, size, H265D_MAX_SLICE + 1);
 	size = 2 * size * SIZE_H265D_BSE_CMD_PER_BUF;
+	size = ALIGN(size, VENUS_DMA_ALIGNMENT);
+
 	return size;
 }
 
@@ -1080,13 +1236,13 @@ static inline u32 size_h265d_vpp_cmd_buf(u32 width, u32 height)
 {
 	u32 size = 0;
 
-	size = ALIGN((
-		(ALIGN(width, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) +
-		(ALIGN(height, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS)) *
-		NUM_HW_PIC_BUF, VENUS_DMA_ALIGNMENT);
+	size = (ALIGN(width, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) *
+		(ALIGN(height, LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) *
+		NUM_HW_PIC_BUF;
 	size = min_t(u32, size, H265D_MAX_SLICE + 1);
 	size = ALIGN(size, 4);
 	size = 2 * size * SIZE_H265D_VPP_CMD_PER_BUF;
+	size = ALIGN(size, VENUS_DMA_ALIGNMENT);
 
 	return size;
 }
@@ -1239,6 +1395,8 @@ static inline u32 calculate_enc_scratch_size(struct msm_vidc_inst *inst,
 		bitbin_size = ALIGN(bitstream_size, VENUS_DMA_ALIGNMENT);
 	}
 	size_singlePipe = bitbin_size / 2;
+	if (inst->rc_type == RATE_CONTROL_LOSSLESS)
+		size_singlePipe <<= 1;
 	size_singlePipe = ALIGN(size_singlePipe, VENUS_DMA_ALIGNMENT);
 	sao_bin_buffer_size = (64 * (((width + BUFFER_ALIGNMENT_SIZE(32)) *
 		(height + BUFFER_ALIGNMENT_SIZE(32))) >> 10)) + 384;
@@ -1414,13 +1572,14 @@ static inline u32 calculate_enc_scratch1_size(struct msm_vidc_inst *inst,
 	u32 width_lcu_num, height_lcu_num, width_coded, height_coded;
 	u32 frame_num_lcu, linebuf_meta_recon_uv, topline_bufsize_fe_1stg_sao;
 	u32 output_mv_bufsize = 0, temp_scratch_mv_bufsize = 0;
-	u32 size, bit_depth;
+	u32 size, bit_depth, num_LCUMB;
 
 	width_lcu_num = ((width)+(lcu_size)-1) / (lcu_size);
 	height_lcu_num = ((height)+(lcu_size)-1) / (lcu_size);
 	frame_num_lcu = width_lcu_num * height_lcu_num;
 	width_coded = width_lcu_num * (lcu_size);
 	height_coded = height_lcu_num * (lcu_size);
+	num_LCUMB = (height_coded / lcu_size) * ((width_coded + lcu_size * 8) / lcu_size);
 	slice_info_bufsize = (256 + (frame_num_lcu << 4));
 	slice_info_bufsize = ALIGN(slice_info_bufsize, VENUS_DMA_ALIGNMENT);
 	line_buf_ctrl_size = ALIGN(width_coded, VENUS_DMA_ALIGNMENT);
@@ -1451,19 +1610,23 @@ static inline u32 calculate_enc_scratch1_size(struct msm_vidc_inst *inst,
 		(VENUS_DMA_ALIGNMENT + 16 * (width_coded >> 4));
 	topline_buf_ctrl_size_FE = ALIGN(topline_buf_ctrl_size_FE,
 		VENUS_DMA_ALIGNMENT);
-	leftline_buf_ctrl_size_FE = ((VENUS_DMA_ALIGNMENT + 64 *
+	leftline_buf_ctrl_size_FE = (((VENUS_DMA_ALIGNMENT + 64 *
 		(height_coded >> 4)) +
 		(VENUS_DMA_ALIGNMENT << (num_vpp_pipes - 1)) - 1) &
-		(~((VENUS_DMA_ALIGNMENT << (num_vpp_pipes - 1)) - 1)) *
+		(~((VENUS_DMA_ALIGNMENT << (num_vpp_pipes - 1)) - 1)) * 1) *
 		num_vpp_pipes;
-	leftline_buf_meta_recony = ((VENUS_DMA_ALIGNMENT + 64 *
-		((height_coded) / (8 * (ten_bit ? 4 : 8)))) * num_vpp_pipes);
+	leftline_buf_meta_recony = (VENUS_DMA_ALIGNMENT + 64 *
+		((height_coded) / (8 * (ten_bit ? 4 : 8))));
 	leftline_buf_meta_recony = ALIGN(leftline_buf_meta_recony,
 		VENUS_DMA_ALIGNMENT);
-	linebuf_meta_recon_uv = ((VENUS_DMA_ALIGNMENT + 64 *
-		((height_coded) / (4 * (ten_bit ? 4 : 8)))) * num_vpp_pipes);
+	leftline_buf_meta_recony = leftline_buf_meta_recony *
+		num_vpp_pipes;
+	linebuf_meta_recon_uv = (VENUS_DMA_ALIGNMENT + 64 *
+		((height_coded) / (4 * (ten_bit ? 4 : 8))));
 	linebuf_meta_recon_uv = ALIGN(linebuf_meta_recon_uv,
 		VENUS_DMA_ALIGNMENT);
+	linebuf_meta_recon_uv = linebuf_meta_recon_uv *
+		num_vpp_pipes;
 	line_buf_recon_pix_size = ((ten_bit ? 3 : 2) * width_coded);
 	line_buf_recon_pix_size = ALIGN(line_buf_recon_pix_size,
 		VENUS_DMA_ALIGNMENT);
@@ -1512,8 +1675,8 @@ static inline u32 calculate_enc_scratch1_size(struct msm_vidc_inst *inst,
 	bse_reg_buffer_size = ((((512 << 3) + 7) & (~7)) * 4);
 	vpp_reg_buffer_size = ((((HFI_VENUS_VPPSG_MAX_REGISTERS << 3) + 31) &
 		(~31)) * 10);
-	lambda_lut_size = ((((52 << 1) + 7) & (~7)) * 11);
-	override_buffer_size = 16 * ((frame_num_lcu + 7) >> 3);
+	lambda_lut_size = (256 * 11);
+	override_buffer_size = 16 * ((num_LCUMB + 7) >> 3);
 	override_buffer_size = ALIGN(override_buffer_size,
 		VENUS_DMA_ALIGNMENT) * 2;
 	ir_buffer_size = (((frame_num_lcu << 1) + 7) & (~7)) * 3;
