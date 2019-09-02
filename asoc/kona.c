@@ -178,6 +178,7 @@ struct tdm_port {
 
 enum {
 	EXT_DISP_RX_IDX_DP = 0,
+	EXT_DISP_RX_IDX_DP1,
 	EXT_DISP_RX_IDX_MAX,
 };
 
@@ -210,6 +211,7 @@ static struct dev_config slim_tx_cfg[] = {
 /* Default configuration of external display BE */
 static struct dev_config ext_disp_rx_cfg[] = {
 	[EXT_DISP_RX_IDX_DP] =   {SAMPLING_RATE_48KHZ, SNDRV_PCM_FORMAT_S16_LE, 2},
+	[EXT_DISP_RX_IDX_DP1] =   {SAMPLING_RATE_48KHZ, SNDRV_PCM_FORMAT_S16_LE, 2},
 };
 
 static struct dev_config usb_rx_cfg = {
@@ -699,10 +701,11 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.key_code[6] = 0,
 	.key_code[7] = 0,
 	.linein_th = 5000,
-	.moisture_en = true,
+	.moisture_en = false,
 	.mbhc_micbias = MIC_BIAS_2,
 	.anc_micbias = MIC_BIAS_2,
 	.enable_anc_mic_detect = false,
+	.moisture_duty_cycle_en = true,
 };
 
 static inline int param_is_mask(int p)
@@ -1134,6 +1137,9 @@ static int ext_disp_get_port_idx(struct snd_kcontrol *kcontrol)
 	if (strnstr(kcontrol->id.name, "Display Port RX",
 		    sizeof("Display Port RX"))) {
 		idx = EXT_DISP_RX_IDX_DP;
+	} else if (strnstr(kcontrol->id.name, "Display Port1 RX",
+		    sizeof("Display Port1 RX"))) {
+		idx = EXT_DISP_RX_IDX_DP1;
 	} else {
 		pr_err("%s: unsupported BE: %s\n",
 			__func__, kcontrol->id.name);
@@ -3657,6 +3663,13 @@ static const struct snd_kcontrol_new msm_common_snd_controls[] = {
 	SOC_ENUM_EXT("Display Port RX SampleRate", ext_disp_rx_sample_rate,
 			ext_disp_rx_sample_rate_get,
 			ext_disp_rx_sample_rate_put),
+	SOC_ENUM_EXT("Display Port1 RX Channels", ext_disp_rx_chs,
+			ext_disp_rx_ch_get, ext_disp_rx_ch_put),
+	SOC_ENUM_EXT("Display Port1 RX Bit Format", ext_disp_rx_format,
+			ext_disp_rx_format_get, ext_disp_rx_format_put),
+	SOC_ENUM_EXT("Display Port1 RX SampleRate", ext_disp_rx_sample_rate,
+			ext_disp_rx_sample_rate_get,
+			ext_disp_rx_sample_rate_put),
 	SOC_ENUM_EXT("BT SampleRate", bt_sample_rate,
 			msm_bt_sample_rate_get,
 			msm_bt_sample_rate_put),
@@ -3692,6 +3705,9 @@ static int msm_ext_disp_get_idx_from_beid(int32_t be_id)
 	switch (be_id) {
 	case MSM_BACKEND_DAI_DISPLAY_PORT_RX:
 		idx = EXT_DISP_RX_IDX_DP;
+		break;
+	case MSM_BACKEND_DAI_DISPLAY_PORT_RX_1:
+		idx = EXT_DISP_RX_IDX_DP1;
 		break;
 	default:
 		pr_err("%s: Incorrect ext_disp BE id %d\n", __func__, be_id);
@@ -3755,6 +3771,7 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 		break;
 
 	case MSM_BACKEND_DAI_DISPLAY_PORT_RX:
+	case MSM_BACKEND_DAI_DISPLAY_PORT_RX_1:
 		idx = msm_ext_disp_get_idx_from_beid(dai_link->id);
 		if (idx < 0) {
 			pr_err("%s: Incorrect ext disp idx %d\n",
@@ -4915,6 +4932,8 @@ static const struct snd_soc_dapm_widget msm_int_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Digital Mic3", msm_dmic_event),
 	SND_SOC_DAPM_MIC("Digital Mic4", msm_dmic_event),
 	SND_SOC_DAPM_MIC("Digital Mic5", msm_dmic_event),
+	SND_SOC_DAPM_MIC("Digital Mic6", NULL),
+	SND_SOC_DAPM_MIC("Digital Mic7", NULL),
 };
 
 static int msm_wcn_init(struct snd_soc_pcm_runtime *rtd)
@@ -4981,6 +5000,8 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic3");
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic4");
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic5");
+	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic6");
+	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic7");
 
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic1");
 	snd_soc_dapm_ignore_suspend(dapm, "Analog Mic2");
@@ -5003,16 +5024,17 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		__func__, rtd->card->num_aux_devs);
 	if (rtd->card->num_aux_devs &&
 	    !list_empty(&rtd->card->component_dev_list)) {
-		aux_comp = list_first_entry(
-				&rtd->card->component_dev_list,
-				struct snd_soc_component,
-				card_aux_list);
-		if (!strcmp(aux_comp->name, WSA8810_NAME_1) ||
-		    !strcmp(aux_comp->name, WSA8810_NAME_2)) {
-			wsa_macro_set_spkr_mode(component,
+		list_for_each_entry(aux_comp,
+				&rtd->card->aux_comp_list,
+				card_aux_list) {
+			if (aux_comp->name != NULL && (
+				!strcmp(aux_comp->name, WSA8810_NAME_1) ||
+		    		!strcmp(aux_comp->name, WSA8810_NAME_2))) {
+				wsa_macro_set_spkr_mode(component,
 						WSA_MACRO_SPKR_MODE_1);
-			wsa_macro_set_spkr_gain_offset(component,
-					WSA_MACRO_GAIN_OFFSET_M1P5_DB);
+				wsa_macro_set_spkr_gain_offset(component,
+						WSA_MACRO_GAIN_OFFSET_M1P5_DB);
+			}
 		}
 		bolero_set_port_map(component, ARRAY_SIZE(sm_port_map),
 				    sm_port_map);
@@ -5551,6 +5573,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		 /* this dainlink has playback support */
 		.id = MSM_FRONTEND_DAI_MULTIMEDIA16,
+		.ops = &msm_fe_qos_ops,
 	},
 	{/* hw:x,30 */
 		.name = "CDC_DMA Hostless",
@@ -5697,6 +5720,19 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
+	{/* hw:x,39 */
+		.name = LPASS_BE_TX_CDC_DMA_TX_5,
+		.stream_name = "TX CDC DMA5 Capture",
+		.cpu_dai_name = "msm-dai-cdc-dma-dev.45115",
+		.platform_name = "msm-pcm-hostless",
+		.codec_name = "bolero_codec",
+		.codec_dai_name = "tx_macro_tx3",
+		.id = MSM_BACKEND_DAI_TX_CDC_DMA_TX_5,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ignore_suspend = 1,
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ops = &msm_cdc_dma_be_ops,
+	},
 };
 
 static struct snd_soc_dai_link msm_common_be_dai_links[] = {
@@ -5794,6 +5830,7 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-rx",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_USB_RX,
@@ -6085,7 +6122,7 @@ static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
 	{
 		.name = LPASS_BE_DISPLAY_PORT,
 		.stream_name = "Display Port Playback",
-		.cpu_dai_name = "msm-dai-q6-dp.24608",
+		.cpu_dai_name = "msm-dai-q6-dp.0",
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "msm-ext-disp-audio-codec-rx",
 		.codec_dai_name = "msm_dp_audio_codec_rx_dai",
@@ -6100,7 +6137,7 @@ static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
 	{
 		.name = LPASS_BE_DISPLAY_PORT1,
 		.stream_name = "Display Port1 Playback",
-		.cpu_dai_name = "msm-dai-q6-dp.24608",
+		.cpu_dai_name = "msm-dai-q6-dp.1",
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "msm-ext-disp-audio-codec-rx",
 		.codec_dai_name = "msm_dp_audio_codec_rx1_dai",
@@ -6527,6 +6564,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx1",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_0,
@@ -6542,6 +6580,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx2",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_1,
@@ -6557,6 +6596,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx3",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_2,
@@ -6572,6 +6612,7 @@ static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "bolero_codec",
 		.codec_dai_name = "rx_macro_rx4",
+		.dynamic_be = 1,
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_RX_CDC_DMA_RX_3,
@@ -7168,6 +7209,7 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 	struct device_node *aux_codec_of_node;
 	u32 wsa_max_devs;
 	u32 wsa_dev_cnt;
+	u32 codec_max_aux_devs = 0;
 	u32 codec_aux_dev_cnt = 0;
 	int i;
 	struct msm_wsa881x_dev_info *wsa881x_dev_info;
@@ -7283,6 +7325,24 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 		__func__, found);
 
 codec_aux_dev:
+	/* Get maximum aux codec device count for this platform */
+	ret = of_property_read_u32(pdev->dev.of_node,
+				   "qcom,codec-max-aux-devs",
+				   &codec_max_aux_devs);
+	if (ret) {
+		dev_err(&pdev->dev,
+			 "%s: codec-max-aux-devs property missing in DT %s, ret = %d\n",
+			 __func__, pdev->dev.of_node->full_name, ret);
+		codec_max_aux_devs = 0;
+		goto aux_dev_register;
+	}
+	if (codec_max_aux_devs == 0) {
+		dev_dbg(&pdev->dev,
+			 "%s: Max aux codec devices is 0 for this target?\n",
+			 __func__);
+		goto aux_dev_register;
+	}
+
 	/* Get count of aux codec device phandles for this platform */
 	codec_aux_dev_cnt = of_count_phandle_with_args(
 				pdev->dev.of_node,
@@ -7297,6 +7357,19 @@ codec_aux_dev:
 			__func__, codec_aux_dev_cnt);
 		ret = -EINVAL;
 		goto err;
+	}
+
+	/*
+	 * Expect total phandles count to be NOT less than maximum possible
+	 * AUX device count. However, if it is less, then assign same value to
+	 * max count as well.
+	 */
+	if (codec_aux_dev_cnt < codec_max_aux_devs) {
+		dev_dbg(&pdev->dev,
+			"%s: codec_max_aux_devs = %d cannot exceed codec_aux_dev_cnt = %d\n",
+			__func__, codec_max_aux_devs,
+			codec_aux_dev_cnt);
+		codec_max_aux_devs = codec_aux_dev_cnt;
 	}
 
 	/*
@@ -7347,6 +7420,7 @@ codec_aux_dev:
 		"%s: found %d AUX codecs registered with ALSA core\n",
 		__func__, codecs_found);
 
+aux_dev_register:
 	card->num_aux_devs = wsa_max_devs + codec_aux_dev_cnt;
 	card->num_configs = wsa_max_devs + codec_aux_dev_cnt;
 
@@ -7675,6 +7749,8 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	pdata->dmic45_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					      "qcom,cdc-dmic45-gpios",
 					       0);
+	if (pdata->dmic45_gpio_p)
+		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic45_gpio_p, false);
 
 	pdata->mi2s_gpio_p[PRIM_MI2S] = of_parse_phandle(pdev->dev.of_node,
 					"qcom,pri-mi2s-gpios", 0);

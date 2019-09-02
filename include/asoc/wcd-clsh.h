@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _WCD_CLSH
@@ -62,6 +62,8 @@ enum {
 	CLS_H_LOHIFI, /* LoHIFI */
 	CLS_H_ULP, /* Ultra Low power */
 	CLS_AB_HIFI, /* Class-AB */
+	CLS_AB_LP, /* Class-AB Low Power */
+	CLS_AB_LOHIFI, /* Class-AB Low HIFI */
 	CLS_NONE, /* None of the above modes */
 };
 
@@ -80,15 +82,22 @@ extern void wcd_cls_h_fsm(struct snd_soc_component *component,
 		int int_mode);
 
 extern void wcd_cls_h_init(struct wcd_clsh_cdc_info *clsh);
+extern void wcd_clsh_set_hph_mode(struct snd_soc_component *component,
+				  int mode);
 #else
-extern void wcd_cls_h_fsm(struct snd_soc_component *component,
+static inline void wcd_cls_h_fsm(struct snd_soc_component *component,
 		struct wcd_clsh_cdc_info *cdc_clsh_d,
 		u8 clsh_event, u8 req_state,
 		int int_mode)
 {
 }
 
-extern void wcd_cls_h_init(struct wcd_clsh_cdc_info *clsh)
+static inline extern void wcd_cls_h_init(struct wcd_clsh_cdc_info *clsh)
+{
+}
+
+static inline extern void wcd_clsh_set_hph_mode(struct snd_soc_component *component,
+				  int mode)
 {
 }
 #endif /* CONFIG_SND_SOC_WCD9XXX_V2 */

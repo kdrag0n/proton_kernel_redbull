@@ -111,6 +111,7 @@ struct lpi_gpio_state {
 	struct clk          *lpass_core_hw_vote;
 	struct mutex         slew_access_lock;
 	bool core_hw_vote_status;
+	struct mutex        core_hw_vote_lock;
 };
 
 static const char *const lpi_gpio_groups[] = {
@@ -134,9 +135,12 @@ static const char *const lpi_gpio_functions[] = {
 	[LPI_GPIO_FUNC_INDEX_FUNC5]	= LPI_GPIO_FUNC_FUNC5,
 };
 
+int lpi_pinctrl_runtime_suspend(struct device *dev);
+
 static int lpi_gpio_read(struct lpi_gpio_pad *pad, unsigned int addr)
 {
-	int ret;
+	int ret = 0;
+	struct lpi_gpio_state *state = dev_get_drvdata(lpi_dev);
 
 	if (!lpi_dev_up) {
 		pr_err_ratelimited("%s: ADSP is down due to SSR, return\n",
@@ -144,11 +148,20 @@ static int lpi_gpio_read(struct lpi_gpio_pad *pad, unsigned int addr)
 		return 0;
 	}
 	pm_runtime_get_sync(lpi_dev);
+	mutex_lock(&state->core_hw_vote_lock);
+	if (!state->core_hw_vote_status) {
+		pr_err_ratelimited("%s: core hw vote clk is not enabled\n",
+				__func__);
+		ret = -EINVAL;
+		goto err;
+	}
 
 	ret = ioread32(pad->base + pad->offset + addr);
 	if (ret < 0)
 		pr_err("%s: read 0x%x failed\n", __func__, addr);
 
+err:
+	mutex_unlock(&state->core_hw_vote_lock);
 	pm_runtime_mark_last_busy(lpi_dev);
 	pm_runtime_put_autosuspend(lpi_dev);
 	return ret;
@@ -157,18 +170,29 @@ static int lpi_gpio_read(struct lpi_gpio_pad *pad, unsigned int addr)
 static int lpi_gpio_write(struct lpi_gpio_pad *pad, unsigned int addr,
 			  unsigned int val)
 {
+	struct lpi_gpio_state *state = dev_get_drvdata(lpi_dev);
+	int ret = 0;
+
 	if (!lpi_dev_up) {
 		pr_err_ratelimited("%s: ADSP is down due to SSR, return\n",
-				   __func__);
+				  __func__);
 		return 0;
 	}
 	pm_runtime_get_sync(lpi_dev);
+	mutex_lock(&state->core_hw_vote_lock);
+	if (!state->core_hw_vote_status) {
+		pr_err_ratelimited("%s: core hw vote clk is not enabled\n",
+				__func__);
+		ret = -EINVAL;
+		goto err;
+	}
 
 	iowrite32(val, pad->base + pad->offset + addr);
-
+err:
+	mutex_unlock(&state->core_hw_vote_lock);
 	pm_runtime_mark_last_busy(lpi_dev);
 	pm_runtime_put_autosuspend(lpi_dev);
-	return 0;
+	return ret;
 }
 
 static int lpi_gpio_get_groups_count(struct pinctrl_dev *pctldev)
@@ -457,6 +481,39 @@ static int lpi_notifier_service_cb(struct notifier_block *this,
 	return NOTIFY_OK;
 }
 
+int lpi_pinctrl_suspend(struct device *dev)
+{
+	int ret = 0;
+
+	dev_dbg(dev, "%s: system suspend\n", __func__);
+
+	if ((!pm_runtime_enabled(dev) || !pm_runtime_suspended(dev))) {
+		ret = lpi_pinctrl_runtime_suspend(dev);
+		if (!ret) {
+			/*
+			 * Synchronize runtime-pm and system-pm states:
+			 * At this point, we are already suspended. If
+			 * runtime-pm still thinks its active, then
+			 * make sure its status is in sync with HW
+			 * status. The three below calls let the
+			 * runtime-pm know that we are suspended
+			 * already without re-invoking the suspend
+			 * callback
+			 */
+			pm_runtime_disable(dev);
+			pm_runtime_set_suspended(dev);
+			pm_runtime_enable(dev);
+		}
+	}
+
+	return ret;
+}
+
+int lpi_pinctrl_resume(struct device *dev)
+{
+	return 0;
+}
+
 static struct notifier_block service_nb = {
 	.notifier_call  = lpi_notifier_service_cb,
 	.priority = -INT_MAX,
@@ -465,6 +522,7 @@ static struct notifier_block service_nb = {
 static void lpi_pinctrl_ssr_disable(struct device *dev, void *data)
 {
 	lpi_dev_up = false;
+	lpi_pinctrl_suspend(dev);
 }
 
 static const struct snd_event_ops lpi_pinctrl_ssr_ops = {
@@ -664,6 +722,7 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	state->chip.can_sleep = false;
 
 	mutex_init(&state->slew_access_lock);
+	mutex_init(&state->core_hw_vote_lock);
 
 	state->ctrl = devm_pinctrl_register(dev, pctrldesc, state);
 	if (IS_ERR(state->ctrl))
@@ -724,6 +783,7 @@ err_snd_evt:
 err_range:
 	gpiochip_remove(&state->chip);
 err_chip:
+	mutex_destroy(&state->core_hw_vote_lock);
 	mutex_destroy(&state->slew_access_lock);
 err_io:
 	return ret;
@@ -739,6 +799,7 @@ static int lpi_pinctrl_remove(struct platform_device *pdev)
 	snd_event_client_deregister(&pdev->dev);
 	audio_notifier_deregister("lpi_tlmm");
 	gpiochip_remove(&state->chip);
+	mutex_destroy(&state->core_hw_vote_lock);
 	mutex_destroy(&state->slew_access_lock);
 
 	return 0;
@@ -761,6 +822,7 @@ int lpi_pinctrl_runtime_resume(struct device *dev)
 		return 0;
 	}
 
+	mutex_lock(&state->core_hw_vote_lock);
 	ret = clk_prepare_enable(state->lpass_core_hw_vote);
 	if (ret < 0)
 		dev_err(dev, "%s:lpass core hw island enable failed\n",
@@ -769,6 +831,7 @@ int lpi_pinctrl_runtime_resume(struct device *dev)
 		state->core_hw_vote_status = true;
 
 	pm_runtime_set_autosuspend_delay(dev, LPI_AUTO_SUSPEND_DELAY);
+	mutex_unlock(&state->core_hw_vote_lock);
 	return 0;
 }
 
@@ -781,14 +844,20 @@ int lpi_pinctrl_runtime_suspend(struct device *dev)
 		return 0;
 	}
 
+	mutex_lock(&state->core_hw_vote_lock);
 	if (state->core_hw_vote_status) {
 		clk_disable_unprepare(state->lpass_core_hw_vote);
 		state->core_hw_vote_status = false;
 	}
+	mutex_unlock(&state->core_hw_vote_lock);
 	return 0;
 }
 
 static const struct dev_pm_ops lpi_pinctrl_dev_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(
+		lpi_pinctrl_suspend,
+		lpi_pinctrl_resume
+	)
 	SET_RUNTIME_PM_OPS(
 		lpi_pinctrl_runtime_suspend,
 		lpi_pinctrl_runtime_resume,

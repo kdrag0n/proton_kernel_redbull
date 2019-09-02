@@ -3,12 +3,20 @@
 # Assume no targets will be supported
 
 # Check if this driver needs be built for current target
-ifeq ($(call is-board-platform,msmnile),true)
+ifeq ($(call is-board-platform-in-list,msmnile sdmshrike),true)
+ifeq ($(TARGET_BOARD_AUTO),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
+endif
 endif
 
 ifeq ($(call is-board-platform,$(MSMSTEPPE)),true)
+ifeq ($(TARGET_BOARD_AUTO),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SA6155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM6150=m
+endif
 endif
 
 ifeq ($(call is-board-platform,$(TRINKET)),true)
@@ -25,7 +33,7 @@ endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito),true)
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito bengal sdmshrike),true)
 
 LOCAL_PATH := $(call my-dir)
 
@@ -50,8 +58,9 @@ KBUILD_OPTIONS := AUDIO_ROOT=$(AUDIO_BLD_DIR)
 KBUILD_OPTIONS += MODNAME=wcd_core_dlkm
 KBUILD_OPTIONS += BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM)
 KBUILD_OPTIONS += $(AUDIO_SELECT)
-
+# Target specific build
 ###########################################################
+ifneq ($(TARGET_BOARD_AUTO),true)
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_wcd_core.ko
 LOCAL_MODULE_KBUILD_NAME  := wcd_core_dlkm.ko
@@ -78,7 +87,7 @@ LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
 endif
 ###########################################################
-ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) sdmshrike),true)
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_wcd_spi.ko
 LOCAL_MODULE_KBUILD_NAME  := wcd_spi_dlkm.ko
@@ -107,16 +116,17 @@ LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
 ###########################################################
 include $(CLEAR_VARS)
-LOCAL_MODULE              := $(AUDIO_CHIPSET)_stub.ko
-LOCAL_MODULE_KBUILD_NAME  := stub_dlkm.ko
+LOCAL_MODULE              := $(AUDIO_CHIPSET)_mbhc.ko
+LOCAL_MODULE_KBUILD_NAME  := mbhc_dlkm.ko
 LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
+endif # target specific build
 ###########################################################
 include $(CLEAR_VARS)
-LOCAL_MODULE              := $(AUDIO_CHIPSET)_mbhc.ko
-LOCAL_MODULE_KBUILD_NAME  := mbhc_dlkm.ko
+LOCAL_MODULE              := $(AUDIO_CHIPSET)_stub.ko
+LOCAL_MODULE_KBUILD_NAME  := stub_dlkm.ko
 LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)

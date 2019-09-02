@@ -29,6 +29,7 @@ enum {
 	WCD_BOLERO_EVT_RX_MUTE = 1, /* for RX mute/unmute */
 	WCD_BOLERO_EVT_IMPED_TRUE,   /* for imped true */
 	WCD_BOLERO_EVT_IMPED_FALSE,  /* for imped false */
+	WCD_BOLERO_EVT_RX_COMPANDER_SOFT_RST,
 };
 
 struct wcd_ctrl_platform_data {
@@ -45,6 +46,7 @@ struct bolero_priv {
 	struct regmap *regmap;
 	struct mutex io_lock;
 	struct mutex clk_lock;
+	struct mutex vote_lock;
 	bool va_without_decimation;
 	bool macros_supported[MAX_MACRO];
 	bool dev_up;
@@ -59,6 +61,8 @@ struct bolero_priv {
 	u32 version;
 	struct clk *lpass_core_hw_vote;
 	struct clk *lpass_audio_hw_vote;
+	int core_hw_vote_count;
+	int core_audio_vote_count;
 
 	/* Entry for version info */
 	struct snd_info_entry *entry;

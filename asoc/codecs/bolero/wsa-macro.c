@@ -473,9 +473,10 @@ static int wsa_macro_set_port_map(struct snd_soc_component *component,
 	port_cfg.size = size;
 	port_cfg.params = data;
 
-	ret = swrm_wcd_notify(
-		wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-		SWR_SET_PORT_MAP, &port_cfg);
+	if (wsa_priv->swr_ctrl_data)
+		ret = swrm_wcd_notify(
+			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+			SWR_SET_PORT_MAP, &port_cfg);
 
 	return ret;
 }
@@ -904,25 +905,50 @@ static int wsa_macro_event_handler(struct snd_soc_component *component,
 {
 	struct device *wsa_dev = NULL;
 	struct wsa_macro_priv *wsa_priv = NULL;
+	int ret = 0;
 
 	if (!wsa_macro_get_data(component, &wsa_dev, &wsa_priv, __func__))
 		return -EINVAL;
 
 	switch (event) {
 	case BOLERO_MACRO_EVT_SSR_DOWN:
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_DEVICE_DOWN, NULL);
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_DEVICE_SSR_DOWN, NULL);
+		if (wsa_priv->swr_ctrl_data) {
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_DEVICE_DOWN, NULL);
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_DEVICE_SSR_DOWN, NULL);
+		}
+		if ((!pm_runtime_enabled(wsa_dev) ||
+		     !pm_runtime_suspended(wsa_dev))) {
+			ret = bolero_runtime_suspend(wsa_dev);
+			if (!ret) {
+				pm_runtime_disable(wsa_dev);
+				pm_runtime_set_suspended(wsa_dev);
+				pm_runtime_enable(wsa_dev);
+			}
+		}
 		break;
 	case BOLERO_MACRO_EVT_SSR_UP:
 		/* reset swr after ssr/pdr */
 		wsa_priv->reset_swr = true;
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_DEVICE_SSR_UP, NULL);
+		/* enable&disable WSA_CORE_CLK to reset GFMUX reg */
+		ret = bolero_clk_rsc_request_clock(wsa_priv->dev,
+						wsa_priv->default_clk_id,
+						WSA_CORE_CLK, true);
+		if (ret < 0)
+			dev_err_ratelimited(wsa_priv->dev,
+				"%s, failed to enable clk, ret:%d\n",
+				__func__, ret);
+		else
+			bolero_clk_rsc_request_clock(wsa_priv->dev,
+						wsa_priv->default_clk_id,
+						WSA_CORE_CLK, false);
+		if (wsa_priv->swr_ctrl_data)
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_DEVICE_SSR_UP, NULL);
 		break;
 	case BOLERO_MACRO_EVT_CLK_RESET:
 		bolero_rsc_clk_reset(wsa_dev, WSA_CORE_CLK);
@@ -1138,12 +1164,14 @@ static int wsa_macro_enable_swr(struct snd_soc_dapm_widget *w,
 			wsa_priv->rx_1_count++;
 		ch_cnt = wsa_priv->rx_0_count + wsa_priv->rx_1_count;
 
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_DEVICE_UP, NULL);
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_SET_NUM_RX_CH, &ch_cnt);
+		if (wsa_priv->swr_ctrl_data) {
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_DEVICE_UP, NULL);
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_SET_NUM_RX_CH, &ch_cnt);
+		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		if (!(strnstr(w->name, "RX0", sizeof("WSA_RX0"))) &&
@@ -1154,9 +1182,10 @@ static int wsa_macro_enable_swr(struct snd_soc_dapm_widget *w,
 			wsa_priv->rx_1_count--;
 		ch_cnt = wsa_priv->rx_0_count + wsa_priv->rx_1_count;
 
-		swrm_wcd_notify(
-			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
-			SWR_SET_NUM_RX_CH, &ch_cnt);
+		if (wsa_priv->swr_ctrl_data)
+			swrm_wcd_notify(
+				wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
+				SWR_SET_NUM_RX_CH, &ch_cnt);
 		break;
 	}
 	dev_dbg(wsa_priv->dev, "%s: current swr ch cnt: %d\n",
@@ -2883,6 +2912,8 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	char __iomem *wsa_io_base;
 	int ret = 0;
 	u8 bcl_pmic_params[3];
+	u32 is_used_wsa_swr_gpio = 1;
+	const char *is_used_wsa_swr_gpio_dt = "qcom,is-used-swr-gpio";
 
 	wsa_priv = devm_kzalloc(&pdev->dev, sizeof(struct wsa_macro_priv),
 				GFP_KERNEL);
@@ -2897,13 +2928,30 @@ static int wsa_macro_probe(struct platform_device *pdev)
 			__func__, "reg");
 		return ret;
 	}
+	if (of_find_property(pdev->dev.of_node, is_used_wsa_swr_gpio_dt,
+			     NULL)) {
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   is_used_wsa_swr_gpio_dt,
+					   &is_used_wsa_swr_gpio);
+		if (ret) {
+			dev_err(&pdev->dev, "%s: error reading %s in dt\n",
+				__func__, is_used_wsa_swr_gpio_dt);
+			is_used_wsa_swr_gpio = 1;
+		}
+	}
 	wsa_priv->wsa_swr_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					"qcom,wsa-swr-gpios", 0);
-	if (!wsa_priv->wsa_swr_gpio_p) {
+	if (!wsa_priv->wsa_swr_gpio_p && is_used_wsa_swr_gpio) {
 		dev_err(&pdev->dev, "%s: swr_gpios handle not provided!\n",
 			__func__);
 		return -EINVAL;
 	}
+	if (msm_cdc_pinctrl_get_state(wsa_priv->wsa_swr_gpio_p) < 0) {
+		dev_err(&pdev->dev, "%s: failed to get swr pin state\n",
+			__func__);
+		return -EPROBE_DEFER;
+	}
+
 	wsa_io_base = devm_ioremap(&pdev->dev,
 				   wsa_base_addr, WSA_MACRO_MAX_OFFSET);
 	if (!wsa_io_base) {
