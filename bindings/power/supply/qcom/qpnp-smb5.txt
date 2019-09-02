@@ -304,11 +304,24 @@ Charger specific properties:
   Definition: Boolean flag which when present enables h/w based skin
 		temperature mitigation.
 
+- qcom,en-skin-therm-mitigation
+  Usage:      optional
+  Value type: bool
+  Definition: Boolean flag which when present enables skin
+		thermal mitigation.
+
 - qcom,connector-internal-pull-kohm
   Usage:      optional
   Value type: <u32>
   Definition: Specifies internal pull-up configuration to be applied to
 		connector THERM. The only valid values are (0/30/100/400).
+		If not specified 100K is used as default pull-up.
+
+- qcom,smb-internal-pull-kohm
+  Usage:      optional
+  Value type: <u32>
+  Definition: Specifies internal pull-up configuration to be applied to
+		connector THERM, only valid values are (0/30/100/400).
 		If not specified 100K is used as default pull-up.
 
 - qcom,wd-snarl-time-config
@@ -323,6 +336,13 @@ Charger specific properties:
   Usage:      optional
   Value type: bool
   Definition: Boolean flag which when present enables ADC based AICL.
+
+- qcom,wls-current-max-ua
+  Usage:      optional
+  Value type: <u32>
+  Definition: Upper limit of charging current supplied by the wireless charger.
+		If left unspecified, the HW min value of 1.5 A is applied by
+		default.
 
 =============================================
 Second Level Nodes - SMB5 Charger Peripherals
