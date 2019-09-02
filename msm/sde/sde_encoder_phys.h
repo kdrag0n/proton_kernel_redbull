@@ -365,12 +365,12 @@ struct sde_encoder_phys_cmd_autorefresh {
  * struct sde_encoder_phys_cmd - sub-class of sde_encoder_phys to handle command
  *	mode specific operations
  * @base:	Baseclass physical encoder structure
- * @intf_idx:	Intf Block index used by this phys encoder
  * @stream_sel:	Stream selection for multi-stream interfaces
  * @pp_timeout_report_cnt: number of pingpong done irq timeout errors
  * @autorefresh: autorefresh feature state
  * @pending_vblank_cnt: Atomic counter tracking pending wait for VBLANK
  * @pending_vblank_wq: Wait queue for blocking until VBLANK received
+ * @wr_ptr_wait_success: log wr_ptr_wait success for release fence trigger
  */
 struct sde_encoder_phys_cmd {
 	struct sde_encoder_phys base;
@@ -379,6 +379,7 @@ struct sde_encoder_phys_cmd {
 	struct sde_encoder_phys_cmd_autorefresh autorefresh;
 	atomic_t pending_vblank_cnt;
 	wait_queue_head_t pending_vblank_wq;
+	bool wr_ptr_wait_success;
 };
 
 /**
@@ -457,11 +458,13 @@ struct sde_enc_phys_init_params {
  * sde_encoder_wait_info - container for passing arguments to irq wait functions
  * @wq: wait queue structure
  * @atomic_cnt: wait until atomic_cnt equals zero
+ * @count_check: wait for specific atomic_cnt instead of zero.
  * @timeout_ms: timeout value in milliseconds
  */
 struct sde_encoder_wait_info {
 	wait_queue_head_t *wq;
 	atomic_t *atomic_cnt;
+	u32 count_check;
 	s64 timeout_ms;
 };
 
@@ -509,6 +512,12 @@ void sde_encoder_phys_setup_cdm(struct sde_encoder_phys *phys_enc,
  */
 void sde_encoder_helper_get_pp_line_count(struct drm_encoder *drm_enc,
 		struct sde_hw_pp_vsync_info *info);
+
+/**
+ * sde_encoder_helper_needs_hw_reset - hw reset helper function
+ * @drm_enc:    Pointer to drm encoder structure
+ */
+void sde_encoder_helper_needs_hw_reset(struct drm_encoder *drm_enc);
 
 /**
  * sde_encoder_helper_trigger_flush - control flush helper function

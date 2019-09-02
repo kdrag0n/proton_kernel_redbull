@@ -112,6 +112,7 @@ struct sde_plane {
 	struct sde_hw_pipe_cfg pipe_cfg;
 	struct sde_hw_sharp_cfg sharp_cfg;
 	struct sde_hw_pipe_qos_cfg pipe_qos_cfg;
+	struct sde_vbif_set_qos_params cached_qos_params;
 	uint32_t color_fill;
 	bool is_error;
 	bool is_rt_pipe;
@@ -376,7 +377,8 @@ static void _sde_plane_set_qos_lut(struct drm_plane *plane,
 
 		if (fmt && SDE_FORMAT_IS_LINEAR(fmt))
 			lut_usage = SDE_QOS_LUT_USAGE_LINEAR;
-		else if (psde->features & BIT(SDE_SSPP_SCALER_QSEED3))
+		else if (psde->features & BIT(SDE_SSPP_SCALER_QSEED3) ||
+			psde->features & BIT(SDE_SSPP_SCALER_QSEED3LITE))
 			lut_usage = SDE_QOS_LUT_USAGE_MACROTILE_QSEED;
 		else
 			lut_usage = SDE_QOS_LUT_USAGE_MACROTILE;
@@ -626,8 +628,9 @@ static void _sde_plane_set_ot_limit(struct drm_plane *plane,
 /**
  * _sde_plane_set_vbif_qos - set vbif QoS for the given plane
  * @plane:		Pointer to drm plane
+ * @force:		Force update of vbif QoS
  */
-static void _sde_plane_set_qos_remap(struct drm_plane *plane)
+static void _sde_plane_set_qos_remap(struct drm_plane *plane, bool force)
 {
 	struct sde_plane *psde;
 	struct sde_vbif_set_qos_params qos_params;
@@ -659,6 +662,15 @@ static void _sde_plane_set_qos_remap(struct drm_plane *plane)
 	qos_params.num = psde->pipe_hw->idx - SSPP_VIG0;
 	qos_params.client_type = psde->is_rt_pipe ?
 					VBIF_RT_CLIENT : VBIF_NRT_CLIENT;
+
+	if (!force && !memcmp(&qos_params, &psde->cached_qos_params,
+			sizeof(struct sde_vbif_set_qos_params))) {
+		return;
+	}
+	SDE_DEBUG("changes in vbif QoS parameters, remap it\n");
+
+	memcpy(&psde->cached_qos_params, &qos_params,
+			sizeof(struct sde_vbif_set_qos_params));
 
 	SDE_DEBUG("plane%d pipe:%d vbif:%d xin:%d rt:%d, clk_ctrl:%d\n",
 			plane->base.id, qos_params.num,
@@ -765,8 +777,9 @@ int sde_plane_wait_input_fence(struct drm_plane *plane, uint32_t wait_ms)
 
 			switch (rc) {
 			case 0:
-				SDE_ERROR_PLANE(psde, "%ums timeout on %08X\n",
-						wait_ms, prefix);
+				SDE_ERROR_PLANE(psde, "%ums timeout on %08X fd %d\n",
+						wait_ms, prefix, sde_plane_get_property(pstate,
+						PLANE_PROP_INPUT_FENCE));
 				psde->is_error = true;
 				sde_kms_timeline_status(plane->dev);
 				ret = -ETIMEDOUT;
@@ -1424,7 +1437,7 @@ static void _sde_plane_setup_scaler(struct sde_plane *psde,
 				_sde_plane_setup_scaler3_lut(psde, pstate);
 		if (rc || pstate->scaler_check_state !=
 					SDE_PLANE_SCLCHECK_SCALER_V2) {
-			SDE_EVT32(DRMID(&psde->base), color_fill,
+			SDE_EVT32_VERBOSE(DRMID(&psde->base), color_fill,
 					pstate->scaler_check_state,
 					psde->debugfs_default_scale, rc,
 					psde->pipe_cfg.src_rect.w,
@@ -1749,7 +1762,7 @@ void sde_plane_secure_ctrl_xin_client(struct drm_plane *plane,
 		return;
 
 	/* do all VBIF programming for the sec-ui allowed SSPP */
-	_sde_plane_set_qos_remap(plane);
+	_sde_plane_set_qos_remap(plane, true);
 	_sde_plane_set_ot_limit(plane, crtc);
 }
 
@@ -2414,10 +2427,7 @@ static int _sde_atomic_check_decimation_scaler(struct drm_plane_state *state,
 	max_linewidth = psde->pipe_sblk->maxlinewidth;
 
 	crtc = state->crtc;
-	if (crtc)
-		rt_client = (sde_crtc_get_client_type(crtc) != NRT_CLIENT);
-	else
-		rt_client = true;
+	rt_client = sde_crtc_is_rt_client(crtc);
 
 	max_downscale_denom = 1;
 	/* inline rotation RT clients have a different max downscaling limit */
@@ -2536,8 +2546,7 @@ static int sde_plane_sspp_atomic_check(struct drm_plane *plane,
 
 	if (!psde->pipe_sblk) {
 		SDE_ERROR_PLANE(psde, "invalid catalog\n");
-		ret = -EINVAL;
-		goto exit;
+		return -EINVAL;
 	}
 
 	/* src values are in Q16 fixed point, convert to integer */
@@ -2605,6 +2614,9 @@ static int sde_plane_sspp_atomic_check(struct drm_plane *plane,
 		ret = -EINVAL;
 	}
 
+	if (ret)
+		return ret;
+
 	ret = _sde_atomic_check_decimation_scaler(state, psde, fmt, pstate,
 		&src, &dst, width, height);
 
@@ -2626,7 +2638,6 @@ modeset_update:
 	if (!ret)
 		_sde_plane_sspp_atomic_check_mode_changed(psde,
 				state, plane->state);
-exit:
 	return ret;
 }
 
@@ -2830,7 +2841,8 @@ static void _sde_plane_setup_uidle(struct drm_crtc *crtc,
 			line_time, fal1_target_idle_time_ns,
 			fal10_target_idle_time_ns,
 			psde->catalog->uidle_cfg.max_dwnscale);
-	SDE_EVT32(cfg.enable, cfg.fal10_threshold, cfg.fal10_exit_threshold,
+	SDE_EVT32_VERBOSE(cfg.enable,
+		cfg.fal10_threshold, cfg.fal10_exit_threshold,
 		cfg.fal1_threshold, cfg.fal_allowed_threshold,
 		psde->catalog->uidle_cfg.max_dwnscale);
 
@@ -3049,6 +3061,10 @@ static void _sde_plane_update_properties(struct drm_plane *plane,
 	state = plane->state;
 
 	pstate = to_sde_plane_state(state);
+	if (!pstate) {
+		SDE_ERROR("invalid plane state for plane%d\n", DRMID(plane));
+		return;
+	}
 
 	msm_fmt = msm_framebuffer_format(fb);
 	if (!msm_fmt) {
@@ -3090,7 +3106,10 @@ static void _sde_plane_update_properties(struct drm_plane *plane,
 			_sde_plane_set_ts_prefill(plane, pstate);
 	}
 
-	_sde_plane_set_qos_remap(plane);
+	if ((pstate->dirty & SDE_PLANE_DIRTY_ALL) == SDE_PLANE_DIRTY_ALL)
+		_sde_plane_set_qos_remap(plane, true);
+	else
+		_sde_plane_set_qos_remap(plane, false);
 
 	/* clear dirty */
 	pstate->dirty = 0x0;
@@ -3189,7 +3208,7 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 		return 0;
 	pstate->pending = true;
 
-	psde->is_rt_pipe = (sde_crtc_get_client_type(crtc) != NRT_CLIENT);
+	psde->is_rt_pipe = sde_crtc_is_rt_client(crtc);
 	_sde_plane_set_qos_ctrl(plane, false, SDE_PLANE_QOS_PANIC_CTRL);
 
 	_sde_plane_update_properties(plane, crtc, fb);

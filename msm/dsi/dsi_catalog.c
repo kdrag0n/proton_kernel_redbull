@@ -3,7 +3,6 @@
  * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  */
 
-#define pr_fmt(fmt) "msm-dsi-catalog:[%s] " fmt, __func__
 #include <linux/errno.h>
 
 #include "dsi_catalog.h"
@@ -62,6 +61,9 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle;
 	ctrl->ops.setup_avr = dsi_ctrl_hw_cmn_setup_avr;
 	ctrl->ops.set_continuous_clk = dsi_ctrl_hw_cmn_set_continuous_clk;
+	ctrl->ops.wait4dynamic_refresh_done =
+		dsi_ctrl_hw_cmn_wait4dynamic_refresh_done;
+	ctrl->ops.hs_req_sel = dsi_ctrl_hw_cmn_hs_req_sel;
 
 	switch (version) {
 	case DSI_CTRL_VERSION_1_4:
@@ -77,7 +79,6 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		ctrl->ops.reg_dump_to_buffer =
 			dsi_ctrl_hw_14_reg_dump_to_buffer;
 		ctrl->ops.schedule_dma_cmd = NULL;
-		ctrl->ops.get_cont_splash_status = NULL;
 		ctrl->ops.kickoff_command_non_embedded_mode = NULL;
 		ctrl->ops.config_clk_gating = NULL;
 		break;
@@ -93,7 +94,6 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		ctrl->ops.clamp_enable = NULL;
 		ctrl->ops.clamp_disable = NULL;
 		ctrl->ops.schedule_dma_cmd = NULL;
-		ctrl->ops.get_cont_splash_status = NULL;
 		ctrl->ops.kickoff_command_non_embedded_mode = NULL;
 		ctrl->ops.config_clk_gating = NULL;
 		break;
@@ -102,8 +102,6 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 	case DSI_CTRL_VERSION_2_4:
 		ctrl->ops.phy_reset_config = dsi_ctrl_hw_22_phy_reset_config;
 		ctrl->ops.config_clk_gating = dsi_ctrl_hw_22_config_clk_gating;
-		ctrl->ops.get_cont_splash_status =
-			dsi_ctrl_hw_22_get_cont_splash_status;
 		ctrl->ops.setup_lane_map = dsi_ctrl_hw_20_setup_lane_map;
 		ctrl->ops.wait_for_lane_idle =
 			dsi_ctrl_hw_20_wait_for_lane_idle;
@@ -144,7 +142,7 @@ int dsi_catalog_ctrl_setup(struct dsi_ctrl_hw *ctrl,
 
 	if (version == DSI_CTRL_VERSION_UNKNOWN ||
 	    version >= DSI_CTRL_VERSION_MAX) {
-		pr_err("Unsupported version: %d\n", version);
+		DSI_ERR("Unsupported version: %d\n", version);
 		return -ENOTSUPP;
 	}
 
@@ -219,6 +217,14 @@ static void dsi_catalog_phy_3_0_init(struct dsi_phy_hw *phy)
 	phy->ops.clamp_ctrl = dsi_phy_hw_v3_0_clamp_ctrl;
 	phy->ops.phy_lane_reset = dsi_phy_hw_v3_0_lane_reset;
 	phy->ops.toggle_resync_fifo = dsi_phy_hw_v3_0_toggle_resync_fifo;
+	phy->ops.dyn_refresh_ops.dyn_refresh_config =
+		dsi_phy_hw_v3_0_dyn_refresh_config;
+	phy->ops.dyn_refresh_ops.dyn_refresh_pipe_delay =
+		dsi_phy_hw_v3_0_dyn_refresh_pipe_delay;
+	phy->ops.dyn_refresh_ops.dyn_refresh_helper =
+		dsi_phy_hw_v3_0_dyn_refresh_helper;
+	phy->ops.dyn_refresh_ops.cache_phy_timings =
+		dsi_phy_hw_v3_0_cache_phy_timings;
 }
 
 /**
@@ -246,6 +252,16 @@ static void dsi_catalog_phy_4_0_init(struct dsi_phy_hw *phy)
 	phy->ops.phy_lane_reset = dsi_phy_hw_v4_0_lane_reset;
 	phy->ops.toggle_resync_fifo = dsi_phy_hw_v4_0_toggle_resync_fifo;
 	phy->ops.reset_clk_en_sel = dsi_phy_hw_v4_0_reset_clk_en_sel;
+
+	phy->ops.dyn_refresh_ops.dyn_refresh_config =
+		dsi_phy_hw_v4_0_dyn_refresh_config;
+	phy->ops.dyn_refresh_ops.dyn_refresh_pipe_delay =
+		dsi_phy_hw_v4_0_dyn_refresh_pipe_delay;
+	phy->ops.dyn_refresh_ops.dyn_refresh_helper =
+		dsi_phy_hw_v4_0_dyn_refresh_helper;
+	phy->ops.dyn_refresh_ops.cache_phy_timings =
+		dsi_phy_hw_v4_0_cache_phy_timings;
+	phy->ops.set_continuous_clk = dsi_phy_hw_v4_0_set_continuous_clk;
 }
 
 /**
@@ -266,7 +282,7 @@ int dsi_catalog_phy_setup(struct dsi_phy_hw *phy,
 
 	if (version == DSI_PHY_VERSION_UNKNOWN ||
 	    version >= DSI_PHY_VERSION_MAX) {
-		pr_err("Unsupported version: %d\n", version);
+		DSI_ERR("Unsupported version: %d\n", version);
 		return -ENOTSUPP;
 	}
 

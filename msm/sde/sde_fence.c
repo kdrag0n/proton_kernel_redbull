@@ -325,9 +325,8 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 							uint32_t offset)
 {
 	uint32_t trigger_value;
-	int fd = -1, rc = -EINVAL;
+	int fd, rc = -EINVAL;
 	unsigned long flags;
-	struct sde_fence *fc;
 
 	if (!ctx || !val) {
 		SDE_ERROR("invalid argument(s), fence %d, pval %d\n",
@@ -347,22 +346,10 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 	trigger_value = ctx->commit_count + offset;
 	spin_unlock_irqrestore(&ctx->lock, flags);
 
-	spin_lock(&ctx->list_lock);
-	list_for_each_entry(fc, &ctx->fence_list_head, fence_list) {
-		if (trigger_value == fc->base.seqno) {
-			fd = fc->fd;
-			*val = fd;
-			break;
-		}
-	}
-	spin_unlock(&ctx->list_lock);
-
-	if (fd < 0) {
-		fd = _sde_fence_create_fd(ctx, trigger_value);
-		*val = fd;
-		SDE_DEBUG("fd:%d trigger:%d commit:%d offset:%d\n",
-				fd, trigger_value, ctx->commit_count, offset);
-	}
+	fd = _sde_fence_create_fd(ctx, trigger_value);
+	*val = fd;
+	SDE_DEBUG("fd:%d trigger:%d commit:%d offset:%d\n",
+			fd, trigger_value, ctx->commit_count, offset);
 
 	SDE_EVT32(ctx->drm_id, trigger_value, fd);
 	rc = (fd >= 0) ? 0 : fd;
@@ -383,13 +370,13 @@ void sde_fence_signal(struct sde_fence_context *ctx, ktime_t ts,
 	spin_lock_irqsave(&ctx->lock, flags);
 	if (fence_event == SDE_FENCE_RESET_TIMELINE) {
 		if ((int)(ctx->done_count - ctx->commit_count) < 0) {
-			SDE_ERROR(
-				"timeline reset attempt! done count:%d commit:%d\n",
+			SDE_DEBUG(
+			  "timeline reset attempt! done count:%d commit:%d\n",
 				ctx->done_count, ctx->commit_count);
 			ctx->done_count = ctx->commit_count;
 			SDE_EVT32(ctx->drm_id, ctx->done_count,
 				ctx->commit_count, ktime_to_us(ts),
-				fence_event, SDE_EVTLOG_FATAL);
+				fence_event, SDE_EVTLOG_FUNC_CASE1);
 		} else {
 			spin_unlock_irqrestore(&ctx->lock, flags);
 			return;

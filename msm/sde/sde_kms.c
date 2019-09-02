@@ -1060,7 +1060,7 @@ retry:
 
 	/* old_state actually contains updated crtc pointers */
 	for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i) {
-		if (crtc->state->active)
+		if (crtc->state->active || crtc->state->active_changed)
 			sde_crtc_prepare_commit(crtc, old_crtc_state);
 	}
 
@@ -1222,11 +1222,13 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 		.post_init  = dp_connector_post_init,
 		.detect     = dp_connector_detect,
 		.get_modes  = dp_connector_get_modes,
+		.atomic_check = dp_connector_atomic_check,
 		.mode_valid = dp_connector_mode_valid,
 		.get_info   = dp_connector_get_info,
 		.get_mode_info  = dp_connector_get_mode_info,
 		.post_open  = dp_connector_post_open,
 		.check_status = NULL,
+		.set_colorspace = dp_connector_set_colorspace,
 		.config_hdr = dp_connector_config_hdr,
 		.cmd_transfer = NULL,
 		.cont_splash_config = NULL,
@@ -1280,7 +1282,7 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 
 		connector = sde_connector_init(dev,
 					encoder,
-					0,
+					dsi_display_get_drm_panel(display),
 					display,
 					&dsi_ops,
 					DRM_CONNECTOR_POLL_HPD,
@@ -1292,8 +1294,19 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 			SDE_ERROR("dsi %d connector init failed\n", i);
 			dsi_display_drm_bridge_deinit(display);
 			sde_encoder_destroy(encoder);
+			continue;
+		}
+
+		rc = dsi_display_drm_ext_bridge_init(display,
+					encoder, connector);
+		if (rc) {
+			SDE_ERROR("dsi %d ext bridge init failed\n", rc);
+			dsi_display_drm_bridge_deinit(display);
+			sde_connector_destroy(connector);
+			sde_encoder_destroy(encoder);
 		}
 	}
+
 
 	/* wb */
 	for (i = 0; i < sde_kms->wb_display_count &&
@@ -1680,6 +1693,11 @@ static void _sde_kms_hw_destroy(struct sde_kms *sde_kms,
 	if (sde_kms->sid)
 		msm_iounmap(pdev, sde_kms->sid);
 	sde_kms->sid = NULL;
+
+	if (sde_kms->sw_fuse)
+		msm_iounmap(pdev, sde_kms->sw_fuse);
+	sde_hw_sw_fuse_destroy(sde_kms->sw_fuse);
+	sde_kms->sw_fuse = NULL;
 
 	if (sde_kms->reg_dma)
 		msm_iounmap(pdev, sde_kms->reg_dma);
@@ -2193,7 +2211,6 @@ static void _sde_kms_post_open(struct msm_kms *kms, struct drm_file *file)
 	struct drm_connector *connector = NULL;
 	struct drm_connector_list_iter conn_iter;
 	struct sde_connector *sde_conn = NULL;
-	int i;
 
 	if (!kms) {
 		SDE_ERROR("invalid kms\n");
@@ -2210,18 +2227,6 @@ static void _sde_kms_post_open(struct msm_kms *kms, struct drm_file *file)
 
 	if (!dev->mode_config.poll_enabled)
 		return;
-
-	/* init external dsi bridge here to make sure ext bridge is probed*/
-	for (i = 0; i < sde_kms->dsi_display_count; ++i) {
-		struct dsi_display *dsi_display;
-
-		dsi_display = sde_kms->dsi_displays[i];
-		if (dsi_display->bridge) {
-			dsi_display_drm_ext_bridge_init(dsi_display,
-				dsi_display->bridge->base.encoder,
-				dsi_display->drm_conn);
-		}
-	}
 
 	mutex_lock(&dev->mode_config.mutex);
 	drm_connector_list_iter_begin(dev, &conn_iter);
@@ -3098,6 +3103,19 @@ static int _sde_kms_hw_init_ioremap(struct sde_kms *sde_kms,
 	if (rc)
 		SDE_ERROR("dbg base register sid failed: %d\n", rc);
 
+	sde_kms->sw_fuse = msm_ioremap(platformdev, "swfuse_phys",
+					"swfuse_phys");
+	if (IS_ERR(sde_kms->sw_fuse)) {
+		sde_kms->sw_fuse = NULL;
+		SDE_DEBUG("sw_fuse is not defined");
+	} else {
+		sde_kms->sw_fuse_len = msm_iomap_size(platformdev,
+							"swfuse_phys");
+		rc =  sde_dbg_reg_register_base("sw_fuse", sde_kms->sw_fuse,
+						sde_kms->sw_fuse_len);
+		if (rc)
+			SDE_ERROR("dbg base register sw_fuse failed: %d\n", rc);
+	}
 error:
 	return rc;
 }
@@ -3282,6 +3300,17 @@ static int _sde_kms_hw_init_blocks(struct sde_kms *sde_kms,
 		goto perf_err;
 	}
 
+	if (sde_kms->sw_fuse) {
+		sde_kms->hw_sw_fuse = sde_hw_sw_fuse_init(sde_kms->sw_fuse,
+				sde_kms->sw_fuse_len, sde_kms->catalog);
+		if (IS_ERR(sde_kms->hw_sw_fuse)) {
+			SDE_ERROR("failed to init sw_fuse %ld\n",
+					PTR_ERR(sde_kms->hw_sw_fuse));
+			sde_kms->hw_sw_fuse = NULL;
+		}
+	} else {
+		sde_kms->hw_sw_fuse = NULL;
+	}
 	/*
 	 * _sde_kms_drm_obj_init should create the DRM related objects
 	 * i.e. CRTCs, planes, encoders, connectors and so forth

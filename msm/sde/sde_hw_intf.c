@@ -368,13 +368,13 @@ static void sde_hw_intf_bind_pingpong_blk(
 	mux_cfg = SDE_REG_READ(c, INTF_MUX);
 	mux_cfg &= ~0xf;
 
-	if (enable)
+	if (enable) {
 		mux_cfg |= (pp - PINGPONG_0) & 0x7;
-	else
-		mux_cfg |= 0xf;
-
-	if (intf->cfg.split_link_en)
-		mux_cfg = 0x60000;
+		if (intf->cfg.split_link_en)
+			mux_cfg = 0x60000;
+	} else {
+		mux_cfg = 0xf000f;
+	}
 
 	SDE_REG_WRITE(c, INTF_MUX, mux_cfg);
 }
@@ -627,6 +627,9 @@ static int sde_hw_intf_get_vsync_info(struct sde_hw_intf *intf,
 
 	val = SDE_REG_READ(c, INTF_TEAR_LINE_COUNT);
 	info->wr_ptr_line_count = val & 0xffff;
+
+	val = SDE_REG_READ(c, INTF_FRAME_COUNT);
+	info->intf_frame_count = val;
 
 	return 0;
 }

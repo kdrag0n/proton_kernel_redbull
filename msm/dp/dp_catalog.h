@@ -6,6 +6,7 @@
 #ifndef _DP_CATALOG_H_
 #define _DP_CATALOG_H_
 
+#include <drm/drm_dp_helper.h>
 #include <drm/msm_drm.h>
 
 #include "dp_parser.h"
@@ -39,32 +40,9 @@ enum dp_stream_id {
 	DP_STREAM_MAX,
 };
 
-struct dp_catalog_hdr_data {
-	u32 vsc_header_byte0;
-	u32 vsc_header_byte1;
-	u32 vsc_header_byte2;
-	u32 vsc_header_byte3;
-
-	u32 vscext_header_byte0;
-	u32 vscext_header_byte1;
-	u32 vscext_header_byte2;
-	u32 vscext_header_byte3;
-
-	u32 shdr_header_byte0;
-	u32 shdr_header_byte1;
-	u32 shdr_header_byte2;
-	u32 shdr_header_byte3;
-
-	u32 bpc;
-
-	u32 version;
-	u32 length;
-	u32 pixel_encoding;
-	u32 colorimetry;
-	u32 dynamic_range;
-	u32 content_type;
-
-	struct drm_msm_ext_hdr_metadata hdr_meta;
+struct dp_catalog_vsc_sdp_colorimetry {
+	struct dp_sdp_header header;
+	u8 data[32];
 };
 
 struct dp_catalog_aux {
@@ -121,6 +99,9 @@ struct dp_catalog_ctrl {
 			u32 ch, u32 ch_start_timeslot, u32 tot_ch_cnt);
 	void (*fec_config)(struct dp_catalog_ctrl *ctrl, bool enable);
 	void (*mainlink_levels)(struct dp_catalog_ctrl *ctrl, u8 lane_cnt);
+
+	int (*late_phy_init)(struct dp_catalog_ctrl *ctrl,
+					u8 lane_cnt, bool flipped);
 };
 
 struct dp_catalog_hpd {
@@ -194,7 +175,10 @@ struct dp_catalog_panel {
 	u8 *spd_vendor_name;
 	u8 *spd_product_description;
 
-	struct dp_catalog_hdr_data hdr_data;
+	struct dp_catalog_vsc_sdp_colorimetry vsc_colorimetry;
+	struct dp_sdp_header dhdr_vsif_sdp;
+	struct dp_sdp_header shdr_if_sdp;
+	struct drm_msm_ext_hdr_metadata hdr_meta;
 
 	/* TPG */
 	u32 hsync_period;
@@ -219,7 +203,10 @@ struct dp_catalog_panel {
 
 	int (*timing_cfg)(struct dp_catalog_panel *panel);
 	void (*config_hdr)(struct dp_catalog_panel *panel, bool en,
-			u32 dhdr_max_pkts);
+		u32 dhdr_max_pkts, bool flush);
+	void (*config_sdp)(struct dp_catalog_panel *panel, bool en);
+	int (*set_colorspace)(struct dp_catalog_panel *panel,
+		 bool vsc_supported);
 	void (*tpg_config)(struct dp_catalog_panel *panel, bool enable);
 	void (*config_spd)(struct dp_catalog_panel *panel);
 	void (*config_misc)(struct dp_catalog_panel *panel);
@@ -235,11 +222,29 @@ struct dp_catalog_panel {
 };
 
 struct dp_catalog;
-struct dp_catalog_priv {
-	void *data;
+struct dp_catalog_sub {
+	u32 (*read)(struct dp_catalog *dp_catalog,
+		struct dp_io_data *io_data, u32 offset);
+	void (*write)(struct dp_catalog *dp_catalog,
+		struct dp_io_data *io_data, u32 offset, u32 data);
 
 	void (*put)(struct dp_catalog *catalog);
-	void (*set_exe_mode)(struct dp_catalog *dp_catalog, char *mode);
+};
+
+struct dp_catalog_io {
+	struct dp_io_data *dp_ahb;
+	struct dp_io_data *dp_aux;
+	struct dp_io_data *dp_link;
+	struct dp_io_data *dp_p0;
+	struct dp_io_data *dp_phy;
+	struct dp_io_data *dp_ln_tx0;
+	struct dp_io_data *dp_ln_tx1;
+	struct dp_io_data *dp_mmss_cc;
+	struct dp_io_data *dp_pll;
+	struct dp_io_data *usb3_dp_com;
+	struct dp_io_data *hdcp_physical;
+	struct dp_io_data *dp_p1;
+	struct dp_io_data *dp_tcsr;
 };
 
 struct dp_catalog {
@@ -247,8 +252,9 @@ struct dp_catalog {
 	struct dp_catalog_ctrl ctrl;
 	struct dp_catalog_audio audio;
 	struct dp_catalog_panel panel;
-	struct dp_catalog_priv priv;
 	struct dp_catalog_hpd hpd;
+
+	struct dp_catalog_sub *sub;
 
 	void (*set_exe_mode)(struct dp_catalog *dp_catalog, char *mode);
 	int (*get_reg_dump)(struct dp_catalog *dp_catalog,
@@ -320,40 +326,13 @@ static inline u8 dp_header_get_parity(u32 data)
 	return parity_byte;
 }
 
-static inline u32 dp_read(char *exe_mode, struct dp_io_data *io_data,
-				u32 offset)
-{
-	u32 data = 0;
-
-	if (!strcmp(exe_mode, "hw") || !strcmp(exe_mode, "all")) {
-		data = readl_relaxed(io_data->io.base + offset);
-	} else if (!strcmp(exe_mode, "sw")) {
-		if (io_data->buf)
-			memcpy(&data, io_data->buf + offset, sizeof(offset));
-	}
-
-	return data;
-}
-
-static inline void dp_write(char *exe_mode, struct dp_io_data *io_data,
-				u32 offset, u32 data)
-{
-	if (!strcmp(exe_mode, "hw") || !strcmp(exe_mode, "all"))
-		writel_relaxed(data, io_data->io.base + offset);
-
-	if (!strcmp(exe_mode, "sw") || !strcmp(exe_mode, "all")) {
-		if (io_data->buf)
-			memcpy(io_data->buf + offset, &data, sizeof(data));
-	}
-}
-
 struct dp_catalog *dp_catalog_get(struct device *dev, struct dp_parser *parser);
 void dp_catalog_put(struct dp_catalog *catalog);
 
-int dp_catalog_get_v420(struct device *dev, struct dp_catalog *catalog,
-		void *io);
+struct dp_catalog_sub *dp_catalog_get_v420(struct device *dev,
+			struct dp_catalog *catalog, struct dp_catalog_io *io);
 
-int dp_catalog_get_v200(struct device *dev, struct dp_catalog *catalog,
-		void *io);
+struct dp_catalog_sub *dp_catalog_get_v200(struct device *dev,
+			struct dp_catalog *catalog, struct dp_catalog_io *io);
 
 #endif /* _DP_CATALOG_H_ */
