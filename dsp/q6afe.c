@@ -1292,7 +1292,7 @@ static int q6afe_get_params_v2(u16 port_id, int index,
 	afe_get_param.apr_hdr.hdr_field =
 		APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD, APR_HDR_LEN(APR_HDR_SIZE),
 			      APR_PKT_VER);
-	afe_get_param.apr_hdr.pkt_size = sizeof(afe_get_param) + param_size;
+	afe_get_param.apr_hdr.pkt_size = sizeof(afe_get_param);
 	afe_get_param.apr_hdr.src_port = 0;
 	afe_get_param.apr_hdr.dest_port = 0;
 	afe_get_param.apr_hdr.token = index;
@@ -3364,6 +3364,36 @@ int afe_send_slot_mapping_cfg(
 	return ret;
 }
 
+int afe_send_slot_mapping_cfg_v2(
+	struct afe_param_id_slot_mapping_cfg_v2 *slot_mapping_cfg,
+	u16 port_id)
+{
+	struct param_hdr_v3 param_hdr;
+	int ret = 0;
+
+	if (!slot_mapping_cfg) {
+		pr_err("%s: Error, no configuration data\n", __func__);
+		return -EINVAL;
+	}
+
+	pr_debug("%s: port id: 0x%x\n", __func__, port_id);
+
+	memset(&param_hdr, 0, sizeof(param_hdr));
+	param_hdr.module_id = AFE_MODULE_TDM;
+	param_hdr.instance_id = INSTANCE_ID_0;
+	param_hdr.param_id = AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG;
+	param_hdr.param_size = sizeof(struct afe_param_id_slot_mapping_cfg_v2);
+
+	ret = q6afe_pack_and_set_param_in_band(port_id,
+					       q6audio_get_port_index(port_id),
+					       param_hdr,
+					       (u8 *) slot_mapping_cfg);
+	if (ret < 0)
+		pr_err("%s: AFE send slot mapping for port 0x%x failed ret = %d\n",
+				__func__, port_id, ret);
+	return ret;
+}
+
 int afe_send_custom_tdm_header_cfg(
 	struct afe_param_id_custom_tdm_header_cfg *custom_tdm_header_cfg,
 	u16 port_id)
@@ -3503,8 +3533,15 @@ int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 		goto fail_cmd;
 	}
 
-	ret = afe_send_slot_mapping_cfg(&tdm_port->slot_mapping,
-					port_id);
+	if (q6core_get_avcs_api_version_per_service(
+		APRV2_IDS_SERVICE_ID_ADSP_AFE_V) >= AFE_API_VERSION_V3)
+		ret = afe_send_slot_mapping_cfg_v2(
+				&tdm_port->slot_mapping_v2, port_id);
+	else
+		ret = afe_send_slot_mapping_cfg(
+				&tdm_port->slot_mapping,
+				port_id);
+
 	if (ret < 0) {
 		pr_err("%s: afe send failed %d\n", __func__, ret);
 		goto fail_cmd;
@@ -4293,18 +4330,28 @@ exit:
 	return ret;
 }
 
-int afe_set_tws_channel_mode(u16 port_id, u32 channel_mode)
+int afe_set_tws_channel_mode(u32 format, u16 port_id, u32 channel_mode)
 {
 	struct aptx_channel_mode_param_t channel_mode_param;
 	struct param_hdr_v3 param_info;
 	int ret = 0;
+	u32 param_id = 0;
+
+	if (format == ASM_MEDIA_FMT_APTX) {
+		param_id = CAPI_V2_PARAM_ID_APTX_ENC_SWITCH_TO_MONO;
+	} else if (format == ASM_MEDIA_FMT_APTX_ADAPTIVE) {
+		param_id = CAPI_V2_PARAM_ID_APTX_AD_ENC_SWITCH_TO_MONO;
+	} else {
+		pr_err("%s: Not supported format 0x%x\n", __func__, format);
+		return -EINVAL;
+	}
 
 	memset(&param_info, 0, sizeof(param_info));
 	memset(&channel_mode_param, 0, sizeof(channel_mode_param));
 
 	param_info.module_id = AFE_MODULE_ID_ENCODER;
 	param_info.instance_id = INSTANCE_ID_0;
-	param_info.param_id = CAPI_V2_PARAM_ID_APTX_ENC_SWITCH_TO_MONO;
+	param_info.param_id = param_id;
 	param_info.param_size = sizeof(channel_mode_param);
 
 	channel_mode_param.channel_mode = channel_mode;
@@ -8456,6 +8503,7 @@ static int afe_set_cal_sp_th_vi_cfg(int32_t cal_type, size_t data_size,
 	uint32_t mode;
 
 	if (cal_data == NULL ||
+	    data_size != sizeof(*cal_data) ||
 	    this_afe.cal_data[AFE_FB_SPKR_PROT_TH_VI_CAL] == NULL)
 		goto done;
 
@@ -8599,6 +8647,7 @@ static int afe_get_cal_sp_th_vi_param(int32_t cal_type, size_t data_size,
 	int ret = 0;
 
 	if (cal_data == NULL ||
+	    data_size != sizeof(*cal_data) ||
 	    this_afe.cal_data[AFE_FB_SPKR_PROT_TH_VI_CAL] == NULL)
 		return 0;
 

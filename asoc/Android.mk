@@ -3,14 +3,22 @@
 # Assume no targets will be supported
 
 # Check if this driver needs be built for current target
-ifeq ($(call is-board-platform,msmnile),true)
+ifeq ($(call is-board-platform-in-list,msmnile sdmshrike),true)
 TARGET := msmnile
+ifeq ($(TARGET_BOARD_AUTO),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
+endif
 endif
 
 ifeq ($(call is-board-platform,$(MSMSTEPPE)),true)
 TARGET := talos
+ifeq ($(TARGET_BOARD_AUTO),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SA6155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM6150=m
+endif
 endif
 
 ifeq ($(call is-board-platform,$(TRINKET)),true)
@@ -30,7 +38,7 @@ endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito),true)
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) kona lito bengal sdmshrike),true)
 
 LOCAL_PATH := $(call my-dir)
 

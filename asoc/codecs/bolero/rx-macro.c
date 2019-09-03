@@ -764,9 +764,10 @@ static int rx_macro_set_port_map(struct snd_soc_component *component,
 	port_cfg.size = size;
 	port_cfg.params = data;
 
-	ret = swrm_wcd_notify(
-		rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-		SWR_SET_PORT_MAP, &port_cfg);
+	if (rx_priv->swr_ctrl_data)
+		ret = swrm_wcd_notify(
+			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
+			SWR_SET_PORT_MAP, &port_cfg);
 
 	return ret;
 }
@@ -1146,22 +1147,12 @@ static int rx_macro_mclk_event(struct snd_soc_dapm_widget *w,
 	dev_dbg(rx_dev, "%s: event = %d\n", __func__, event);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		/* if swr_clk_users > 0, call device down */
-		if (rx_priv->swr_clk_users > 0) {
-			if ((rx_priv->clk_id == rx_priv->default_clk_id &&
-			     rx_priv->is_native_on) ||
-			    (rx_priv->clk_id == RX_CORE_CLK &&
-			     !rx_priv->is_native_on)) {
-				swrm_wcd_notify(
-				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-				SWR_DEVICE_DOWN, NULL);
-			}
-		}
 		if (rx_priv->is_native_on)
 			mclk_freq = MCLK_FREQ_NATIVE;
-		swrm_wcd_notify(
-			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-			SWR_CLK_FREQ, &mclk_freq);
+		if (rx_priv->swr_ctrl_data)
+			swrm_wcd_notify(
+				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
+				SWR_CLK_FREQ, &mclk_freq);
 		ret = rx_macro_mclk_enable(rx_priv, 1, true);
 		if (ret)
 			rx_priv->dapm_mclk_enable = false;
@@ -1205,6 +1196,17 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component, reg_mix,
 				0x10, val);
 		break;
+	case BOLERO_MACRO_EVT_RX_COMPANDER_SOFT_RST:
+		rx_idx = data >> 0x10;
+		if (rx_idx == INTERP_AUX)
+			goto done;
+		reg = BOLERO_CDC_RX_COMPANDER0_CTL0 +
+				(rx_idx * RX_MACRO_COMP_OFFSET);
+		snd_soc_component_update_bits(component, reg,
+				0x20, 0x20);
+		snd_soc_component_update_bits(component, reg,
+				0x20, 0x00);
+		break;
 	case BOLERO_MACRO_EVT_IMPED_TRUE:
 		rx_macro_wcd_clsh_imped_config(component, data, true);
 		break;
@@ -1213,12 +1215,23 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 		break;
 	case BOLERO_MACRO_EVT_SSR_DOWN:
 		rx_priv->dev_up = false;
-		swrm_wcd_notify(
-			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-			SWR_DEVICE_DOWN, NULL);
-		swrm_wcd_notify(
-			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-			SWR_DEVICE_SSR_DOWN, NULL);
+		if (rx_priv->swr_ctrl_data) {
+			swrm_wcd_notify(
+				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
+				SWR_DEVICE_DOWN, NULL);
+			swrm_wcd_notify(
+				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
+				SWR_DEVICE_SSR_DOWN, NULL);
+		}
+		if ((!pm_runtime_enabled(rx_dev) ||
+		     !pm_runtime_suspended(rx_dev))) {
+			ret = bolero_runtime_suspend(rx_dev);
+			if (!ret) {
+				pm_runtime_disable(rx_dev);
+				pm_runtime_set_suspended(rx_dev);
+				pm_runtime_enable(rx_dev);
+			}
+		}
 		break;
 	case BOLERO_MACRO_EVT_SSR_UP:
 		rx_priv->dev_up = true;
@@ -1237,14 +1250,16 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 						rx_priv->default_clk_id,
 						RX_CORE_CLK, false);
 
-		swrm_wcd_notify(
-			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
-			SWR_DEVICE_SSR_UP, NULL);
+		if (rx_priv->swr_ctrl_data)
+			swrm_wcd_notify(
+				rx_priv->swr_ctrl_data[0].rx_swr_pdev,
+				SWR_DEVICE_SSR_UP, NULL);
 		break;
 	case BOLERO_MACRO_EVT_CLK_RESET:
 		bolero_rsc_clk_reset(rx_dev, RX_CORE_CLK);
 		break;
 	}
+done:
 	return ret;
 }
 
@@ -2242,6 +2257,9 @@ static int rx_macro_enable_interp_clk(struct snd_soc_component *component,
 		rx_priv->main_clk_users[interp_idx]--;
 		if (rx_priv->main_clk_users[interp_idx] <= 0) {
 			rx_priv->main_clk_users[interp_idx] = 0;
+			/* Main path PGA mute enable */
+			snd_soc_component_update_bits(component, main_reg,
+					0x10, 0x10);
 			/* Clk Disable */
 			snd_soc_component_update_bits(component, dsm_reg,
 						0x01, 0x00);
@@ -3573,6 +3591,8 @@ static int rx_macro_probe(struct platform_device *pdev)
 	int ret = 0;
 	u8 bcl_pmic_params[3];
 	u32 default_clk_id = 0;
+	u32 is_used_rx_swr_gpio = 1;
+	const char *is_used_rx_swr_gpio_dt = "qcom,is-used-swr-gpio";
 
 	rx_priv = devm_kzalloc(&pdev->dev, sizeof(struct rx_macro_priv),
 			    GFP_KERNEL);
@@ -3601,13 +3621,30 @@ static int rx_macro_probe(struct platform_device *pdev)
 			__func__, "qcom,default-clk-id");
 		default_clk_id = RX_CORE_CLK;
 	}
+	if (of_find_property(pdev->dev.of_node, is_used_rx_swr_gpio_dt,
+			     NULL)) {
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   is_used_rx_swr_gpio_dt,
+					   &is_used_rx_swr_gpio);
+		if (ret) {
+			dev_err(&pdev->dev, "%s: error reading %s in dt\n",
+				__func__, is_used_rx_swr_gpio_dt);
+			is_used_rx_swr_gpio = 1;
+		}
+	}
 	rx_priv->rx_swr_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					"qcom,rx-swr-gpios", 0);
-	if (!rx_priv->rx_swr_gpio_p) {
+	if (!rx_priv->rx_swr_gpio_p && is_used_rx_swr_gpio) {
 		dev_err(&pdev->dev, "%s: swr_gpios handle not provided!\n",
 			__func__);
 		return -EINVAL;
 	}
+	if (msm_cdc_pinctrl_get_state(rx_priv->rx_swr_gpio_p) < 0) {
+		dev_err(&pdev->dev, "%s: failed to get swr pin state\n",
+			__func__);
+		return -EPROBE_DEFER;
+	}
+
 	rx_io_base = devm_ioremap(&pdev->dev, rx_base_addr,
 				  RX_MACRO_MAX_OFFSET);
 	if (!rx_io_base) {

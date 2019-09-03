@@ -480,7 +480,8 @@ static char const *tdm_sample_rate_text[] = {"KHZ_8", "KHZ_16", "KHZ_32",
 static const char *const auxpcm_rate_text[] = {"KHZ_8", "KHZ_16"};
 static char const *mi2s_rate_text[] = {"KHZ_8", "KHZ_11P025", "KHZ_16",
 				      "KHZ_22P05", "KHZ_32", "KHZ_44P1",
-				      "KHZ_48", "KHZ_96", "KHZ_192", "KHZ_384"};
+				      "KHZ_48", "KHZ_88P2", "KHZ_96", "KHZ_176P4",
+				      "KHZ_192", "KHZ_352P8", "KHZ_384"};
 static const char *const mi2s_ch_text[] = {
 		"One", "Two", "Three", "Four", "Five", "Six", "Seven",
 		"Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen",
@@ -490,8 +491,8 @@ static const char *const qos_text[] = {"Disable", "Enable"};
 
 static const char *const cdc_dma_rx_ch_text[] = {"One", "Two"};
 static const char *const cdc_dma_tx_ch_text[] = {"One", "Two", "Three", "Four",
-						"Five", "Six", "Seven",
-						"Eight"};
+		"Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven",
+		"Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen"};
 static char const *cdc_dma_sample_rate_text[] = {"KHZ_8", "KHZ_11P025",
 					"KHZ_16", "KHZ_22P05",
 					"KHZ_32", "KHZ_44P1", "KHZ_48",
@@ -2724,14 +2725,23 @@ static int mi2s_get_sample_rate_val(int sample_rate)
 	case SAMPLING_RATE_48KHZ:
 		sample_rate_val = 6;
 		break;
-	case SAMPLING_RATE_96KHZ:
+	case SAMPLING_RATE_88P2KHZ:
 		sample_rate_val = 7;
 		break;
-	case SAMPLING_RATE_192KHZ:
+	case SAMPLING_RATE_96KHZ:
 		sample_rate_val = 8;
 		break;
-	case SAMPLING_RATE_384KHZ:
+	case SAMPLING_RATE_176P4KHZ:
 		sample_rate_val = 9;
+		break;
+	case SAMPLING_RATE_192KHZ:
+		sample_rate_val = 10;
+		break;
+	case SAMPLING_RATE_352P8KHZ:
+		sample_rate_val = 11;
+		break;
+	case SAMPLING_RATE_384KHZ:
+		sample_rate_val = 12;
 		break;
 	default:
 		sample_rate_val = 6;
@@ -2767,12 +2777,21 @@ static int mi2s_get_sample_rate(int value)
 		sample_rate = SAMPLING_RATE_48KHZ;
 		break;
 	case 7:
-		sample_rate = SAMPLING_RATE_96KHZ;
+		sample_rate = SAMPLING_RATE_88P2KHZ;
 		break;
 	case 8:
-		sample_rate = SAMPLING_RATE_192KHZ;
+		sample_rate = SAMPLING_RATE_96KHZ;
 		break;
 	case 9:
+		sample_rate = SAMPLING_RATE_176P4KHZ;
+		break;
+	case 10:
+		sample_rate = SAMPLING_RATE_192KHZ;
+		break;
+	case 11:
+		sample_rate = SAMPLING_RATE_352P8KHZ;
+		break;
+	case 12:
 		sample_rate = SAMPLING_RATE_384KHZ;
 		break;
 	default:
@@ -6390,6 +6409,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia7",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6597,6 +6617,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia11",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6613,6 +6634,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia12",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6629,6 +6651,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia13",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6645,6 +6668,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia14",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6661,6 +6685,7 @@ static struct snd_soc_dai_link msm_common_dai_links[] = {
 		.cpu_dai_name = "MultiMedia15",
 		.platform_name = "msm-compress-dsp",
 		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
 		.dpcm_playback = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -6874,6 +6899,21 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 			    SND_SOC_DPCM_TRIGGER_POST},
 		.ignore_pmdown_time = 1,
 		.id = MSM_FRONTEND_DAI_MULTIMEDIA29,
+	},
+	{
+		.name = MSM_DAILINK_NAME(Compr Capture6),
+		.stream_name = "Compr Capture6",
+		.cpu_dai_name = "MultiMedia30",
+		.platform_name = "msm-compress-dsp",
+		.dynamic = 1,
+		.async_ops = ASYNC_DPCM_SND_SOC_HW_PARAMS,
+		.dpcm_capture = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.ignore_pmdown_time = 1,
+		.id = MSM_FRONTEND_DAI_MULTIMEDIA30,
 	},
 };
 
