@@ -68,6 +68,7 @@ int initTestToDo(void)
 
 #ifndef COMPUTE_INIT_METHOD
 	tests.MutualRawAdjITO = 1;
+	tests.MutualRawMapITO = 1;
 
 	tests.MutualRaw = 0;
 	tests.MutualRawMap = 1;
@@ -165,6 +166,7 @@ int initTestToDo(void)
 	tests.SelfSenseCxTotalAdjLP = 0;
 #else
 	tests.MutualRawAdjITO = 1;
+	tests.MutualRawMapITO = 1;
 
 	tests.MutualRaw = 1;  /* in case of YOCTA please use Map */
 	tests.MutualRawMap = 0;
@@ -962,7 +964,7 @@ int production_test_ito(const char *path_limits, TestToDo *todo,
 	pr_info("ITO Command = OK!\n");
 
 	pr_info("MS RAW ITO ADJ TEST:\n");
-	if (todo->MutualRawAdjITO == 1) {
+	if (todo->MutualRawAdjITO == 1 || todo->MutualRawMapITO == 1) {
 		pr_info("Collecting MS Raw data...\n");
 
 		if (frame != NULL) {
@@ -1068,8 +1070,44 @@ int production_test_ito(const char *path_limits, TestToDo *todo,
 
 		kfree(adj);
 		adj = NULL;
+
+		pr_info("MS RAW ITO MIN MAX TEST:\n");
+		if (todo->MutualRawMapITO == 1) {
+			res = parseProductionTestLimits(path_limits,
+			&limit_file,
+			MS_RAW_ITO_MIN_MAX,
+			&thresholds, &trows,
+			&tcolumns);
+		if (res < OK || (trows != 1 || tcolumns != 2)) {
+			pr_err("production_test_data: parseProduction"
+			"TestLimits MS_RAW_ITO_MIN_MAX failed... ERROR %08X\n",
+			ERROR_PROD_TEST_DATA);
+			res |= ERROR_PROD_TEST_DATA;
+			goto ERROR;
+		}
+
+
+		res = checkLimitsMinMax((*ptr_frame).node_data,
+			(*ptr_frame).header.force_node,
+			(*ptr_frame).header.sense_node,
+			thresholds[0],
+			thresholds[1]);
+		if (res != OK) {
+			pr_err("production_test_data: checkLimitsMinMax"
+			" MS RAW ITO failed... ERROR COUNT = %d\n", res);
+			pr_err("MS RAW ITO MIN MAX TEST:................."
+			"FAIL\n\n");
+			res |= ERROR_PROD_TEST_DATA;
+			goto ERROR;
+		} else
+			pr_info("MS RAW ITO MIN MAX TEST:................OK\n");
+			kfree(thresholds);
+			thresholds = NULL;
+		} else
+			pr_info("MS RAW ITO MIN MAX TEST:................."
+			"SKIPPED\n");
 	} else
-		pr_info("MS RAW ITO ADJ TEST:.................SKIPPED\n");
+		pr_info("MS RAW ITO TEST:.................SKIPPED\n");
 
 ERROR:
 	if (thresholds != NULL)
