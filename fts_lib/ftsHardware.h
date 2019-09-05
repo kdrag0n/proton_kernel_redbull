@@ -23,8 +23,15 @@
 #define FTS_HARDWARE_H
 
 /* DIGITAL CHIP INFO */
+#define ALIX
+
+#ifdef ALIX
+#define DCHIP_ID_0			0x36	/* /< LSB chip ID for FTM5 */
+#define DCHIP_ID_1			0x48	/* /< MSB chip ID for FTM5 */
+#else
 #define DCHIP_ID_0			0x36	/* /< LSB chip ID for FTM5 */
 #define DCHIP_ID_1			0x39	/* /< MSB chip ID for FTM5 */
+#endif
 
 #define DCHIP_FW_VER_BYTE		2	/* /< number of bytes of the fw
 						 * versions */
@@ -295,6 +302,10 @@
 								 * GPIO config
 								 * register */
 #define ADDR_GPIO_CONFIG_REG2	((u64)0x000000002000003F)	/* /< address of
+								 * GPIO config
+								 * register */
+
+#define ADDR_GPIO_CONFIG_REG3	((u64)0x000000002000003E)	/* /< address of
 								 * GPIO config
 								 * register */
 

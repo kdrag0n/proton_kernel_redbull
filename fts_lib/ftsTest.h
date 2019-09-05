@@ -97,6 +97,7 @@
 #define MS_RAW_ADJV			"MS_RAW_DATA_ADJ_VERTICAL"
 #define MS_RAW_ITO_ADJH			"MS_RAW_ITO_DATA_ADJ_HORIZONTAL"
 #define MS_RAW_ITO_ADJV			"MS_RAW_ITO_DATA_ADJ_VERTICAL"
+#define MS_RAW_ITO_MIN_MAX		"MS_RAW_ITO_MIN_MAX"
 #define MS_RAW_LP_MIN_MAX		"MS_RAW_LOWPOWER_DATA_MIN_MAX"
 #define MS_RAW_LP_EACH_NODE_MIN		"MS_RAW_LOWPOWER_DATA_EACH_MIN"
 #define MS_RAW_LP_EACH_NODE_MAX		"MS_RAW_LOWPOWER_DATA_EACH_MAX"
@@ -248,6 +249,7 @@ typedef struct {
 	int MutualRawGapLP;	/* /< MS Low Power Raw Gap(max-min) test */
 	int MutualRawAdjLP;	/* /< MS Low Power Raw Adjacent test */
 	int MutualRawAdjITO;	/* /< MS Raw Adjacent test during ITO test */
+	int MutualRawMapITO; 	/* /< MS Raw ITO min/Max test */
 
 	int MutualCx1;	/* /< MS Cx1 min/Max test */
 	int MutualCx2;	/* /< MS Cx2 min/Max (for each node) test */

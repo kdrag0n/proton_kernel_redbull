@@ -1967,13 +1967,22 @@ static ssize_t fts_driver_test_write(struct file *file, const char __user *buf,
 
 		case CMD_FLASHERASEPAGE:
 			if (numberParam == 2) {	/* need to pass: keep_cx */
+				pr_info("Reading FW File...\n");
+				res = readFwFile(info->board->fw_name, &fw,
+						funcToTest[1]);
+				if (res < OK)
+					pr_err("Error reading FW File ERROR"
+						"%08X\n", res);
+				else
+					pr_info("Read FW File Finished!\n");
 				pr_info("Starting Flashing Page Erase...\n");
-				res = flash_erase_page_by_page(cmd[1]);
+				res = flash_erase_page_by_page(cmd[1], &fw);
 				if (res < OK)
 					pr_err("Error during flash page erase... ERROR %08X\n",
 						res);
 				else
 					pr_info("Flash Page Erase Finished!\n");
+				kfree(fw.data);
 			} else {
 				pr_err("Wrong number of parameters!\n");
 				res = ERROR_OP_NOT_ALLOW;
