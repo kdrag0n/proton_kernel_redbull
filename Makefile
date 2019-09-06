@@ -1,0 +1,2 @@
+.SILENT:
+all:
