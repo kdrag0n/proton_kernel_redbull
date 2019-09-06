@@ -614,6 +614,7 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 	return;
 }
 
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
 {
 	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
@@ -681,6 +682,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
 	};
 	return true;
 }
+#endif
 
 #define MAX_EVENT_COUNT 32
 static void sec_ts_read_event(struct sec_ts_data *ts)
@@ -1097,8 +1099,9 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	} while (remain_event_count >= 0);
 
 	input_sync(ts->input_dev);
-
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
+#endif
 }
 
 static irqreturn_t sec_ts_isr(int irq, void *handle)
@@ -2137,6 +2140,7 @@ static int sec_ts_probe(struct i2c_client *client,
 	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	/*
 	 * Heatmap_probe must be called before irq routine is registered,
 	 * because heatmap_read is called from the irq context.
@@ -2157,6 +2161,7 @@ static int sec_ts_probe(struct i2c_client *client,
 			"%s: Heatmap probe failed\n", __func__);
 		goto err_irq;
 	}
+#endif
 
 	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__,
 			client->irq);
@@ -2220,8 +2225,10 @@ static int sec_ts_probe(struct i2c_client *client,
 err_register_drm_client:
 	free_irq(client->irq, ts);
 err_heatmap:
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	heatmap_remove(&ts->v4l2);
 err_irq:
+#endif
 	pm_qos_remove_request(&ts->pm_qos_req);
 	if (ts->plat_data->support_dex) {
 		input_unregister_device(ts->input_dev_pad);
@@ -2684,7 +2691,9 @@ static int sec_ts_remove(struct i2c_client *client)
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	heatmap_remove(&ts->v4l2);
+#endif
 
 	pm_qos_remove_request(&ts->pm_qos_req);
 

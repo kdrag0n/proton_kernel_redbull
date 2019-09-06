@@ -22,7 +22,9 @@
 #include <linux/hrtimer.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 #include <linux/input/heatmap.h>
+#endif
 #include <linux/input/mt.h>
 #include "sec_cmd.h"
 #include <linux/interrupt.h>
@@ -198,8 +200,10 @@
 #define SEC_TS_CMD_ERASE_FLASH			0x45
 #define SEC_TS_CMD_RESET_BASELINE		0x47
 #define SEC_TS_CMD_WRITE_NORM_TABLE		0x49
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 #define SEC_TS_CMD_HEATMAP_READ			0x4A
 #define SEC_TS_CMD_HEATMAP_ENABLE		0x4B
+#endif
 #define SEC_TS_READ_ID				0x52
 #define SEC_TS_READ_BOOT_STATUS			0x55
 #define SEC_TS_CMD_ENTER_FW_MODE		0x57
@@ -553,6 +557,7 @@ enum tsp_hw_parameter {
 	TSP_MODULE_ID		= 6,
 };
 
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 /* Local heatmap */
 #define LOCAL_HEATMAP_WIDTH 7
 #define LOCAL_HEATMAP_HEIGHT 7
@@ -565,6 +570,7 @@ struct heatmap_report {
 	/* data is in BE order; order should be enforced after data is read */
 	strength_t data[LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT];
 } __attribute__((packed));
+#endif
 
 #define TEST_MODE_MIN_MAX		false
 #define TEST_MODE_ALL_NODE		true
@@ -743,7 +749,9 @@ struct sec_ts_data {
 
 	struct pm_qos_request pm_qos_req;
 
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	struct v4l2_heatmap v4l2;
+#endif
 
 	struct delayed_work work_read_info;
 #ifdef USE_POWER_RESET_WORK
