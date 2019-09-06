@@ -21,6 +21,7 @@
 #include <linux/gpio.h>
 #include <linux/hrtimer.h>
 #include <linux/i2c.h>
+#include <linux/spi/spi.h>
 #include <linux/input.h>
 #ifdef CONFIG_TOUCHSCREEN_HEATMAP
 #include <linux/input/heatmap.h>
@@ -43,7 +44,6 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
-
 #ifdef CONFIG_SEC_SYSFS
 #include <linux/sec_sysfs.h>
 #endif
@@ -56,23 +56,40 @@
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
-#define SEC_TS_I2C_NAME		"sec_ts"
+#define SEC_TS_NAME		"sec_ts"
 #define SEC_TS_DEVICE_NAME	"SEC_TS"
 
+#undef SEC_TS_DEBUG_IO
 #define USE_OPEN_CLOSE
 #undef USE_RESET_DURING_POWER_ON
 #undef USE_RESET_EXIT_LPM
 #undef USE_POR_AFTER_I2C_RETRY
 #undef USER_OPEN_DWORK
-#define USE_PRESSURE_SENSOR
-#define PAT_CONTROL
+#undef USE_PRESSURE_SENSOR //TODO: check this
+#undef PAT_CONTROL //TODO: check this
 
 #if defined(USE_RESET_DURING_POWER_ON) || defined(USE_POR_AFTER_I2C_RETRY) || defined(USE_RESET_EXIT_LPM)
 #define USE_POWER_RESET_WORK
 #endif
 
+#ifndef I2C_INTERFACE
+#define SPI_CLOCK_FREQ			10000000
+#define SPI_DELAY_CS			10
+#define SEC_TS_SPI_SYNC_CODE		0xAA
+#define SEC_TS_SPI_HEADER_SIZE		5
+#define SEC_TS_SPI_READ_HEADER_SIZE	7
+#define SEC_TS_SPI_CHECKSUM_SIZE	1
+
+#define SEC_TS_SPI_CMD_OK		0x0
+#define SEC_TS_SPI_CMD_NG		(1u<<7)
+#define SEC_TS_SPI_CMD_UNKNOWN		(SEC_TS_SPI_CMD_NG | (1))
+#define SEC_TS_SPI_CMD_FAIL		(SEC_TS_SPI_CMD_NG | (2))
+#define SEC_TS_SPI_CMD_BAD_PARAM	(SEC_TS_SPI_CMD_NG | (3))
+#define SEC_TS_SPI_CMD_CHKSUM_FAIL	(SEC_TS_SPI_CMD_NG | (4))
+#endif
+
 #define TOUCH_RESET_DWORK_TIME		10
-#define BRUSH_Z_DATA		63	/* for ArtCanvas */
+#define BRUSH_Z_DATA			63	/* for ArtCanvas */
 
 #define MASK_1_BITS			0x0001
 #define MASK_2_BITS			0x0003
@@ -114,16 +131,21 @@
 #define SEC_TS_DEFAULT_FFU_FW		"ffu_tsp.bin"
 #define SEC_TS_MAX_FW_PATH		64
 #define SEC_TS_FW_BLK_SIZE_MAX		(512)
-#define SEC_TS_FW_BLK_SIZE_DEFAULT	(256)
+#define SEC_TS_FW_BLK_SIZE_DEFAULT	(512)
 #define SEC_TS_SELFTEST_REPORT_SIZE	80
 #define SEC_TS_PRESSURE_MAX		0x3f
 
 #define I2C_WRITE_BUFFER_SIZE		(256 - 1)//10
 
+#ifdef I2C_INTERFACE
 /* max read size: from sec_ts_read_event() at sec_ts.c */
 #define I2C_PREALLOC_READ_BUF_SZ	(32 * SEC_TS_EVENT_BUFF_SIZE)
 /* max write size: from sec_ts_flashpagewrite() at sec_ts_fw.c */
-#define I2C_PREALLOC_WRITE_BUF_SZ	(1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1)
+#define I2C_PREALLOC_WRITE_BUF_SZ	(SEC_TS_SPI_HEADER_SIZE + 1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1)
+#else
+#define I2C_PREALLOC_READ_BUF_SZ	2048
+#define I2C_PREALLOC_WRITE_BUF_SZ	1024
+#endif
 
 #define SEC_TS_FW_HEADER_SIGN		0x53494654
 #define SEC_TS_FW_CHUNK_SIGN		0x53434654
@@ -700,7 +722,11 @@ struct sec_ts_data {
 	u8 boot_ver[3];
 
 	struct device *dev;
+#ifdef I2C_INTERFACE
 	struct i2c_client *client;
+#else
+	struct spi_device *client;
+#endif
 	struct input_dev *input_dev;
 	struct input_dev *input_dev_pad;
 	struct input_dev *input_dev_touch;

@@ -89,8 +89,6 @@ static int sec_ts_enter_fw_mode(struct sec_ts_data *ts)
 	ts->boot_ver[2] = id[2];
 
 	ts->flash_page_size = SEC_TS_FW_BLK_SIZE_DEFAULT;
-	if ((ts->boot_ver[1] == 0x37) && (ts->boot_ver[2] == 0x61))
-		ts->flash_page_size = 512;
 
 	input_info(true, &ts->client->dev, "%s: read_boot_id = %02X%02X%02X\n", __func__, id[0], id[1], id[2]);
 
@@ -636,7 +634,7 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 
 	write_size = sec_ts_flashwrite(ts, addr, data, fw_size, retry);
 	if (write_size != fw_size) {
-		input_err(true, &ts->client->dev, "%s: fw write failed\n", __func__);
+		input_err(true, &ts->client->dev, "%s: fw write failed, write_size %d != fw_size %d\n", __func__, write_size, fw_size);
 		ret = -1;
 		goto err_write_fail;
 	}
@@ -652,12 +650,14 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 		u32 ii;
 
 		for (ii = 0; ii < fw_size; ii++) {
-			if (data[ii] != mem_rb[ii])
+			if (data[ii] != mem_rb[ii]) {
+				input_info(true, &ts->client->dev, "%s: data = %X, mem_rb = %X, ii = %d\n", __func__, data[ii], mem_rb[ii], ii);
 				break;
+                        }
 		}
 
 		if (fw_size != ii) {
-			input_err(true, &ts->client->dev, "%s: fw verify fail\n", __func__);
+			input_err(true, &ts->client->dev, "%s: fw verify fail, fw_size %d != ii %d\n", __func__, fw_size, ii);
 			ret = -1;
 			goto out;
 		}

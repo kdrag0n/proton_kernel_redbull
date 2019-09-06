@@ -1978,10 +1978,12 @@ static void module_on_master(void *device_data)
 
 	ret = sec_ts_start_device(ts);
 
+#if 0 //TODO: check this for SPI case
  	if (ts->input_dev->disabled) {
 		sec_ts_set_lowpowermode(ts, TO_LOWPOWER_MODE);
 		ts->power_status = SEC_TS_STATE_LPM;
 	}
+#endif
 
 	if (ret == 0)
 		snprintf(buff, sizeof(buff), "%s", "OK");
@@ -2289,8 +2291,12 @@ static void get_checksum_data(void *device_data)
 
 	sec_ts_delay(20);
 
+#ifdef I2C_INTERFACE
 	ret = ts->sec_ts_i2c_read_bulk(ts, csum_result, 4);
-	if (ret < 0) {
+#else
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_GET_CHECKSUM, csum_result, 4);
+#endif
+        if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: read get_checksum result fail!\n", __func__);
 		snprintf(buff, sizeof(buff), "%s", "ReadCSUMfail");
 		goto err;
@@ -3281,7 +3287,11 @@ int get_tsp_nvm_data(struct sec_ts_data *ts, u8 offset)
 	/* read NV data
 	 * Use TSP NV area : in this model, use only one byte
 	 */
+#ifdef I2C_INTERFACE
 	ret = ts->sec_ts_i2c_read_bulk(ts, buff, 1);
+#else
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_NVM, buff, 1);
+#endif
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: nvm send command failed. ret: %d\n", __func__, ret);
 		goto out_nvm;
@@ -3352,8 +3362,12 @@ int get_tsp_nvm_data_by_size(struct sec_ts_data *ts, u8 offset, int length, u8 *
 	/* read NV data
 	 * Use TSP NV area : in this model, use only one byte
 	 */
+#ifdef I2C_INTERFACE
 	ret = ts->sec_ts_i2c_read_bulk_heap(ts, buff, length);
-	if (ret < 0) {
+#else
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_NVM, buff, length);
+#endif
+        if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: nvm send command failed. ret: %d\n", __func__, ret);
 		goto out_nvm;
 	}

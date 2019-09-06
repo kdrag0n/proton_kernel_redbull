@@ -15,8 +15,8 @@ struct sec_ts_data *tsp_info;
 #include "sec_ts.h"
 
 /* Switch GPIO values */
-#define SEC_SWITCH_GPIO_VALUE_SLPI_MASTER 	0
-#define SEC_SWITCH_GPIO_VALUE_AP_MASTER 	1
+#define SEC_SWITCH_GPIO_VALUE_SLPI_MASTER 	1
+#define SEC_SWITCH_GPIO_VALUE_AP_MASTER 	0
 
 struct sec_ts_data *ts_dup;
 
@@ -40,13 +40,24 @@ static void sec_ts_input_close(struct input_dev *dev);
 
 int sec_ts_read_information(struct sec_ts_data *ts);
 
+#ifndef I2C_INTERFACE
+int sec_ts_spi_delay(u8 reg);
+#endif
 
 int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 {
 	u8 *buf;
 	int ret;
 	unsigned char retry;
+#ifdef I2C_INTERFACE
 	struct i2c_msg msg;
+#else
+	struct spi_message msg;
+	struct spi_transfer transfer[1] = { { 0 } };
+	unsigned int i;
+	unsigned int spi_len = 0;
+	unsigned char checksum = 0x0;
+#endif
 
 	if (len + 1 > sizeof(ts->i2c_write_buf)) {
 		input_err(true, &ts->client->dev, "%s: len is larger than buffer size\n", __func__);
@@ -61,6 +72,7 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	mutex_lock(&ts->i2c_mutex);
 
 	buf = ts->i2c_write_buf;
+#ifdef I2C_INTERFACE
 	buf[0] = reg;
 	memcpy(buf + 1, data, len);
 
@@ -68,10 +80,48 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	msg.flags = 0;
 	msg.len = len + 1;
 	msg.buf = buf;
+#else
+	buf[0] = SEC_TS_SPI_SYNC_CODE;
+	buf[1] = ((len + 1) >> 8) & 0xFF;
+	buf[2] = (len + 1) & 0xFF;
+	buf[3] = 0x00;
+	buf[4] = 0x00;
+	buf[5] = reg;
+	memcpy(buf + SEC_TS_SPI_HEADER_SIZE + 1, data, len);
+
+	spi_len = SEC_TS_SPI_HEADER_SIZE + 1 + len;
+	// spi_len = SPI header size(5)+register(1)+data size(len)
+	for (i = 0; i < spi_len ; i++)
+		checksum += buf[i];
+	buf[spi_len++] = checksum;
+	// spi_len += checksum(1)
+
+	spi_message_init(&msg);
+
+	spi_len = (spi_len + 3) & ~3; //spi transfer size should be multiple of 4
+	transfer[0].len = spi_len;
+	transfer[0].tx_buf = buf;
+	transfer[0].rx_buf = NULL;
+	spi_message_add_tail(&transfer[0], &msg);
+
+#ifdef SEC_TS_DEBUG_IO
+	input_info(true, &ts->client->dev, "%s: ", __func__);
+//	for (i = 0; i < SEC_TS_SPI_HEADER_SIZE + 1 + len + 1; i++)
+	for (i = 0; i < 8; i++)
+		input_info(true, &ts->client->dev, "%X ", buf[i]);
+	input_info(true, &ts->client->dev, "\n");
+#endif
+
+#endif
 
 	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+#ifdef I2C_INTERFACE
 		if ((ret = i2c_transfer(ts->client->adapter, &msg, 1)) == 1)
 			break;
+#else
+		if ((ret = spi_sync(ts->client, &msg)) == 0)
+			break;
+#endif
 
 		if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 			input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
@@ -98,7 +148,11 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 #endif
 	}
 
+#ifdef I2C_INTERFACE
 	if (ret == 1)
+#else
+	if (ret == 0)
+#endif
 		return 0;
 err:
 	return -EIO;
@@ -110,7 +164,17 @@ static int sec_ts_i2c_read_internal(struct sec_ts_data *ts, u8 reg,
 	u8 *buf;
 	int ret;
 	unsigned char retry;
+#ifdef I2C_INTERFASCE
 	struct i2c_msg msg[2];
+#else
+	struct spi_message msg;
+	struct spi_transfer transfer[1] = { { 0 } };
+	unsigned int i;
+	unsigned int spi_len = 0;
+	unsigned char checksum = 0x0;
+	int copy_size = 0, copy_cur = 0;
+	int retry_msg = 0;
+#endif
 	int remain = len;
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
@@ -127,6 +191,7 @@ static int sec_ts_i2c_read_internal(struct sec_ts_data *ts, u8 reg,
 	mutex_lock(&ts->i2c_mutex);
 
 	buf = ts->i2c_write_buf;
+#ifdef I2C_INTERFACE
 	buf[0] = reg;
 
 	msg[0].addr = ts->client->addr;
@@ -141,13 +206,61 @@ static int sec_ts_i2c_read_internal(struct sec_ts_data *ts, u8 reg,
 		msg[1].buf = ts->i2c_read_buf;
 	else
 		msg[1].buf = data;
+#else
+	spi_message_init(&msg);
 
+	buf[0] = SEC_TS_SPI_SYNC_CODE;
+	buf[1] = 0x00;
+	buf[2] = 0x01;
+	buf[3] = (len >> 8) & 0xFF;
+	buf[4] = len & 0xFF;
+	buf[5] = reg;
+
+	spi_len = SEC_TS_SPI_HEADER_SIZE + 1;
+	//spi_len = header size(5) + register size(1)
+	for(i = 0; i < spi_len; i++)
+		checksum += buf[i];
+	buf[spi_len] = checksum;
+	spi_len += SEC_TS_SPI_CHECKSUM_SIZE;
+
+	transfer[0].len = (spi_len + 3) & ~3; // spi transfer size should be multiple of 4
+	transfer[0].tx_buf = buf;
+	transfer[0].rx_buf = NULL;
+	spi_message_add_tail(&transfer[0], &msg);
+
+#ifdef SEC_TS_DEBUG_IO
+	input_info(true, &ts->client->dev, "%s: spi write buf %X %X %X %X %X %X %X\n",
+				__func__, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
+#endif
+
+#endif
 	if (len <= ts->i2c_burstmax) {
-
+#ifdef I2C_INTERFACE
 		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, msg, 2);
 			if (ret == 2)
 				break;
+
+			usleep_range(1 * 1000, 1 * 1000);
+			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				mutex_unlock(&ts->i2c_mutex);
+				goto err;
+			}
+
+			if (retry > 1) {
+				input_err(true, &ts->client->dev, "%s: I2C retry %d\n", __func__, retry + 1);
+				ts->comm_err_count++;
+			}
+		}
+		if (ret == 2 && dma_safe == false)
+			memcpy(data, ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE], len);
+#else
+		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			ret = spi_sync(ts->client, &msg);
+			if (ret == 0)
+				break;
+
 			usleep_range(1 * 1000, 1 * 1000);
 			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
@@ -161,19 +274,94 @@ static int sec_ts_i2c_read_internal(struct sec_ts_data *ts, u8 reg,
 			}
 		}
 
-		if (ret == 2 && dma_safe == false)
-			memcpy(data, ts->i2c_read_buf, len);
+		if (retry == SEC_TS_I2C_RETRY_CNT) {
+			input_err(true, &ts->client->dev, "%s: I2C write reg retry over retry limit, skip read\n", __func__);
+			goto skip_spi_read;
+		}
+		usleep_range(sec_ts_spi_delay(reg), sec_ts_spi_delay(reg));
 
+                spi_message_init(&msg);
+		spi_len = ((len + SEC_TS_SPI_READ_HEADER_SIZE + SEC_TS_SPI_CHECKSUM_SIZE) + 3) & ~3;
+		//read size = data(len) + spi read header(7) + checksum(1)
+		// & spi transfer size should be multiple of 4
+
+		transfer[0].len = spi_len + 20;	//TODO: for test, increase read size by 20bytes
+		transfer[0].tx_buf = NULL;
+		transfer[0].rx_buf = ts->i2c_read_buf;
+
+		spi_message_add_tail(&transfer[0], &msg);
+
+		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			ret = spi_sync(ts->client, &msg);
+
+			for (i = 0, checksum = 0; i < (SEC_TS_SPI_READ_HEADER_SIZE + len); i++)
+				checksum += ts->i2c_read_buf[i];
+
+#ifdef SEC_TS_DEBUG_IO
+			input_info(true, &ts->client->dev, "%s: ", __func__);
+//			for (i = 0; i < spi_len; i++)
+			for (i = 0; i < 8; i++)
+				input_info(true, &ts->client->dev, "%X ", ts->i2c_read_buf[i]);
+			input_info(true, &ts->client->dev, "\n%s: checksum = %X", __func__, checksum);
+#endif
+
+			if (ret == 0 && ts->i2c_read_buf[0] == SEC_TS_SPI_SYNC_CODE &&
+				reg == ts->i2c_read_buf[5] &&// ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_OK &&
+				checksum == ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
+				break;
+#if 0
+                        else if (ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_UNKNOWN || ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_BAD_PARAM) {
+				input_info(true, &ts->client->dev, "%s: CMD_NG cmd(M) = %X, cmd(S) = %X, cmd_result = %X\n",
+						__func__, reg, ts->i2c_read_buf[5], ts->i2c_read_buf[6]);
+				ret = -EIO;
+				break;
+			}
+#endif
+			else {
+#if 0
+                          /*for debug*/
+                          if (1) {
+                          //if (reg == SEC_TS_READ_ONE_EVENT || reg == SEC_TS_READ_ALL_EVENT) {
+                            input_info(true, &ts->client->dev, "%s: spi fail, buf:%X %X %X %X %X %X %X %X, sy:0x%X, chks(M):%X, chks(s):%X, reg(M):%X, reg(s):%X, result:%X\n",
+                                       __func__, ts->i2c_read_buf[7], ts->i2c_read_buf[8], ts->i2c_read_buf[9], ts->i2c_read_buf[10],
+                                       ts->i2c_read_buf[11], ts->i2c_read_buf[12], ts->i2c_read_buf[13], ts->i2c_read_buf[14], ts->i2c_read_buf[0], checksum,
+                                       ts->i2c_read_buf[15], reg, ts->i2c_read_buf[5], ts->i2c_read_buf[6]);
+                          }
+                          else {
+				input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(M) %X, reg(S) %X, cmdresult %X, chksum(M) %X, chksum(S) %X\n",
+						__func__, ret, ts->i2c_read_buf[0], reg, ts->i2c_read_buf[5], ts->i2c_read_buf[6],
+						checksum, ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
+                          }
+#endif
+				ret = -EIO;
+			}
+
+			usleep_range(1 * 1000, 1 * 1000);
+			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				mutex_unlock(&ts->i2c_mutex);
+				goto err;
+			}
+
+			if (retry > 1) {
+				input_err(true, &ts->client->dev, "%s: I2C retry %d\n", __func__, retry + 1);
+				ts->comm_err_count++;
+			}
+		}
+		if (ret == 0)
+			memcpy(data, ts->i2c_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
+#endif
 	} else {
 		/*
 		 * I2C read buffer is 256 byte. do not support long buffer over than 256.
 		 * So, try to seperate reading data about 256 bytes.
 		 */
-
+#ifdef I2C_INTERFACE
 		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, msg, 1);
 			if (ret == 1)
 				break;
+
 			usleep_range(1 * 1000, 1 * 1000);
 			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
@@ -218,8 +406,90 @@ static int sec_ts_i2c_read_internal(struct sec_ts_data *ts, u8 reg,
 
 		if (ret == 1 && dma_safe == false)
 			memcpy(data, ts->i2c_read_buf, len);
-	}
+#else
+		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			ret = spi_sync(ts->client, &msg);//send read cmd first
+			if (ret == 0)
+				break;
+			usleep_range(1 * 1000, 1 * 1000);
+			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				mutex_unlock(&ts->i2c_mutex);
+				goto err;
+			}
 
+			if (retry > 1) {
+				input_err(true, &ts->client->dev, "%s: I2C retry %d\n", __func__, retry + 1);
+				ts->comm_err_count++;
+			}
+		}
+		if (retry == SEC_TS_I2C_RETRY_CNT) {
+			input_err(true, &ts->client->dev, "%s: I2C write reg retry over retry limit, skip read\n", __func__);
+			goto skip_spi_read;
+		}
+
+		usleep_range(sec_ts_spi_delay(reg), sec_ts_spi_delay(reg));
+retry_message:
+		copy_size = 0;
+		remain = spi_len = (SEC_TS_SPI_READ_HEADER_SIZE + len + SEC_TS_SPI_CHECKSUM_SIZE + 3) & ~3;
+		do {
+			if (remain > ts->i2c_burstmax)
+				copy_cur = ts->i2c_burstmax;
+			else
+				copy_cur = remain;
+
+			spi_message_init(&msg);
+
+			transfer[0].len = copy_cur;;
+			transfer[0].tx_buf = NULL;
+			transfer[0].rx_buf = &ts->i2c_read_buf[copy_size];
+			transfer[0].cs_change = (remain > ts->i2c_burstmax) ? 1 : 0;; // CS needs to stay low until read seq. is done
+
+			spi_message_add_tail(&transfer[0], &msg);
+
+			copy_size += copy_cur;
+			remain -= copy_cur;
+
+			for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+				ret = spi_sync(ts->client, &msg);
+				if (ret == 0)
+					break;
+
+				usleep_range(1 * 1000, 1 * 1000);
+				if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+					input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+					mutex_unlock(&ts->i2c_mutex);
+					goto err;
+				}
+
+				if (retry > 1) {
+					input_err(true, &ts->client->dev, "%s: I2C retry %d\n", __func__, retry + 1);
+					ts->comm_err_count++;
+				}
+			}
+		} while (remain > 0);
+
+		for (i = 0, checksum = 0; i < SEC_TS_SPI_READ_HEADER_SIZE + len; i++)
+			checksum += ts->i2c_read_buf[i];
+
+		if (ret == 0 && ts->i2c_read_buf[0] == SEC_TS_SPI_SYNC_CODE && ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_OK &&
+			reg == ts->i2c_read_buf[5] && checksum == ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
+			memcpy(data, ts->i2c_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
+		else if (ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_UNKNOWN || ts->i2c_read_buf[6] == SEC_TS_SPI_CMD_BAD_PARAM) {
+			input_info(true, &ts->client->dev, "%s: CMD_NG cmd(M) = %X, cmd(S) = %X, cmd_result = %X\n",
+						__func__, reg, ts->i2c_read_buf[5], ts->i2c_read_buf[6]);
+			ret = -EIO;
+		}
+		else {
+			input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(M) %X, reg(S) %X, cmd_result %X, chksum(M) %X, chksum(S) %X\n",
+				__func__, ret, ts->i2c_read_buf[0], reg, ts->i2c_read_buf[5], ts->i2c_read_buf[6],
+				checksum, ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
+			if (retry_msg++ < SEC_TS_I2C_RETRY_CNT)
+				goto retry_message;
+		}
+#endif
+	}
+skip_spi_read:
 	mutex_unlock(&ts->i2c_mutex);
 
 	if (retry == SEC_TS_I2C_RETRY_CNT) {
@@ -243,6 +513,13 @@ static int sec_ts_i2c_write_burst_internal(struct sec_ts_data *ts,
 {
 	int ret;
 	int retry;
+#ifndef I2C_INTERFACE
+	struct spi_message msg;
+	struct spi_transfer transfer[1] = { { 0 } };
+	unsigned int i;
+	unsigned int spi_len = 0;
+	unsigned char checksum = 0x0;
+#endif
 
 	if (len > sizeof(ts->i2c_write_buf) && dma_safe == false) {
 		input_err(true, &ts->client->dev, "%s: len %d over pre-allocated size %d\n",
@@ -251,15 +528,53 @@ static int sec_ts_i2c_write_burst_internal(struct sec_ts_data *ts,
 	}
 
 	mutex_lock(&ts->i2c_mutex);
-
+#ifdef I2C_INTERFACE
 	if (dma_safe == false) {
 		memcpy(ts->i2c_write_buf, data, len);
 		data = ts->i2c_write_buf;
 	}
+#else
+	ts->i2c_write_buf[0] = SEC_TS_SPI_SYNC_CODE;
+	ts->i2c_write_buf[1] = (len >> 8) & 0xFF;
+	ts->i2c_write_buf[2] = len & 0xFF;
+	ts->i2c_write_buf[3] = 0x0;
+	ts->i2c_write_buf[4] = 0x0;
+
+	memcpy(ts->i2c_write_buf + SEC_TS_SPI_HEADER_SIZE, data, len);
+
+
+	spi_len = SEC_TS_SPI_HEADER_SIZE + len;
+	for (i = 0; i < spi_len; i++)
+		checksum += ts->i2c_write_buf[i];
+
+	ts->i2c_write_buf[spi_len] = checksum;
+	spi_len += SEC_TS_SPI_CHECKSUM_SIZE;
+
+	spi_message_init(&msg);
+
+	spi_len = (spi_len + 3) & ~3;
+	transfer[0].len = spi_len;
+	transfer[0].tx_buf = ts->i2c_write_buf;
+	transfer[0].rx_buf = NULL;
+	spi_message_add_tail(&transfer[0], &msg);
+
+#ifdef SEC_TS_DEBUG_IO
+	input_info(true, &ts->client->dev, "%s: \n", __func__);
+        for (i = 0; i < spi_len; i++)
+		input_info(true, &ts->client->dev, "%X ", ts->i2c_write_buf[i]);
+	input_info(true, &ts->client->dev, "\n");
+#endif
+
+#endif
 
 	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+#ifdef I2C_INTERFACE
 		if ((ret = i2c_master_send(ts->client, data, len)) == len)
 			break;
+#else
+		if ((ret = spi_sync(ts->client, &msg)) == 0)
+			break;
+#endif
 
 		usleep_range(1 * 1000, 1 * 1000);
 
@@ -284,7 +599,17 @@ static int sec_ts_i2c_read_bulk_internal(struct sec_ts_data *ts,
 	int ret;
 	unsigned char retry;
 	int remain = len;
+#ifdef I2C_INTERFACE
 	struct i2c_msg msg;
+#else
+	struct spi_message msg;
+	struct spi_transfer transfer[1] = { { 0 } };
+	unsigned int i;
+	unsigned int spi_len = 0;
+	unsigned char checksum = 0x0;
+	int copy_size = 0, copy_cur = 0;
+	int retry_msg = 0;
+#endif
 
 	if (len > sizeof(ts->i2c_read_buf) && dma_safe == false) {
 		input_err(true, &ts->client->dev,
@@ -295,6 +620,7 @@ static int sec_ts_i2c_read_bulk_internal(struct sec_ts_data *ts,
 
 	mutex_lock(&ts->i2c_mutex);
 
+#ifdef I2C_INTERFACE
 	msg.addr = ts->client->addr;
 	msg.flags = I2C_M_RD;
 	msg.len = len;
@@ -336,12 +662,68 @@ static int sec_ts_i2c_read_bulk_internal(struct sec_ts_data *ts,
 
 	if (ret == 1 && dma_safe == false)
 		memcpy(data, ts->i2c_read_buf, len);
+#else
+retry_message:
+	remain = spi_len = (SEC_TS_SPI_READ_HEADER_SIZE + len + SEC_TS_SPI_CHECKSUM_SIZE + 3) & ~3;
+	do {
+		if (remain > ts->i2c_burstmax)
+			copy_cur = ts->i2c_burstmax;
+		else
+			copy_cur = remain;
 
+		spi_message_init(&msg);
+		transfer[0].len = copy_cur;;
+		transfer[0].tx_buf = NULL;
+		transfer[0].rx_buf = &ts->i2c_read_buf[copy_size];
+		transfer[0].cs_change = (remain > ts->i2c_burstmax) ? 1 : 0; // CS needs to stay low until read seq. is done
+
+		spi_message_add_tail(&transfer[0], &msg);
+
+		copy_size += copy_cur;
+		remain -= copy_cur;
+
+		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			ret = spi_sync(ts->client, &msg);
+			if (ret == 0)
+				break;
+
+			usleep_range(1 * 1000, 1 * 1000);
+			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				mutex_unlock(&ts->i2c_mutex);
+				goto err;
+			}
+
+			if (retry > 1) {
+				input_err(true, &ts->client->dev, "%s: I2C retry %d\n", __func__, retry + 1);
+				ts->comm_err_count++;
+			}
+		}
+	} while (remain > 0);
+
+	for (i = 0, checksum = 0; i < SEC_TS_SPI_READ_HEADER_SIZE + len; i++)
+		checksum += ts->i2c_read_buf[i];
+
+	if (ret == 0 && ts->i2c_read_buf[0] == SEC_TS_SPI_SYNC_CODE &&
+		checksum == ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
+		memcpy(data, ts->i2c_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
+	else {
+		input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(S) %X, chksum(M) %X, chksum(S) %X\n",
+			__func__, ret, ts->i2c_read_buf[0], ts->i2c_read_buf[5],
+			checksum, ts->i2c_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
+		if (retry_msg++ < SEC_TS_I2C_RETRY_CNT)
+			goto retry_message;
+	}
+#endif
 	mutex_unlock(&ts->i2c_mutex);
 
+#ifdef I2C_INTERFACE
 	if (ret == 1)
+#else
+	if (ret == 0)
+#endif
 		return 0;
-
+err:
 	return -EIO;
 }
 
@@ -375,6 +757,23 @@ int sec_ts_i2c_read_bulk_heap(struct sec_ts_data *ts, u8 *data, int len)
 {
 	return sec_ts_i2c_read_bulk_internal(ts, data, len, true);
 }
+
+#ifndef I2C_INTERFACE
+int sec_ts_spi_delay(u8 reg)
+{
+	switch (reg) {
+	case SEC_TS_READ_TOUCH_RAWDATA:
+		return 400;
+	case SEC_TS_CMD_FLASH_READ_DATA:
+		return 1800;
+	case SEC_TS_READ_FIRMWARE_INTEGRITY:
+		return 11500;
+	case SEC_TS_READ_SELFTEST_RESULT:
+		return 3500;
+	default: return 100;
+	}
+}
+#endif
 
 static int sec_ts_read_from_customlib(struct sec_ts_data *ts, u8 *data, int len)
 {
@@ -421,17 +820,17 @@ static void sec_ts_check_rawdata(struct work_struct *work)
 
 static void dump_tsp_log(void)
 {
-	pr_info("%s: %s %s: start\n", SEC_TS_I2C_NAME, SECLOG, __func__);
+	pr_info("%s: %s %s: start\n", SEC_TS_NAME, SECLOG, __func__);
 
 #ifdef CONFIG_BATTERY_SAMSUNG
 	if (lpcharge == 1) {
-		pr_err("%s: %s %s: ignored ## lpm charging Mode!!\n", SEC_TS_I2C_NAME, SECLOG, __func__);
+		pr_err("%s: %s %s: ignored ## lpm charging Mode!!\n", SEC_TS_NAME, SECLOG, __func__);
 		return;
 	}
 #endif
 
 	if (p_ghost_check == NULL) {
-		pr_err("%s: %s %s: ignored ## tsp probe fail!!\n", SEC_TS_I2C_NAME, SECLOG, __func__);
+		pr_err("%s: %s %s: ignored ## tsp probe fail!!\n", SEC_TS_NAME, SECLOG, __func__);
 		return;
 	}
 	schedule_delayed_work(p_ghost_check, msecs_to_jiffies(100));
@@ -460,28 +859,27 @@ int sec_ts_wait_for_ready_with_count(struct sec_ts_data *ts, unsigned int ack,
 	int retry = 0;
 	u8 tBuff[SEC_TS_EVENT_BUFF_SIZE] = {0,};
 
-	while (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff,
-				SEC_TS_EVENT_BUFF_SIZE)) {
-		if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_INFO) {
-			if (tBuff[1] == ack) {
-				rc = 0;
-				break;
+	while (retry < count) {
+		if (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff,
+			SEC_TS_EVENT_BUFF_SIZE) >= 0) {
+			if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_INFO) {
+				if (tBuff[1] == ack) {
+					rc = 0;
+					break;
+				}
+			} else if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
+				if (tBuff[1] == ack) {
+					rc = 0;
+					break;
+				}
 			}
-		} else if (((tBuff[0] >> 2) & 0xF)
-				== TYPE_STATUS_EVENT_VENDOR_INFO) {
-			if (tBuff[1] == ack) {
-				rc = 0;
-				break;
-			}
-		}
-
-		if (retry++ > count) {
-			input_err(true, &ts->client->dev, "%s: Time Over\n",
-				__func__);
-			break;
 		}
 		sec_ts_delay(20);
+		retry++;
 	}
+	if (retry == count)
+		input_err(true, &ts->client->dev, "%s: Time Over\n",
+			__func__);
 
 	input_info(true, &ts->client->dev,
 		"%s: %02X, %02X, %02X, %02X, %02X, %02X, %02X, %02X [%d]\n",
@@ -566,7 +964,7 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 		if (ts->lowpower_mode & SEC_TS_MODE_CUSTOMLIB_AOD) {
 			int i, ret;
 			u8 data[10] = {0x02, 0};
-		
+
 			for (i = 0; i < 4; i++) {
 				data[i * 2 + 2] = ts->rect_data[i] & 0xFF;
 				data[i * 2 + 3] = (ts->rect_data[i] >> 8) & 0xFF;
@@ -575,7 +973,7 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 			ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM, &data[0], 10);
 			if (ret < 0)
 				input_err(true, &ts->client->dev, "%s: Failed to write offset\n", __func__);
-		
+
 			ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
 			if (ret < 0)
 				input_err(true, &ts->client->dev, "%s: Failed to send notify\n", __func__);
@@ -833,6 +1231,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 				}
 
+#ifdef SEC_TS_SUPPORT_CUSTOMLIB
 			if ((p_event_status->stype == TYPE_STATUS_EVENT_CUSTOMLIB_INFO) &&
 				(p_event_status->status_id == SEC_TS_EVENT_CUSTOMLIB_FORCE_KEY)) {
 				if (ts->power_status == SEC_TS_STATE_POWER_ON) {
@@ -875,7 +1274,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				input_sync(ts->input_dev);
 				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
 			}
-
+#endif
 			break;
 
 		case SEC_TS_COORDINATE_EVENT:
@@ -964,10 +1363,12 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, ts->coord[t_id].y);
 						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, ts->coord[t_id].major);
 						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, ts->coord[t_id].minor);
+#ifdef ABS_MT_CUSTOM
 						if (ts->brush_mode)
 							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (ts->coord[t_id].z << 1) | ts->coord[t_id].palm);
 						else
 							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (BRUSH_Z_DATA << 1) | ts->coord[t_id].palm);
+#endif
 						if (ts->plat_data->support_mt_pressure)
 							input_report_abs(ts->input_dev, ABS_MT_PRESSURE, ts->coord[t_id].z);
 
@@ -977,6 +1378,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						}
 
 					} else if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_MOVE) {
+#ifdef SW_GLOVE
 						if ((ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_GLOVE) && !ts->touchkey_glove_mode_status) {
 							ts->touchkey_glove_mode_status = true;
 							input_report_switch(ts->input_dev, SW_GLOVE, 1);
@@ -984,7 +1386,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 							ts->touchkey_glove_mode_status = false;
 							input_report_switch(ts->input_dev, SW_GLOVE, 0);
 						}
-
+#endif
 						input_mt_slot(ts->input_dev, t_id);
 						input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
 						input_report_key(ts->input_dev, BTN_TOUCH, 1);
@@ -994,11 +1396,12 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, ts->coord[t_id].y);
 						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, ts->coord[t_id].major);
 						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, ts->coord[t_id].minor);
+#ifdef ABS_MT_CUSTOM
 						if (ts->brush_mode)
 							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (ts->coord[t_id].z << 1) | ts->coord[t_id].palm);
 						else
 							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (BRUSH_Z_DATA << 1) | ts->coord[t_id].palm);
-
+#endif
 						if (ts->plat_data->support_mt_pressure)
 							input_report_abs(ts->input_dev, ABS_MT_PRESSURE, ts->coord[t_id].z);
 						ts->coord[t_id].mcount++;
@@ -1015,8 +1418,10 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 			}
 			break;
 
+
 		case SEC_TS_GESTURE_EVENT:
 			p_gesture_status = (struct sec_ts_gesture_status *)event_buff;
+#ifdef SEC_TS_SUPPORT_CUSTOMLIB
 			if ((p_gesture_status->eid == 0x02) && (p_gesture_status->stype == 0x00)) {
 				u8 customlib[3] = { 0 };
 
@@ -1058,7 +1463,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				}
 			}
 			break;
-
+#endif
 		default:
 			input_err(true, &ts->client->dev, "%s: unknown event %x %x %x %x %x %x\n", __func__,
 					event_buff[0], event_buff[1], event_buff[2],
@@ -1375,13 +1780,18 @@ out:
 		regulator_is_enabled(regulator_dvdd) ? "on" : "off");
 
 error:
+//TODO: check this
 	regulator_put(regulator_dvdd);
 	regulator_put(regulator_avdd);
 
 	return ret;
 }
 
+#ifdef I2C_INTERFACE
 static int sec_ts_parse_dt(struct i2c_client *client)
+#else
+static int sec_ts_parse_dt(struct spi_device *client)
+#endif
 {
 	struct device *dev = &client->dev;
 	struct sec_ts_plat_data *pdata = dev->platform_data;
@@ -1437,14 +1847,15 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 
 	if (of_property_read_u32(np, "sec,i2c-burstmax", &pdata->i2c_burstmax)) {
 		input_dbg(false, &client->dev, "%s: Failed to get i2c_burstmax property\n", __func__);
-		pdata->i2c_burstmax = 256;
+		pdata->i2c_burstmax = 1024; //TODO: check this
 	}
 	if (pdata->i2c_burstmax > I2C_PREALLOC_READ_BUF_SZ ||
 	    pdata->i2c_burstmax > I2C_PREALLOC_WRITE_BUF_SZ) {
 		input_err(true, &client->dev,
 			  "%s: i2c_burstmax is larger than i2c_read_buf and/or i2c_write_buf.\n",
 			  __func__);
-		return -EINVAL;
+//TODO: check this
+//		return -EINVAL;
 	}
 
 	if (of_property_read_u32_array(np, "sec,max_coords", coords, 2)) {
@@ -1476,7 +1887,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 					       "sec,switch_gpio", 0);
 	if (gpio_is_valid(pdata->switch_gpio)) {
 		ret = gpio_request_one(pdata->switch_gpio,
-				       GPIOF_OUT_INIT_HIGH,
+				       GPIOF_OUT_INIT_LOW,
 				       "sec,touch_i2c_switch");
 		if (ret) {
 			input_err(true, dev,
@@ -1485,7 +1896,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 			return -EINVAL;
 		}
 
-		ret = gpio_direction_output(pdata->switch_gpio, 1);
+		ret = gpio_direction_output(pdata->switch_gpio, SEC_SWITCH_GPIO_VALUE_AP_MASTER);
 		if (ret) {
 			input_err(true, dev,
 				  "%s: Failed to set gpio %d direction\n",
@@ -1508,6 +1919,12 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 				  __func__, pdata->reset_gpio, ret);
 			pdata->reset_gpio = -1;
 		}
+                //TODO: check this
+		ret = gpio_direction_output(pdata->reset_gpio, 1);
+                mdelay(10);
+		ret = gpio_direction_output(pdata->reset_gpio, 0);
+                mdelay(10);
+		ret = gpio_direction_output(pdata->reset_gpio, 1);
 
 	} else
 		input_err(true, dev, "%s: Failed to get reset_gpio\n",
@@ -1746,7 +2163,11 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	snprintf(sec_ts_phys, sizeof(sec_ts_phys), "%s/input1",
 			dev->name);
 	dev->phys = sec_ts_phys;
+#ifdef I2C_INTERFACE
 	dev->id.bustype = BUS_I2C;
+#else
+	dev->id.bustype = BUS_SPI;
+#endif
 	dev->dev.parent = &ts->client->dev;
 
 	set_bit(EV_SYN, dev->evbit);
@@ -1755,7 +2176,9 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	set_bit(EV_SW, dev->evbit);
 	set_bit(BTN_TOUCH, dev->keybit);
 	set_bit(BTN_TOOL_FINGER, dev->keybit);
+#ifdef SEC_TS_SUPPORT_CUSTOMLIB
 	set_bit(KEY_BLACK_UI_GESTURE, dev->keybit);
+#endif
 #ifdef SEC_TS_SUPPORT_TOUCH_KEY
 	if (ts->plat_data->support_mskey) {
 		int i;
@@ -1767,21 +2190,26 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 		set_bit(LED_MISC, dev->ledbit);
 	}
 #endif
+#ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
 		set_bit(KEY_SIDE_GESTURE, dev->keybit);
 		set_bit(KEY_SIDE_GESTURE_RIGHT, dev->keybit);
 		set_bit(KEY_SIDE_GESTURE_LEFT, dev->keybit);
 	}
+#endif
 	set_bit(propbit, dev->propbit);
 	set_bit(KEY_HOMEPAGE, dev->keybit);
 
+#ifdef SW_GLOVE
 	input_set_capability(dev, EV_SW, SW_GLOVE);
-
+#endif
 	input_set_abs_params(dev, ABS_MT_POSITION_X, 0, ts->plat_data->max_x, 0, 0);
 	input_set_abs_params(dev, ABS_MT_POSITION_Y, 0, ts->plat_data->max_y, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+#ifdef ABS_MT_CUSTOM
 	input_set_abs_params(dev, ABS_MT_CUSTOM, 0, 0xFFFF, 0, 0);
+#endif
 	if (ts->plat_data->support_mt_pressure)
 		input_set_abs_params(dev, ABS_MT_PRESSURE, 0,
 				     SEC_TS_PRESSURE_MAX, 0, 0);
@@ -1931,8 +2359,12 @@ static void sec_ts_device_init(struct sec_ts_data *ts)
 
 static struct notifier_block sec_ts_screen_nb;
 
+#ifdef I2C_INTERFACE
 static int sec_ts_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
+#else
+static int sec_ts_probe(struct spi_device *client)
+#endif
 {
 	struct sec_ts_data *ts;
 	struct sec_ts_plat_data *pdata;
@@ -1940,11 +2372,15 @@ static int sec_ts_probe(struct i2c_client *client,
 
 	input_info(true, &client->dev, "%s\n", __func__);
 
+#ifdef I2C_INTERFACE
+	input_info(true, &client->dev, "%s: I2C interface\n", __func__);
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		input_err(true, &client->dev, "%s: EIO err!\n", __func__);
 		return -EIO;
 	}
-
+#else
+	input_info(true, &client->dev, "%s: SPI interface\n", __func__);
+#endif
 	/* parse dt */
 	if (client->dev.of_node) {
 		pdata = devm_kzalloc(&client->dev,
@@ -2026,8 +2462,11 @@ static int sec_ts_probe(struct i2c_client *client,
 
 	/* Assume screen is on throughout probe */
 	ts->bus_refmask = SEC_TS_BUS_REF_SCREEN_ON;
-
+#ifdef I2C_INTERFACE
 	i2c_set_clientdata(client, ts);
+#else
+	spi_set_drvdata(client, ts);
+#endif
 
 #ifdef CONFIG_TOUCHSCREEN_TBN
 	ts->tbn = tbn_init(&ts->client->dev);
@@ -2085,14 +2524,13 @@ static int sec_ts_probe(struct i2c_client *client,
 	else
 		ts->lowpower_mode &= ~SEC_TS_MODE_CUSTOMLIB_FORCE_KEY;
 
-	input_info(true, &client->dev, "%s: init resource\n", __func__);
-
 	sec_ts_pinctrl_configure(ts, true);
 
 	/* power enable */
-	sec_ts_power(ts, true);
-	if (!pdata->regulator_boot_on)
-		sec_ts_delay(70);
+//TODO: check this, open this will hang
+//	sec_ts_power(ts, true);
+//	if (!pdata->regulator_boot_on)
+//		sec_ts_delay(70);
 	ts->power_status = SEC_TS_STATE_POWER_ON;
 	ts->external_factory = false;
 
@@ -2167,7 +2605,7 @@ static int sec_ts_probe(struct i2c_client *client,
 			client->irq);
 
 	ret = request_threaded_irq(client->irq, sec_ts_isr, sec_ts_irq_thread,
-			ts->plat_data->irq_type, SEC_TS_I2C_NAME, ts);
+			ts->plat_data->irq_type, SEC_TS_NAME, ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 			"%s: Unable to request threaded irq\n", __func__);
@@ -2323,17 +2761,19 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 	input_report_key(ts->input_dev, BTN_TOUCH, false);
 	input_report_key(ts->input_dev, BTN_TOOL_FINGER, false);
+#ifdef SW_GLOVE
 	input_report_switch(ts->input_dev, SW_GLOVE, false);
+#endif
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
-
+#ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE, 0);
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_LEFT, 0);
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_RIGHT, 0);
 	}
-
+#endif
 	input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
 	input_sync(ts->input_dev);
 
@@ -2362,7 +2802,7 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 					ts->tspicid_val, ts->coord[i].palm_count);
 
 			do_gettimeofday(&ts->time_released[i]);
-			
+
 			if (ts->time_longest < (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec))
 				ts->time_longest = (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec);
 		}
@@ -2376,17 +2816,20 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 
 	input_report_key(ts->input_dev, BTN_TOUCH, false);
 	input_report_key(ts->input_dev, BTN_TOOL_FINGER, false);
+#ifdef SW_GLOVE
 	input_report_switch(ts->input_dev, SW_GLOVE, false);
+#endif
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
 
+#ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE, 0);
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_LEFT, 0);
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_RIGHT, 0);
 	}
-
+#endif
 	input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
 	input_sync(ts->input_dev);
 
@@ -2451,9 +2894,9 @@ static void sec_ts_read_info_work(struct work_struct *work)
 	char para = TO_TOUCH_MODE;
 #endif
 #ifdef USE_PRESSURE_SENSOR
-	int ret;
 	unsigned char data[18] = { 0 };
 #endif
+	int ret;
 
 	ts->nv = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_FAC_RESULT);
 	ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
@@ -2665,9 +3108,17 @@ static void sec_ts_input_close(struct input_dev *dev)
 }
 #endif
 
+#ifdef I2C_INTERFACE
 static int sec_ts_remove(struct i2c_client *client)
+#else
+static int sec_ts_remove(struct spi_device *client)
+#endif
 {
+#ifdef I2C_INTERFACE
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
+#else
+	struct sec_ts_data *ts = spi_get_drvdata(client);
+#endif
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
@@ -2756,9 +3207,17 @@ static int sec_ts_remove(struct i2c_client *client)
 	return 0;
 }
 
+#ifdef I2C_INTERFACE
 static void sec_ts_shutdown(struct i2c_client *client)
+#else
+static void sec_ts_shutdown(struct spi_device *client)
+#endif
 {
+#ifdef I2C_INTERFACE
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
+#else
+	struct sec_ts_data *ts = spi_get_drvdata(client);
+#endif
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
@@ -2902,7 +3361,7 @@ static int sec_ts_pm_resume(struct device *dev)
 #endif
 
 static const struct i2c_device_id sec_ts_id[] = {
-	{ SEC_TS_I2C_NAME, 0 },
+	{ SEC_TS_NAME, 0 },
 	{ },
 };
 
@@ -3208,6 +3667,7 @@ static const struct of_device_id sec_ts_match_table[] = {
 #define sec_ts_match_table NULL
 #endif
 
+#ifdef I2C_INTERFACE
 static struct i2c_driver sec_ts_driver = {
 	.probe		= sec_ts_probe,
 	.remove		= sec_ts_remove,
@@ -3215,7 +3675,7 @@ static struct i2c_driver sec_ts_driver = {
 	.id_table	= sec_ts_id,
 	.driver = {
 		.owner	= THIS_MODULE,
-		.name	= SEC_TS_I2C_NAME,
+		.name	= SEC_TS_NAME,
 #ifdef CONFIG_OF
 		.of_match_table = sec_ts_match_table,
 #endif
@@ -3224,6 +3684,24 @@ static struct i2c_driver sec_ts_driver = {
 #endif
 	},
 };
+#else
+static struct spi_driver sec_ts_driver = {
+	.probe    = sec_ts_probe,
+	.remove   = sec_ts_remove,
+	.shutdown   = sec_ts_shutdown,
+	.driver   = {
+		.owner  = THIS_MODULE,
+		.name = SEC_TS_NAME,
+#ifdef CONFIG_OF
+		.of_match_table = sec_ts_match_table,
+#endif
+#ifdef CONFIG_PM
+		.pm = &sec_ts_dev_pm_ops,
+#endif
+	},
+};
+#endif
+
 
 static int __init sec_ts_init(void)
 {
@@ -3236,12 +3714,21 @@ static int __init sec_ts_init(void)
 #endif
 	pr_err("%s %s\n", SECLOG, __func__);
 
+#ifdef I2C_INTERFACE
 	return i2c_add_driver(&sec_ts_driver);
+#else
+	return spi_register_driver(&sec_ts_driver);
+#endif
 }
 
 static void __exit sec_ts_exit(void)
 {
+
+#ifdef I2C_INTERFACE
 	i2c_del_driver(&sec_ts_driver);
+#else
+	spi_unregister_driver(&sec_ts_driver);
+#endif
 }
 
 MODULE_AUTHOR("Hyobae, Ahn<hyobae.ahn@samsung.com>");
