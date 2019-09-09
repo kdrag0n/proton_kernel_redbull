@@ -84,7 +84,7 @@ static ssize_t sec_ts_reg_store(struct device *dev, struct device_attribute *att
 	}
 
 	if (size > 0)
-		ts->sec_ts_i2c_write_burst(ts, (u8 *)buf, size);
+		ts->sec_ts_write_burst(ts, (u8 *)buf, size);
 
 	input_info(true, &ts->client->dev, "%s: 0x%x, 0x%x, size %d\n", __func__, buf[0], buf[1], (int)size);
 	return size;
@@ -114,20 +114,20 @@ static ssize_t sec_ts_regread_show(struct device *dev, struct device_attribute *
 	remain = lv1_readsize;
 	offset = 0;
 	do {
-		if (remain >= ts->i2c_burstmax)
-			length = ts->i2c_burstmax;
+		if (remain >= ts->io_burstmax)
+			length = ts->io_burstmax;
 		else
 			length = remain;
 
 		if (offset == 0)
-			ret = ts->sec_ts_i2c_read_heap(ts, lv1cmd,
+			ret = ts->sec_ts_read_heap(ts, lv1cmd,
 					&read_lv1_buff[offset], length);
 		else
-			ret = ts->sec_ts_i2c_read_bulk_heap(ts,
+			ret = ts->sec_ts_read_bulk_heap(ts,
 					&read_lv1_buff[offset], length);
 
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: i2c read %x command, remain =%d\n", __func__, lv1cmd, remain);
+			input_err(true, &ts->client->dev, "%s: read %x command, remain =%d\n", __func__, lv1cmd, remain);
 			goto i2c_err;
 		}
 
@@ -232,7 +232,7 @@ static ssize_t sec_ts_enter_recovery_store(struct device *dev, struct device_att
 		sec_ts_delay(500);
 
 		/* AFE Calibration */
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CALIBRATION_AMBIENT, NULL, 0);
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_CALIBRATION_AMBIENT, NULL, 0);
 		if (ret < 0)
 			input_err(true, &ts->client->dev, "%s: fail to write AFE_CAL\n", __func__);
 

@@ -135,16 +135,16 @@
 #define SEC_TS_SELFTEST_REPORT_SIZE	80
 #define SEC_TS_PRESSURE_MAX		0x3f
 
-#define I2C_WRITE_BUFFER_SIZE		(256 - 1)//10
+#define IO_WRITE_BUFFER_SIZE		(256 - 1)//10
 
 #ifdef I2C_INTERFACE
 /* max read size: from sec_ts_read_event() at sec_ts.c */
-#define I2C_PREALLOC_READ_BUF_SZ	(32 * SEC_TS_EVENT_BUFF_SIZE)
+#define IO_PREALLOC_READ_BUF_SZ	(32 * SEC_TS_EVENT_BUFF_SIZE)
 /* max write size: from sec_ts_flashpagewrite() at sec_ts_fw.c */
-#define I2C_PREALLOC_WRITE_BUF_SZ	(SEC_TS_SPI_HEADER_SIZE + 1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1)
+#define IO_PREALLOC_WRITE_BUF_SZ	(SEC_TS_SPI_HEADER_SIZE + 1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1)
 #else
-#define I2C_PREALLOC_READ_BUF_SZ	2048
-#define I2C_PREALLOC_WRITE_BUF_SZ	1024
+#define IO_PREALLOC_READ_BUF_SZ	2048
+#define IO_PREALLOC_WRITE_BUF_SZ	1024
 #endif
 
 #define SEC_TS_FW_HEADER_SIGN		0x53494654
@@ -755,7 +755,7 @@ struct sec_ts_data {
 	int touch_count;
 	int tx_count;
 	int rx_count;
-	int i2c_burstmax;
+	int io_burstmax;
 	int ta_status;
 	volatile int power_status;
 	int raw_status;
@@ -768,7 +768,7 @@ struct sec_ts_data {
 	u8 cal_status;
 	struct mutex lock;
 	struct mutex device_mutex;
-	struct mutex i2c_mutex;
+	struct mutex io_mutex;
 	struct mutex eventlock;
 
 	struct notifier_block notifier;
@@ -837,7 +837,7 @@ struct sec_ts_data {
 	unsigned int multi_count;		/* multi touch count */
 	unsigned int wet_count;			/* wet mode count */
 	unsigned int dive_count;		/* dive mode count */
-	unsigned int comm_err_count;	/* i2c comm error count */
+	unsigned int comm_err_count;	/* comm error count */
 	unsigned int checksum_result;	/* checksum result */
 	unsigned char module_id[4];
 	unsigned int all_finger_count;
@@ -866,31 +866,31 @@ struct sec_ts_data {
 	struct tbn_context *tbn;
 #endif
 
-	int (*sec_ts_i2c_write)(struct sec_ts_data *ts, u8 reg,
+	int (*sec_ts_write)(struct sec_ts_data *ts, u8 reg,
 				u8 *data, int len);
 
-	int (*sec_ts_i2c_read)(struct sec_ts_data *ts, u8 reg,
+	int (*sec_ts_read)(struct sec_ts_data *ts, u8 reg,
 				    u8 *data, int len);
-	int (*sec_ts_i2c_read_heap)(struct sec_ts_data *ts, u8 reg,
+	int (*sec_ts_read_heap)(struct sec_ts_data *ts, u8 reg,
 				    u8 *data, int len);
 
-	int (*sec_ts_i2c_write_burst)(struct sec_ts_data *ts,
+	int (*sec_ts_write_burst)(struct sec_ts_data *ts,
 					   u8 *data, int len);
-	int (*sec_ts_i2c_write_burst_heap)(struct sec_ts_data *ts,
+	int (*sec_ts_write_burst_heap)(struct sec_ts_data *ts,
 					   u8 *data, int len);
 
-	int (*sec_ts_i2c_read_bulk)(struct sec_ts_data *ts,
+	int (*sec_ts_read_bulk)(struct sec_ts_data *ts,
 					 u8 *data, int len);
-	int (*sec_ts_i2c_read_bulk_heap)(struct sec_ts_data *ts,
+	int (*sec_ts_read_bulk_heap)(struct sec_ts_data *ts,
 					 u8 *data, int len);
 
 	int (*sec_ts_read_customlib)(struct sec_ts_data *ts,
 				     u8 *data, int len);
 
-	/* alloc for i2c read buffer */
-	u8 i2c_read_buf[I2C_PREALLOC_READ_BUF_SZ];
-	/* alloc for i2c write buffer */
-	u8 i2c_write_buf[I2C_PREALLOC_WRITE_BUF_SZ];
+	/* alloc for io read buffer */
+	u8 io_read_buf[IO_PREALLOC_READ_BUF_SZ];
+	/* alloc for io write buffer */
+	u8 io_write_buf[IO_PREALLOC_WRITE_BUF_SZ];
 };
 
 struct sec_ts_plat_data {
@@ -898,7 +898,7 @@ struct sec_ts_plat_data {
 	int max_y;
 	unsigned irq_gpio;
 	int irq_type;
-	int i2c_burstmax;
+	int io_burstmax;
 	int always_lpmode;
 	int bringup;
 	int mis_cal_check;
