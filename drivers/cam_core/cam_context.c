@@ -54,12 +54,15 @@ int cam_context_shutdown(struct cam_context *ctx)
 		rc = -EINVAL;
 	}
 
-	rc = cam_destroy_device_hdl(ctx->dev_hdl);
-	if (rc)
-		CAM_ERR(CAM_CORE, "destroy device hdl failed for node %s",
-			ctx->dev_name);
-	else
-		ctx->dev_hdl = -1;
+	if (ctx->dev_hdl != -1) {
+		rc = cam_destroy_device_hdl(ctx->dev_hdl);
+		if (rc)
+			CAM_ERR(CAM_CORE,
+				"destroy device hdl failed for node %s",
+				ctx->dev_name);
+		else
+			ctx->dev_hdl = -1;
+	}
 
 	return rc;
 }
@@ -237,12 +240,15 @@ int cam_context_dump_pf_info(struct cam_context *ctx, unsigned long iova,
 		return -EINVAL;
 	}
 
-	if (ctx->state_machine[ctx->state].pagefault_ops) {
-		rc = ctx->state_machine[ctx->state].pagefault_ops(ctx, iova,
-			buf_info);
-	} else {
-		CAM_WARN(CAM_CORE, "No dump ctx in dev %d, state %d",
-			ctx->dev_hdl, ctx->state);
+	if ((ctx->state > CAM_CTX_AVAILABLE) &&
+		(ctx->state < CAM_CTX_STATE_MAX)) {
+		if (ctx->state_machine[ctx->state].pagefault_ops) {
+			rc = ctx->state_machine[ctx->state].pagefault_ops(
+				ctx, iova, buf_info);
+		} else {
+			CAM_WARN(CAM_CORE, "No dump ctx in dev %d, state %d",
+				ctx->dev_hdl, ctx->state);
+		}
 	}
 
 	return rc;
@@ -489,6 +495,31 @@ int cam_context_handle_stop_dev(struct cam_context *ctx,
 
 	ctx->last_flush_req = 0;
 	mutex_unlock(&ctx->ctx_mutex);
+
+	return rc;
+}
+
+int cam_context_handle_info_dump(void *context,
+	enum cam_context_dump_id id)
+{
+	int rc = 0;
+	struct cam_context *ctx = (struct cam_context *)context;
+
+	if (!ctx || !ctx->state_machine) {
+		CAM_ERR(CAM_CORE, "Context is not ready");
+		return -EINVAL;
+	}
+
+	mutex_lock(&ctx->ctx_mutex);
+	if (ctx->state_machine[ctx->state].dumpinfo_ops)
+		rc = ctx->state_machine[ctx->state].dumpinfo_ops(ctx,
+			id);
+	mutex_unlock(&ctx->ctx_mutex);
+
+	if (rc)
+		CAM_WARN(CAM_CORE,
+			"Dump for id %u failed on ctx_id %u name %s state %d",
+			id, ctx->ctx_id, ctx->dev_name, ctx->state);
 
 	return rc;
 }
