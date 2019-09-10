@@ -1157,3 +1157,6 @@ int cam_lrme_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf,
 	return rc;
 }
 EXPORT_SYMBOL_GPL(cam_lrme_hw_mgr_init);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Lrme Hardware Manager");

@@ -6,6 +6,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/ratelimit.h>
 
 #include "cam_io_util.h"
@@ -755,3 +756,6 @@ irqreturn_t cam_irq_controller_handle_irq(int irq_num, void *priv)
 	return IRQ_HANDLED;
 }
 EXPORT_SYMBOL_GPL(cam_irq_controller_handle_irq);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam IRQ Controller");

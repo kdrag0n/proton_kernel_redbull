@@ -117,3 +117,6 @@ void cam_debug_log(unsigned int module_id, const char *func, const int line,
 	}
 }
 EXPORT_SYMBOL_GPL(cam_debug_log);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Debug Util");

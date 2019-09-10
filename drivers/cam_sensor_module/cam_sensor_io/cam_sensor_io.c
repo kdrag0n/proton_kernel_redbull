@@ -223,3 +223,6 @@ int32_t camera_io_release(struct camera_io_master *io_master_info)
 	return -EINVAL;
 }
 EXPORT_SYMBOL_GPL(camera_io_release);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Sensor Io");

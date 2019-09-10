@@ -4,6 +4,7 @@
  */
 
 #include <linux/iopoll.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <uapi/media/cam_isp.h>
 #include <uapi/media/cam_defs.h>
@@ -3768,3 +3769,6 @@ int cam_ife_csid_hw_deinit(struct cam_ife_csid_hw *ife_csid_hw)
 
 	return 0;
 }
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Ife Csid");

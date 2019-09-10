@@ -938,3 +938,6 @@ int cam_isp_add_reg_update(
 	return rc;
 }
 EXPORT_SYMBOL_GPL(cam_isp_add_reg_update);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Isp Packet Parser");

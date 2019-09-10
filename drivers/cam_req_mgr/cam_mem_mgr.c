@@ -1399,3 +1399,6 @@ int cam_mem_mgr_free_memory_region(struct cam_mem_mgr_memory_desc *inp)
 	return rc;
 }
 EXPORT_SYMBOL(cam_mem_mgr_free_memory_region);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Memory Manager");

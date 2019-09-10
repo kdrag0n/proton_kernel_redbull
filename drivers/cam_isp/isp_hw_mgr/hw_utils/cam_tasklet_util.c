@@ -7,6 +7,7 @@
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/ratelimit.h>
 #include "cam_tasklet_util.h"
 #include "cam_irq_controller.h"
@@ -330,3 +331,6 @@ static void cam_tasklet_action(unsigned long data)
 		cam_tasklet_put_cmd(tasklet_info, (void **)(&tasklet_cmd));
 	}
 }
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Tasklet Util");

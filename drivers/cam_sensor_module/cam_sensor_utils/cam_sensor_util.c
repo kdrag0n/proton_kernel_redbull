@@ -2065,3 +2065,6 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cam_sensor_util_power_down);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Sensor Util");

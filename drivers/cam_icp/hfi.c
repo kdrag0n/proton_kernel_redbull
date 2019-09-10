@@ -5,6 +5,7 @@
 
 #include <linux/io.h>
 #include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/random.h>
 #include <asm/errno.h>
@@ -953,3 +954,6 @@ err:
 	mutex_unlock(&hfi_msg_q_mutex);
 }
 EXPORT_SYMBOL_GPL(cam_hfi_deinit);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam hfi Utilities");
