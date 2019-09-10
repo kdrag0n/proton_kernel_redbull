@@ -187,6 +187,7 @@ int32_t cam_create_device_hdl(struct cam_create_dev_hdl *hdl_data)
 	pr_debug("%s: handle = %x", __func__, handle);
 	return handle;
 }
+EXPORT_SYMBOL_GPL(cam_create_device_hdl);
 
 void *cam_get_device_priv(int32_t dev_hdl)
 {
@@ -231,6 +232,7 @@ device_priv_fail:
 	spin_unlock_bh(&hdl_tbl_lock);
 	return NULL;
 }
+EXPORT_SYMBOL_GPL(cam_get_device_priv);
 
 void *cam_get_device_ops(int32_t dev_hdl)
 {
@@ -326,6 +328,7 @@ int cam_destroy_device_hdl(int32_t dev_hdl)
 {
 	return cam_destroy_hdl(dev_hdl, HDL_TYPE_DEV);
 }
+EXPORT_SYMBOL_GPL(cam_destroy_device_hdl);
 
 int cam_destroy_session_hdl(int32_t dev_hdl)
 {

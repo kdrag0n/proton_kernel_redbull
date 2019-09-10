@@ -45,6 +45,7 @@ end:
 
 	return task;
 }
+EXPORT_SYMBOL_GPL(cam_req_mgr_workq_get_task);
 
 static void cam_req_mgr_workq_put_task(struct crm_workq_task *task)
 {
@@ -169,6 +170,7 @@ int cam_req_mgr_workq_enqueue_task(struct crm_workq_task *task,
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_req_mgr_workq_enqueue_task);
 
 int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 	struct cam_req_mgr_core_workq **workq, enum crm_workq_context in_irq,
@@ -239,6 +241,7 @@ int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_req_mgr_workq_create);
 
 void cam_req_mgr_workq_destroy(struct cam_req_mgr_core_workq **crm_workq)
 {
@@ -265,3 +268,4 @@ void cam_req_mgr_workq_destroy(struct cam_req_mgr_core_workq **crm_workq)
 		*crm_workq = NULL;
 	}
 }
+EXPORT_SYMBOL_GPL(cam_req_mgr_workq_destroy);

@@ -319,6 +319,7 @@ int GyroReCalibrate(struct camera_io_master *io_master_info,
 	}
 	return rc;
 }
+EXPORT_SYMBOL_GPL(GyroReCalibrate);
 
 int WrGyroOffsetData(struct camera_io_master *io_master_info,
 	stReCalib *cal_result)
@@ -334,6 +335,7 @@ int WrGyroOffsetData(struct camera_io_master *io_master_info,
 	rc = WrGyroOffsetTbl(&StGyroOffsetTbl);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(WrGyroOffsetData);
 
 int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl)
 {

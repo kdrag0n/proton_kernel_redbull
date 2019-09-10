@@ -1600,3 +1600,4 @@ smmu_get_failed:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_jpeg_hw_mgr_init);

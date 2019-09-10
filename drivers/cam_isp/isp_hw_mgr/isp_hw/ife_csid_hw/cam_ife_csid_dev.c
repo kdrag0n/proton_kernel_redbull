@@ -101,6 +101,7 @@ free_hw_intf:
 err:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_ife_csid_probe);
 
 int cam_ife_csid_remove(struct platform_device *pdev)
 {
@@ -123,6 +124,7 @@ int cam_ife_csid_remove(struct platform_device *pdev)
 	kfree(csid_hw_intf);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_ife_csid_remove);
 
 int cam_ife_csid_hw_init(struct cam_hw_intf **ife_csid_hw,
 	uint32_t hw_idx)
@@ -138,3 +140,4 @@ int cam_ife_csid_hw_init(struct cam_hw_intf **ife_csid_hw,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_ife_csid_hw_init);

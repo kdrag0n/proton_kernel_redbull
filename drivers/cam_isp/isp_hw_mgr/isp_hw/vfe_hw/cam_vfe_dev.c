@@ -195,3 +195,4 @@ int cam_vfe_hw_init(struct cam_hw_intf **vfe_hw, uint32_t hw_idx)
 	}
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_vfe_hw_init);

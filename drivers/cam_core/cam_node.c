@@ -572,6 +572,7 @@ int cam_node_deinit(struct cam_node *node)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_node_deinit);
 
 int cam_node_shutdown(struct cam_node *node)
 {
@@ -596,6 +597,7 @@ int cam_node_shutdown(struct cam_node *node)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_node_shutdown);
 
 int cam_node_init(struct cam_node *node, struct cam_hw_mgr_intf *hw_mgr_intf,
 	struct cam_context *ctx_list, uint32_t ctx_size, char *name)
@@ -640,6 +642,7 @@ err:
 	CAM_DBG(CAM_CORE, "Exit. (rc = %d)", rc);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_node_init);
 
 int cam_node_handle_ioctl(struct cam_node *node, struct cam_control *cmd)
 {

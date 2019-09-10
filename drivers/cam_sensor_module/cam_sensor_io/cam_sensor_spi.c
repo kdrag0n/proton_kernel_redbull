@@ -303,6 +303,7 @@ int cam_spi_query_id(struct camera_io_master *client,
 		&client->spi_client->cmd_tbl.query_id,
 		addr, data, addr_type, num_byte, NULL, NULL);
 }
+EXPORT_SYMBOL_GPL(cam_spi_query_id);
 
 static int32_t cam_spi_read_status_reg(
 	struct camera_io_master *client, uint8_t *status,

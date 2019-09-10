@@ -119,6 +119,7 @@ int cam_context_buf_done_from_hw(struct cam_context *ctx,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_buf_done_from_hw);
 
 static int cam_context_apply_req_to_hw(struct cam_ctx_request *req,
 	struct cam_req_mgr_apply_request *apply)
@@ -258,6 +259,7 @@ int32_t cam_context_release_dev_to_hw(struct cam_context *ctx,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_release_dev_to_hw);
 
 int32_t cam_context_config_dev_to_hw(
 	struct cam_context *ctx, struct cam_config_dev_cmd *cmd)
@@ -316,6 +318,7 @@ int32_t cam_context_config_dev_to_hw(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_config_dev_to_hw);
 
 int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 	struct cam_config_dev_cmd *cmd)
@@ -497,6 +500,7 @@ free_req:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_prepare_dev_to_hw);
 
 int32_t cam_context_acquire_dev_to_hw(struct cam_context *ctx,
 	struct cam_acquire_dev_cmd *cmd)
@@ -585,6 +589,7 @@ free_hw:
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_acquire_dev_to_hw);
 
 int32_t cam_context_flush_ctx_to_hw(struct cam_context *ctx)
 {
@@ -899,6 +904,7 @@ int32_t cam_context_flush_dev_to_hw(struct cam_context *ctx,
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_flush_dev_to_hw);
 
 int32_t cam_context_start_dev_to_hw(struct cam_context *ctx,
 	struct cam_start_stop_dev_cmd *cmd)
@@ -944,6 +950,7 @@ int32_t cam_context_start_dev_to_hw(struct cam_context *ctx,
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_start_dev_to_hw);
 
 int32_t cam_context_stop_dev_to_hw(struct cam_context *ctx)
 {
@@ -981,6 +988,7 @@ int32_t cam_context_stop_dev_to_hw(struct cam_context *ctx)
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_stop_dev_to_hw);
 
 int32_t cam_context_dump_pf_info_to_hw(struct cam_context *ctx,
 	struct cam_packet *packet, unsigned long iova, uint32_t buf_info,
@@ -1016,3 +1024,4 @@ int32_t cam_context_dump_pf_info_to_hw(struct cam_context *ctx,
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_dump_pf_info_to_hw);

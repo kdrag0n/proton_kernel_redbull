@@ -1752,6 +1752,7 @@ int cam_fd_hw_mgr_deinit(struct device_node *of_node)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_fd_hw_mgr_deinit);
 
 int cam_fd_hw_mgr_init(struct device_node *of_node,
 	struct cam_hw_mgr_intf *hw_mgr_intf)
@@ -1947,3 +1948,4 @@ destroy_mutex:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_fd_hw_mgr_init);

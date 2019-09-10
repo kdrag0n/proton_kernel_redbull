@@ -715,3 +715,4 @@ void cam_cdm_util_dump_cmd_buf(
 		}
 	} while (buf_now <= cmd_buf_end);
 }
+EXPORT_SYMBOL_GPL(cam_cdm_util_dump_cmd_buf);

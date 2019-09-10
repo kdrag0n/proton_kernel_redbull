@@ -247,6 +247,7 @@ int cam_context_dump_pf_info(struct cam_context *ctx, unsigned long iova,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_dump_pf_info);
 
 int cam_context_handle_acquire_dev(struct cam_context *ctx,
 	struct cam_acquire_dev_cmd *cmd)
@@ -545,6 +546,7 @@ int cam_context_init(struct cam_context *ctx,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_init);
 
 int cam_context_deinit(struct cam_context *ctx)
 {
@@ -563,6 +565,7 @@ int cam_context_deinit(struct cam_context *ctx)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_deinit);
 
 void cam_context_putref(struct cam_context *ctx)
 {

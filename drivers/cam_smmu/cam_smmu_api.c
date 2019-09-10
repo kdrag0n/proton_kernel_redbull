@@ -449,6 +449,7 @@ void cam_smmu_set_client_page_fault_handler(int handle,
 	}
 	mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 }
+EXPORT_SYMBOL_GPL(cam_smmu_set_client_page_fault_handler);
 
 void cam_smmu_unset_client_page_fault_handler(int handle, void *token)
 {
@@ -490,6 +491,7 @@ void cam_smmu_unset_client_page_fault_handler(int handle, void *token)
 			handle, iommu_cb_set.cb_info[idx].name);
 	mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 }
+EXPORT_SYMBOL_GPL(cam_smmu_unset_client_page_fault_handler);
 
 static int cam_smmu_iommu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova,
@@ -1400,6 +1402,7 @@ int cam_smmu_get_io_region_info(int32_t smmu_hdl,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_smmu_get_io_region_info);
 
 int cam_smmu_get_region_info(int32_t smmu_hdl,
 	enum cam_smmu_region_id region_id,

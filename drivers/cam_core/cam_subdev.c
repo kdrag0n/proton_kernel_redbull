@@ -117,6 +117,7 @@ int cam_subdev_remove(struct cam_subdev *sd)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_subdev_remove);
 
 int cam_subdev_probe(struct cam_subdev *sd, struct platform_device *pdev,
 	char *name, uint32_t dev_type)
@@ -152,3 +153,4 @@ err:
 	kfree(node);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_subdev_probe);
