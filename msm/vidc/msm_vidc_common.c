@@ -43,24 +43,6 @@ int msm_comm_g_ctrl_for_id(struct msm_vidc_inst *inst, int id)
 	return ctrl->val;
 }
 
-static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
-				int num_ctrls)
-{
-	int c = 0;
-	struct v4l2_ctrl **cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
-			num_ctrls, GFP_KERNEL);
-
-	if (!cluster || !inst) {
-		kfree(cluster);
-		return NULL;
-	}
-
-	for (c = 0; c < num_ctrls; c++)
-		cluster[c] =  inst->ctrls[c];
-
-	return cluster;
-}
-
 int msm_comm_hfi_to_v4l2(int id, int value)
 {
 	switch (id) {
@@ -658,16 +640,6 @@ int msm_comm_ctrl_init(struct msm_vidc_inst *inst,
 	}
 	inst->num_ctrls = num_ctrls;
 
-	/* Construct a super cluster of all controls */
-	inst->cluster = get_super_cluster(inst, num_ctrls);
-	if (!inst->cluster) {
-		dprintk(VIDC_ERR,
-			"Failed to setup super cluster\n");
-		return -EINVAL;
-	}
-
-	v4l2_ctrl_cluster(num_ctrls, inst->cluster);
-
 	return ret_val;
 }
 
@@ -679,7 +651,6 @@ int msm_comm_ctrl_deinit(struct msm_vidc_inst *inst)
 	}
 
 	kfree(inst->ctrls);
-	kfree(inst->cluster);
 	v4l2_ctrl_handler_free(&inst->ctrl_handler);
 
 	return 0;
@@ -1645,6 +1616,7 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 		goto err_bad_event;
 	}
 	hdev = inst->core->device;
+	codec = get_v4l2_codec(inst);
 
 	switch (event_notify->hal_event_type) {
 	case HAL_EVENT_SEQ_CHANGED_SUFFICIENT_RESOURCES:
@@ -1661,13 +1633,15 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 				"event_notify->height = %d event_notify->width = %d\n",
 				event_notify->height,
 				event_notify->width);
-		event_fields_changed |= (inst->bit_depth !=
-			event_notify->bit_depth);
+		if (codec == V4L2_PIX_FMT_HEVC || codec == V4L2_PIX_FMT_VP9)
+			event_fields_changed |= (inst->bit_depth !=
+				event_notify->bit_depth);
 		/* Check for change from hdr->non-hdr and vice versa */
-		if ((event_notify->colour_space == MSM_VIDC_BT2020 &&
-			inst->colour_space != MSM_VIDC_BT2020) ||
+		if (codec == V4L2_PIX_FMT_HEVC &&
+			((event_notify->colour_space == MSM_VIDC_BT2020 &&
+				inst->colour_space != MSM_VIDC_BT2020) ||
 			(event_notify->colour_space != MSM_VIDC_BT2020 &&
-			inst->colour_space == MSM_VIDC_BT2020))
+				inst->colour_space == MSM_VIDC_BT2020)))
 			event_fields_changed = true;
 
 		f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
@@ -1769,7 +1743,6 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 	ptr[6] = event_notify->crop_data.left;
 	ptr[7] = event_notify->crop_data.height;
 	ptr[8] = event_notify->crop_data.width;
-	codec = get_v4l2_codec(inst);
 	ptr[9] = msm_comm_get_v4l2_profile(codec,
 		event_notify->profile);
 	ptr[10] = msm_comm_get_v4l2_level(codec,
@@ -2115,7 +2088,8 @@ static void handle_session_flush(enum hal_command_response cmd, void *data)
 
 	if (flush_type == HAL_FLUSH_ALL) {
 		msm_comm_clear_window_data(inst);
-		msm_comm_release_client_data(inst);
+		msm_comm_release_client_data(inst, false);
+		inst->clk_data.buffer_counter = 0;
 	}
 
 	dprintk(VIDC_HIGH,
@@ -2652,8 +2626,8 @@ static void handle_fbd(enum hal_command_response cmd, void *data)
 		fill_buf_done->input_tag, fill_buf_done->input_tag2);
 
 	if (inst->session_type == MSM_VIDC_ENCODER) {
-		msm_comm_store_filled_length(&inst->fbd_data, vb->index,
-			fill_buf_done->filled_len1);
+		if (inst->max_filled_len < fill_buf_done->filled_len1)
+			inst->max_filled_len = fill_buf_done->filled_len1;
 	}
 
 	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
@@ -4039,7 +4013,7 @@ int msm_vidc_send_pending_eos_buffers(struct msm_vidc_inst *inst)
 		data.offset = 0;
 		data.flags = HAL_BUFFERFLAG_EOS;
 		data.timestamp = 0;
-		data.extradata_addr = data.device_addr;
+		data.extradata_addr = 0;
 		data.extradata_size = 0;
 		dprintk(VIDC_HIGH, "Queueing EOS buffer 0x%x\n",
 				data.device_addr);
@@ -5877,7 +5851,11 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 			width_max, height_max);
 			rc = -ENOTSUPP;
 		}
-		if (!rc && NUM_MBS_PER_FRAME(input_width, input_height) >
+		/* Image size max capability has equal width and height,
+		 * hence, don't check mbpf for image sessions.
+		 */
+		if (!rc && !is_image_session(inst) &&
+			NUM_MBS_PER_FRAME(input_width, input_height) >
 			mbpf_max) {
 			dprintk(VIDC_ERR, "Unsupported mbpf %d, max %d\n",
 				NUM_MBS_PER_FRAME(input_width, input_height),
@@ -6504,14 +6482,11 @@ int msm_comm_qbuf_cache_operations(struct msm_vidc_inst *inst,
 				}
 			} else if (vb->type == OUTPUT_MPLANE) {
 				if (!i) { /* bitstream */
-					u32 size_u32;
 					skip = false;
 					offset = 0;
-					size_u32 = vb->planes[i].length;
-					msm_comm_fetch_filled_length(
-						&inst->fbd_data, vb->index,
-						&size_u32);
-					size = size_u32;
+					size = vb->planes[i].length;
+					if (inst->max_filled_len)
+						size = inst->max_filled_len;
 					cache_op = SMEM_CACHE_INVALIDATE;
 				}
 			}
@@ -6973,7 +6948,7 @@ bool kref_get_mbuf(struct msm_vidc_inst *inst, struct msm_vidc_buffer *mbuf)
 struct msm_vidc_client_data *msm_comm_store_client_data(
 	struct msm_vidc_inst *inst, u32 itag)
 {
-	struct msm_vidc_client_data *data = NULL;
+	struct msm_vidc_client_data *data = NULL, *temp = NULL;
 
 	if (!inst) {
 		dprintk(VIDC_ERR, "%s: invalid params %pK %un",
@@ -6982,10 +6957,20 @@ struct msm_vidc_client_data *msm_comm_store_client_data(
 	}
 
 	mutex_lock(&inst->client_data.lock);
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	list_for_each_entry(temp, &inst->client_data.list, list) {
+		if (!temp->id) {
+			data = temp;
+			break;
+		}
+	}
 	if (!data) {
-		dprintk(VIDC_ERR, "No memory left to allocate tag data");
-		goto exit;
+		data = kzalloc(sizeof(*data), GFP_KERNEL);
+		if (!data) {
+			dprintk(VIDC_ERR, "No memory avilable - tag data");
+			goto exit;
+		}
+		INIT_LIST_HEAD(&data->list);
+		list_add_tail(&data->list, &inst->client_data.list);
 	}
 
 	/**
@@ -6995,10 +6980,8 @@ struct msm_vidc_client_data *msm_comm_store_client_data(
 	if (!inst->etb_counter)
 		inst->etb_counter = 1;
 
-	INIT_LIST_HEAD(&data->list);
 	data->id =  inst->etb_counter++;
 	data->input_tag = itag;
-	list_add_tail(&data->list, &inst->client_data.list);
 
 exit:
 	mutex_unlock(&inst->client_data.lock);
@@ -7017,33 +7000,25 @@ void msm_comm_fetch_client_data(struct msm_vidc_inst *inst, bool remove,
 			__func__, inst, otag, otag2);
 		return;
 	}
-
+	/**
+	 * Some interlace clips, both BF & TF is available in single ETB buffer.
+	 * In that case, firmware copies same input_tag value to both input_tag
+	 * and input_tag2 at FBD.
+	 */
+	if (!itag2 || itag == itag2)
+		found_itag2 = true;
 	mutex_lock(&inst->client_data.lock);
 	list_for_each_entry_safe(temp, next, &inst->client_data.list, list) {
 		if (temp->id == itag) {
 			*otag = temp->input_tag;
-			if (remove) {
-				list_del(&temp->list);
-				kfree(temp);
-			}
 			found_itag = true;
-			/**
-			 * Some interlace clips, both BF & TP is available in
-			 * single ETB buffer. In that case, firmware copies
-			 * same input_tag value to both input_tag and
-			 * input_tag2 at FBD.
-			 */
-			if (!itag2 || itag == itag2) {
-				found_itag2 = true;
-				break;
-			}
-		} else if (temp->id == itag2) {
+			if (remove)
+				temp->id = 0;
+		} else if (!found_itag2 && temp->id == itag2) {
 			*otag2 = temp->input_tag;
 			found_itag2 = true;
-			if (remove) {
-				list_del(&temp->list);
-				kfree(temp);
-			}
+			if (remove)
+				temp->id = 0;
 		}
 		if (found_itag && found_itag2)
 			break;
@@ -7056,7 +7031,7 @@ void msm_comm_fetch_client_data(struct msm_vidc_inst *inst, bool remove,
 	}
 }
 
-void msm_comm_release_client_data(struct msm_vidc_inst *inst)
+void msm_comm_release_client_data(struct msm_vidc_inst *inst, bool remove)
 {
 	struct msm_vidc_client_data *temp, *next;
 
@@ -7068,67 +7043,13 @@ void msm_comm_release_client_data(struct msm_vidc_inst *inst)
 
 	mutex_lock(&inst->client_data.lock);
 	list_for_each_entry_safe(temp, next, &inst->client_data.list, list) {
-		list_del(&temp->list);
-		kfree(temp);
+		temp->id = 0;
+		if (remove) {
+			list_del(&temp->list);
+			kfree(temp);
+		}
 	}
 	mutex_unlock(&inst->client_data.lock);
-}
-
-void msm_comm_store_filled_length(struct msm_vidc_list *data_list,
-		u32 index, u32 filled_length)
-{
-	struct msm_vidc_buf_data *pdata = NULL;
-	bool found = false;
-
-	if (!data_list) {
-		dprintk(VIDC_ERR, "%s: invalid params %pK\n",
-			__func__, data_list);
-		return;
-	}
-
-	mutex_lock(&data_list->lock);
-	list_for_each_entry(pdata, &data_list->list, list) {
-		if (pdata->index == index) {
-			pdata->filled_length = filled_length;
-			found = true;
-			break;
-		}
-	}
-
-	if (!found) {
-		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
-		if (!pdata)  {
-			dprintk(VIDC_ERR, "%s: malloc failure.\n", __func__);
-			goto exit;
-		}
-		pdata->index = index;
-		pdata->filled_length = filled_length;
-		list_add_tail(&pdata->list, &data_list->list);
-	}
-
-exit:
-	mutex_unlock(&data_list->lock);
-}
-
-void msm_comm_fetch_filled_length(struct msm_vidc_list *data_list,
-		u32 index, u32 *filled_length)
-{
-	struct msm_vidc_buf_data *pdata = NULL;
-
-	if (!data_list || !filled_length) {
-		dprintk(VIDC_ERR, "%s: invalid params %pK %pK\n",
-			__func__, data_list, filled_length);
-		return;
-	}
-
-	mutex_lock(&data_list->lock);
-	list_for_each_entry(pdata, &data_list->list, list) {
-		if (pdata->index == index) {
-			*filled_length = pdata->filled_length;
-			break;
-		}
-	}
-	mutex_unlock(&data_list->lock);
 }
 
 void msm_comm_store_input_tag(struct msm_vidc_list *data_list,

@@ -786,11 +786,11 @@ bool is_vidc_cvp_allowed(struct msm_vidc_inst *inst)
 		allowed = true;
 	} else {
 		dprintk(VIDC_HIGH,
-			"%s: cvp not allowed, cvp_external %d cvp_disable %d extradata %#x rc_type %d legacy_cbr %d secure %d\n",
+			"%s: cvp not allowed, cvp_external %d cvp_disable %d extradata %#x rc_type %d legacy_cbr %d secure %d superframe %d\n",
 			__func__, core->resources.cvp_external,
 			cvp_disable->val, inst->prop.extradata_ctrls,
 			inst->rc_type, inst->clk_data.is_legacy_cbr,
-			is_secure_session(inst));
+			is_secure_session(inst), superframe_enable->val);
 		allowed = false;
 	}
 exit:
@@ -1443,7 +1443,6 @@ static int msm_vidc_op_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 
 	int rc = 0;
-	unsigned int c = 0;
 	struct msm_vidc_inst *inst;
 	const char *ctrl_name = NULL;
 
@@ -1459,17 +1458,9 @@ static int msm_vidc_op_s_ctrl(struct v4l2_ctrl *ctrl)
 		return -EINVAL;
 	}
 
-	for (c = 0; c < ctrl->ncontrols; ++c) {
-		if (ctrl->cluster[c]->is_new) {
-			rc = msm_vidc_try_set_ctrl(inst, ctrl->cluster[c]);
-			if (rc) {
-				dprintk(VIDC_ERR, "Failed setting %x\n",
-					ctrl->cluster[c]->id);
-				break;
-			}
-		}
-	}
+	rc = msm_vidc_try_set_ctrl(inst, ctrl);
 	if (rc) {
+		dprintk(VIDC_ERR, "Failed setting %x\n", ctrl->id);
 		ctrl_name = v4l2_ctrl_get_name(ctrl->id);
 		dprintk(VIDC_ERR, "Failed setting control: Inst = %pK (%s)\n",
 			inst, ctrl_name ? ctrl_name : "Invalid ctrl");
@@ -1606,6 +1597,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	inst->rc_type = V4L2_MPEG_VIDEO_BITRATE_MODE_VBR;
 	inst->dpb_extra_binfo = NULL;
 	inst->all_intra = false;
+	inst->max_filled_len = 0;
 
 	for (i = SESSION_MSG_INDEX(SESSION_MSG_START);
 		i <= SESSION_MSG_INDEX(SESSION_MSG_END); i++) {
@@ -1776,7 +1768,7 @@ static void msm_vidc_cleanup_instance(struct msm_vidc_inst *inst)
 		dprintk(VIDC_ERR,
 			"Failed to release input_tag buffers\n");
 
-	msm_comm_release_client_data(inst);
+	msm_comm_release_client_data(inst, true);
 
 	msm_comm_release_window_data(inst);
 

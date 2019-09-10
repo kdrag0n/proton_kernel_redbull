@@ -207,7 +207,6 @@ struct msm_vidc_buf_data {
 	u32 index;
 	u32 input_tag;
 	u32 input_tag2;
-	u32 filled_length;
 };
 
 struct msm_vidc_window_data {
@@ -537,7 +536,6 @@ struct msm_vidc_inst {
 	struct vidc_frame_data superframe_data[VIDC_SUPERFRAME_MAX];
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct completion completions[SESSION_MSG_END - SESSION_MSG_START + 1];
-	struct v4l2_ctrl **cluster;
 	struct v4l2_fh event_handler;
 	struct msm_smem *extradata_handle;
 	bool in_reconfig;
@@ -578,14 +576,10 @@ struct msm_vidc_inst {
 	int (*buffer_size_calculators)(struct msm_vidc_inst *inst);
 	bool all_intra;
 	bool is_perf_eligible_session;
+	u32 max_filled_len;
 };
 
 extern struct msm_vidc_drv *vidc_driver;
-
-struct msm_vidc_ctrl_cluster {
-	struct v4l2_ctrl **cluster;
-	struct list_head list;
-};
 
 struct msm_vidc_ctrl {
 	u32 id;
