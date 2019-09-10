@@ -144,6 +144,11 @@ static ssize_t swrm_reg_show(char __user *ubuf, size_t count,
 		i <= SWR_MSTR_MAX_REG_ADDR; i += 4) {
 		reg_val = dbgswrm->read(dbgswrm->handle, i);
 		len = snprintf(tmp_buf, 25, "0x%.3x: 0x%.2x\n", i, reg_val);
+		if (len < 0) {
+			pr_err("%s: fail to fill the buffer\n", __func__);
+			total = -EFAULT;
+			goto copy_err;
+		}
 		if ((total + len) >= count - 1)
 			break;
 		if (copy_to_user((ubuf + total), tmp_buf, len)) {
@@ -397,7 +402,11 @@ static int swr_master_bulk_write(struct swr_mstr_ctrl *swrm, u32 *reg_addr,
 		mutex_lock(&swrm->iolock);
 		for (i = 0; i < length; i++) {
 		/* wait for FIFO WR command to complete to avoid overflow */
-			usleep_range(100, 105);
+		/*
+		 * Reduce sleep from 100us to 10us to meet KPIs
+		 * This still meets the hardware spec
+		 */
+			usleep_range(10, 12);
 			swr_master_write(swrm, reg_addr[i], val[i]);
 		}
 		mutex_unlock(&swrm->iolock);
@@ -559,7 +568,7 @@ static int swrm_cmd_fifo_wr_cmd(struct swr_mstr_ctrl *swrm, u8 cmd_data,
 	 * skip delay if write is handled in platform driver.
 	 */
 	if(!swrm->write)
-		usleep_range(250, 255);
+		usleep_range(150, 155);
 	if (cmd_id == 0xF) {
 		/*
 		 * sleep for 10ms for MSM soundwire variant to allow broadcast
@@ -1407,6 +1416,7 @@ handle_irq:
 					continue;
 				if (swr_dev->slave_irq) {
 					do {
+						swr_dev->slave_irq_pending = 0;
 						handle_nested_irq(
 							irq_find_mapping(
 							swr_dev->slave_irq, 0));
@@ -2879,6 +2889,14 @@ int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 					__func__);
 			mutex_unlock(&swrm->mlock);
 		}
+		break;
+	case SWR_REGISTER_WAKEUP:
+		msm_aud_evt_blocking_notifier_call_chain(
+					SWR_WAKE_IRQ_REGISTER, (void *)swrm);
+		break;
+	case SWR_DEREGISTER_WAKEUP:
+		msm_aud_evt_blocking_notifier_call_chain(
+					SWR_WAKE_IRQ_DEREGISTER, (void *)swrm);
 		break;
 	case SWR_SET_PORT_MAP:
 		if (!data) {
