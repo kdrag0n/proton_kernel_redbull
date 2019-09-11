@@ -3763,6 +3763,7 @@ static int msm_ext_disp_get_idx_from_beid(int32_t be_id)
 	return idx;
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 static int kona_send_island_va_config(int32_t be_id)
 {
 	int rc = 0;
@@ -3786,6 +3787,7 @@ static int kona_send_island_va_config(int32_t be_id)
 
 	return rc;
 }
+#endif
 
 static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
@@ -4614,6 +4616,7 @@ static void kona_aux_snd_shutdown(struct snd_pcm_substream *substream)
 	}
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 static int msm_snd_cdc_dma_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -4720,6 +4723,7 @@ static int msm_snd_cdc_dma_hw_params(struct snd_pcm_substream *substream,
 err:
 	return ret;
 }
+#endif
 
 static int msm_fe_qos_prepare(struct snd_pcm_substream *substream)
 {
@@ -4941,10 +4945,12 @@ static struct snd_soc_ops msm_fe_qos_ops = {
 	.prepare = msm_fe_qos_prepare,
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 static struct snd_soc_ops msm_cdc_dma_be_ops = {
 	.startup = msm_snd_cdc_dma_startup,
 	.hw_params = msm_snd_cdc_dma_hw_params,
 };
+#endif
 
 static struct snd_soc_ops msm_wcn_ops = {
 	.hw_params = msm_wcn_hw_params,
@@ -5108,6 +5114,9 @@ static const struct snd_soc_dapm_widget msm_int_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Digital Mic5", msm_dmic_event),
 	SND_SOC_DAPM_MIC("Digital Mic6", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic7", NULL),
+};
+
+static const struct snd_soc_dapm_widget msm_int_rt5514_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("Audio LDO Mic1", SND_SOC_NOPM, 0, 0,
 		msm_mic_event, SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_SUPPLY("Audio LDO Mic2", SND_SOC_NOPM, 0, 0,
@@ -5119,11 +5128,14 @@ static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 	int ret = -EINVAL;
 	struct snd_soc_component *component =
 			snd_soc_rtdcom_lookup(rtd, "rt5514");
+	struct snd_soc_dapm_context *dapm;
 
 	if (!component) {
 		pr_err("* %s: No match rt5514 component\n", __func__);
 		return ret;
 	}
+
+	dapm = snd_soc_component_get_dapm(component);
 
 	ret = snd_soc_add_component_controls(component,
 			msm_pri_tdm_ch_controls,
@@ -5134,6 +5146,17 @@ static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 			__func__, ret);
 		return ret;
 	}
+
+	ret = snd_soc_add_component_controls(component, msm_common_snd_controls,
+				ARRAY_SIZE(msm_common_snd_controls));
+	if (ret < 0) {
+		pr_err("%s: add common snd controls failed: %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	snd_soc_dapm_new_controls(dapm, msm_int_rt5514_dapm_widgets,
+				ARRAY_SIZE(msm_int_rt5514_dapm_widgets));
 
 	return 0;
 }
@@ -5158,6 +5181,7 @@ static int msm_wcn_init_lito(struct snd_soc_pcm_runtime *rtd)
 					   tx_ch, ARRAY_SIZE(rx_ch), rx_ch);
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret = -EINVAL;
@@ -5187,13 +5211,19 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 			__func__, ret);
 		return ret;
 	}
-	ret = snd_soc_add_component_controls(component, msm_common_snd_controls,
-				ARRAY_SIZE(msm_common_snd_controls));
-	if (ret < 0) {
-		pr_err("%s: add common snd controls failed: %d\n",
-			__func__, ret);
-		return ret;
-	}
+
+/*
+ *	move msm_common_snd_controls to msm_tdm_ch_init
+ *	always add common controls on RT5514 BE
+ *
+ *	ret = snd_soc_add_component_controls(component, msm_common_snd_controls,
+ *				ARRAY_SIZE(msm_common_snd_controls));
+ *	if (ret < 0) {
+ *		pr_err("%s: add common snd controls failed: %d\n",
+ *			__func__, ret);
+ *		return ret;
+ *	}
+ */
 
 	snd_soc_dapm_new_controls(dapm, msm_int_dapm_widgets,
 				ARRAY_SIZE(msm_int_dapm_widgets));
@@ -5265,6 +5295,7 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 err:
 	return ret;
 }
+#endif
 
 static void *def_wcd_mbhc_cal(void)
 {
@@ -5929,6 +5960,7 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 	{/* hw:x,39 */
 		.name = LPASS_BE_TX_CDC_DMA_TX_5,
 		.stream_name = "TX CDC DMA5 Capture",
@@ -5942,6 +5974,7 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ops = &msm_cdc_dma_be_ops,
 	},
+#endif
 };
 
 static struct snd_soc_dai_link msm_common_be_dai_links[] = {
@@ -6843,6 +6876,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 	},
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 #if IS_ENABLED(CONFIG_SND_SOC_WSA)
 static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 	/* WSA CDC DMA Backend DAI Links */
@@ -7038,6 +7072,7 @@ static struct snd_soc_dai_link msm_va_cdc_dma_be_dai_links[] = {
 		.ops = &msm_cdc_dma_be_ops,
 	},
 };
+#endif
 
 static struct snd_soc_dai_link msm_afe_rxtx_lb_be_dai_link[] = {
 	{
@@ -7058,18 +7093,22 @@ static struct snd_soc_dai_link msm_afe_rxtx_lb_be_dai_link[] = {
 
 static struct snd_soc_dai_link msm_kona_dai_links[
 			ARRAY_SIZE(msm_common_dai_links) +
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 #if IS_ENABLED(CONFIG_SND_SOC_WSA)
 			ARRAY_SIZE(msm_bolero_fe_dai_links) +
+#endif
 #endif
 			ARRAY_SIZE(msm_common_misc_fe_dai_links) +
 			ARRAY_SIZE(msm_common_be_dai_links) +
 			ARRAY_SIZE(msm_mi2s_be_dai_links) +
 			ARRAY_SIZE(msm_auxpcm_be_dai_links) +
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 #if IS_ENABLED(CONFIG_SND_SOC_WSA)
 			ARRAY_SIZE(msm_wsa_cdc_dma_be_dai_links) +
 #endif
 			ARRAY_SIZE(msm_rx_tx_cdc_dma_be_dai_links) +
 			ARRAY_SIZE(msm_va_cdc_dma_be_dai_links) +
+#endif
 			ARRAY_SIZE(ext_disp_be_dai_link) +
 			ARRAY_SIZE(msm_wcn_be_dai_links) +
 			ARRAY_SIZE(msm_afe_rxtx_lb_be_dai_link) +
@@ -7297,12 +7336,14 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		       sizeof(msm_common_dai_links));
 		total_links += ARRAY_SIZE(msm_common_dai_links);
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 #if IS_ENABLED(CONFIG_SND_SOC_WSA)
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_bolero_fe_dai_links,
 		       sizeof(msm_bolero_fe_dai_links));
 		total_links +=
 			ARRAY_SIZE(msm_bolero_fe_dai_links);
+#endif
 #endif
 
 		memcpy(msm_kona_dai_links + total_links,
@@ -7315,6 +7356,7 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		       sizeof(msm_common_be_dai_links));
 		total_links += ARRAY_SIZE(msm_common_be_dai_links);
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC)
 #if IS_ENABLED(CONFIG_SND_SOC_WSA)
 		memcpy(msm_kona_dai_links + total_links,
 		       msm_wsa_cdc_dma_be_dai_links,
@@ -7334,7 +7376,7 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 		       sizeof(msm_va_cdc_dma_be_dai_links));
 		total_links +=
 			ARRAY_SIZE(msm_va_cdc_dma_be_dai_links);
-
+#endif
 		rc = of_property_read_u32(dev->of_node, "qcom,mi2s-audio-intf",
 					  &mi2s_audio_intf);
 		if (rc) {
