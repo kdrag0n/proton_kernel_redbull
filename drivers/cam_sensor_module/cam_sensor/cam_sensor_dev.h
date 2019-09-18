@@ -88,6 +88,8 @@ struct intf_params {
  * @bob_pwm_switch: Boolean flag to switch into PWM mode for BoB regulator
  * @last_flush_req: Last request to flush
  * @pipeline_delay: Sensor pipeline delay
+ * @ois_fw_ver: OIS firmware version
+ * @vcm_fw_ver: VCM firmware version
  */
 struct cam_sensor_ctrl_t {
 	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -114,6 +116,8 @@ struct cam_sensor_ctrl_t {
 	bool bob_pwm_switch;
 	uint32_t last_flush_req;
 	uint16_t pipeline_delay;
+	uint16_t ois_fw_ver;
+	uint16_t vcm_fw_ver;
 };
 
 #endif /* _CAM_SENSOR_DEV_H_ */
