@@ -4354,6 +4354,12 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 		slot_mask = 0x0000FFFF >> (16 - slots);
 		channels = slots;
 
+		if (cpu_dai->id == AFE_PORT_ID_PRIMARY_TDM_TX) {
+			slots = 8;
+			slot_mask = 0x0000FFFF >> (16 - slots);
+			channels = tdm_tx_cfg[TDM_PRI][TDM_0].channels;
+		}
+
 		pr_debug("%s: tdm tx slot_width %d slots %d\n",
 			__func__, slot_width, slots);
 
