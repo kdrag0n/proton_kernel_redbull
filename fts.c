@@ -1961,7 +1961,11 @@ static ssize_t stm_fts_cmd_show(struct device *dev,
 			 * FIFO)
 			 */
 			flushFIFO();
+#ifdef READ_FILTERED_RAW
+			res = getMSFrame3(MS_FILTER, &frameMS);
+#else
 			res = getMSFrame3(MS_RAW, &frameMS);
+#endif
 			if (res < 0) {
 				pr_err("Error while taking the MS frame... ERROR %08X\n",
 					res);
@@ -2008,10 +2012,17 @@ static ssize_t stm_fts_cmd_show(struct device *dev,
 			 */
 			if (numberParameters >= 2 &&
 				typeOfCommand[1] == LOCKED_LP_DETECT)
+#ifdef READ_FILTERED_RAW
+				res = getSSFrame3(SS_DETECT_FILTER, &frameSS);
+#else
 				res = getSSFrame3(SS_DETECT_RAW, &frameSS);
+#endif
 			else
+#ifdef READ_FILTERED_RAW
+				res = getSSFrame3(SS_FILTER, &frameSS);
+#else
 				res = getSSFrame3(SS_RAW, &frameSS);
-
+#endif
 			if (res < OK) {
 				pr_err("Error while taking the SS frame... ERROR %08X\n",
 					res);

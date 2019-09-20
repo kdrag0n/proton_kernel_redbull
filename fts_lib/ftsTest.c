@@ -1312,7 +1312,11 @@ int production_test_ms_raw(const char *path_limits, int stop_on_fail,
 		msleep(WAIT_FOR_FRESH_FRAMES);
 		ret |= setScanMode(SCAN_MODE_ACTIVE, 0x00);
 		msleep(WAIT_AFTER_SENSEOFF);
+#ifdef READ_FILTERED_RAW
+		ret |= getMSFrame3(MS_FILTER, &msRawFrame);
+#else
 		ret |= getMSFrame3(MS_RAW, &msRawFrame);
+#endif
 		if (ret < OK) {
 			pr_err("production_test_data: getMSFrame failed... ERROR %08X\n",
 				ERROR_PROD_TEST_DATA);
@@ -1814,7 +1818,11 @@ int production_test_ms_raw_lp(const char *path_limits, int stop_on_fail,
 		msleep(WAIT_FOR_FRESH_FRAMES);
 		ret |= setScanMode(SCAN_MODE_ACTIVE, 0x00);
 		msleep(WAIT_AFTER_SENSEOFF);
+#ifdef READ_FILTERED_RAW
+		ret |= getMSFrame3(MS_FILTER, &msRawFrame);
+#else
 		ret |= getMSFrame3(MS_RAW, &msRawFrame);
+#endif
 		if (ret < 0) {
 			pr_err("production_test_data: getMSFrame failed... ERROR %08X\n",
 				ERROR_PROD_TEST_DATA);
@@ -3395,7 +3403,11 @@ int production_test_ss_raw(const char *path_limits, int stop_on_fail,
 	msleep(WAIT_FOR_FRESH_FRAMES);
 	ret |= setScanMode(SCAN_MODE_ACTIVE, 0x00);
 	msleep(WAIT_AFTER_SENSEOFF);
+#ifdef READ_FILTERED_RAW
+	ret |= getSSFrame3(SS_FILTER, &ssRawFrame);
+#else
 	ret |= getSSFrame3(SS_RAW, &ssRawFrame);
+#endif
 	if (ret < 0) {
 		pr_err("production_test_data: getSSFrame failed... ERROR %08X\n",
 			ERROR_PROD_TEST_DATA);
@@ -3767,7 +3779,11 @@ int production_test_ss_raw_lp(const char *path_limits, int stop_on_fail,
 	msleep(WAIT_FOR_FRESH_FRAMES);
 	ret |= setScanMode(SCAN_MODE_ACTIVE, 0x00);
 	msleep(WAIT_AFTER_SENSEOFF);
+#ifdef READ_FILTERED_RAW
+	ret |= getSSFrame3(SS_DETECT_FILTER, &ssRawFrame);
+#else
 	ret |= getSSFrame3(SS_DETECT_RAW, &ssRawFrame);
+#endif
 	if (ret < 0) {
 		pr_err("production_test_data: getSSFrame failed... ERROR %08X\n",
 			ERROR_PROD_TEST_DATA);

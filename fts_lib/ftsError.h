@@ -139,6 +139,9 @@
 #define ERROR_CH_LEN			(0x80001500)	/* /< unable to retrieve
 							 * the force and/or
 							 * sense length */
+#define ERROR_INFO_BLOCK		(0x80001600)	/* /< info
+							 * block
+							 * corruption */
 /** @}*/
 
 /* THIRD LEVEL ERROR CODE */

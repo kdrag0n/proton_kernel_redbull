@@ -361,6 +361,8 @@
 #define CMD_CHANGE_SAD				0x70	/* /< Allow to change
 							 * the SAD address (for
 							 * debugging) */
+#define CMD_INFOBLOCK_STATUS			0x61	/* /< Check for Info
+							 * block error */
 
 /* Debug functionalities requested by Google for B1 Project */
 #define CMD_TRIGGER_FORCECAL			0x80	/* /< Trigger manually
@@ -788,6 +790,8 @@ static ssize_t fts_driver_test_write(struct file *file, const char __user *buf,
 	MutualSenseFrame frameMS;
 	MutualSenseFrame deltas;
 	SelfSenseFrame frameSS;
+	u8 error_to_search[2] = { EVT_TYPE_ERROR_OSC_TRIM,
+				  EVT_TYPE_ERROR_AOFFSET_TRIM };
 
 	DataHeader dataHead;
 	MutualSenseData compData;
@@ -2879,6 +2883,20 @@ END_DIAGNOSTIC:
 			} else {
 				pr_err("Wrong number of parameters!\n");
 				res = ERROR_OP_NOT_ALLOW;
+			}
+			break;
+
+		case CMD_INFOBLOCK_STATUS:
+			res = fts_system_reset();
+			if (res >= OK) {
+				res = pollForErrorType(error_to_search, 2);
+				if (res < OK) {
+					pr_err("No info block corruption!\n");
+					res = OK;
+				} else {
+					pr_info("Info block errors found!\n");
+					res = ERROR_INFO_BLOCK;
+				}
 			}
 			break;
 
