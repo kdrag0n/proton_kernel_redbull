@@ -1499,7 +1499,9 @@ static void touchsim_work(struct work_struct *work)
 	struct fts_ts_info *info  = container_of(touchsim,
 						struct fts_ts_info,
 						touchsim);
+#ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	ktime_t timestamp = ktime_get();
+#endif
 
 	/* prevent CPU from entering deep sleep */
 	pm_qos_update_request(&info->pm_qos_req, 100);
@@ -4365,7 +4367,9 @@ static int fts_chip_initialization(struct fts_ts_info *info, int init_type)
 	int ret2 = 0;
 	int retry;
 	int initretrycnt = 0;
+#ifdef COMPUTE_INIT_METHOD
 	const char *limits_file = info->board->limits_name;
+#endif
 
 	/* initialization error, retry initialization */
 	for (retry = 0; retry < RETRY_INIT_BOOT; retry++) {
