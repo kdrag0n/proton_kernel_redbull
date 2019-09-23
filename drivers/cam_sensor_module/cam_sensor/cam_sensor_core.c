@@ -12,6 +12,7 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#ifdef CONFIG_CAMERA_FW_UPDATE
 #include "../cam_fw_update/fw_update.h"
 
 static ssize_t ois_fw_ver_show(struct device *dev,
@@ -50,6 +51,7 @@ static struct attribute *sensor_fw_dev_attrs[] = {
 };
 
 ATTRIBUTE_GROUPS(sensor_fw_dev);
+#endif
 
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
