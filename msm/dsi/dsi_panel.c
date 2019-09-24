@@ -3571,6 +3571,7 @@ ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 		goto done;
 
 	dsi_panel_destroy_cmd_packets(set);
+	dsi_panel_dealloc_cmd_packets(set);
 	*set = tmp_set;
 
 done:
