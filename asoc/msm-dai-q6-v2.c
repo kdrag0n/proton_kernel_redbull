@@ -282,6 +282,7 @@ struct msm_dai_q6_cdc_dma_dai_data {
 	u32 channels;
 	u32 bitwidth;
 	u32 is_island_dai;
+	u32 xt_logging_disable;
 	union afe_port_config port_config;
 };
 
@@ -2844,24 +2845,54 @@ static int msm_dai_q6_cal_info_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int msm_dai_q6_xt_logging_disable_put(struct snd_kcontrol *kcontrol,
-				    struct snd_ctl_elem_value *ucontrol)
+static int msm_dai_q6_cdc_dma_xt_logging_disable_put(
+					struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
 {
-	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+	struct msm_dai_q6_cdc_dma_dai_data *dai_data = kcontrol->private_data;
 
-	dai_data->xt_logging_disable = ucontrol->value.integer.value[0];
-	pr_debug("%s: setting xt logging disable to %d\n",
-		__func__, dai_data->xt_logging_disable);
+	if (dai_data) {
+		dai_data->xt_logging_disable = ucontrol->value.integer.value[0];
+		pr_debug("%s: setting xt logging disable to %d\n",
+			__func__, dai_data->xt_logging_disable);
+	}
 
 	return 0;
 }
 
-static int msm_dai_q6_xt_logging_disable_get(struct snd_kcontrol *kcontrol,
+static int msm_dai_q6_cdc_dma_xt_logging_disable_get(
+					struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_cdc_dma_dai_data *dai_data = kcontrol->private_data;
+
+	if (dai_data)
+		ucontrol->value.integer.value[0] = dai_data->xt_logging_disable;
+	return 0;
+}
+
+static int msm_dai_q6_sb_xt_logging_disable_put(
+					struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (dai_data) {
+		dai_data->xt_logging_disable = ucontrol->value.integer.value[0];
+		pr_debug("%s: setting xt logging disable to %d\n",
+			__func__, dai_data->xt_logging_disable);
+	}
+
+	return 0;
+}
+
+static int msm_dai_q6_sb_xt_logging_disable_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
 
-	ucontrol->value.integer.value[0] = dai_data->xt_logging_disable;
+	if (dai_data)
+		ucontrol->value.integer.value[0] = dai_data->xt_logging_disable;
 	return 0;
 }
 
@@ -3726,8 +3757,8 @@ static const struct snd_kcontrol_new sb_config_controls[] = {
 		     msm_dai_q6_sb_format_get,
 		     msm_dai_q6_sb_format_put),
 	SOC_ENUM_EXT("SLIM_0_RX XTLoggingDisable", xt_logging_disable_enum[0],
-		     msm_dai_q6_xt_logging_disable_get,
-		     msm_dai_q6_xt_logging_disable_put),
+		     msm_dai_q6_sb_xt_logging_disable_get,
+		     msm_dai_q6_sb_xt_logging_disable_put),
 };
 
 static const struct snd_kcontrol_new rt_proxy_config_controls[] = {
@@ -9301,6 +9332,37 @@ static int msm_dai_q6_tdm_set_channel_map(struct snd_soc_dai *dai,
 	return rc;
 }
 
+static unsigned int tdm_param_set_slot_mask(u16 *slot_offset, int slot_width,
+						int slots_per_frame)
+{
+	unsigned int i = 0;
+	unsigned int slot_index = 0;
+	unsigned long slot_mask = 0;
+	unsigned int slot_width_bytes = slot_width / 8;
+
+	if (slot_width_bytes == 0) {
+		pr_err("%s: slot width is zero\n", __func__);
+		return slot_mask;
+	}
+
+	for (i = 0; i < AFE_PORT_MAX_AUDIO_CHAN_CNT; i++) {
+		if (slot_offset[i] != AFE_SLOT_MAPPING_OFFSET_INVALID) {
+			slot_index = slot_offset[i] / slot_width_bytes;
+			if (slot_index < slots_per_frame)
+				set_bit(slot_index, &slot_mask);
+			else {
+				pr_err("%s: invalid slot map setting\n",
+				       __func__);
+				return 0;
+			}
+		} else {
+			break;
+		}
+	}
+
+	return slot_mask;
+}
+
 static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -9405,7 +9467,9 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 	 */
 	tdm->nslots_per_frame = tdm_group->nslots_per_frame;
 	tdm->slot_width = tdm_group->slot_width;
-	tdm->slot_mask = tdm_group->slot_mask;
+	tdm->slot_mask = tdm_param_set_slot_mask(slot_mapping->offset,
+				tdm_group->slot_width,
+				tdm_group->nslots_per_frame);
 
 	pr_debug("%s: TDM:\n"
 		"num_channels=%d sample_rate=%d bit_width=%d\n"
@@ -11995,8 +12059,8 @@ static const struct snd_kcontrol_new cdc_dma_config_controls[] = {
 		     msm_dai_q6_cdc_dma_format_put),
 	SOC_ENUM_EXT("WSA_CDC_DMA_0 RX XTLoggingDisable",
 		     xt_logging_disable_enum[0],
-		     msm_dai_q6_xt_logging_disable_get,
-		     msm_dai_q6_xt_logging_disable_put),
+		     msm_dai_q6_cdc_dma_xt_logging_disable_get,
+		     msm_dai_q6_cdc_dma_xt_logging_disable_put),
 };
 
 /* SOC probe for codec DMA interface */
