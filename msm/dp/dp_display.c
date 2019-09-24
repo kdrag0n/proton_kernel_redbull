@@ -851,8 +851,7 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 	if (dp_display_state_is(DP_STATE_CONNECTED)) {
 		DP_DEBUG("dp already connected, skipping hpd high\n");
 		mutex_unlock(&dp->session_lock);
-		rc = -EISCONN;
-		goto end;
+		return -EISCONN;
 	}
 
 	dp_display_state_add(DP_STATE_CONNECTED);
@@ -885,7 +884,7 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 	dp_display_process_mst_hpd_high(dp, false);
 
 	rc = dp->ctrl->on(dp->ctrl, dp->mst.mst_active,
-				dp->panel->fec_en, false);
+			dp->panel->fec_en, dp->panel->dsc_en, false);
 	if (rc) {
 		dp_display_state_remove(DP_STATE_CONNECTED);
 		goto end;
@@ -929,7 +928,8 @@ static int dp_display_process_hpd_low(struct dp_display_private *dp)
 
 	dp_display_process_mst_hpd_low(dp);
 
-	if (dp_display_state_is(DP_STATE_CONNECT_NOTIFIED) &&
+	if ((dp_display_state_is(DP_STATE_CONNECT_NOTIFIED) ||
+			dp_display_state_is(DP_STATE_ENABLED)) &&
 			!dp->mst.mst_active)
 		rc = dp_display_send_hpd_notification(dp);
 
@@ -1008,6 +1008,30 @@ static void dp_display_stream_disable(struct dp_display_private *dp,
 	dp->ctrl->stream_off(dp->ctrl, dp_panel);
 	dp->active_panels[dp_panel->stream_id] = NULL;
 	dp->active_stream_cnt--;
+}
+
+static void dp_audio_enable(struct dp_display_private *dp, bool enable)
+{
+	struct dp_panel *dp_panel;
+	int idx;
+
+	for (idx = DP_STREAM_0; idx < DP_STREAM_MAX; idx++) {
+		if (!dp->active_panels[idx])
+			continue;
+		dp_panel = dp->active_panels[idx];
+
+		if (dp_panel->audio_supported) {
+			if (enable) {
+				dp_panel->audio->bw_code =
+					dp->link->link_params.bw_code;
+				dp_panel->audio->lane_count =
+					dp->link->link_params.lane_count;
+				dp_panel->audio->on(dp->panel->audio);
+			} else {
+				dp_panel->audio->off(dp_panel->audio);
+			}
+		}
+	}
 }
 
 static void dp_display_clean(struct dp_display_private *dp)
@@ -1197,19 +1221,33 @@ static void dp_display_attention_work(struct work_struct *work)
 		goto mst_attention;
 	}
 
-	if (dp->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) {
-		dp->ctrl->process_phy_test_request(dp->ctrl);
-		goto mst_attention;
+	if (dp->link->sink_request & (DP_TEST_LINK_PHY_TEST_PATTERN |
+		DP_TEST_LINK_TRAINING | DP_LINK_STATUS_UPDATED)) {
+
+		mutex_lock(&dp->session_lock);
+		dp_audio_enable(dp, false);
+		mutex_unlock(&dp->session_lock);
+
+		if (dp->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN)
+			dp->ctrl->process_phy_test_request(dp->ctrl);
+
+		if (dp->link->sink_request & DP_TEST_LINK_TRAINING) {
+			dp->link->send_test_response(dp->link);
+			dp->ctrl->link_maintenance(dp->ctrl);
+		}
+
+		if (dp->link->sink_request & DP_LINK_STATUS_UPDATED)
+			dp->ctrl->link_maintenance(dp->ctrl);
+
+		mutex_lock(&dp->session_lock);
+		dp_audio_enable(dp, true);
+		mutex_unlock(&dp->session_lock);
+
+		if (dp->link->sink_request & (DP_TEST_LINK_PHY_TEST_PATTERN |
+			DP_TEST_LINK_TRAINING))
+			goto mst_attention;
 	}
 
-	if (dp->link->sink_request & DP_TEST_LINK_TRAINING) {
-		dp->link->send_test_response(dp->link);
-		dp->ctrl->link_maintenance(dp->ctrl);
-		goto mst_attention;
-	}
-
-	if (dp->link->sink_request & DP_LINK_STATUS_UPDATED)
-		dp->ctrl->link_maintenance(dp->ctrl);
 cp_irq:
 	if (dp_display_is_hdcp_enabled(dp) && dp->hdcp.ops->cp_irq)
 		dp->hdcp.ops->cp_irq(dp->hdcp.data);
@@ -1627,7 +1665,8 @@ static int dp_display_prepare(struct dp_display *dp_display, void *panel)
 	 * So, we execute in shallow mode here to do only minimal
 	 * and required things.
 	 */
-	rc = dp->ctrl->on(dp->ctrl, dp->mst.mst_active, dp_panel->fec_en, true);
+	rc = dp->ctrl->on(dp->ctrl, dp->mst.mst_active, dp_panel->fec_en,
+			dp_panel->dsc_en, true);
 	if (rc)
 		goto end;
 
