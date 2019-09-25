@@ -5271,7 +5271,7 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 				card_aux_list) {
 			if (aux_comp->name != NULL && (
 				!strcmp(aux_comp->name, WSA8810_NAME_1) ||
-		    		!strcmp(aux_comp->name, WSA8810_NAME_2))) {
+				!strcmp(aux_comp->name, WSA8810_NAME_2))) {
 				wsa_macro_set_spkr_mode(component,
 						WSA_MACRO_SPKR_MODE_1);
 				wsa_macro_set_spkr_gain_offset(component,
@@ -8022,6 +8022,80 @@ static int msm_audio_ssr_register(struct device *dev)
 	return ret;
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514)
+static void msm_append_tx_codecs_address(struct platform_device *pdev)
+{
+	struct snd_soc_dai_link *dai_link = NULL;
+	const char *rt5514_address = NULL;
+	int ret = 0;
+	int idx = 0;
+
+	if (!pdev->dev.of_node) {
+		dev_err(&pdev->dev,
+			"%s: No platform supplied from device tree\n",
+			__func__);
+		return;
+	}
+
+	ret = of_property_read_string(pdev->dev.of_node,
+		"rt5514-address", &rt5514_address);
+	if (ret)
+		return;
+
+	for (idx = 0; idx < ARRAY_SIZE(msm_common_be_dai_links); idx++) {
+		dai_link = &msm_common_be_dai_links[idx];
+		if ((dai_link != NULL) &&
+			(dai_link->id == MSM_BACKEND_DAI_PRI_TDM_TX_0)) {
+			dev_info(&pdev->dev, "%s: update address %s\n",
+				__func__, rt5514_address);
+			dai_link->codec_name = rt5514_address;
+			break;
+		}
+	}
+}
+#endif
+
+#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
+static void msm_append_rx_codecs_address(struct platform_device *pdev)
+{
+	struct snd_soc_dai_link *dai_link = NULL;
+	const char *cs35l41_l_address = NULL;
+	const char *cs35l41_r_address  = NULL;
+	int ret = 0;
+	int idx = 0;
+
+	if (!pdev->dev.of_node) {
+		dev_err(&pdev->dev,
+			"%s: No platform supplied from device tree\n",
+			__func__);
+		return;
+	}
+
+	ret = of_property_read_string(pdev->dev.of_node,
+		"cs35l41-l-address", &cs35l41_l_address);
+	if (ret)
+		return;
+
+	ret = of_property_read_string(pdev->dev.of_node,
+		"cs35l41-r-address", &cs35l41_r_address);
+	if (ret)
+		return;
+
+	for (idx = 0; idx < ARRAY_SIZE(msm_common_be_dai_links); idx++) {
+		dai_link = &msm_common_be_dai_links[idx];
+		if ((dai_link != NULL) &&
+			(dai_link->id == MSM_BACKEND_DAI_QUIN_TDM_RX_0) &&
+			(dai_link->num_codecs == ARRAY_SIZE(cs35l41_codec))) {
+			dev_info(&pdev->dev, "%s: update address %s %s\n",
+				__func__, cs35l41_l_address, cs35l41_r_address);
+			dai_link->codecs[0].name = cs35l41_l_address;
+			dai_link->codecs[1].name = cs35l41_r_address;
+			break;
+		}
+	}
+}
+#endif
+
 static int msm_asoc_machine_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = NULL;
@@ -8034,6 +8108,13 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: No platform supplied from device tree\n", __func__);
 		return -EINVAL;
 	}
+
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514)
+	msm_append_tx_codecs_address(pdev);
+#endif
+#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
+	msm_append_rx_codecs_address(pdev);
+#endif
 
 	pdata = devm_kzalloc(&pdev->dev,
 			sizeof(struct msm_asoc_mach_data), GFP_KERNEL);
