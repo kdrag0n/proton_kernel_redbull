@@ -987,29 +987,102 @@ struct gamma_switch_data {
  * @prefix_len: Number of bytes that precede gamma data when writing/reading
  *     from the DDIC. This is a subset of len.
  * @flash_offset: Address offset to use when reading from flash.
- * @cmd_group_with_next: Allow sending gamma tables in groups by setting this
- *     flag the gamma set will be sent together with the next set on the list.
- *     Order of commands matter when using this flag.
  */
-const struct s6e3hc2_gamma_info {
+static const struct s6e3hc2_gamma_info {
 	u8 cmd;
 	u32 len;
 	u32 prefix_len;
 	u32 flash_offset;
-	bool cmd_group_with_next;
 } s6e3hc2_gamma_tables[] = {
 	/* order of commands matter due to use of cmds grouping */
-	{ 0xC8, S6E3HC2_GAMMA_BAND_LEN * 3, 0, 0x0000, false },
-	{ 0xC9, S6E3HC2_GAMMA_BAND_LEN * 4, 0, 0x0087, true },
-	{ 0xB3, 2 + S6E3HC2_GAMMA_BAND_LEN, 2, 0x013B, false },
+	{ 0xC8, S6E3HC2_GAMMA_BAND_LEN * 3, 0, 0x0000 },
+	{ 0xC9, S6E3HC2_GAMMA_BAND_LEN * 4, 0, 0x0087 },
+	{ 0xB3, 2 + S6E3HC2_GAMMA_BAND_LEN, 2, 0x013B },
 };
 
 #define S6E3HC2_NUM_GAMMA_TABLES ARRAY_SIZE(s6e3hc2_gamma_tables)
+#define MAX_GAMMA_PACKETS S6E3HC2_NUM_GAMMA_TABLES
+
+struct s6e3hc2_gamma_packet_group {
+	size_t num_packets;
+	struct {
+		u32 index;
+		size_t max_size;
+	} packets[MAX_GAMMA_PACKETS];
+};
+
+struct s6e3hc2_gamma_packet {
+	u32 dbv_threshold;
+	size_t num_groups;
+	struct s6e3hc2_gamma_packet_group groups[MAX_GAMMA_PACKETS];
+};
+
+static const struct s6e3hc2_gamma_packet s6e3hc2_gamma_packets[] = {
+	{ .dbv_threshold = 0x39, .num_groups = 2, .groups = {
+		{ .num_packets = 1, .packets = {
+			{ 1 }, /* 0xC9 */
+		}}, { .num_packets = 2, .packets = {
+			{ 0 }, /* 0xC8 */
+			{ 2 }, /* 0xB3 */
+		}},
+	}}, { .dbv_threshold = 0xB6, .num_groups = 2, .groups = {
+		{ .num_packets = 2, .packets = {
+			{ 0 }, /* 0xC8 */
+			{ 1, S6E3HC2_GAMMA_BAND_LEN }, /* 0xC9: 1st gamma */
+		}}, { .num_packets = 2, .packets = {
+			{ 1 }, /* 0xC9: full gamma */
+			{ 2 }, /* 0xB3 */
+		}},
+	}}, { .dbv_threshold = UINT_MAX, .num_groups = 2, .groups = {
+		{ .num_packets = 2, .packets = {
+			{ 0 }, /* 0xC8 */
+			{ 2 }, /* 0xB3 */
+		}}, { .num_packets = 1, .packets = {
+			{ 1 }, /* 0xC9 */
+		}},
+	}},
+};
 
 struct s6e3hc2_panel_data {
 	u8 *gamma_data[S6E3HC2_NUM_GAMMA_TABLES];
 	u8 *native_gamma_data[S6E3HC2_NUM_GAMMA_TABLES];
 };
+
+static void s6e3hc2_gamma_group_write(struct panel_switch_data *pdata,
+				struct s6e3hc2_panel_data *priv_data,
+				const struct s6e3hc2_gamma_packet_group *group)
+{
+	const struct s6e3hc2_gamma_info *info;
+	const void *data;
+	size_t len;
+	int i;
+
+	for (i = 0; i < group->num_packets; i++) {
+		const u32 ndx = group->packets[i].index;
+		const u32 max_size = group->packets[i].max_size;
+		const bool last_packet = (i + 1) == group->num_packets;
+
+		if (WARN(ndx >= S6E3HC2_NUM_GAMMA_TABLES, "invalid ndx=%d\n"))
+			continue;
+
+		data = priv_data->gamma_data[ndx];
+
+		if (WARN(!data, "Gamma table #%d not read\n", i))
+			continue;
+
+		info = &s6e3hc2_gamma_tables[ndx];
+		/* extra byte for the dsi command */
+		len = (max_size ?: info->len) + 1;
+
+		pr_debug("Writing %d bytes to 0x%02X gamma last: %d\n",
+			 len, info->cmd, last_packet);
+
+
+		if (IS_ERR_VALUE(panel_dsi_write_buf(pdata->panel, data, len,
+					last_packet)))
+			pr_warn("failed sending gamma cmd 0x%02x\n", info->cmd);
+	}
+}
 
 /*
  * s6e3hc2_gamma_update() expects DD-IC to be in unlocked state, so
@@ -1019,7 +1092,8 @@ static void s6e3hc2_gamma_update(struct panel_switch_data *pdata,
 				 const struct dsi_display_mode *mode)
 {
 	struct s6e3hc2_panel_data *priv_data;
-	int i;
+	const struct s6e3hc2_gamma_packet *packet = NULL;
+	int i, dbv;
 
 	if (unlikely(!mode || !mode->priv_info))
 		return;
@@ -1028,23 +1102,24 @@ static void s6e3hc2_gamma_update(struct panel_switch_data *pdata,
 	if (unlikely(!priv_data))
 		return;
 
-	for (i = 0; i < S6E3HC2_NUM_GAMMA_TABLES; i++) {
-		const struct s6e3hc2_gamma_info *info =
-				&s6e3hc2_gamma_tables[i];
-		/* extra byte for the dsi command */
-		const size_t len = info->len + 1;
-		const void *data = priv_data->gamma_data[i];
-		const bool send_last =
-				!info->cmd_group_with_next;
+	dbv = pdata->panel->bl_config.bl_actual;
 
-		if (WARN(!data, "Gamma table #%d not read\n", i))
-			continue;
-
-		if (IS_ERR_VALUE(panel_dsi_write_buf(pdata->panel, data, len,
-					send_last)))
-			pr_warn("failed sending gamma cmd 0x%02x\n",
-				s6e3hc2_gamma_tables[i].cmd);
+	for (i = 0; i < ARRAY_SIZE(s6e3hc2_gamma_packets); i++) {
+		if (dbv < s6e3hc2_gamma_packets[i].dbv_threshold) {
+			packet = &s6e3hc2_gamma_packets[i];
+			break;
+		}
 	}
+
+	if (!packet) {
+		pr_err("Unable to find packet for dbv=%02X\n", dbv);
+		return;
+	}
+
+	pr_debug("Found packet ndx=%d for dbv=%02X\n", i, dbv);
+
+	for (i = 0; i < packet->num_groups; i++)
+		s6e3hc2_gamma_group_write(pdata, priv_data, &packet->groups[i]);
 }
 
 static void s6e3hc2_gamma_update_reg_locked(struct panel_switch_data *pdata,
