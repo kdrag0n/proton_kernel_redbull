@@ -17,7 +17,6 @@
 #include "sde_crtc.h"
 #include "sde_rm.h"
 
-#define BL_NODE_NAME_SIZE 32
 #define HDR10_PLUS_VSIF_TYPE_CODE      0x81
 
 /* Autorefresh will occur after FRAME_CNT frames. Large values are unlikely */
@@ -64,109 +63,6 @@ static const struct drm_prop_enum_list e_frame_trigger_mode[] = {
 	{FRAME_DONE_WAIT_SERIALIZE, "serialize_frame_trigger"},
 	{FRAME_DONE_WAIT_POSTED_START, "posted_start"},
 };
-
-static int sde_backlight_device_update_status(struct backlight_device *bd)
-{
-	int brightness;
-	struct dsi_display *display;
-	struct sde_connector *c_conn;
-	int bl_lvl;
-	struct drm_event event;
-	int rc = 0;
-
-	brightness = bd->props.brightness;
-
-	if ((bd->props.power != FB_BLANK_UNBLANK) ||
-			(bd->props.state & BL_CORE_FBBLANK) ||
-			(bd->props.state & BL_CORE_SUSPENDED))
-		brightness = 0;
-
-	c_conn = bl_get_data(bd);
-	display = (struct dsi_display *) c_conn->display;
-	if (brightness > display->panel->bl_config.brightness_max_level)
-		brightness = display->panel->bl_config.brightness_max_level;
-
-	if (brightness) {
-		int bl_min = display->panel->bl_config.bl_min_level ? : 1;
-		int bl_range = display->panel->bl_config.bl_max_level - bl_min;
-
-		/* map UI brightness into driver backlight level rounding it */
-		bl_lvl = bl_min + DIV_ROUND_CLOSEST((brightness - 1) * bl_range,
-			display->panel->bl_config.brightness_max_level - 1);
-	} else {
-		bl_lvl = 0;
-	}
-
-	if (display->panel->bl_config.bl_update ==
-		BL_UPDATE_DELAY_UNTIL_FIRST_FRAME && !c_conn->allow_bl_update) {
-		c_conn->unset_bl_level = bl_lvl;
-		return 0;
-	}
-
-	if (c_conn->ops.set_backlight) {
-		/* skip notifying user space if bl is 0 */
-		if (brightness != 0) {
-			event.type = DRM_EVENT_SYS_BACKLIGHT;
-			event.length = sizeof(u32);
-			msm_mode_object_event_notify(&c_conn->base.base,
-				c_conn->base.dev, &event, (u8 *)&brightness);
-		}
-		rc = c_conn->ops.set_backlight(&c_conn->base,
-				c_conn->display, bl_lvl);
-		c_conn->unset_bl_level = 0;
-	}
-
-	return rc;
-}
-
-static int sde_backlight_device_get_brightness(struct backlight_device *bd)
-{
-	return 0;
-}
-
-static const struct backlight_ops sde_backlight_device_ops = {
-	.update_status = sde_backlight_device_update_status,
-	.get_brightness = sde_backlight_device_get_brightness,
-};
-
-static int sde_backlight_setup(struct sde_connector *c_conn,
-					struct drm_device *dev)
-{
-	struct backlight_properties props;
-	struct dsi_display *display;
-	struct dsi_backlight_config *bl_config;
-	static int display_count;
-	char bl_node_name[BL_NODE_NAME_SIZE];
-
-	if (!c_conn || !dev || !dev->dev) {
-		SDE_ERROR("invalid param\n");
-		return -EINVAL;
-	} else if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI) {
-		return 0;
-	}
-
-	memset(&props, 0, sizeof(props));
-	props.type = BACKLIGHT_RAW;
-	props.power = FB_BLANK_UNBLANK;
-
-	display = (struct dsi_display *) c_conn->display;
-	bl_config = &display->panel->bl_config;
-	props.max_brightness = bl_config->brightness_max_level;
-	props.brightness = bl_config->brightness_max_level;
-	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
-							display_count);
-	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,
-			c_conn, &sde_backlight_device_ops, &props);
-	if (IS_ERR_OR_NULL(c_conn->bl_device)) {
-		SDE_ERROR("Failed to register backlight: %ld\n",
-				    PTR_ERR(c_conn->bl_device));
-		c_conn->bl_device = NULL;
-		return -ENODEV;
-	}
-	display_count++;
-
-	return 0;
-}
 
 int sde_connector_trigger_event(void *drm_connector,
 		uint32_t event_idx, uint32_t instance_idx,
@@ -884,8 +780,6 @@ void sde_connector_destroy(struct drm_connector *connector)
 	if (c_conn->blob_ext_hdr)
 		drm_property_blob_put(c_conn->blob_ext_hdr);
 
-	if (c_conn->bl_device)
-		backlight_device_unregister(c_conn->bl_device);
 	drm_connector_unregister(connector);
 	mutex_destroy(&c_conn->lock);
 	sde_fence_deinit(c_conn->retire_fence);
@@ -2558,12 +2452,6 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	rc = drm_connector_attach_encoder(&c_conn->base, encoder);
 	if (rc) {
 		SDE_ERROR("failed to attach encoder to connector, %d\n", rc);
-		goto error_cleanup_fence;
-	}
-
-	rc = sde_backlight_setup(c_conn, dev);
-	if (rc) {
-		SDE_ERROR("failed to setup backlight, rc=%d\n", rc);
 		goto error_cleanup_fence;
 	}
 

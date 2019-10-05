@@ -191,62 +191,6 @@ void dsi_rect_intersect(const struct dsi_rect *r1,
 	}
 }
 
-int dsi_display_set_backlight(struct drm_connector *connector,
-		void *display, u32 bl_lvl)
-{
-	struct dsi_display *dsi_display = display;
-	struct dsi_panel *panel;
-	u32 bl_scale, bl_scale_sv;
-	u64 bl_temp;
-	int rc = 0;
-
-	if (dsi_display == NULL || dsi_display->panel == NULL)
-		return -EINVAL;
-
-	panel = dsi_display->panel;
-
-	mutex_lock(&panel->panel_lock);
-	if (!dsi_panel_initialized(panel)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	panel->bl_config.bl_level = bl_lvl;
-
-	/* scale backlight */
-	bl_scale = panel->bl_config.bl_scale;
-	bl_temp = bl_lvl * bl_scale / MAX_BL_SCALE_LEVEL;
-
-	bl_scale_sv = panel->bl_config.bl_scale_sv;
-	bl_temp = (u32)bl_temp * bl_scale_sv / MAX_SV_BL_SCALE_LEVEL;
-
-	DSI_DEBUG("bl_scale = %u, bl_scale_sv = %u, bl_lvl = %u\n",
-		bl_scale, bl_scale_sv, (u32)bl_temp);
-	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
-			DSI_CORE_CLK, DSI_CLK_ON);
-	if (rc) {
-		DSI_ERR("[%s] failed to enable DSI core clocks, rc=%d\n",
-		       dsi_display->name, rc);
-		goto error;
-	}
-
-	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
-	if (rc)
-		DSI_ERR("unable to set backlight\n");
-
-	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
-			DSI_CORE_CLK, DSI_CLK_OFF);
-	if (rc) {
-		DSI_ERR("[%s] failed to disable DSI core clocks, rc=%d\n",
-		       dsi_display->name, rc);
-		goto error;
-	}
-
-error:
-	mutex_unlock(&panel->panel_lock);
-	return rc;
-}
-
 static int dsi_display_cmd_engine_enable(struct dsi_display *display)
 {
 	int rc = 0;
