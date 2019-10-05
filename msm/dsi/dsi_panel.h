@@ -321,4 +321,6 @@ void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 
 int dsi_backlight_register(struct dsi_backlight_config *bl);
 
+int dsi_backlight_update_dpms(struct dsi_backlight_config *bl, int power_state);
+
 #endif /* _DSI_PANEL_H_ */
