@@ -47,11 +47,6 @@
 
 #undef DYNAMIC_REFRESH_RATE
 
-#ifdef CONFIG_DRM
-#undef CONFIG_DRM
-#endif
-
-
 /****************** CONFIGURATION SECTION ******************/
 /** @defgroup conf_section	 Driver Configuration Section
   * Settings of the driver code in order to suit the HW set up and the
