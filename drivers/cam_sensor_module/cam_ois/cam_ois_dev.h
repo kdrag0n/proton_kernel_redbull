@@ -98,11 +98,13 @@ struct cam_ois_intf_params {
  * struct cam_ois_shift_buffer - OIS shift data ring buffer
  * @buffer          :   array of shift data readout
  * @write_pos       :   next position to write
+ * @af_read_times   :   counts of the AF reading execution
  * @is_full         :   flag of full buffer
  */
 struct cam_ois_shift_buffer {
 	struct cam_ois_shift buffer[CAM_OIS_SHIFT_DATA_BUFFER_SIZE];
 	int32_t write_pos;
+	int32_t af_read_times;
 	bool is_full;
 };
 

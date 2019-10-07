@@ -144,11 +144,13 @@ struct cam_cmd_get_ois_data {
  *
  * @ois_shift_x         :    shift in x dim
  * @ois_shift_y         :    shift in y dim
+ * @af_lop1             :    shift in z dim with ois
  * @time_readout        :    time that the shift is read out
  */
 struct cam_ois_shift {
 	int16_t             ois_shift_x;
 	int16_t             ois_shift_y;
+	int32_t             af_lop1;
 	int64_t             time_readout;
 } __attribute__((packed));
 
