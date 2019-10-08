@@ -1097,10 +1097,10 @@ static ssize_t fts_driver_test_write(struct file *file, const char __user *buf,
 
 #ifdef I2C_INTERFACE
 			fileSize |= 0x00200000;
-#endif
-
+#else
 			if (getClient() && (getClient()->mode & SPI_3WIRE) == 0)
 				fileSize |= 0x00400000;
+#endif
 
 #ifdef PHONE_KEY	/* it is a feature enabled in the config of the chip */
 			fileSize |= 0x00000100;
