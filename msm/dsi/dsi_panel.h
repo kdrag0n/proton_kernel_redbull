@@ -101,9 +101,11 @@ struct dsi_backlight_config {
 	u32 bl_actual;
 	bool bl_update_pending;
 	bool allow_bl_update;
+	unsigned int last_state;
 
 	int en_gpio;
 	struct backlight_device *bl_device;
+	struct regulator *lab_vreg;
 
 	void *priv;
 
@@ -329,7 +331,8 @@ void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 		struct dsi_display_mode *mode, u32 frame_threshold_us);
 
-int dsi_backlight_update_dpms(struct dsi_backlight_config *bl, int power_state);
+int dsi_backlight_early_dpms(struct dsi_backlight_config *bl, int power_state);
+int dsi_backlight_late_dpms(struct dsi_backlight_config *bl, int power_state);
 
 int dsi_panel_bl_register(struct dsi_panel *panel);
 int dsi_panel_bl_unregister(struct dsi_panel *panel);
