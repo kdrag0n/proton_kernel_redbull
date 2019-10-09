@@ -89,20 +89,32 @@ struct dsi_panel_phy_props {
 	enum dsi_panel_rotation rotation;
 };
 
+struct dsi_backlight_calc_params {
+	u32 min_level;
+	u32 max_level;
+	u16 *lut;
+};
+
 struct dsi_backlight_config {
 	enum dsi_backlight_type type;
 	enum bl_update_flag bl_update;
 
-	u32 bl_min_level;
-	u32 bl_max_level;
 	u32 brightness_max_level;
 	u32 bl_scale;
 	u32 bl_scale_sv;
 	u32 bl_actual;
 	bool bl_update_pending;
 	bool allow_bl_update;
-	u16 *bl_lut;
 	unsigned int last_state;
+	struct dsi_backlight_calc_params bl_normal_params;
+
+	/* High brightness mode parameters */
+	bool bl_hbm_supported;
+	struct dsi_backlight_calc_params bl_hbm_params;
+
+
+	/* The active backlight parameters, depending on HBM state */
+	struct dsi_backlight_calc_params *bl_active_params;
 
 	int en_gpio;
 	struct backlight_device *bl_device;
@@ -219,6 +231,9 @@ struct dsi_panel {
 	bool sync_broadcast_en;
 
 	int panel_test_gpio;
+
+	/* the following set of members are guarded by panel_lock */
+	bool hbm_mode;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -342,9 +357,15 @@ int dsi_panel_parse_dt_cmd_set(struct device_node *of_node,
 int dsi_backlight_early_dpms(struct dsi_backlight_config *bl, int power_state);
 int dsi_backlight_late_dpms(struct dsi_backlight_config *bl, int power_state);
 
+int dsi_backlight_get_dpms(struct dsi_backlight_config *bl);
+
 int dsi_panel_bl_register(struct dsi_panel *panel);
 int dsi_panel_bl_unregister(struct dsi_panel *panel);
 int dsi_panel_bl_parse_config(struct device *parent,
 			      struct dsi_backlight_config *bl);
+
+/* Set/get high brightness mode */
+int dsi_panel_update_hbm(struct dsi_panel *panel, bool enable);
+bool dsi_panel_get_hbm(struct dsi_panel *panel);
 
 #endif /* _DSI_PANEL_H_ */
