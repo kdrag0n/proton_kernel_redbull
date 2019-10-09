@@ -7168,7 +7168,7 @@ error:
 
 int dsi_display_post_enable(struct dsi_display *display)
 {
-	int rc = 0;
+	int rc = 0, err;
 
 	if (!display) {
 		DSI_ERR("Invalid params\n");
@@ -7188,6 +7188,14 @@ int dsi_display_post_enable(struct dsi_display *display)
 		if (rc)
 			DSI_ERR("[%s] panel post-enable failed, rc=%d\n",
 				display->name, rc);
+	}
+
+	/* shouldn't read sn if post_enable fails */
+	if (!rc && !display->panel->vendor_info.is_sn) {
+		err = dsi_panel_get_sn(display->panel);
+		if (err)
+			DSI_ERR("[%s] failed to get SN, err=%d\n",
+						display->name, err);
 	}
 
 	/* remove the clk vote for CMD mode panels */
