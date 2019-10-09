@@ -4387,7 +4387,7 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 		}
 
 		ret = snd_soc_dai_set_fmt(codec_dai,
-			SND_SOC_DAIFMT_DSP_B|SND_SOC_DAIFMT_IB_IF);
+			SND_SOC_DAIFMT_DSP_A | SND_SOC_DAIFMT_NB_NF);
 		if (ret < 0) {
 			pr_err("%s: failed to set tdm codec fmt, err:%d\n",
 				__func__, ret);
