@@ -116,6 +116,7 @@ struct cam_sensor_ctrl_t {
 	bool bob_pwm_switch;
 	uint32_t last_flush_req;
 	uint16_t pipeline_delay;
+	uint8_t fw_update_flag;
 	uint16_t ois_fw_ver;
 	uint16_t vcm_fw_ver;
 };
