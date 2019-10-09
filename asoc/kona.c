@@ -680,19 +680,6 @@ static bool codec_reg_done;
 static struct snd_soc_aux_dev *msm_aux_dev;
 static struct snd_soc_codec_conf *msm_codec_conf;
 
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-static struct snd_soc_dai_link_component cs35l41_codec[] = {
-	{
-		.name = "cs35l41.2-0040",
-		.dai_name = "cs35l41-pcm",
-	},
-	{
-		.name = "cs35l41.2-0041",
-		.dai_name = "cs35l41-pcm",
-	},
-};
-#endif
-
 static struct snd_soc_card snd_soc_card_kona_msm;
 static int dmic_0_1_gpio_cnt;
 static int dmic_2_3_gpio_cnt;
@@ -6120,13 +6107,8 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.cpu_dai_name = "msm-dai-q6-tdm.36865",
 		.platform_name = "msm-pcm-routing",
 		.init = &msm_tdm_ch_init,
-#if IS_ENABLED(CONFIG_SND_SOC_RT5514)
-		.codec_name = "rt5514.1-0057",
-		.codec_dai_name = "rt5514-aif1",
-#else
 		.codec_name = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-tx",
-#endif
 		.no_pcm = 1,
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_PRI_TDM_TX_0,
@@ -6226,13 +6208,8 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.stream_name = "Quinary TDM0 Playback",
 		.cpu_dai_name = "msm-dai-q6-tdm.36928",
 		.platform_name = "msm-pcm-routing",
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-		.codecs = cs35l41_codec,
-		.num_codecs = ARRAY_SIZE(cs35l41_codec),
-#else
 		.codec_name = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-rx",
-#endif
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_QUIN_TDM_RX_0,
@@ -6246,13 +6223,8 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.stream_name = "Quinary TDM0 Capture",
 		.cpu_dai_name = "msm-dai-q6-tdm.36929",
 		.platform_name = "msm-pcm-routing",
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-		.codecs = cs35l41_codec,
-		.num_codecs = ARRAY_SIZE(cs35l41_codec),
-#else
 		.codec_name = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-tx",
-#endif
 		.no_pcm = 1,
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_QUIN_TDM_TX_0,
@@ -7122,6 +7094,30 @@ static struct snd_soc_dai_link msm_kona_dai_links[
 			ARRAY_SIZE(msm_tdm_fe_dai_link) +
 			ARRAY_SIZE(msm_spi_dai_links)];
 
+static void msm_append_ext_codec_component_of_node(
+				struct device *cdev,
+				struct snd_soc_dai_link *dai_link)
+{
+	struct device_node *np, *codec;
+
+	for_each_child_of_node(cdev->of_node, np) {
+		codec = of_get_child_by_name(np, "codec");
+		if (!codec)
+			return;
+
+		if (of_property_match_string(np, "cpu-dai-name",
+					 dai_link->cpu_dai_name) < 0)
+			continue;
+
+		dai_link->codec_name = NULL;
+		dai_link->codec_dai_name = NULL;
+
+		if (snd_soc_of_get_dai_link_codecs(cdev, codec, dai_link) < 0)
+			dev_err(cdev, "error getting codec dai name\n");
+		return;
+	}
+}
+
 static int msm_populate_dai_link_component_of_node(
 					struct snd_soc_card *card)
 {
@@ -7180,6 +7176,10 @@ static int msm_populate_dai_link_component_of_node(
 					ret = -ENODEV;
 					goto err;
 				}
+
+				msm_append_ext_codec_component_of_node(
+							cdev, &dai_link[i]);
+
 				dai_link[i].cpu_of_node = np;
 				dai_link[i].cpu_dai_name = NULL;
 			}
@@ -8022,80 +8022,6 @@ static int msm_audio_ssr_register(struct device *dev)
 	return ret;
 }
 
-#if IS_ENABLED(CONFIG_SND_SOC_RT5514)
-static void msm_append_tx_codecs_address(struct platform_device *pdev)
-{
-	struct snd_soc_dai_link *dai_link = NULL;
-	const char *rt5514_address = NULL;
-	int ret = 0;
-	int idx = 0;
-
-	if (!pdev->dev.of_node) {
-		dev_err(&pdev->dev,
-			"%s: No platform supplied from device tree\n",
-			__func__);
-		return;
-	}
-
-	ret = of_property_read_string(pdev->dev.of_node,
-		"rt5514-address", &rt5514_address);
-	if (ret)
-		return;
-
-	for (idx = 0; idx < ARRAY_SIZE(msm_common_be_dai_links); idx++) {
-		dai_link = &msm_common_be_dai_links[idx];
-		if ((dai_link != NULL) &&
-			(dai_link->id == MSM_BACKEND_DAI_PRI_TDM_TX_0)) {
-			dev_info(&pdev->dev, "%s: update address %s\n",
-				__func__, rt5514_address);
-			dai_link->codec_name = rt5514_address;
-			break;
-		}
-	}
-}
-#endif
-
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-static void msm_append_rx_codecs_address(struct platform_device *pdev)
-{
-	struct snd_soc_dai_link *dai_link = NULL;
-	const char *cs35l41_l_address = NULL;
-	const char *cs35l41_r_address  = NULL;
-	int ret = 0;
-	int idx = 0;
-
-	if (!pdev->dev.of_node) {
-		dev_err(&pdev->dev,
-			"%s: No platform supplied from device tree\n",
-			__func__);
-		return;
-	}
-
-	ret = of_property_read_string(pdev->dev.of_node,
-		"cs35l41-l-address", &cs35l41_l_address);
-	if (ret)
-		return;
-
-	ret = of_property_read_string(pdev->dev.of_node,
-		"cs35l41-r-address", &cs35l41_r_address);
-	if (ret)
-		return;
-
-	for (idx = 0; idx < ARRAY_SIZE(msm_common_be_dai_links); idx++) {
-		dai_link = &msm_common_be_dai_links[idx];
-		if ((dai_link != NULL) &&
-			(dai_link->id == MSM_BACKEND_DAI_QUIN_TDM_RX_0) &&
-			(dai_link->num_codecs == ARRAY_SIZE(cs35l41_codec))) {
-			dev_info(&pdev->dev, "%s: update address %s %s\n",
-				__func__, cs35l41_l_address, cs35l41_r_address);
-			dai_link->codecs[0].name = cs35l41_l_address;
-			dai_link->codecs[1].name = cs35l41_r_address;
-			break;
-		}
-	}
-}
-#endif
-
 static int msm_asoc_machine_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = NULL;
@@ -8108,13 +8034,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: No platform supplied from device tree\n", __func__);
 		return -EINVAL;
 	}
-
-#if IS_ENABLED(CONFIG_SND_SOC_RT5514)
-	msm_append_tx_codecs_address(pdev);
-#endif
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-	msm_append_rx_codecs_address(pdev);
-#endif
 
 	pdata = devm_kzalloc(&pdev->dev,
 			sizeof(struct msm_asoc_mach_data), GFP_KERNEL);
