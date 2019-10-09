@@ -101,6 +101,7 @@ struct dsi_backlight_config {
 	u32 bl_actual;
 	bool bl_update_pending;
 	bool allow_bl_update;
+	u16 *bl_lut;
 	unsigned int last_state;
 
 	int en_gpio;
@@ -343,5 +344,7 @@ int dsi_backlight_late_dpms(struct dsi_backlight_config *bl, int power_state);
 
 int dsi_panel_bl_register(struct dsi_panel *panel);
 int dsi_panel_bl_unregister(struct dsi_panel *panel);
-int dsi_panel_bl_parse_config(struct dsi_backlight_config *bl);
+int dsi_panel_bl_parse_config(struct device *parent,
+			      struct dsi_backlight_config *bl);
+
 #endif /* _DSI_PANEL_H_ */
