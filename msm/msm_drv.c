@@ -2184,7 +2184,7 @@ static struct platform_driver msm_platform_driver = {
 	},
 };
 
-#ifdef CONFIG_QCOM_KGSL
+#if IS_ENABLED(CONFIG_QCOM_KGSL)
 void __init adreno_register(void)
 {
 }
