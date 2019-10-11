@@ -230,8 +230,8 @@ ol_tx_queue_discard(
 void ol_txrx_vdev_flush(struct cdp_vdev *pvdev);
 
 #if defined(QCA_LL_LEGACY_TX_FLOW_CONTROL) || \
-   (defined(QCA_LL_TX_FLOW_CONTROL_V2) && !defined(CONFIG_ICNSS)) || \
-   defined(CONFIG_HL_SUPPORT)
+	(defined(QCA_LL_TX_FLOW_CONTROL_V2) && !IS_ENABLED(CONFIG_ICNSS)) || \
+	defined(CONFIG_HL_SUPPORT)
 void ol_txrx_vdev_pause(struct cdp_vdev *pvdev, uint32_t reason);
 void ol_txrx_vdev_unpause(struct cdp_vdev *pvdev, uint32_t reason);
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */

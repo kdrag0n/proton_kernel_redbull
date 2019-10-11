@@ -1366,7 +1366,7 @@ PLD_OBJS :=	$(PLD_SRC_DIR)/pld_common.o
 ifeq ($(CONFIG_HIF_PCI), y)
 PLD_OBJS +=	$(PLD_SRC_DIR)/pld_pcie.o
 endif
-ifeq ($(CONFIG_ICNSS), y)
+ifeq (y,$(findstring y, $(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 PLD_OBJS +=	$(PLD_SRC_DIR)/pld_snoc.o
 endif
 ifeq ($(CONFIG_QCA_WIFI_SDIO), y)
@@ -1625,7 +1625,7 @@ cppflags-$(CONFIG_FEATURE_MEMDUMP_ENABLE) += -DWLAN_FEATURE_MEMDUMP_ENABLE
 cppflags-$(CONFIG_FEATURE_FW_LOG_PARSING) += -DFEATURE_FW_LOG_PARSING
 cppflags-$(CONFIG_WLAN_RECORD_RX_PADDR) += -DHIF_RECORD_RX_PADDR
 
-ifeq ($(CONFIG_CNSS), y)
+ifeq (y,$(findstring y,$(CONFIG_CNSS) $(CONFIG_CNSS_MODULE)))
 ifeq ($(CONFIG_CNSS_SDIO), y)
 cppflags-y += -DCONFIG_PLD_SDIO_CNSS
 else
@@ -1633,7 +1633,7 @@ cppflags-y += -DCONFIG_PLD_PCIE_CNSS
 endif
 endif
 
-ifeq ($(CONFIG_CNSS2), y)
+ifeq (y,$(findstring y,$(CONFIG_CNSS2) $(CONFIG_CNSS2_MODULE)))
 cppflags-y += -DCONFIG_PLD_PCIE_CNSS
 cppflags-y += -DCONFIG_PLD_PCIE_INIT
 endif
@@ -1648,9 +1648,11 @@ cppflags-y += -DFEATURE_RUNTIME_PM
 endif
 endif
 
-cppflags-$(CONFIG_ICNSS) += -DCONFIG_PLD_SNOC_ICNSS
+ifeq (y,$(findstring y, $(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
+cppflags-y += -DCONFIG_PLD_SNOC_ICNSS
 
-cppflags-$(CONFIG_ICNSS) += -DQCA_WIFI_3_0
+cppflags-y += -DQCA_WIFI_3_0
+endif
 
 cppflags-$(CONFIG_WIFI_3_0_ADRASTEA) += -DQCA_WIFI_3_0_ADRASTEA
 cppflags-$(CONFIG_ADRASTEA_SHADOW_REGISTERS) += -DADRASTEA_SHADOW_REGISTERS
