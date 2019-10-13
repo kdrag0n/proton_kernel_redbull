@@ -3,7 +3,11 @@
 / {
 	model = "Qualcomm Technologies, Inc. Lito v2";
 	compatible = "qcom,lito";
-	qcom,msm-id = <400 0x20000>;
+	qcom,msm-id = <400 0x20000>, <440 0x20000>;
+};
+
+&lito_snd {
+	qcom,lito-is-v2-enabled = <1>;
 };
 
 &lito_snd {
@@ -11,7 +15,11 @@
 };
 
 &camcc {
-	compatible = "qcom,lito-camcc-v2";
+	compatible = "qcom,lito-camcc-v2", "syscon";
+};
+
+&pm8008_regulators {
+	vdd_l7-supply = <&BOB>;
 };
 
 &pm8008_regulators {
