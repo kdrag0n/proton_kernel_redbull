@@ -53,6 +53,7 @@
 #define DCVS_FTB_WINDOW 16
 /* Superframe can have maximum of 32 frames */
 #define VIDC_SUPERFRAME_MAX 32
+#define COLOR_RANGE_UNSPECIFIED (-1)
 
 #define V4L2_EVENT_VIDC_BASE  10
 #define INPUT_MPLANE V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
@@ -186,6 +187,7 @@ struct recon_buf {
 struct eos_buf {
 	struct list_head list;
 	struct msm_smem smem;
+	u32 is_queued;
 };
 
 struct internal_buf {
@@ -271,6 +273,7 @@ enum vpu_version {
 	VPU_VERSION_AR50 = 1,
 	VPU_VERSION_IRIS1,
 	VPU_VERSION_IRIS2,
+	VPU_VERSION_AR50_LITE,
 };
 
 struct msm_vidc_ubwc_config_data {
@@ -345,15 +348,7 @@ struct msm_video_device {
 	struct video_device vdev;
 };
 
-struct session_crop {
-	u32 left;
-	u32 top;
-	u32 width;
-	u32 height;
-};
-
 struct session_prop {
-	struct session_crop crop_info;
 	u32 fps;
 	u32 bitrate;
 	bool bframe_changed;
@@ -574,6 +569,7 @@ struct msm_vidc_inst {
 	bool all_intra;
 	bool is_perf_eligible_session;
 	u32 max_filled_len;
+	int full_range;
 };
 
 extern struct msm_vidc_drv *vidc_driver;

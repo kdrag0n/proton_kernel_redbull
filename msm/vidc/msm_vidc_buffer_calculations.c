@@ -27,13 +27,16 @@
 
 /* Encoder buffer count macros */
 /* total input buffers for encoder HFR usecase */
-#define HFR_ENC_TOTAL_INPUT_BUFFERS 8
+#define HFR_ENC_TOTAL_INPUT_BUFFERS 16
 
 /* minimum number of output buffers */
 #define MIN_ENC_OUTPUT_BUFFERS 4
 
 /* extra output buffers for encoder HFR usecase */
 #define HFR_ENC_TOTAL_OUTPUT_BUFFERS 12
+
+/* extra output buffers for encoder HEIF usecase */
+#define HEIF_ENC_TOTAL_OUTPUT_BUFFERS 12
 
 #define HFI_COLOR_FORMAT_YUV420_NV12_UBWC_Y_TILE_WIDTH 32
 #define HFI_COLOR_FORMAT_YUV420_NV12_UBWC_Y_TILE_HEIGHT 8
@@ -833,6 +836,13 @@ static int msm_vidc_get_extra_output_buff_count(struct msm_vidc_inst *inst)
 	if (!is_realtime_session(inst) || is_thumbnail_session(inst))
 		return extra_output_count;
 
+	/* For HEIF, we are increasing buffer count */
+	if (is_image_session(inst)) {
+		extra_output_count = (HEIF_ENC_TOTAL_OUTPUT_BUFFERS -
+			MIN_ENC_OUTPUT_BUFFERS);
+		return extra_output_count;
+	}
+
 	/*
 	 * Batch mode and HFR not supported for resolution greater than
 	 * UHD. Hence extra buffers are not required.
@@ -970,6 +980,10 @@ u32 msm_vidc_calculate_enc_output_frame_size(struct msm_vidc_inst *inst)
 	 * For resolution > 4k : YUVsize / 4
 	 * Initially frame_size = YUVsize * 2;
 	 */
+
+	if (is_grid_session(inst)) {
+		f->fmt.pix_mp.width = f->fmt.pix_mp.height = HEIC_GRID_DIMENSION;
+	}
 	width = ALIGN(f->fmt.pix_mp.width, BUFFER_ALIGNMENT_SIZE(32));
 	height = ALIGN(f->fmt.pix_mp.height, BUFFER_ALIGNMENT_SIZE(32));
 	mbs_per_frame = NUM_MBS_PER_FRAME(width, height);
@@ -1574,6 +1588,7 @@ static inline u32 calculate_enc_scratch1_size(struct msm_vidc_inst *inst,
 	u32 frame_num_lcu, linebuf_meta_recon_uv, topline_bufsize_fe_1stg_sao;
 	u32 output_mv_bufsize = 0, temp_scratch_mv_bufsize = 0;
 	u32 size, bit_depth, num_LCUMB;
+	u32 vpss_lineBufferSize_1 = 0;
 
 	width_lcu_num = ((width)+(lcu_size)-1) / (lcu_size);
 	height_lcu_num = ((height)+(lcu_size)-1) / (lcu_size);
@@ -1681,7 +1696,9 @@ static inline u32 calculate_enc_scratch1_size(struct msm_vidc_inst *inst,
 	override_buffer_size = ALIGN(override_buffer_size,
 		VENUS_DMA_ALIGNMENT) * 2;
 	ir_buffer_size = (((frame_num_lcu << 1) + 7) & (~7)) * 3;
-	vpss_line_buf = ((((max(width_coded, height_coded) + 3) >> 2) << 5) + 256) * 16;
+	vpss_lineBufferSize_1 = ((((8192) >> 2) << 5) * num_vpp_pipes) + 64;
+	vpss_line_buf = (((((max(width_coded, height_coded) + 3) >> 2) << 5) + 256) * 16) +
+		vpss_lineBufferSize_1;
 	topline_bufsize_fe_1stg_sao = (16 * (width_coded >> 5));
 	topline_bufsize_fe_1stg_sao = ALIGN(topline_bufsize_fe_1stg_sao,
 		VENUS_DMA_ALIGNMENT);
