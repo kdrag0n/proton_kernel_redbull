@@ -102,8 +102,8 @@ static void force_touch_active(void *device_data);
 static void set_touchable_area(void *device_data);
 static void set_log_level(void *device_data);
 static void debug(void *device_data);
+static void set_touch_mode(void *device_data);
 static void not_support_cmd(void *device_data);
-
 
 static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("fw_update", fw_update),},
@@ -196,6 +196,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("set_touchable_area", set_touchable_area),},
 	{SEC_CMD("set_log_level", set_log_level),},
 	{SEC_CMD("debug", debug),},
+	{SEC_CMD("set_touch_mode", set_touch_mode),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
 
@@ -843,7 +844,8 @@ int sec_ts_fix_tmode(struct sec_ts_data *ts, u8 mode, u8 state)
 	u8 onoff[1] = {STATE_MANAGE_OFF};
 	u8 tBuff[2] = { mode, state };
 
-	input_info(true, &ts->client->dev, "%s\n", __func__);
+	input_info(true, &ts->client->dev, "%s: mode %d state %d\n",
+		__func__, mode, state);
 
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_STATEMANAGE_ON, onoff, 1);
 	sec_ts_delay(20);
@@ -6627,6 +6629,131 @@ static void not_support_cmd(void *device_data)
 	sec_cmd_set_cmd_result(sec, buff, strlen(buff));
 	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 	sec_cmd_set_cmd_exit(sec);
+}
+
+static void set_touch_mode(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret = 0;
+	u8 para[4] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+		input_err(true, &ts->client->dev, "%s: POWER off!\n", __func__);
+		goto err_out;
+	}
+
+	switch (sec->cmd_param[0]) {
+	case 1:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, set Normal ACTIVE mode\n",
+			__func__, sec->cmd_param[0]);
+		sec_ts_fix_tmode(ts,
+			TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
+		break;
+	case 2:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, set Normal IDLE mode\n",
+			__func__, sec->cmd_param[0]);
+		sec_ts_fix_tmode(ts,
+			TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_IDLE);
+		break;
+	case 3:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, set Lowpower ACTIVE mode\n",
+			__func__, sec->cmd_param[0]);
+		sec_ts_fix_tmode(ts,
+			TOUCH_SYSTEM_MODE_LOWPOWER, TOUCH_MODE_STATE_TOUCH);
+		break;
+	case 4:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, set Lowpower IDLE mode\n",
+			__func__, sec->cmd_param[0]);
+		sec_ts_fix_tmode(ts,
+			TOUCH_SYSTEM_MODE_LOWPOWER, TOUCH_MODE_STATE_IDLE);
+		break;
+	case 5:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, Sense On\n",
+			__func__, sec->cmd_param[0]);
+		ret = ts->sec_ts_write(ts,
+			SEC_TS_CMD_SENSE_ON, NULL, 0);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s: fail to write Sense_on\n", __func__);
+		sec_ts_delay(300);
+		break;
+	case 6:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, Sense Off\n",
+			__func__, sec->cmd_param[0]);
+		sec_ts_fix_tmode(ts, 0x6, 0x1);
+		break;
+	case 7:
+		input_info(true, &ts->client->dev,
+			"%s: param = %d, SW Reset\n",
+			__func__, sec->cmd_param[0]);
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SW_RESET, NULL, 0);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s: fail to write SW Reset\n", __func__);
+		sec_ts_delay(300);
+		break;
+	case 8:
+		input_info(true, &ts->client->dev,
+			"%s: Toggle Sense On/Off\n",
+			__func__, sec->cmd_param[0]);
+		ret = ts->sec_ts_read(ts, SEC_TS_READ_TS_STATUS, para, 4);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+				"%s: failed to read status(%d)\n", __func__,
+				ret);
+			goto err_out;
+		}
+
+		if (para[1] == 6) {// have to sense on
+			input_info(true, &ts->client->dev,
+				"%s: param = %d, Sense On\n",
+				__func__, sec->cmd_param[0]);
+			ret = ts->sec_ts_write(ts,
+				SEC_TS_CMD_SENSE_ON, NULL, 0);
+			if (ret < 0)
+				input_err(true, &ts->client->dev,
+					"%s: fail to write Sense_on\n",
+					__func__);
+
+			sec_ts_delay(300);
+
+			input_dbg(false, &ts->client->dev,
+				"%s: SENSE ON\n", __func__);
+		} else {// have to sense off
+			input_info(true, &ts->client->dev,
+				"%s: param = %d, Sense Off\n",
+				__func__, sec->cmd_param[0]);
+			sec_ts_fix_tmode(ts, 0x6, 0x1);
+		}
+
+		break;
+	default:
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	snprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+
+	return;
+
+err_out:
+	snprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
 
 int sec_ts_fn_init(struct sec_ts_data *ts)
