@@ -6435,6 +6435,13 @@ static void force_touch_active(void *device_data)
 	}
 
 	active = sec->cmd_param[0];
+	input_info(true, &ts->client->dev,
+		"%s: %s\n", __func__, active ? "enable" : "disable");
+	if (active)
+		pm_stay_awake(&ts->client->dev);
+	else
+		pm_relax(&ts->client->dev);
+
 	if (sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_FORCE_ACTIVE, active) == 0) {
 		sec_cmd_set_cmd_result(sec, "OK", 2);
 		sec->cmd_state = SEC_CMD_STATUS_OK;

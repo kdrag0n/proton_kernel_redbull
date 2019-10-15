@@ -493,7 +493,8 @@ skip_spi_read:
 	mutex_unlock(&ts->io_mutex);
 
 	if (retry == SEC_TS_I2C_RETRY_CNT) {
-		input_err(true, &ts->client->dev, "%s: read over retry limit\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: read reg(%#x) over retry limit\n", __func__, reg);
 		ret = -EIO;
 #ifdef USE_POR_AFTER_I2C_RETRY
 		if (ts->probe_done && !ts->reset_is_on_going)
@@ -1532,6 +1533,7 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 
 	/* prevent CPU from entering deep sleep */
 	pm_qos_update_request(&ts->pm_qos_req, 100);
+	pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
 
 	mutex_lock(&ts->eventlock);
 
@@ -3350,6 +3352,17 @@ static int sec_ts_pm_suspend(struct device *dev)
 {
 	struct sec_ts_data *ts = dev_get_drvdata(dev);
 
+	if (ts->bus_refmask)
+		input_info(true, &ts->client->dev,
+			"%s: bus_refmask 0x%X\n", __func__, ts->bus_refmask);
+
+	if (ts->power_status != SEC_TS_STATE_SUSPEND) {
+		input_err(true, &ts->client->dev,
+			"%s: can't suspend because touch bus is in use!\n",
+			__func__);
+		return -EBUSY;
+	}
+
 	if (ts->lowpower_mode)
 		reinit_completion(&ts->resume_done);
 
@@ -3422,6 +3435,8 @@ static void sec_ts_suspend_work(struct work_struct *work)
 		return;
 	}
 
+	pm_stay_awake(&ts->client->dev);
+
 	/* Sense_off */
 	ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_OFF, NULL, 0);
 	if (ret < 0)
@@ -3444,7 +3459,7 @@ static void sec_ts_suspend_work(struct work_struct *work)
 	if (ts->tbn)
 		tbn_release_bus(ts->tbn);
 #endif
-
+	pm_relax(&ts->client->dev);
 	mutex_unlock(&ts->device_mutex);
 }
 
