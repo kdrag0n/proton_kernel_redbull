@@ -55,6 +55,7 @@ static int dsi_backlight_update_dcs(struct dsi_backlight_config *bl, u32 bl_lvl)
 	struct dsi_panel *panel;
 	struct mipi_dsi_device *dsi;
 	size_t num_params;
+	u16 brightness;
 
 	if (!bl || (bl_lvl > 0xffff)) {
 		pr_err("invalid params\n");
@@ -69,7 +70,11 @@ static int dsi_backlight_update_dcs(struct dsi_backlight_config *bl, u32 bl_lvl)
 	dsi = &panel->mipi_device;
 
 	num_params = bl->bl_max_level > 0xFF ? 2 : 1;
-	rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl, num_params);
+	if ((num_params == 2) && (bl->big_endian))
+		brightness = cpu_to_be16(bl_lvl);
+	else
+		brightness = (u16)bl_lvl;
+	rc = mipi_dsi_dcs_set_display_brightness(dsi, brightness, num_params);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
 
@@ -1057,6 +1062,9 @@ int dsi_panel_bl_parse_config(struct device *parent, struct dsi_backlight_config
 	if (rc)
 		pr_err("[%s] error while parsing high brightness mode (hbm) details, rc=%d\n",
 			panel->name, rc);
+
+	bl->big_endian = utils->read_bool(utils->data,
+					"google,dsi-bl-cmd-big-endian");
 
 	bl->en_gpio = utils->get_named_gpio(utils->data,
 					      "qcom,platform-bklight-en-gpio",
