@@ -15,6 +15,9 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+static bool ois_debug;
+module_param(ois_debug, bool, 0644);
+
 int32_t cam_ois_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -460,9 +463,25 @@ static void cam_ois_read_work(struct work_struct *work)
 
 	ois_timer_in = container_of(work, struct cam_ois_timer_t, g_work);
 	get_monotonic_boottime(&ts);
+	if (ois_debug) {
+		rc = camera_io_dev_read_seq(
+			&ois_timer_in->o_ctrl->io_master_info,
+			0xE003, &buf[0], CAMERA_SENSOR_I2C_TYPE_WORD,
+			CAMERA_SENSOR_I2C_TYPE_DWORD, 8);
+		CAM_INFO(CAM_OIS,
+			"[0xE003] buf[0-1]=%02x%02x, buf[2-3]=%02x%02x, buf[4-5]=%02x%02x, buf[6-7]=%02x%02x",
+			buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
+			buf[6], buf[7]);
+	}
+
 	rc = camera_io_dev_read_seq(&ois_timer_in->o_ctrl->io_master_info,
 		0xE001, &buf[0], CAMERA_SENSOR_I2C_TYPE_WORD,
 		CAMERA_SENSOR_I2C_TYPE_DWORD, 6);
+	if (ois_debug) {
+		CAM_INFO(CAM_OIS,
+			"[0xE001] buf[0-1]=%02x%02x, buf[2-3]=%02x%02x, buf[4-5]=%02x%02x",
+			buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	}
 
 	rc = camera_io_dev_read_seq(
 		&ois_timer_in->o_ctrl->io_master_info,
