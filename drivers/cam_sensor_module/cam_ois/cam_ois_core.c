@@ -464,15 +464,10 @@ static void cam_ois_read_work(struct work_struct *work)
 		0xE001, &buf[0], CAMERA_SENSOR_I2C_TYPE_WORD,
 		CAMERA_SENSOR_I2C_TYPE_DWORD, 6);
 
-	// For AF position readout lower the frequency to 10Hz.
-	ois_timer_in->o_ctrl->buf.af_read_times++;
-	if (!(ois_timer_in->o_ctrl->buf.af_read_times % 20)) {
-		rc = camera_io_dev_read_seq(
-			&ois_timer_in->o_ctrl->io_master_info,
-			0x0538, &buf[6], CAMERA_SENSOR_I2C_TYPE_WORD,
-			CAMERA_SENSOR_I2C_TYPE_DWORD, 4);
-		ois_timer_in->o_ctrl->buf.af_read_times = 0;
-	}
+	rc = camera_io_dev_read_seq(
+		&ois_timer_in->o_ctrl->io_master_info,
+		0x0538, &buf[6], CAMERA_SENSOR_I2C_TYPE_WORD,
+		CAMERA_SENSOR_I2C_TYPE_DWORD, 4);
 
 	if (rc != 0) {
 		ois_timer_in->i2c_fail_count++;
@@ -577,7 +572,7 @@ static int cam_ois_start_shift_reader(struct cam_ois_ctrl_t *o_ctrl)
 
 	// set worker function and work queue
 	INIT_WORK(&o_ctrl->timer.g_work, cam_ois_read_work);
-	o_ctrl->timer.ois_wq = create_workqueue("ois_wq");
+	o_ctrl->timer.ois_wq = alloc_workqueue("ois_wq", WQ_HIGHPRI, 1);
 	if (!o_ctrl->timer.ois_wq) {
 		CAM_ERR(CAM_OIS, "ois_wq create failed.");
 		return -EFAULT;
@@ -594,7 +589,6 @@ static int cam_ois_start_shift_reader(struct cam_ois_ctrl_t *o_ctrl)
 
 	mutex_lock(&o_ctrl->ois_shift_mutex);
 	o_ctrl->buf.write_pos = 0;
-	o_ctrl->buf.af_read_times = 0;
 	o_ctrl->buf.is_full = false;
 	mutex_unlock(&o_ctrl->ois_shift_mutex);
 
