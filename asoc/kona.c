@@ -6231,9 +6231,6 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &kona_tdm_be_ops,
 		.ignore_suspend = 1,
-#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
-		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
-#endif
 	},
 	{
 		.name = LPASS_BE_SEN_TDM_RX_0,
@@ -6462,6 +6459,23 @@ static struct snd_soc_dai_link msm_tdm_fe_dai_link[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
+#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
+	{
+		.name = "Quinary TDM TX 0 Hostless",
+		.stream_name = "Quinary TDM TX 0 Hostless",
+		.cpu_dai_name = "QUIN_TDM_TX_0_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_capture = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+#endif
 };
 
 
