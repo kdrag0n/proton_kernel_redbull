@@ -376,6 +376,7 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 
 	soc_info = &new_cci_dev->soc_info;
 
+	mutex_init(&new_cci_dev->init_mutex);
 	new_cci_dev->v4l2_dev_str.pdev = pdev;
 
 	soc_info->pdev = pdev;
@@ -444,6 +445,7 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 
 	return rc;
 cci_no_resource:
+	mutex_destroy(&new_cci_dev->init_mutex);
 	kfree(new_cci_dev);
 	return rc;
 }
@@ -456,6 +458,7 @@ static int cam_cci_device_remove(struct platform_device *pdev)
 
 	cam_cpas_unregister_client(cci_dev->cpas_handle);
 	cam_cci_soc_remove(pdev, cci_dev);
+	mutex_destroy(&cci_dev->init_mutex);
 	devm_kfree(&pdev->dev, cci_dev);
 	return 0;
 }
