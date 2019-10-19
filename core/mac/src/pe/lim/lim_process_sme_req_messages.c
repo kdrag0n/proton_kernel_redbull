@@ -461,6 +461,7 @@ lim_configure_ap_start_bss_session(struct mac_context *mac_ctx,
 	session->sap_dot11mc = sme_start_bss_req->sap_dot11mc;
 	session->vendor_vht_sap =
 			sme_start_bss_req->vendor_vht_sap;
+	pe_info("vendor_vht_sap %d", session->vendor_vht_sap);
 	lim_get_short_slot_from_phy_mode(mac_ctx, session, session->gLimPhyMode,
 		&session->shortSlotTimeSupported);
 	session->isCoalesingInIBSSAllowed =
@@ -5723,6 +5724,13 @@ static void lim_process_sme_dfs_csa_ie_request(struct mac_context *mac_ctx,
 	wider_bw_ch_switch->newCenterChanFreq0 =
 		dfs_csa_ie_req->ch_params.center_freq_seg0;
 skip_vht:
+
+	/* Take a wakelock for CSA for 5 seconds and release in vdev start */
+
+	qdf_wake_lock_timeout_acquire(&session_entry->ap_ecsa_wakelock,
+				      MAX_WAKELOCK_FOR_CSA);
+	qdf_runtime_pm_prevent_suspend(&session_entry->ap_ecsa_runtime_lock);
+
 	/* Send CSA IE request from here */
 	lim_send_dfs_chan_sw_ie_update(mac_ctx, session_entry);
 

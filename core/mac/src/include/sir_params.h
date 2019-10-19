@@ -368,6 +368,7 @@ struct sir_cfg_action_frm_tb_ppdu {
 /* (SIR_HAL_ITC_MSG_TYPES_BEGIN + 137) is unused */
 
 #define SIR_HAL_ROAM_SCAN_OFFLOAD_REQ      (SIR_HAL_ITC_MSG_TYPES_BEGIN + 138)
+#define SIR_HAL_ROAM_PRE_AUTH_STATUS_IND   (SIR_HAL_ITC_MSG_TYPES_BEGIN + 139)
 
 #define SIR_HAL_TRAFFIC_STATS_IND          (SIR_HAL_ITC_MSG_TYPES_BEGIN + 141)
 
@@ -622,7 +623,10 @@ struct sir_cfg_action_frm_tb_ppdu {
 
 #define SIR_HAL_HIDDEN_SSID_RESTART_RSP     (SIR_HAL_ITC_MSG_TYPES_BEGIN + 379)
 
+#define SIR_HAL_INIT_ROAM_OFFLOAD_PARAM     (SIR_HAL_ITC_MSG_TYPES_BEGIN + 380)
+
 #define SIR_HAL_GET_PEER_INFO               (SIR_HAL_ITC_MSG_TYPES_BEGIN + 386)
+
 #define SIR_HAL_GET_PEER_INFO_EXT           (SIR_HAL_ITC_MSG_TYPES_BEGIN + 387)
 
 /* ARP Debug stats */
@@ -663,7 +667,9 @@ struct sir_cfg_action_frm_tb_ppdu {
 
 #define SIR_HAL_SEND_PEER_UNMAP_CONF        (SIR_HAL_ITC_MSG_TYPES_BEGIN + 411)
 
-#define SIR_HAL_GET_ISOLATION              (SIR_HAL_ITC_MSG_TYPES_BEGIN + 412)
+#define SIR_HAL_GET_ISOLATION               (SIR_HAL_ITC_MSG_TYPES_BEGIN + 412)
+
+#define SIR_HAL_SET_ROAM_TRIGGERS           (SIR_HAL_ITC_MSG_TYPES_BEGIN + 413)
 
 #define SIR_HAL_MSG_TYPES_END               (SIR_HAL_MSG_TYPES_BEGIN + 0x1FF)
 

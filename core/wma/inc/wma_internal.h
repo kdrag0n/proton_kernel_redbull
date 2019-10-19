@@ -166,6 +166,19 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 					uint32_t len);
 
 /**
+ * wma_roam_auth_offload_event_handler() - Handle LFR-3.0 Roam authentication
+ * offload event.
+ * @handle: wma_handle
+ * @event:  rso auth offload event data pointer
+ * @len: length of the data
+ *
+ * Handles roam authentication offload event from firmware which is triggered
+ * after roam candidate selection.
+ */
+int wma_roam_auth_offload_event_handler(WMA_HANDLE handle, uint8_t *event,
+					uint32_t len);
+
+/**
  * wma_mlme_roam_synch_event_handler_cb() - roam synch event handler
  * @handle: wma handle
  * @event: event data
@@ -1624,4 +1637,14 @@ void wma_send_vdev_down(tp_wma_handle wma, struct wma_target_req *req);
  */
 int wma_cold_boot_cal_event_handler(void *wma_ctx, uint8_t *event_buff,
 				    uint32_t len);
+
+/**
+ * wma_set_roam_triggers() - Send roam trigger bitmap to WMI
+ * @wma_handle: wma handle
+ * @triggers: Carries vdev id and roam trigger bitmap.
+ *
+ * Return: Success or Failure status
+ */
+QDF_STATUS wma_set_roam_triggers(tp_wma_handle wma_handle,
+				 struct roam_triggers *triggers);
 #endif

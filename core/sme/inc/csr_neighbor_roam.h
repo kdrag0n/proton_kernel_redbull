@@ -45,7 +45,7 @@ typedef enum {
 typedef struct sCsrNeighborRoamCfgParams {
 	uint32_t neighborScanPeriod;
 	uint32_t neighbor_scan_min_period;
-	tCsrChannelInfo channelInfo;
+	tCsrChannelInfo specific_chan_info;
 	uint8_t neighborLookupThreshold;
 	int8_t rssi_thresh_offset_5g;
 	uint8_t neighborReassocThreshold;
@@ -63,6 +63,9 @@ typedef struct sCsrNeighborRoamCfgParams {
 	uint32_t hi_rssi_scan_rssi_delta;
 	uint32_t hi_rssi_scan_delay;
 	int32_t hi_rssi_scan_rssi_ub;
+	tCsrChannelInfo pref_chan_info;
+	uint32_t full_roam_scan_period;
+	bool enable_scoring_for_roam;
 } tCsrNeighborRoamCfgParams, *tpCsrNeighborRoamCfgParams;
 
 #define CSR_NEIGHBOR_ROAM_INVALID_CHANNEL_INDEX    255
@@ -108,7 +111,15 @@ typedef struct sCsr11rAssocNeighborInfo {
 	tDblLinkList preAuthDoneList;   /* llist which consists/preauth nodes */
 } tCsr11rAssocNeighborInfo, *tpCsr11rAssocNeighborInfo;
 
-/* Complete control information for neighbor roam algorithm */
+/**
+ * struct sCsr11rAssocNeighborInfo - Control info for neighbor roam algorithm
+ * @roam_control_enable: Flag used to cache the status of roam control
+ *			 configuration. This will be set only if the
+ *			 corresponding vendor command data is configured to
+ *			 driver/firmware successfully. The same shall be
+ *			 returned to userspace whenever queried for roam
+ *			 control config status.
+ */
 typedef struct sCsrNeighborRoamControlInfo {
 	eCsrNeighborRoamState neighborRoamState;
 	eCsrNeighborRoamState prevNeighborRoamState;
@@ -142,8 +153,8 @@ typedef struct sCsrNeighborRoamControlInfo {
 	uint8_t currentRoamBmissFinalBcnt;
 	uint8_t currentRoamBeaconRssiWeight;
 	uint8_t last_sent_cmd;
-	bool b_roam_scan_offload_started;
 	struct scan_result_list *scan_res_lfr2_roam_ap;
+	bool roam_control_enable;
 } tCsrNeighborRoamControlInfo, *tpCsrNeighborRoamControlInfo;
 
 /* All the necessary Function declarations are here */
@@ -302,13 +313,91 @@ void csr_roam_reset_roam_params(struct mac_context *mac_ptr);
 #define REASON_FILS_PARAMS_CHANGED                  41
 #define REASON_SME_ISSUED                           42
 #define REASON_DRIVER_ENABLED                       43
+#define REASON_ROAM_FULL_SCAN_PERIOD_CHANGED        44
+#define REASON_SCORING_CRITERIA_CHANGED             45
+#define REASON_SUPPLICANT_INIT_ROAMING              46
+#define REASON_SUPPLICANT_DE_INIT_ROAMING           47
+#define REASON_DRIVER_DISABLED                      48
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
 QDF_STATUS csr_roam_offload_scan(struct mac_context *mac, uint8_t sessionId,
 		uint8_t command, uint8_t reason);
+
+/**
+ * csr_post_roam_state_change() - Post roam state change to roam state machine
+ * @mac: mac context
+ * @vdev_id: vdev id
+ * @state: roam state to be set for the requested vdev id
+ * @reason: reason for changing roam state for the requested vdev id
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS csr_post_roam_state_change(struct mac_context *mac, uint8_t vdev_id,
+				      enum roam_offload_state state,
+				      uint8_t reason);
+
+/**
+ * csr_post_rso_stop() - Post RSO stop message to WMA
+ * @mac: mac context
+ * @vdev_id: vdev id
+ * @reason: reason for requesting RSO stop
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+csr_post_rso_stop(struct mac_context *mac, uint8_t vdev_id, uint16_t reason);
+
+/**
+ * csr_enable_roaming_on_connected_sta() - Enable roaming on other connected
+ *  sta vdev
+ * @mac: mac context
+ * @vdev_id: vdev id on which roaming should not be enabled
+ * @reason: reason for enabling roaming on connected sta vdev
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+csr_enable_roaming_on_connected_sta(struct mac_context *mac, uint8_t vdev_id);
+
+/**
+ * csr_roam_update_cfg() - Process RSO update cfg request
+ * @mac: mac context
+ * @vdev_id: vdev id
+ * @reason: reason for requesting RSO update cfg
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+csr_roam_update_cfg(struct mac_context *mac, uint8_t vdev_id, uint8_t reason);
 #else
 static inline QDF_STATUS csr_roam_offload_scan(struct mac_context *mac,
 		uint8_t sessionId, uint8_t command, uint8_t reason)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline
+QDF_STATUS csr_post_roam_state_change(struct mac_context *mac, uint8_t vdev_id,
+				      enum roam_offload_state state,
+				      uint8_t reason)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline
+csr_post_rso_stop(struct mac_context *mac, uint8_t vdev_id, uint16_t reason)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline QDF_STATUS
+csr_enable_roaming_on_connected_sta(struct mac_context *mac, uint8_t vdev_id)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline QDF_STATUS
+csr_roam_update_cfg(struct mac_context *mac, uint8_t vdev_id, uint8_t reason)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
@@ -361,10 +450,52 @@ QDF_STATUS csr_roam_read_tsf(struct mac_context *mac, uint8_t *pTimestamp,
 QDF_STATUS csr_roam_synch_callback(struct mac_context *mac,
 	struct roam_offload_synch_ind *roam_synch_data,
 	struct bss_description *bss_desc_ptr, enum sir_roam_op_code reason);
+
+/**
+ * csr_roam_auth_offload_callback() - Registered CSR Callback function to handle
+ * WPA3 roam pre-auth event from firmware.
+ * @mac_ctx: Global mac context pointer
+ * @vdev_id: Vdev id
+ * @bssid: candidate AP bssid
+ */
+QDF_STATUS
+csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
+			       uint8_t vdev_id,
+			       struct qdf_mac_addr bssid);
+
+/**
+ * csr_process_roam_auth_offload_callback() - API to trigger the
+ * WPA3 pre-auth event for candidate AP received from firmware.
+ * @vdev_id: vdev id
+ * @roam_bssid: Candidate BSSID to roam
+ *
+ * This function calls the hdd_sme_roam_callback with reason
+ * eCSR_ROAM_SAE_COMPUTE to trigger SAE auth to supplicant.
+ */
+QDF_STATUS
+csr_process_roam_auth_offload_callback(struct mac_context *mac_ctx,
+				       uint8_t vdev_id,
+				       struct qdf_mac_addr roam_bssid);
 #else
 static inline QDF_STATUS csr_roam_synch_callback(struct mac_context *mac,
 	struct roam_offload_synch_ind *roam_synch_data,
 	struct bss_description *bss_desc_ptr, enum sir_roam_op_code reason)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline QDF_STATUS
+csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
+			       uint8_t vdev_id,
+			       struct qdf_mac_addr bssid)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline QDF_STATUS
+csr_process_roam_auth_offload_callback(struct mac_context *mac_ctx,
+				       uint8_t vdev_id,
+				       struct qdf_mac_addr roam_bssid)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }

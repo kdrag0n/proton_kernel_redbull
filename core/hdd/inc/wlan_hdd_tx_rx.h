@@ -303,7 +303,14 @@ void wlan_hdd_classify_pkt(struct sk_buff *skb);
 
 #ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
 void hdd_reset_tcp_delack(struct hdd_context *hdd_ctx);
+#ifdef RX_PERFORMANCE
 bool hdd_is_current_high_throughput(struct hdd_context *hdd_ctx);
+#else
+static inline bool hdd_is_current_high_throughput(struct hdd_context *hdd_ctx)
+{
+	return false;
+}
+#endif
 #define HDD_MSM_CFG(msm_cfg)	msm_cfg
 #else
 static inline void hdd_reset_tcp_delack(struct hdd_context *hdd_ctx) {}
@@ -414,4 +421,14 @@ void hdd_print_netdev_txq_status(struct net_device *dev);
 uint32_t
 wlan_hdd_dump_queue_history_state(struct hdd_netif_queue_history *q_hist,
 				  char *buf, uint32_t size);
+
+/**
+ * wlan_hdd_rx_rpm_mark_last_busy() - Check if dp rx marked last busy
+ * @hdd_ctx: Pointer to hdd context
+ * @hif_ctx: Pointer to hif context
+ *
+ * Return: dp mark last busy less than runtime delay value
+ */
+bool wlan_hdd_rx_rpm_mark_last_busy(struct hdd_context *hdd_ctx,
+				    void *hif_ctx);
 #endif /* end #if !defined(WLAN_HDD_TX_RX_H) */

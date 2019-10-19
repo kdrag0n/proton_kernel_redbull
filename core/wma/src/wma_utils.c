@@ -2143,6 +2143,7 @@ int wma_unified_link_iface_stats_event_handler(void *handle,
 					       uint8_t *cmd_param_info,
 					       uint32_t len)
 {
+	tp_wma_handle wma_handle = (tp_wma_handle)handle;
 	WMI_IFACE_LINK_STATS_EVENTID_param_tlvs *param_tlvs;
 	wmi_iface_link_stats_event_fixed_param *fixed_param;
 	wmi_iface_link_stats *link_stats, *iface_link_stats;
@@ -2154,6 +2155,7 @@ int wma_unified_link_iface_stats_event_handler(void *handle,
 	size_t link_stats_size, ac_stats_size, iface_info_size;
 	size_t link_stats_results_size, offload_stats_size;
 	size_t total_ac_size, total_offload_size;
+	bool db2dbm_enabled;
 
 	struct mac_context *mac = cds_get_context(QDF_MODULE_ID_PE);
 
@@ -2246,6 +2248,17 @@ int wma_unified_link_iface_stats_event_handler(void *handle,
 
 	iface_link_stats = &iface_stat->link_stats;
 	*iface_link_stats = *link_stats;
+	db2dbm_enabled = wmi_service_enabled(wma_handle->wmi_handle,
+					     wmi_service_hw_db2dbm_support);
+	if (!db2dbm_enabled) {
+		/* FW doesn't indicate support for HW db2dbm conversion */
+		iface_link_stats->rssi_mgmt += WMA_TGT_NOISE_FLOOR_DBM;
+		iface_link_stats->rssi_data += WMA_TGT_NOISE_FLOOR_DBM;
+		iface_link_stats->rssi_ack += WMA_TGT_NOISE_FLOOR_DBM;
+	}
+	WMA_LOGD("db2dbm: %d, rssi_mgmt: %d, rssi_data: %d, rssi_ack: %d",
+		 db2dbm_enabled, iface_link_stats->rssi_mgmt,
+		 iface_link_stats->rssi_data, iface_link_stats->rssi_ack);
 
 	/* Copy roaming state */
 	iface_stat->info.roaming = link_stats->roam_state;
@@ -3270,6 +3283,8 @@ static void wma_fill_peer_info(tp_wma_handle wma,
 		wmi_peer_stats_info *stats_info,
 		struct sir_peer_info_ext *peer_info)
 {
+	int i;
+
 	peer_info->tx_packets = stats_info->tx_packets.low_32;
 	peer_info->tx_bytes = stats_info->tx_bytes.high_32;
 	peer_info->tx_bytes <<= 32;
@@ -3280,11 +3295,15 @@ static void wma_fill_peer_info(tp_wma_handle wma,
 	peer_info->rx_bytes += stats_info->rx_bytes.low_32;
 	peer_info->tx_retries = stats_info->tx_retries;
 	peer_info->tx_failed = stats_info->tx_failed;
+	peer_info->tx_succeed = stats_info->tx_succeed;
 	peer_info->rssi = stats_info->peer_rssi;
 	peer_info->tx_rate = stats_info->last_tx_bitrate_kbps;
 	peer_info->tx_rate_code = stats_info->last_tx_rate_code;
 	peer_info->rx_rate = stats_info->last_rx_bitrate_kbps;
 	peer_info->rx_rate_code = stats_info->last_rx_rate_code;
+	for (i = 0; i < WMI_MAX_CHAINS; i++)
+		peer_info->peer_rssi_per_chain[i] =
+				stats_info->peer_rssi_per_chain[i];
 }
 
 /**
@@ -3382,40 +3401,45 @@ static QDF_STATUS wma_peer_info_ext_rsp(tp_wma_handle wma, u_int8_t *buf)
 static void dump_peer_stats_info(wmi_peer_stats_info_event_fixed_param *event,
 		wmi_peer_stats_info *peer_stats)
 {
-	int i;
+	int i, j;
 	wmi_peer_stats_info *stats = peer_stats;
 	u_int8_t mac[6];
 
 	WMA_LOGI("%s vdev_id %d, num_peers %d more_data %d",
-			__func__, event->vdev_id,
-			event->num_peers, event->more_data);
+		 __func__, event->vdev_id,
+		 event->num_peers, event->more_data);
 
 	for (i = 0; i < event->num_peers; i++) {
 		WMI_MAC_ADDR_TO_CHAR_ARRAY(&stats->peer_macaddr, mac);
 		WMA_LOGI("%s mac %pM", __func__, mac);
 		WMA_LOGI("%s tx_bytes %d %d tx_packets %d %d",
-				__func__,
-				stats->tx_bytes.low_32,
-				stats->tx_bytes.high_32,
-				stats->tx_packets.low_32,
-				stats->tx_packets.high_32);
+			 __func__,
+			 stats->tx_bytes.low_32,
+			 stats->tx_bytes.high_32,
+			 stats->tx_packets.low_32,
+			 stats->tx_packets.high_32);
 		WMA_LOGI("%s rx_bytes %d %d rx_packets %d %d",
-				__func__,
-				stats->rx_bytes.low_32,
-				stats->rx_bytes.high_32,
-				stats->rx_packets.low_32,
-				stats->rx_packets.high_32);
+			 __func__,
+			 stats->rx_bytes.low_32,
+			 stats->rx_bytes.high_32,
+			 stats->rx_packets.low_32,
+			 stats->rx_packets.high_32);
 		WMA_LOGI("%s tx_retries %d tx_failed %d",
-				__func__, stats->tx_retries, stats->tx_failed);
+			 __func__, stats->tx_retries, stats->tx_failed);
 		WMA_LOGI("%s tx_rate_code %x rx_rate_code %x",
-				__func__,
-				stats->last_tx_rate_code,
-				stats->last_rx_rate_code);
+			 __func__,
+			 stats->last_tx_rate_code,
+			 stats->last_rx_rate_code);
 		WMA_LOGI("%s tx_rate %x rx_rate %x",
-				__func__,
-				stats->last_tx_bitrate_kbps,
-				stats->last_rx_bitrate_kbps);
+			 __func__,
+			 stats->last_tx_bitrate_kbps,
+			 stats->last_rx_bitrate_kbps);
 		WMA_LOGI("%s peer_rssi %d", __func__, stats->peer_rssi);
+		WMA_LOGI("%s tx_succeed %d", __func__, stats->tx_succeed);
+		for (j = 0; j < WMI_MAX_CHAINS; j++)
+			WMA_LOGI("%s chain%d_rssi %d", __func__, j,
+				 stats->peer_rssi_per_chain[j]);
+
 		stats++;
 	}
 }
@@ -4316,9 +4340,13 @@ wma_send_vdev_start_to_fw(t_wma_handle *wma, struct vdev_start_params *params)
 	}
 	wma_acquire_wakelock(&vdev->vdev_start_wakelock,
 			     WMA_VDEV_START_REQUEST_TIMEOUT);
+	qdf_runtime_pm_prevent_suspend(&vdev->vdev_start_runtime_wakelock);
 	status = wmi_unified_vdev_start_send(wma->wmi_handle, params);
-	if (QDF_IS_STATUS_ERROR(status))
+	if (QDF_IS_STATUS_ERROR(status)) {
+		qdf_runtime_pm_allow_suspend(
+				&vdev->vdev_start_runtime_wakelock);
 		wma_release_wakelock(&vdev->vdev_start_wakelock);
+	}
 
 	return status;
 }
@@ -4345,9 +4373,14 @@ QDF_STATUS wma_send_vdev_stop_to_fw(t_wma_handle *wma, uint8_t vdev_id)
 		     sizeof(struct wlan_mlme_nss_chains));
 	wma_acquire_wakelock(&iface->vdev_stop_wakelock,
 			     WMA_VDEV_STOP_REQUEST_TIMEOUT);
+	qdf_runtime_pm_prevent_suspend(
+			&iface->vdev_stop_runtime_wakelock);
 	status = wmi_unified_vdev_stop_send(wma->wmi_handle, vdev_id);
-	if (QDF_IS_STATUS_ERROR(status))
+	if (QDF_IS_STATUS_ERROR(status)) {
+		qdf_runtime_pm_allow_suspend(
+				&iface->vdev_stop_runtime_wakelock);
 		wma_release_wakelock(&iface->vdev_stop_wakelock);
+	}
 
 	return status;
 }
@@ -4465,86 +4498,40 @@ static void wma_set_roam_offload_flag(tp_wma_handle wma, uint8_t vdev_id,
 		flag = WMI_ROAM_FW_OFFLOAD_ENABLE_FLAG |
 		       WMI_ROAM_BMISS_FINAL_SCAN_ENABLE_FLAG;
 
-	WMA_LOGD("%s: vdev_id:%d, is_set:%d, flag:%d, roam_offload_enabled:%d",
-		 __func__, vdev_id, is_set, flag,
-		  wma->interfaces[vdev_id].roam_offload_enabled);
+	WMA_LOGD("%s: vdev_id:%d, is_set:%d, flag:%d",
+		 __func__, vdev_id, is_set, flag);
 
 	status = wma_vdev_set_param(wma->wmi_handle, vdev_id,
 				    WMI_VDEV_PARAM_ROAM_FW_OFFLOAD, flag);
 	if (QDF_IS_STATUS_ERROR(status))
 		WMA_LOGE("Failed to set WMI_VDEV_PARAM_ROAM_FW_OFFLOAD");
-	else
-		wma->interfaces[vdev_id].roam_offload_enabled = is_set;
 }
 
-/**
- * wma_update_roam_offload_flag() -  update roam offload flag to fw
- * @wma:     wma handle
- * @vdev_id: vdev id
- * @is_connected: connected or disconnected
- *
- * Return: none
- */
-static void wma_update_roam_offload_flag(tp_wma_handle wma, uint8_t vdev_id,
-					 bool is_connected)
+void wma_update_roam_offload_flag(void *handle,
+				  struct roam_init_params *params)
 {
+	tp_wma_handle wma = handle;
 	struct wma_txrx_node *iface;
-	uint8_t id;
-	uint8_t roam_offload_vdev_id = WMA_INVALID_VDEV_ID;
-	uint32_t list[MAX_NUMBER_OF_CONC_CONNECTIONS];
-	uint8_t count;
 
 	WMA_LOGD("%s: vdev_id:%d, is_connected:%d", __func__,
-		 vdev_id, is_connected);
+		 params->vdev_id, params->enable);
 
-	iface = &wma->interfaces[vdev_id];
+	if (!wma_is_vdev_valid(params->vdev_id)) {
+		WMA_LOGE("%s: vdev_id: %d is not active", __func__,
+			 params->vdev_id);
+		return;
+	}
+
+	iface = &wma->interfaces[params->vdev_id];
 
 	if ((iface->type != WMI_VDEV_TYPE_STA) ||
 	    (iface->sub_type != 0)) {
 		WMA_LOGE("%s: this isn't a STA: %d",
-			 __func__, vdev_id);
+			 __func__, params->vdev_id);
 		return;
 	}
 
-	if (iface->roaming_in_progress || iface->roam_synch_in_progress) {
-		WMA_LOGE("%s: roaming in progress: %d",
-			 __func__, vdev_id);
-		return;
-	}
-
-	for (id = 0; id < wma->max_bssid; id++) {
-		if (wma->interfaces[id].roam_offload_enabled)
-			roam_offload_vdev_id = id;
-	}
-
-	/*
-	 * If sta connected, and no connected sta interface exist, then set
-	 * set roam offload flag to this sta interface
-	 */
-	if (is_connected && (roam_offload_vdev_id == WMA_INVALID_VDEV_ID))
-		wma_set_roam_offload_flag(wma, vdev_id, true);
-
-	if (!is_connected && roam_offload_vdev_id == vdev_id) {
-		/* If sta disconnected and roam offload enaled on this
-		 * interface, then clear roam offload flag
-		 */
-		wma_set_roam_offload_flag(wma, vdev_id, false);
-
-		count = policy_mgr_mode_specific_connection_count(
-				wma->psoc, PM_STA_MODE, list);
-		WMA_LOGD("%s: valid sta count:%d", __func__, count);
-		/*
-		 * If there is multi sta connection before this disconnection,
-		 * then set roam offload flag to other connected sta inferface.
-		 */
-		if (count > 1) {
-			for (id = 0; id < count; id++) {
-				if (list[id] != vdev_id)
-					wma_set_roam_offload_flag(wma, list[id],
-								  true);
-			}
-		}
-	}
+	wma_set_roam_offload_flag(wma, params->vdev_id, params->enable);
 }
 
 QDF_STATUS wma_send_vdev_up_to_fw(t_wma_handle *wma,
@@ -4558,10 +4545,11 @@ QDF_STATUS wma_send_vdev_up_to_fw(t_wma_handle *wma,
 		WMA_LOGE("%s: Invalid vdev id:%d", __func__, params->vdev_id);
 		return QDF_STATUS_E_FAILURE;
 	}
-	wma_update_roam_offload_flag(wma, params->vdev_id, true);
+
 	vdev = &wma->interfaces[params->vdev_id];
 
 	status = wmi_unified_vdev_up_send(wma->wmi_handle, bssid, params);
+	qdf_runtime_pm_allow_suspend(&vdev->vdev_start_runtime_wakelock);
 	wma_release_wakelock(&vdev->vdev_start_wakelock);
 
 	return status;
@@ -4577,10 +4565,10 @@ QDF_STATUS wma_send_vdev_down_to_fw(t_wma_handle *wma, uint8_t vdev_id)
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	wma_update_roam_offload_flag(wma, vdev_id, false);
 	vdev = &wma->interfaces[vdev_id];
 	wma->interfaces[vdev_id].roaming_in_progress = false;
 	status = wmi_unified_vdev_down_send(wma->wmi_handle, vdev_id);
+	qdf_runtime_pm_allow_suspend(&vdev->vdev_start_runtime_wakelock);
 	wma_release_wakelock(&vdev->vdev_start_wakelock);
 
 	return status;
@@ -5015,6 +5003,14 @@ wma_mlme_vdev_notify_down_complete(struct vdev_mlme_obj *vdev_mlme,
 	tp_wma_handle wma;
 	struct wma_target_req *req = (struct wma_target_req *)data;
 
+	if (mlme_is_connection_fail(vdev_mlme->vdev) ||
+	    mlme_get_vdev_start_failed(vdev_mlme->vdev)) {
+		WMA_LOGD("%s Vdev start req failed, no action required",
+			 __func__);
+		mlme_set_connection_fail(vdev_mlme->vdev, false);
+		mlme_set_vdev_start_failed(vdev_mlme->vdev, false);
+		return QDF_STATUS_SUCCESS;
+	}
 	wma = cds_get_context(QDF_MODULE_ID_WMA);
 	if (!wma) {
 		WMA_LOGE("%s wma handle is NULL", __func__);
@@ -5030,14 +5026,11 @@ wma_mlme_vdev_notify_down_complete(struct vdev_mlme_obj *vdev_mlme,
 		return QDF_STATUS_SUCCESS;
 	}
 
-	if (!mlme_get_vdev_start_failed(vdev_mlme->vdev))
-		if (req->msg_type == WMA_SET_LINK_STATE ||
-			req->type == WMA_SET_LINK_PEER_RSP)
-			wma_send_set_link_response(wma, req);
-		else
-			wma_send_del_bss_response(wma, req);
+	if (req->msg_type == WMA_SET_LINK_STATE ||
+	    req->type == WMA_SET_LINK_PEER_RSP)
+		wma_send_set_link_response(wma, req);
 	else
-		mlme_set_vdev_start_failed(vdev_mlme->vdev, false);
+		wma_send_del_bss_response(wma, req);
 
 	return QDF_STATUS_SUCCESS;
 }

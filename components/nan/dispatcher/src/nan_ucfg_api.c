@@ -724,12 +724,11 @@ void ucfg_nan_disable_concurrency(struct wlan_objmgr_psoc *psoc)
 	osif_request_put(request);
 }
 
-QDF_STATUS
-ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc)
+static QDF_STATUS
+ucfg_nan_disable_ndi(struct wlan_objmgr_psoc *psoc, uint32_t ndi_vdev_id)
 {
 	enum nan_datapath_state curr_ndi_state;
 	struct nan_datapath_host_event *event;
-	uint32_t ndi_count, first_ndi_vdev_id;
 	struct nan_vdev_priv_obj *ndi_vdev_priv;
 	struct nan_datapath_end_all_ndps req = {0};
 	struct wlan_objmgr_vdev *ndi_vdev;
@@ -741,27 +740,10 @@ ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc)
 		.timeout_ms = 1000,
 	};
 
-	if (!psoc) {
-		nan_err("psoc object is NULL, no action will be taken");
-		return QDF_STATUS_E_INVAL;
-	}
-
 	if (!ucfg_is_ndi_dbs_supported(psoc))
 		return QDF_STATUS_SUCCESS;
 
-	ndi_count = policy_mgr_mode_specific_connection_count(psoc, PM_NDI_MODE,
-							      NULL);
-	if (ndi_count < 2) {
-		nan_debug("No more than one NDI is active, nothing to do...");
-		return QDF_STATUS_SUCCESS;
-	}
-
-	/*
-	 * At least 2 NDI active concurrencies exist. Disable all NDP's on the
-	 * first NDI to support an incoming connection.
-	 */
-	first_ndi_vdev_id = policy_mgr_mode_specific_vdev_id(psoc, PM_NDI_MODE);
-	ndi_vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, first_ndi_vdev_id,
+	ndi_vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, ndi_vdev_id,
 							WLAN_NAN_ID);
 	if (!ndi_vdev) {
 		nan_err("Cannot obtain NDI vdev object!");
@@ -804,7 +786,7 @@ ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc)
 		goto cleanup;
 	}
 
-	nan_debug("Disabling all NDP's on NDI vdev id - %d", first_ndi_vdev_id);
+	nan_debug("Disabling all NDP's on NDI vdev id - %d", ndi_vdev_id);
 
 	err = osif_request_wait_for_response(request);
 	if (err) {
@@ -817,6 +799,13 @@ ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc)
 	if (!event->ndp_termination_in_progress) {
 		nan_err("Failed to terminate NDP's on NDI");
 		status = QDF_STATUS_E_FAILURE;
+	} else {
+		/*
+		 * Host can assume NDP delete is successful and
+		 * remove policy mgr entry
+		 */
+		policy_mgr_decr_session_set_pcl(psoc, QDF_NDI_MODE,
+						ndi_vdev_id);
 	}
 
 cleanup:
@@ -832,4 +821,92 @@ cleanup:
 		osif_request_put(request);
 
 	return status;
+}
+
+QDF_STATUS
+ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc,
+					   bool force)
+{
+	uint32_t ndi_count, first_ndi_vdev_id, i;
+	QDF_STATUS status;
+
+	if (!psoc) {
+		nan_err("psoc object is NULL, no action will be taken");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!ucfg_is_ndi_dbs_supported(psoc))
+		return QDF_STATUS_SUCCESS;
+
+	ndi_count = policy_mgr_mode_specific_connection_count(psoc, PM_NDI_MODE,
+							      NULL);
+	/* NDP force disable is done for unsupported concurrencies: NDI+SAP */
+	if (force) {
+		nan_warn("Force disable all NDPs");
+		for (i = 0; i < ndi_count; i++) {
+			first_ndi_vdev_id =
+				policy_mgr_mode_specific_vdev_id(psoc,
+								 PM_NDI_MODE);
+			status = ucfg_nan_disable_ndi(psoc, first_ndi_vdev_id);
+			if (QDF_IS_STATUS_ERROR(status))
+				return status;
+		}
+		return QDF_STATUS_SUCCESS;
+	}
+
+	if (ndi_count < 2) {
+		nan_debug("No more than one NDI is active, nothing to do...");
+		return QDF_STATUS_SUCCESS;
+	}
+
+	/*
+	 * At least 2 NDI active concurrencies exist. Disable all NDP's on the
+	 * first NDI to support an incoming connection.
+	 */
+	first_ndi_vdev_id = policy_mgr_mode_specific_vdev_id(psoc, PM_NDI_MODE);
+	status = ucfg_nan_disable_ndi(psoc, first_ndi_vdev_id);
+
+	return status;
+}
+
+QDF_STATUS ucfg_ndi_remove_entry_from_policy_mgr(struct wlan_objmgr_vdev *vdev)
+{
+	struct wlan_objmgr_psoc *psoc;
+	struct nan_psoc_priv_obj *psoc_priv_obj;
+	struct nan_vdev_priv_obj *vdev_priv_obj = nan_get_vdev_priv_obj(vdev);
+	enum nan_datapath_state state;
+	uint32_t active_ndp_peers;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		nan_err("can't get psoc");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	psoc_priv_obj = nan_get_psoc_priv_obj(psoc);
+	if (!psoc_priv_obj) {
+		nan_err("psoc_priv_obj is null");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	if (!vdev_priv_obj) {
+		nan_err("priv_obj is null");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	qdf_spin_lock_bh(&vdev_priv_obj->lock);
+	state = vdev_priv_obj->state;
+	active_ndp_peers = vdev_priv_obj->active_ndp_peers;
+	qdf_spin_unlock_bh(&vdev_priv_obj->lock);
+
+	if (state == NAN_DATA_NDI_DELETED_STATE &&
+	    psoc_priv_obj->nan_caps.ndi_dbs_supported &&
+	    active_ndp_peers) {
+		nan_info("Delete NDP peers: %u and remove NDI from policy mgr",
+			 active_ndp_peers);
+		policy_mgr_decr_session_set_pcl(psoc, QDF_NDI_MODE,
+						wlan_vdev_get_id(vdev));
+	}
+
+	return QDF_STATUS_SUCCESS;
 }

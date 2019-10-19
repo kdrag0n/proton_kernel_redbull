@@ -60,6 +60,8 @@
 #define MAX_VENDOR_IES_LEN 1532
 
 #define CFG_VALID_CHANNEL_LIST_STRING_LEN (CFG_VALID_CHANNEL_LIST_LEN * 4)
+
+#define DEFAULT_ROAM_TRIGGER_BITMAP 0xFFFFFFFF
 /**
  * struct mlme_cfg_str - generic structure for all mlme CFG string items
  *
@@ -258,6 +260,42 @@ enum mlme_ts_info_ack_policy {
 	TS_INFO_ACK_POLICY_NORMAL_ACK = 0,
 	TS_INFO_ACK_POLICY_HT_IMMEDIATE_BLOCK_ACK = 1,
 };
+
+#if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * enum roam_control_requestor - Driver disabled roaming requestor that will
+ *  request the roam module to disable roaming based on the mlme operation
+ * @RSO_INVALID_REQUESTOR: invalid requestor
+ * @RSO_START_BSS: disable roaming temporarily due to start bss
+ * @RSO_CHANNEL_SWITCH: disable roaming due to STA channel switch
+ * @RSO_CONNECT_START: disable roaming temporarily due to connect
+ * @RSO_SAP_CHANNEL_CHANGE: disable roaming due to SAP channel change
+ */
+enum roam_control_requestor {
+	RSO_INVALID_REQUESTOR,
+	RSO_START_BSS          = BIT(0),
+	RSO_CHANNEL_SWITCH     = BIT(1),
+	RSO_CONNECT_START      = BIT(2),
+	RSO_SAP_CHANNEL_CHANGE = BIT(3),
+};
+
+/**
+ * enum roam_offload_state - Roaming module state for each STA vdev.
+ * @ROAM_DEINIT: Roaming module is not initialized at the
+ *  firmware.
+ * @ROAM_INIT: Roaming module initialized at the firmware.
+ * @ROAM_RSO_STARTED: RSO started, firmware can roam to different AP.
+ * @ROAM_RSO_STOPPED: RSO stopped - roaming module is initialized at firmware,
+ *  but firmware cannot do roaming due to supplicant disabled roaming/driver
+ * disabled roaming.
+ */
+enum roam_offload_state {
+	ROAM_DEINIT,
+	ROAM_INIT,
+	ROAM_RSO_STARTED,
+	ROAM_RSO_STOPPED
+};
+#endif
 
 /**
  * struct mlme_edca_params - EDCA pramaters related config items
@@ -756,6 +794,7 @@ struct wlan_mlme_powersave {
  * @tx_bf_cap: Transmit bf capability
  * @as_cap: Antenna sharing capability info
  * @disable_ldpc_with_txbf_ap: Disable ldpc capability
+ * @vht_mcs_10_11_supp: VHT MCS 10 & 11 support
  */
 struct mlme_vht_capabilities_info {
 	uint8_t supp_chan_width;
@@ -799,6 +838,7 @@ struct mlme_vht_capabilities_info {
 	uint8_t tx_bf_cap;
 	uint8_t as_cap;
 	bool disable_ldpc_with_txbf_ap;
+	bool vht_mcs_10_11_supp;
 };
 
 /**
@@ -1313,12 +1353,13 @@ struct bss_load_trigger {
 };
 
 /*
- * AKM suites supported by firmware for
- * roaming
+ * AKM suites supported by firmware for roaming
  */
 #define AKM_FT_SAE           0
 #define AKM_FT_SUITEB_SHA384 1
 #define AKM_FT_FILS          2
+#define AKM_SAE              3
+#define AKM_OWE              4
 
 /*
  * @mawc_roam_enabled:              Enable/Disable MAWC during roaming
@@ -1419,6 +1460,8 @@ struct bss_load_trigger {
  * @roam_scan_period_after_inactivity: Roam scan period after device was in
  * inactive state
  * @fw_akm_bitmap:                  Supported Akm suites of firmware
+ * @roam_full_scan_period: Idle period in seconds between two successive
+ * full channel roam scans
  */
 struct wlan_mlme_lfr_cfg {
 	bool mawc_roam_enabled;
@@ -1521,6 +1564,7 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_inactive_data_packet_count;
 	uint32_t roam_scan_period_after_inactivity;
 	uint32_t fw_akm_bitmap;
+	uint32_t roam_full_scan_period;
 };
 
 /**
@@ -1773,6 +1817,7 @@ struct wlan_mlme_per_slot_scoring {
  * @roam_trigger_bitmap: bitmap for various roam triggers
  * @roam_score_delta: percentage delta in roam score
  * @apsd_enabled: Enable automatic power save delivery
+ * @vendor_roam_score_algorithm: Preferred vendor roam score algorithm
  */
 struct wlan_mlme_scoring_cfg {
 	bool enable_scoring_for_roam;
@@ -1786,6 +1831,7 @@ struct wlan_mlme_scoring_cfg {
 	uint32_t roam_trigger_bitmap;
 	uint32_t roam_score_delta;
 	bool apsd_enabled;
+	uint32_t vendor_roam_score_algorithm;
 };
 
 /* struct wlan_mlme_threshold - Threshold related config items

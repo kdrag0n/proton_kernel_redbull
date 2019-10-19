@@ -1240,11 +1240,11 @@ static void __hdd_tx_timeout(struct net_device *dev)
 
 	for (i = 0; i < NUM_TX_QUEUES; i++) {
 		txq = netdev_get_tx_queue(dev, i);
-		hdd_info("Queue: %d status: %d txq->trans_start: %lu",
-			 i, netif_tx_queue_stopped(txq), txq->trans_start);
+		hdd_debug("Queue: %d status: %d txq->trans_start: %lu",
+			  i, netif_tx_queue_stopped(txq), txq->trans_start);
 	}
 
-	hdd_info("carrier state: %d", netif_carrier_ok(dev));
+	hdd_debug("carrier state: %d", netif_carrier_ok(dev));
 
 	wlan_hdd_display_netif_queue_history(hdd_ctx,
 					     QDF_STATS_VERBOSITY_LEVEL_HIGH);
@@ -1580,12 +1580,21 @@ static QDF_STATUS hdd_gro_rx_bh_disable(struct hdd_adapter *adapter,
 					struct sk_buff *skb)
 {
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct hdd_context *hdd_ctx = adapter->hdd_ctx;
 	gro_result_t gro_res;
 
 	skb_set_hash(skb, QDF_NBUF_CB_RX_FLOW_ID(skb), PKT_HASH_TYPE_L4);
 
 	local_bh_disable();
 	gro_res = napi_gro_receive(napi_to_use, skb);
+
+	if (hdd_get_current_throughput_level(hdd_ctx) == PLD_BUS_WIDTH_IDLE) {
+		if (gro_res != GRO_DROP && gro_res != GRO_NORMAL) {
+			adapter->hdd_stats.tx_rx_stats.
+					rx_gro_low_tput_flush++;
+			napi_gro_flush(napi_to_use, false);
+		}
+	}
 	local_bh_enable();
 
 	if (gro_res == GRO_DROP)
@@ -1923,8 +1932,7 @@ QDF_STATUS hdd_rx_thread_gro_flush_ind_cbk(void *adapter, int rx_ctx_id)
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	if (hdd_get_current_throughput_level(hdd_adapter->hdd_ctx) ==
-	    PLD_BUS_WIDTH_LOW) {
+	if (hdd_is_low_tput_gro_enable(hdd_adapter->hdd_ctx)) {
 		hdd_adapter->hdd_stats.tx_rx_stats.rx_gro_flush_skip++;
 		return QDF_STATUS_SUCCESS;
 	}
@@ -2870,6 +2878,7 @@ void hdd_reset_tcp_delack(struct hdd_context *hdd_ctx)
  *
  * Return: True if vote level is high
  */
+#ifdef RX_PERFORMANCE
 bool hdd_is_current_high_throughput(struct hdd_context *hdd_ctx)
 {
 	if (hdd_ctx->cur_vote_level < PLD_BUS_WIDTH_MEDIUM)
@@ -2877,6 +2886,7 @@ bool hdd_is_current_high_throughput(struct hdd_context *hdd_ctx)
 	else
 		return true;
 }
+#endif
 #endif
 
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
@@ -2937,6 +2947,8 @@ static void hdd_ini_bus_bandwidth(struct hdd_config *config,
 		cfg_get(psoc, CFG_DP_BUS_BANDWIDTH_LOW_THRESHOLD);
 	config->bus_bw_compute_interval =
 		cfg_get(psoc, CFG_DP_BUS_BANDWIDTH_COMPUTE_INTERVAL);
+	config->bus_low_cnt_threshold =
+		cfg_get(psoc, CFG_DP_BUS_LOW_BW_CNT_THRESHOLD);
 }
 
 /**
@@ -3087,4 +3099,25 @@ void hdd_dp_cfg_update(struct wlan_objmgr_psoc *psoc,
 	config->cfg_wmi_credit_cnt = cfg_get(psoc, CFG_DP_HTC_WMI_CREDIT_CNT);
 	hdd_dp_dp_trace_cfg_update(config, psoc);
 	hdd_dp_nud_tracking_cfg_update(config, psoc);
+}
+
+bool wlan_hdd_rx_rpm_mark_last_busy(struct hdd_context *hdd_ctx,
+				    void *hif_ctx)
+{
+	uint64_t duration_us, dp_rx_busy_us, current_us;
+	uint32_t rpm_delay_ms;
+
+	if (!hif_pm_runtime_is_dp_rx_busy(hif_ctx))
+		return false;
+
+	dp_rx_busy_us = hif_pm_runtime_get_dp_rx_busy_mark(hif_ctx);
+	current_us = qdf_get_log_timestamp_usecs();
+	duration_us = (unsigned long)((ULONG_MAX - dp_rx_busy_us) +
+				      current_us + 1);
+	rpm_delay_ms = ucfg_pmo_get_runtime_pm_delay(hdd_ctx->psoc);
+
+	if ((duration_us / 1000) < rpm_delay_ms)
+		return true;
+	else
+		return false;
 }

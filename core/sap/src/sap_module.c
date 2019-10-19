@@ -1406,12 +1406,12 @@ QDF_STATUS wlansap_set_channel_change_with_csa(struct sap_context *sap_ctx,
 		return QDF_STATUS_E_FAULT;
 	}
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO,
-		"%s: sap chan:%d target:%d conn on 5GHz:%d, csa_reason:%s(%d)",
+		"%s: sap chan:%d target:%d conn on 5GHz:%d, csa_reason:%s(%d) strict %d vdev %d",
 		__func__, sap_ctx->channel, targetChannel,
 		policy_mgr_is_any_mode_active_on_band_along_with_session(
 			mac->psoc, sap_ctx->sessionId, POLICY_MGR_BAND_5),
 			sap_get_csa_reason_str(sap_ctx->csa_reason),
-			sap_ctx->csa_reason);
+			sap_ctx->csa_reason, strict, sap_ctx->sessionId);
 
 	sta_sap_scc_on_dfs_chan =
 		policy_mgr_is_sta_sap_scc_allowed_on_dfs_chan(mac->psoc);
@@ -2479,6 +2479,38 @@ void wlansap_populate_del_sta_params(const uint8_t *mac,
 		  QDF_MAC_ADDR_ARRAY(params->peerMacAddr.bytes));
 }
 
+void sap_undo_acs(struct sap_context *sap_ctx)
+{
+	struct sap_acs_cfg *acs_cfg;
+
+	if (!sap_ctx)
+		return;
+
+	acs_cfg = sap_ctx->acs_cfg;
+	if (!acs_cfg)
+		return;
+
+	if (acs_cfg->ch_list) {
+		sap_debug("Clearing ACS cfg channel list");
+		qdf_mem_free(acs_cfg->ch_list);
+		acs_cfg->ch_list = NULL;
+	}
+	if (acs_cfg->master_ch_list) {
+		sap_debug("Clearing master ACS cfg channel list");
+		qdf_mem_free(acs_cfg->master_ch_list);
+		acs_cfg->master_ch_list = NULL;
+	}
+	if (sap_ctx->channelList) {
+		sap_debug("Clearing sap context ch freq list");
+		qdf_mem_free(sap_ctx->channelList);
+		sap_ctx->channelList = NULL;
+	}
+	acs_cfg->ch_list_count = 0;
+	acs_cfg->master_ch_list_count = 0;
+	acs_cfg->acs_mode = false;
+	sap_ctx->num_of_channel = 0;
+}
+
 QDF_STATUS wlansap_acs_chselect(struct sap_context *sap_context,
 				sap_event_cb acs_event_callback,
 				struct sap_config *config,
@@ -2803,9 +2835,8 @@ QDF_STATUS wlansap_update_owe_info(struct sap_context *sap_ctx,
 	return status;
 }
 
-static bool wlansap_is_channel_present_in_acs_list(uint8_t ch,
-						uint8_t *ch_list,
-						uint8_t ch_count)
+static bool wlansap_is_channel_present_in_acs_list(uint8_t ch, uint8_t *ch_list,
+						   uint8_t ch_count)
 {
 	uint8_t i;
 
@@ -2830,15 +2861,17 @@ QDF_STATUS wlansap_filter_ch_based_acs(struct sap_context *sap_ctx,
 	size_t ch_index;
 	size_t target_ch_cnt = 0;
 
-	if (!sap_ctx || !ch_list || !ch_cnt || !sap_ctx->acs_cfg->ch_list) {
+	if (!sap_ctx || !ch_list || !ch_cnt ||
+	    !sap_ctx->acs_cfg->master_ch_list ||
+	    !sap_ctx->acs_cfg->master_ch_list_count) {
 		sap_err("NULL parameters");
 		return QDF_STATUS_E_FAULT;
 	}
 
 	for (ch_index = 0; ch_index < *ch_cnt; ch_index++) {
 		if (wlansap_is_channel_present_in_acs_list(ch_list[ch_index],
-					     sap_ctx->acs_cfg->ch_list,
-					     sap_ctx->acs_cfg->ch_list_count))
+					sap_ctx->acs_cfg->master_ch_list,
+					sap_ctx->acs_cfg->master_ch_list_count))
 			ch_list[target_ch_cnt++] = ch_list[ch_index];
 	}
 

@@ -424,6 +424,10 @@ else
 CONFIG_WDI_EVENT_ENABLE := y
 endif
 
+ifeq ($(CONFIG_REMOVE_PKT_LOG), n)
+CONFIG_PKTLOG_LEGACY := y
+endif
+
 #Endianness selection
 CONFIG_LITTLE_ENDIAN := y
 
@@ -696,3 +700,7 @@ CONFIG_FEATURE_BECN_STATS := y
 ifeq (y,$(findstring y,$(CONFIG_ARCH_MSM) $(CONFIG_ARCH_QCOM)))
 CONFIG_WLAN_FEATURE_DP_BUS_BANDWIDTH := y
 endif
+
+#Enable FW Offload
+CONFIG_WLAN_FW_OFFLOAD := y
+

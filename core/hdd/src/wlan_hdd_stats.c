@@ -1545,13 +1545,21 @@ int wlan_hdd_cfg80211_ll_stats_get(struct wiphy *wiphy,
 {
 	struct osif_vdev_sync *vdev_sync;
 	int errno;
+	qdf_device_t qdf_ctx = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
 
 	errno = osif_vdev_sync_op_start(wdev->netdev, &vdev_sync);
 	if (errno)
 		return errno;
 
+	errno = pld_qmi_send_get(qdf_ctx->dev);
+	if (errno)
+		goto end;
+
 	errno = __wlan_hdd_cfg80211_ll_stats_get(wiphy, wdev, data, data_len);
 
+	pld_qmi_send_put(qdf_ctx->dev);
+
+end:
 	osif_vdev_sync_op_stop(vdev_sync);
 
 	return errno;
@@ -3928,7 +3936,12 @@ static int wlan_hdd_get_station_remote(struct wiphy *wiphy,
 	txrx_stats.rx_bytes = peer_info.rx_bytes;
 	txrx_stats.tx_retries = peer_info.tx_retries;
 	txrx_stats.tx_failed = peer_info.tx_failed;
+	txrx_stats.tx_succeed = peer_info.tx_succeed;
 	txrx_stats.rssi = peer_info.rssi + WLAN_HDD_TGT_NOISE_FLOOR_DBM;
+	for (i = 0; i < WMI_MAX_CHAINS; i++)
+		txrx_stats.peer_rssi_per_chain[i] =
+				peer_info.peer_rssi_per_chain[i] +
+				WLAN_HDD_TGT_NOISE_FLOOR_DBM;
 	wlan_hdd_fill_rate_info(&txrx_stats, &peer_info);
 	wlan_hdd_fill_station_info(hddctx->psoc, sinfo, stainfo, &txrx_stats);
 
@@ -4649,16 +4662,21 @@ static int _wlan_hdd_cfg80211_get_station(struct wiphy *wiphy,
 					  const uint8_t *mac,
 					  struct station_info *sinfo)
 {
-	void *hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
+	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
+	qdf_device_t qdf_ctx = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
 	int errno;
 
-	errno = hif_pm_runtime_get_sync(hif_ctx);
+	errno = wlan_hdd_validate_context(hdd_ctx);
+	if (errno)
+		return errno;
+
+	errno = pld_qmi_send_get(qdf_ctx->dev);
 	if (errno)
 		return errno;
 
 	errno = __wlan_hdd_cfg80211_get_station(wiphy, dev, mac, sinfo);
 
-	hif_pm_runtime_put_sync_suspend(hif_ctx);
+	pld_qmi_send_put(qdf_ctx->dev);
 
 	return errno;
 }
@@ -6250,13 +6268,14 @@ void wlan_hdd_display_txrx_stats(struct hdd_context *ctx)
 				  i, stats->rx_packets[i], stats->rx_dropped[i],
 				  stats->rx_delivered[i], stats->rx_refused[i]);
 		}
-		hdd_debug("RX - packets %u, dropped %u, unsolict_arp_n_mcast_drp %u, delivered %u, refused %u GRO - agg %u drop %u non-agg %u flush-skip %u disabled(conc %u low-tput %u)",
+		hdd_debug("RX - packets %u, dropped %u, unsolict_arp_n_mcast_drp %u, delivered %u, refused %u GRO - agg %u drop %u non-agg %u flush_skip %u low_tput_flush %u disabled(conc %u low-tput %u)",
 			  total_rx_pkt, total_rx_dropped,
 			  qdf_atomic_read(&stats->rx_usolict_arp_n_mcast_drp),
 			  total_rx_delv,
 			  total_rx_refused, stats->rx_aggregated,
 			  stats->rx_gro_dropped, stats->rx_non_aggregated,
 			  stats->rx_gro_flush_skip,
+			  stats->rx_gro_low_tput_flush,
 			  qdf_atomic_read(&ctx->disable_rx_ol_in_concurrency),
 			  qdf_atomic_read(&ctx->disable_rx_ol_in_low_tput));
 	}

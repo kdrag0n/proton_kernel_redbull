@@ -1016,20 +1016,22 @@ static QDF_STATUS pe_drop_pending_rx_mgmt_frames(struct mac_context *mac_ctx,
 }
 
 /**
- * pe_is_ext_scan_bcn - Check if the beacon is from Ext or EPNO scan
+ * pe_is_ext_scan_bcn_probe_rsp - Check if the beacon or probe response
+ * is from Ext or EPNO scan
  *
  * @hdr: pointer to the 802.11 header of the frame
  * @rx_pkt_info: pointer to the rx packet meta
  *
- * Checks if the beacon is from Ext Scan or EPNO scan
+ * Checks if the beacon or probe response is from Ext Scan or EPNO scan
  *
  * Return: true or false
  */
 #ifdef FEATURE_WLAN_EXTSCAN
-static inline bool pe_is_ext_scan_bcn(tpSirMacMgmtHdr hdr,
+static inline bool pe_is_ext_scan_bcn_probe_rsp(tpSirMacMgmtHdr hdr,
 				uint8_t *rx_pkt_info)
 {
-	if ((hdr->fc.subType == SIR_MAC_MGMT_BEACON) &&
+	if ((hdr->fc.subType == SIR_MAC_MGMT_BEACON ||
+	     hdr->fc.subType == SIR_MAC_MGMT_PROBE_RSP) &&
 	    (WMA_IS_EXTSCAN_SCAN_SRC(rx_pkt_info) ||
 	    WMA_IS_EPNO_SCAN_SRC(rx_pkt_info)))
 		return true;
@@ -1037,7 +1039,7 @@ static inline bool pe_is_ext_scan_bcn(tpSirMacMgmtHdr hdr,
 	return false;
 }
 #else
-static inline bool pe_is_ext_scan_bcn(tpSirMacMgmtHdr hdr,
+static inline bool pe_is_ext_scan_bcn_probe_rsp(tpSirMacMgmtHdr hdr,
 				uint8_t *rx_pkt_info)
 {
 	return false;
@@ -1068,7 +1070,7 @@ static bool pe_filter_bcn_probe_frame(struct mac_context *mac_ctx,
 	tpSirMacCapabilityInfo bcn_caps;
 	tSirMacSSid bcn_ssid;
 
-	if (pe_is_ext_scan_bcn(hdr, rx_pkt_info))
+	if (pe_is_ext_scan_bcn_probe_rsp(hdr, rx_pkt_info))
 		return true;
 
 	filter = &mac_ctx->bcn_filter;
@@ -1314,6 +1316,7 @@ void pe_register_callbacks_with_wma(struct mac_context *mac,
 
 	status = wma_register_roaming_callbacks(
 			ready_req->csr_roam_synch_cb,
+			ready_req->csr_roam_auth_event_handle_cb,
 			ready_req->pe_roam_synch_cb,
 			ready_req->pe_disconnect_cb);
 	if (status != QDF_STATUS_SUCCESS)
@@ -2275,7 +2278,7 @@ pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 
 	lim_extract_ies_from_deauth_disassoc(session, deauth_disassoc_frame,
 					     deauth_disassoc_frame_len);
-	lim_tear_down_link_with_ap(mac, vdev_id,
+	lim_tear_down_link_with_ap(mac, session->peSessionId,
 				   eSIR_MAC_UNSPEC_FAILURE_REASON);
 
 	return QDF_STATUS_SUCCESS;

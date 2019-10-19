@@ -42,6 +42,7 @@
 #include "wlan_ipa_ucfg_api.h"
 #include "wlan_hdd_debugfs.h"
 #include "cfg_ucfg_api.h"
+#include <linux/suspend.h>
 
 #ifdef MODULE
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
@@ -386,10 +387,41 @@ static void hdd_abort_system_suspend(struct device *dev)
 }
 #endif
 
-void hdd_soc_idle_restart_lock(struct device *dev)
+/* Total wait time for pm freeze is 10 seconds */
+#define HDD_SLEEP_FOR_PM_FREEZE_TIME (500)
+#define HDD_MAX_ATTEMPT_SLEEP_FOR_PM_FREEZE_TIME (20)
+
+static int hdd_wait_for_pm_freeze(void)
 {
-	hdd_abort_system_suspend(dev);
+	uint8_t count = 0;
+
+	while (pm_freezing) {
+		hdd_info("pm freezing wait for %d ms",
+			 HDD_SLEEP_FOR_PM_FREEZE_TIME);
+		msleep(HDD_SLEEP_FOR_PM_FREEZE_TIME);
+		count++;
+		if (count > HDD_MAX_ATTEMPT_SLEEP_FOR_PM_FREEZE_TIME) {
+			hdd_err("timeout occurred for pm freezing");
+			return -EBUSY;
+		}
+	}
+
+	return 0;
+}
+
+int hdd_soc_idle_restart_lock(struct device *dev)
+{
 	hdd_prevent_suspend(WIFI_POWER_EVENT_WAKELOCK_DRIVER_IDLE_RESTART);
+
+	hdd_abort_system_suspend(dev);
+
+	if (hdd_wait_for_pm_freeze()) {
+		hdd_allow_suspend(
+			WIFI_POWER_EVENT_WAKELOCK_DRIVER_IDLE_RESTART);
+		return -EBUSY;
+	}
+
+	return 0;
 }
 
 void hdd_soc_idle_restart_unlock(void)
@@ -1297,6 +1329,7 @@ static int wlan_hdd_runtime_suspend(struct device *dev)
 	int err;
 	QDF_STATUS status;
 	struct hdd_context *hdd_ctx;
+	qdf_time_t delta;
 
 	hdd_debug("Starting runtime suspend");
 
@@ -1323,7 +1356,15 @@ static int wlan_hdd_runtime_suspend(struct device *dev)
 	if (status == QDF_STATUS_SUCCESS)
 		hdd_bus_bw_compute_timer_stop(hdd_ctx);
 
-	hdd_debug("Runtime suspend done result: %d", err);
+	hdd_ctx->runtime_suspend_done_time_stamp =
+						qdf_get_log_timestamp_usecs();
+	delta = hdd_ctx->runtime_suspend_done_time_stamp -
+		hdd_ctx->runtime_resume_start_time_stamp;
+
+	if (hdd_ctx->runtime_suspend_done_time_stamp >
+	   hdd_ctx->runtime_resume_start_time_stamp)
+		hdd_debug("Runtime suspend done result: %d total cxpc up time %lu microseconds",
+			  err, delta);
 
 	return err;
 }
@@ -1355,11 +1396,13 @@ static int hdd_pld_runtime_resume_cb(void)
  */
 static int wlan_hdd_runtime_resume(struct device *dev)
 {
-	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	struct hdd_context *hdd_ctx;
 	QDF_STATUS status;
+	qdf_time_t delta;
 
 	hdd_debug("Starting runtime resume");
 
+	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 	if (wlan_hdd_validate_context(hdd_ctx))
 		return 0;
 
@@ -1367,6 +1410,13 @@ static int wlan_hdd_runtime_resume(struct device *dev)
 		hdd_debug("Driver module closed skipping runtime resume");
 		return 0;
 	}
+
+	hdd_ctx->runtime_resume_start_time_stamp =
+						qdf_get_log_timestamp_usecs();
+	delta = hdd_ctx->runtime_resume_start_time_stamp -
+		hdd_ctx->runtime_suspend_done_time_stamp;
+	hdd_debug("Starting runtime resume total cxpc down time %lu microseconds",
+		  delta);
 
 	status = ucfg_pmo_psoc_bus_runtime_resume(hdd_ctx->psoc,
 						  hdd_pld_runtime_resume_cb);

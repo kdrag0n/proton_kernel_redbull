@@ -387,8 +387,20 @@ void lim_process_probe_req_frame_multiple_bss(struct mac_context *, uint8_t *,
 
 /* Process Auth frame when we have a session in progress. */
 void lim_process_auth_frame(struct mac_context *, uint8_t *, struct pe_session *);
-QDF_STATUS lim_process_auth_frame_no_session(struct mac_context *mac, uint8_t *,
-						void *body);
+
+/**
+ * lim_process_auth_frame_no_session() - Process auth frame received from AP to
+ * which we are not connected currently.
+ * @mac: Pointer to global mac context
+ * @bd: Pointer to rx auth frame
+ * @body: Pointer to lim_msg->body_ptr
+ *
+ * This is possibly the pre-auth from the neighbor AP, in the same mobility
+ * domain or pre-authentication reply for WPA3 SAE roaming.
+ * This will be used in case of 11r FT.
+ */
+QDF_STATUS lim_process_auth_frame_no_session(struct mac_context *mac,
+					     uint8_t *bd, void *body);
 
 void lim_process_assoc_req_frame(struct mac_context *, uint8_t *, uint8_t, struct pe_session *);
 void lim_send_mlm_assoc_ind(struct mac_context *mac, tpDphHashNode sta,
@@ -739,7 +751,14 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac,
 /* Function to process WMA_SWITCH_CHANNEL_RSP message */
 void lim_process_switch_channel_rsp(struct mac_context *mac, void *);
 
-QDF_STATUS lim_sta_send_down_link(join_params *param);
+/**
+ * lim_sta_handle_connect_fail() - handle connect failure of STA
+ * @param - join params
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS lim_sta_handle_connect_fail(join_params *param);
+
 QDF_STATUS lim_sta_reassoc_error_handler(struct reassoc_params *param);
 
 #ifdef WLAN_FEATURE_11W

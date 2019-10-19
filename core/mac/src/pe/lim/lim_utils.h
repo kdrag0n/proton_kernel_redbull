@@ -102,6 +102,7 @@ typedef enum {
 #define OBSS_DETECTION_IS_HT_20MHZ(_m) ((_m) & OBSS_DETECTION_HT_20MHZ_BIT_MASK)
 
 #define MAX_WAIT_FOR_BCN_TX_COMPLETE 4000
+#define MAX_WAKELOCK_FOR_CSA         5000
 
 #ifdef WLAN_FEATURE_11W
 typedef union uPmfSaQueryTimerId {
@@ -1530,6 +1531,14 @@ void lim_send_beacon(struct mac_context *mac_ctx, struct pe_session *session);
 void lim_ndi_mlme_vdev_up_transition(struct pe_session *session);
 
 /**
+ * lim_sap_move_to_cac_wait_state() - move to cac wait state
+ * @sap_ctx: SAP context
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS lim_sap_move_to_cac_wait_state(struct pe_session *session);
+
+/**
  * lim_disconnect_complete - Deliver vdev disconnect complete event or
  * STA send deleting bss
  * @session: PE session pointer
@@ -1554,6 +1563,20 @@ void lim_disconnect_complete(struct pe_session *session, bool del_bss);
  */
 QDF_STATUS lim_sta_mlme_vdev_stop_send(struct vdev_mlme_obj *vdev_mlme,
 				       uint16_t data_len, void *data);
+
+/**
+ * lim_sta_mlme_vdev_req_fail() - send VDEV start req failure
+ * @vdev_mlme_obj:  VDEV MLME comp object
+ * @data_len: data size
+ * @data: event data
+ *
+ * API invokes vdev stop
+ *
+ * Return: SUCCESS on successful completion of req failure operation
+ *         FAILURE, if it fails due to any
+ */
+QDF_STATUS lim_sta_mlme_vdev_req_fail(struct vdev_mlme_obj *vdev_mlme,
+				      uint16_t data_len, void *data);
 
 /**
  * lim_sta_mlme_vdev_start_send() - send VDEV start

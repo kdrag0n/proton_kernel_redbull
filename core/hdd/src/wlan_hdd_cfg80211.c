@@ -144,6 +144,7 @@
 #include "wlan_blm_ucfg_api.h"
 #include "wlan_hdd_hw_capability.h"
 #include "wlan_hdd_oemdata.h"
+#include "os_if_fwol.h"
 
 #define g_mode_rates_size (12)
 #define a_mode_rates_size (8)
@@ -1519,6 +1520,10 @@ static const struct nl80211_vendor_cmd_info wlan_hdd_cfg80211_vendor_events[] = 
 #ifdef WLAN_UMAC_CONVERGENCE
 	COMMON_VENDOR_EVENTS
 #endif
+	[QCA_NL80211_VENDOR_SUBCMD_ROAM_INDEX] = {
+		.vendor_id = QCA_NL80211_VENDOR_ID,
+		.subcmd = QCA_NL80211_VENDOR_SUBCMD_ROAM,
+	},
 };
 
 /**
@@ -2757,15 +2762,21 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 					tb[QCA_WLAN_VENDOR_ATTR_ACS_CH_LIST]);
 		if (sap_config->acs_cfg.ch_list_count) {
 			sap_config->acs_cfg.ch_list = qdf_mem_malloc(
-					sizeof(uint8_t) *
 					sap_config->acs_cfg.ch_list_count);
-			if (!sap_config->acs_cfg.ch_list) {
+			sap_config->acs_cfg.master_ch_list = qdf_mem_malloc(
+					sap_config->acs_cfg.ch_list_count);
+			if (!sap_config->acs_cfg.ch_list ||
+			    !sap_config->acs_cfg.master_ch_list) {
 				ret = -ENOMEM;
 				goto out;
 			}
 
 			qdf_mem_copy(sap_config->acs_cfg.ch_list, tmp,
-					sap_config->acs_cfg.ch_list_count);
+				     sap_config->acs_cfg.ch_list_count);
+			qdf_mem_copy(sap_config->acs_cfg.master_ch_list, tmp,
+				     sap_config->acs_cfg.ch_list_count);
+			sap_config->acs_cfg.master_ch_list_count =
+					sap_config->acs_cfg.ch_list_count;
 		}
 	} else if (tb[QCA_WLAN_VENDOR_ATTR_ACS_FREQ_LIST]) {
 		uint32_t *freq =
@@ -2776,7 +2787,10 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 		if (sap_config->acs_cfg.ch_list_count) {
 			sap_config->acs_cfg.ch_list = qdf_mem_malloc(
 				sap_config->acs_cfg.ch_list_count);
-			if (!sap_config->acs_cfg.ch_list) {
+			sap_config->acs_cfg.master_ch_list = qdf_mem_malloc(
+					sap_config->acs_cfg.ch_list_count);
+			if (!sap_config->acs_cfg.ch_list ||
+			    !sap_config->acs_cfg.master_ch_list) {
 				ret = -ENOMEM;
 				goto out;
 			}
@@ -2785,6 +2799,11 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 			for (i = 0; i < sap_config->acs_cfg.ch_list_count; i++)
 				sap_config->acs_cfg.ch_list[i] =
 					ieee80211_frequency_to_channel(freq[i]);
+			qdf_mem_copy(sap_config->acs_cfg.master_ch_list,
+				     sap_config->acs_cfg.ch_list,
+				     sap_config->acs_cfg.ch_list_count);
+			sap_config->acs_cfg.master_ch_list_count =
+					sap_config->acs_cfg.ch_list_count;
 		}
 	}
 
@@ -3016,22 +3035,9 @@ static int wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
  *
  * Return: void
  */
-
 void wlan_hdd_undo_acs(struct hdd_adapter *adapter)
 {
-	struct sap_config *sap_cfg;
-
-	if (!adapter)
-		return;
-
-	sap_cfg = &adapter->session.ap.sap_config;
-	if (sap_cfg->acs_cfg.ch_list) {
-		hdd_debug("Clearing ACS cfg channel list");
-		qdf_mem_free(sap_cfg->acs_cfg.ch_list);
-		sap_cfg->acs_cfg.ch_list = NULL;
-	}
-	sap_cfg->acs_cfg.ch_list_count = 0;
-	sap_cfg->acs_cfg.acs_mode = false;
+	sap_undo_acs(WLAN_HDD_GET_SAP_CTX_PTR(adapter));
 }
 
 /**
@@ -3716,6 +3722,20 @@ wlan_hdd_cfg80211_get_features(struct wiphy *wiphy,
 	QCA_WLAN_VENDOR_ATTR_ROAMING_PARAM_ALERT_ROAM_RSSI_TRIGGER
 #define PARAM_ROAM_ENABLE \
 	QCA_WLAN_VENDOR_ATTR_ROAMING_PARAM_SET_LAZY_ROAM_ENABLE
+#define PARAM_ROAM_CONTROL_CONFIG \
+	QCA_WLAN_VENDOR_ATTR_ROAMING_PARAM_CONTROL
+#define PARAM_FREQ_LIST_SCHEME \
+	QCA_ATTR_ROAM_CONTROL_FREQ_LIST_SCHEME
+#define PARAM_FREQ_LIST_SCHEME_MAX \
+	QCA_ATTR_ROAM_CONTROL_SCAN_FREQ_LIST_SCHEME_MAX
+#define PARAM_SCAN_FREQ_LIST \
+	QCA_ATTR_ROAM_CONTROL_SCAN_FREQ_LIST
+#define PARAM_SCAN_FREQ_LIST_TYPE \
+	QCA_ATTR_ROAM_CONTROL_SCAN_FREQ_LIST_TYPE
+#define PARAM_CAND_SEL_CRITERIA_MAX \
+	QCA_ATTR_ROAM_CAND_SEL_CRITERIA_RATE_MAX
+#define PARAM_CAND_SEL_SCORE_RSSI \
+	QCA_ATTR_ROAM_CAND_SEL_CRITERIA_SCORE_RSSI
 
 
 static const struct nla_policy
@@ -3737,6 +3757,7 @@ wlan_hdd_set_roam_param_policy[MAX_ROAMING_PARAM + 1] = {
 	[PARAM_ROAM_BSSID] = {.type = NLA_UNSPEC, .len = QDF_MAC_ADDR_SIZE},
 	[PARAM_SET_BSSID] = {.type = NLA_UNSPEC, .len = QDF_MAC_ADDR_SIZE},
 	[PARAM_SET_BSSID_HINT] = {.type = NLA_FLAG},
+	[PARAM_ROAM_CONTROL_CONFIG] = {.type = NLA_NESTED},
 };
 
 /**
@@ -3770,10 +3791,10 @@ static int hdd_set_white_list(struct hdd_context *hdd_ctx,
 		nla_for_each_nested(curr_attr,
 			tb[PARAM_SSID_LIST], rem) {
 			if (wlan_cfg80211_nla_parse(tb2,
-					   QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_MAX,
-					   nla_data(curr_attr),
-					   nla_len(curr_attr),
-					   wlan_hdd_set_roam_param_policy)) {
+					QCA_WLAN_VENDOR_ATTR_ROAMING_PARAM_MAX,
+					nla_data(curr_attr),
+					nla_len(curr_attr),
+					wlan_hdd_set_roam_param_policy)) {
 				hdd_err("nla_parse failed");
 				goto fail;
 			}
@@ -4011,6 +4032,650 @@ fail:
 	return -EINVAL;
 }
 
+static const struct nla_policy
+roam_scan_freq_list_scheme_policy[PARAM_FREQ_LIST_SCHEME_MAX + 1] = {
+	[PARAM_SCAN_FREQ_LIST_TYPE] = {.type = NLA_U32},
+	[PARAM_SCAN_FREQ_LIST] = {.type = NLA_NESTED},
+};
+
+/**
+ * hdd_send_roam_scan_channel_freq_list_to_sme() - Send control roam scan freqs
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @tb: Nested attribute carrying frequency list scheme
+ *
+ * Extracts the frequency list and frequency list type from the frequency
+ * list scheme and send the frequencies to SME.
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+hdd_send_roam_scan_channel_freq_list_to_sme(struct hdd_context *hdd_ctx,
+					    uint8_t vdev_id, struct nlattr *tb)
+{
+	QDF_STATUS status;
+	struct nlattr *tb2[PARAM_FREQ_LIST_SCHEME_MAX + 1], *curr_attr;
+	uint8_t num_chan = 0;
+	uint32_t freq_list[SIR_MAX_SUPPORTED_CHANNEL_LIST] = {0};
+	uint32_t list_type;
+	mac_handle_t mac_handle = hdd_ctx->mac_handle;
+	int rem;
+
+	if (wlan_cfg80211_nla_parse_nested(tb2, PARAM_FREQ_LIST_SCHEME_MAX,
+					   tb,
+					   roam_scan_freq_list_scheme_policy)) {
+		hdd_err("nla_parse failed");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!tb2[PARAM_SCAN_FREQ_LIST] || !tb2[PARAM_SCAN_FREQ_LIST_TYPE]) {
+		hdd_err("ROAM_CONTROL_SCAN_FREQ_LIST or type are not present");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	list_type = nla_get_u32(tb2[PARAM_SCAN_FREQ_LIST_TYPE]);
+	if (list_type != QCA_PREFERRED_SCAN_FREQ_LIST &&
+	    list_type != QCA_SPECIFIC_SCAN_FREQ_LIST) {
+		hdd_err("Invalid freq list type received: %u", list_type);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	nla_for_each_nested(curr_attr, tb2[PARAM_SCAN_FREQ_LIST], rem)
+		num_chan++;
+	if (num_chan > SIR_MAX_SUPPORTED_CHANNEL_LIST) {
+		hdd_err("number of channels (%d) supported exceeded max (%d)",
+			num_chan, SIR_MAX_SUPPORTED_CHANNEL_LIST);
+		return QDF_STATUS_E_INVAL;
+	}
+	num_chan = 0;
+
+	nla_for_each_nested(curr_attr, tb2[PARAM_SCAN_FREQ_LIST], rem) {
+		if (nla_len(curr_attr) != sizeof(uint32_t)) {
+			hdd_err("len is not correct for frequency %d",
+				num_chan);
+			return QDF_STATUS_E_INVAL;
+		}
+		freq_list[num_chan++] = nla_get_u32(curr_attr);
+	}
+
+	status = sme_update_roam_scan_freq_list(mac_handle, vdev_id, freq_list,
+						num_chan, list_type);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to update channel list information");
+
+	return status;
+}
+
+static const struct nla_policy
+roam_control_policy[QCA_ATTR_ROAM_CONTROL_MAX + 1] = {
+	[QCA_ATTR_ROAM_CONTROL_ENABLE] = {.type = NLA_U8},
+	[QCA_ATTR_ROAM_CONTROL_STATUS] = {.type = NLA_U8},
+	[PARAM_FREQ_LIST_SCHEME] = {.type = NLA_NESTED},
+	[QCA_ATTR_ROAM_CONTROL_FULL_SCAN_PERIOD] = {.type = NLA_U32},
+	[QCA_ATTR_ROAM_CONTROL_CLEAR_ALL] = {.type = NLA_FLAG},
+	[QCA_ATTR_ROAM_CONTROL_TRIGGERS] = {.type = NLA_U32},
+	[QCA_ATTR_ROAM_CONTROL_SELECTION_CRITERIA] = {.type = NLA_NESTED},
+	[QCA_ATTR_ROAM_CONTROL_SCAN_PERIOD] = {.type = NLA_U32},
+};
+
+/**
+ * hdd_send_roam_full_scan_period_to_sme() - Send full roam scan period to SME
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @full_roam_scan_period: Idle period in seconds between two successive
+ * full channel roam scans
+ *
+ * Validate the full roam scan period and send it to firmware
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+hdd_send_roam_full_scan_period_to_sme(struct hdd_context *hdd_ctx,
+				      uint8_t vdev_id,
+				      uint32_t full_roam_scan_period)
+{
+	QDF_STATUS status;
+
+	if (!ucfg_mlme_validate_full_roam_scan_period(full_roam_scan_period))
+		return QDF_STATUS_E_INVAL;
+
+	hdd_debug("Received Command to Set full roam scan period = %u",
+		  full_roam_scan_period);
+
+	status = sme_update_full_roam_scan_period(hdd_ctx->mac_handle, vdev_id,
+						  full_roam_scan_period);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to set full scan period");
+
+	return status;
+}
+
+/**
+ * hdd_send_roam_triggers_to_sme() - Send roam trigger bitmap to SME
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @roam_trigger_bitmap: Vendor configured roam trigger bitmap to be configured
+ *			 to firmware
+ *
+ * Send the roam trigger bitmap received to SME
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+hdd_send_roam_triggers_to_sme(struct hdd_context *hdd_ctx,
+			      uint8_t vdev_id,
+			      uint32_t roam_trigger_bitmap)
+{
+	QDF_STATUS status;
+	struct roam_triggers triggers;
+	struct hdd_adapter *adapter;
+
+	adapter = hdd_get_adapter_by_vdev(hdd_ctx, vdev_id);
+	if (!adapter) {
+		hdd_err("adapter NULL");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (adapter->device_mode != QDF_STA_MODE) {
+		hdd_err("Roam trigger bitmap supported only in STA mode");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	/*
+	 * In standalone STA, if this vendor command is received between
+	 * ROAM_START and roam synch indication, it is better to reject
+	 * roam disable since driver would send vdev_params command to
+	 * de-initialize roaming structures in fw.
+	 * In STA+STA mode, if this vendor command to enable roaming is
+	 * received for one STA vdev and ROAM_START was received for other
+	 * STA vdev, then also driver would be send vdev_params command to
+	 * de-initialize roaming structures in fw on the roaming enabled
+	 * vdev.
+	 */
+	if (hdd_ctx->roaming_in_progress) {
+		hdd_err("Reject set roam trigger as roaming is in progress");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	triggers.vdev_id = vdev_id;
+	triggers.trigger_bitmap = roam_trigger_bitmap;
+
+	status = sme_set_roam_triggers(hdd_ctx->mac_handle, &triggers);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to set roam control trigger bitmap");
+
+	return status;
+}
+
+/*
+ * Disable default scoring algorithm. This is intended to set all bits of the
+ * disable_bitmap in struct scoring_param.
+ */
+#define DISABLE_SCORING 0
+
+/*
+ * Enable scoring algorithm. This is intended to clear all bits of the
+ * disable_bitmap in struct scoring_param.
+ */
+#define ENABLE_SCORING 1
+
+/*
+ * Controlled roam candidate selection is enabled from userspace.
+ * Driver/firmware should honor the selection criteria
+ */
+#define CONTROL_ROAM_CAND_SEL_ENABLE 1
+
+/*
+ * Controlled roam candidate selection is disabled from userspace.
+ * Driver/firmware can use its internal candidate selection criteria
+ */
+#define CONTROL_ROAM_CAND_SEL_DISABLE 0
+
+static const struct nla_policy
+roam_scan_cand_sel_policy[PARAM_CAND_SEL_CRITERIA_MAX + 1] = {
+	[PARAM_CAND_SEL_SCORE_RSSI] = {.type = NLA_U8},
+};
+
+/**
+ * hdd_send_roam_cand_sel_criteria_to_sme() - Send candidate sel criteria to SME
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @attr: Nested attribute carrying candidate selection criteria
+ *
+ * Extract different candidate sel criteria mentioned and convert it to
+ * driver/firmware understable format.
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+hdd_send_roam_cand_sel_criteria_to_sme(struct hdd_context *hdd_ctx,
+				       uint8_t vdev_id,
+				       struct nlattr *attr)
+{
+	QDF_STATUS status;
+	struct nlattr *tb2[PARAM_CAND_SEL_CRITERIA_MAX + 1];
+	struct nlattr *curr_attr;
+	uint8_t sel_criteria = 0, rssi_score = 0, scoring;
+	int rem;
+
+	hdd_debug("Received Command to Set candidate selection criteria ");
+	nla_for_each_nested(curr_attr, attr, rem) {
+		sel_criteria++;
+		break;
+	}
+
+	if (sel_criteria &&
+	    wlan_cfg80211_nla_parse_nested(tb2, PARAM_CAND_SEL_CRITERIA_MAX,
+					   attr, roam_scan_cand_sel_policy)) {
+		hdd_err("nla_parse failed");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	/*
+	 * Firmware supports the below configurations currently,
+	 * 1. Default selection criteria where all scoring params
+	 *    are enabled and different weightages/scores are given to
+	 *    different parameters.
+	 *    When userspace doesn't specify any candidate selection criteria,
+	 *    this will be enabled.
+	 * 2. Legacy candidate selection criteria where scoring
+	 *    algorithm is disabled and only RSSI is considered for
+	 *    roam candidate selection.
+	 *    When userspace specify 100% weightage for RSSI, this will
+	 *    be enabled.
+	 * Rest of the combinations are not supported for now.
+	 */
+	if (sel_criteria == CONTROL_ROAM_CAND_SEL_ENABLE) {
+		/* Legacy selection criteria: 100% weightage to RSSI */
+		if (tb2[PARAM_CAND_SEL_SCORE_RSSI])
+			rssi_score = nla_get_u8(tb2[PARAM_CAND_SEL_SCORE_RSSI]);
+
+		if (rssi_score != 100) {
+			hdd_debug("Ignore the candidate selection criteria");
+			return QDF_STATUS_E_INVAL;
+		}
+		scoring = DISABLE_SCORING;
+	} else {
+		/* Default selection criteria */
+		scoring = ENABLE_SCORING;
+	}
+
+	status = sme_modify_roam_cand_sel_criteria(hdd_ctx->mac_handle, vdev_id,
+						   !!scoring);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to disable scoring");
+
+	return status;
+}
+
+/**
+ * hdd_send_roam_scan_period_to_sme() - Send roam scan period to SME
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @roam_scan_period: Roam scan period in seconds
+ *
+ * Validate the roam scan period and send it to firmware if valid.
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+hdd_send_roam_scan_period_to_sme(struct hdd_context *hdd_ctx,
+				 uint8_t vdev_id,
+				 uint32_t roam_scan_period)
+{
+	QDF_STATUS status;
+
+	if (!ucfg_mlme_validate_scan_period(roam_scan_period * 1000))
+		return QDF_STATUS_E_INVAL;
+
+	hdd_debug("Received Command to Set roam scan period (Empty Scan refresh period) = %d",
+		  roam_scan_period);
+
+	status = sme_update_empty_scan_refresh_period(hdd_ctx->mac_handle,
+						      vdev_id,
+						      roam_scan_period * 1000);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to set scan period");
+
+	return status;
+}
+
+/**
+ * hdd_set_roam_with_control_config() - Set roam control configuration
+ * @hdd_ctx: HDD context
+ * @tb: List of attributes carrying roam subcmd data
+ * @vdev_id: vdev id
+ *
+ * Extracts the attribute PARAM_ROAM_CONTROL_CONFIG from the attributes list tb
+ * and sends the corresponding roam control configuration to driver/firmware.
+ *
+ * Return: 0 on success; error number on failure
+ */
+static int
+hdd_set_roam_with_control_config(struct hdd_context *hdd_ctx,
+				 struct nlattr **tb,
+				 uint8_t vdev_id)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct nlattr *tb2[QCA_ATTR_ROAM_CONTROL_MAX + 1], *attr;
+	uint32_t value;
+
+	hdd_enter();
+	/* The command must carry PARAM_ROAM_CONTROL_CONFIG */
+	if (!tb[PARAM_ROAM_CONTROL_CONFIG]) {
+		hdd_err("Attribute CONTROL_CONFIG is not present");
+		return -EINVAL;
+	}
+
+	if (wlan_cfg80211_nla_parse_nested(tb2, QCA_ATTR_ROAM_CONTROL_MAX,
+					   tb[PARAM_ROAM_CONTROL_CONFIG],
+					   roam_control_policy)) {
+		hdd_err("nla_parse failed");
+		return -EINVAL;
+	}
+
+	attr = tb2[PARAM_FREQ_LIST_SCHEME];
+	if (attr) {
+		status = hdd_send_roam_scan_channel_freq_list_to_sme(hdd_ctx,
+								     vdev_id,
+								     attr);
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_err("failed to config roam control");
+	}
+
+	attr = tb2[QCA_ATTR_ROAM_CONTROL_FULL_SCAN_PERIOD];
+	if (attr) {
+		hdd_debug("Parse and send full scan period to firmware");
+		value = nla_get_u32(attr);
+		status = hdd_send_roam_full_scan_period_to_sme(hdd_ctx,
+							       vdev_id,
+							       value);
+		if (status)
+			hdd_err("failed to config full scan period");
+	}
+
+	if (tb2[QCA_ATTR_ROAM_CONTROL_TRIGGERS]) {
+		hdd_debug("Parse and send roam triggers to firmware");
+		value = nla_get_u32(tb2[QCA_ATTR_ROAM_CONTROL_TRIGGERS]);
+		hdd_debug("Received roam trigger bitmap: 0x%x", value);
+		status = hdd_send_roam_triggers_to_sme(hdd_ctx,
+						       vdev_id,
+						       value);
+		if (status)
+			hdd_err("failed to config roam triggers");
+	}
+
+	attr = tb2[QCA_ATTR_ROAM_CONTROL_ENABLE];
+	if (attr) {
+		hdd_debug("Parse and send roam control enable/disable");
+		status = sme_set_roam_config_enable(hdd_ctx->mac_handle,
+						    vdev_id,
+						    nla_get_u8(attr));
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_err("failed to enable/disable roam control config");
+	}
+
+	/* Scoring and roam candidate selection criteria */
+	attr = tb2[QCA_ATTR_ROAM_CONTROL_SELECTION_CRITERIA];
+	if (attr) {
+		hdd_debug("Send candidate selection criteria to firmware");
+		status = hdd_send_roam_cand_sel_criteria_to_sme(hdd_ctx,
+								vdev_id, attr);
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_err("failed to set candidate selection criteria");
+	}
+
+	attr = tb2[QCA_ATTR_ROAM_CONTROL_SCAN_PERIOD];
+	if (attr) {
+		hdd_debug("Parse and send scan period to firmware");
+		status = hdd_send_roam_scan_period_to_sme(hdd_ctx, vdev_id,
+							  nla_get_u32(attr));
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_err("failed to send scan period to firmware");
+	}
+
+	return qdf_status_to_os_return(status);
+}
+
+#define ENABLE_ROAM_TRIGGERS_ALL (QCA_ROAM_TRIGGER_REASON_PER | \
+				  QCA_ROAM_TRIGGER_REASON_BEACON_MISS | \
+				  QCA_ROAM_TRIGGER_REASON_POOR_RSSI | \
+				  QCA_ROAM_TRIGGER_REASON_BETTER_RSSI | \
+				  QCA_ROAM_TRIGGER_REASON_PERIODIC | \
+				  QCA_ROAM_TRIGGER_REASON_DENSE | \
+				  QCA_ROAM_TRIGGER_REASON_BTM | \
+				  QCA_ROAM_TRIGGER_REASON_BSS_LOAD)
+
+static int
+hdd_clear_roam_control_config(struct hdd_context *hdd_ctx,
+			      struct nlattr **tb,
+			      uint8_t vdev_id)
+{
+	QDF_STATUS status;
+	struct nlattr *tb2[QCA_ATTR_ROAM_CONTROL_MAX + 1];
+	mac_handle_t mac_handle = hdd_ctx->mac_handle;
+	uint32_t value;
+
+	/* The command must carry PARAM_ROAM_CONTROL_CONFIG */
+	if (!tb[PARAM_ROAM_CONTROL_CONFIG]) {
+		hdd_err("Attribute CONTROL_CONFIG is not present");
+		return -EINVAL;
+	}
+
+	if (wlan_cfg80211_nla_parse_nested(tb2, QCA_ATTR_ROAM_CONTROL_MAX,
+					   tb[PARAM_ROAM_CONTROL_CONFIG],
+					   roam_control_policy)) {
+		hdd_err("nla_parse failed");
+		return -EINVAL;
+	}
+
+	hdd_debug("Clear the control config done through SET");
+	if (tb2[QCA_ATTR_ROAM_CONTROL_CLEAR_ALL]) {
+		hdd_debug("Disable roam control config done through SET");
+		status = sme_set_roam_config_enable(hdd_ctx->mac_handle,
+						    vdev_id, 0);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			hdd_err("failed to enable/disable roam control config");
+			return qdf_status_to_os_return(status);
+		}
+
+		value = ENABLE_ROAM_TRIGGERS_ALL;
+		hdd_debug("Reset roam trigger bitmap to 0x%x", value);
+		status = hdd_send_roam_triggers_to_sme(hdd_ctx, vdev_id, value);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			hdd_err("failed to restore roam trigger bitmap");
+			return qdf_status_to_os_return(status);
+		}
+
+		status = sme_roam_control_restore_default_config(mac_handle,
+								 vdev_id);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			hdd_err("failed to config roam control");
+			return qdf_status_to_os_return(status);
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * hdd_roam_control_config_buf_size() - Calculate the skb size to be allocated
+ * @hdd_ctx: HDD context
+ * @tb: List of attributes to be populated
+ *
+ * Calculate the buffer size to be allocated based on the attributes
+ * mentioned in tb.
+ *
+ * Return: buffer size to be allocated
+ */
+static uint16_t
+hdd_roam_control_config_buf_size(struct hdd_context *hdd_ctx,
+				 struct nlattr **tb)
+{
+	uint16_t skb_len = 0;
+
+	if (tb[QCA_ATTR_ROAM_CONTROL_STATUS])
+		skb_len += NLA_HDRLEN + sizeof(uint8_t);
+
+	if (tb[QCA_ATTR_ROAM_CONTROL_FULL_SCAN_PERIOD])
+		skb_len += NLA_HDRLEN + sizeof(uint32_t);
+
+	return skb_len;
+}
+
+/**
+ * hdd_roam_control_config_fill_data() - Fill the data requested by userspace
+ * @hdd_ctx: HDD context
+ * @vdev_id: vdev id
+ * @skb: SK buffer
+ * @tb: List of attributes
+ *
+ * Get the data corresponding to the attribute list specified in tb and
+ * update the same to skb by populating the same attributes.
+ *
+ * Return: 0 on success; error number on failure
+ */
+static int
+hdd_roam_control_config_fill_data(struct hdd_context *hdd_ctx, uint8_t vdev_id,
+				  struct sk_buff *skb, struct nlattr **tb)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	uint8_t roam_control;
+	struct nlattr *config;
+	uint32_t full_roam_scan_period;
+
+	config = nla_nest_start(skb, PARAM_ROAM_CONTROL_CONFIG);
+	if (!config)
+		return -EINVAL;
+
+	if (tb[QCA_ATTR_ROAM_CONTROL_STATUS]) {
+		status = sme_get_roam_config_status(hdd_ctx->mac_handle,
+						    vdev_id,
+						    &roam_control);
+		if (QDF_IS_STATUS_ERROR(status))
+			goto out;
+		hdd_debug("Roam control: %s",
+			  roam_control ? "Enabled" : "Disabled");
+		if (nla_put_u8(skb, QCA_ATTR_ROAM_CONTROL_STATUS,
+			       roam_control)) {
+			hdd_info("failed to put vendor_roam_control");
+			return -ENOMEM;
+		}
+	}
+
+	if (tb[QCA_ATTR_ROAM_CONTROL_FULL_SCAN_PERIOD]) {
+		status = sme_get_full_roam_scan_period(hdd_ctx->mac_handle,
+						       vdev_id,
+						       &full_roam_scan_period);
+		if (QDF_IS_STATUS_ERROR(status))
+			goto out;
+		hdd_debug("full_roam_scan_period: %u", full_roam_scan_period);
+
+		if (nla_put_u32(skb, QCA_ATTR_ROAM_CONTROL_FULL_SCAN_PERIOD,
+				full_roam_scan_period)) {
+			hdd_info("failed to put full_roam_scan_period");
+			return -EINVAL;
+		}
+	}
+
+	nla_nest_end(skb, config);
+out:
+	return qdf_status_to_os_return(status);
+}
+
+/**
+ * hdd_send_roam_control_config() - Send the roam config as vendor cmd reply
+ * @mac_handle: Opaque handle to the MAC context
+ * @vdev_id: vdev id
+ * @tb: List of attributes
+ *
+ * Parse the attributes list tb and  get the data corresponding to the
+ * attributes specified in tb. Send them as a vendor response.
+ *
+ * Return: 0 on success; error number on failure
+ */
+static int
+hdd_send_roam_control_config(struct hdd_context *hdd_ctx,
+			     uint8_t vdev_id,
+			     struct nlattr **tb)
+{
+	struct sk_buff *skb;
+	uint16_t skb_len;
+	int status;
+
+	hdd_enter();
+	skb_len = hdd_roam_control_config_buf_size(hdd_ctx, tb);
+	if (!skb_len) {
+		hdd_err("No data requested");
+		return -EINVAL;
+	}
+
+	skb_len += NLMSG_HDRLEN;
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(hdd_ctx->wiphy, skb_len);
+	if (!skb) {
+		hdd_info("cfg80211_vendor_cmd_alloc_reply_skb failed");
+		return -ENOMEM;
+	}
+
+	status = hdd_roam_control_config_fill_data(hdd_ctx, vdev_id, skb, tb);
+	if (status)
+		goto fail;
+
+	hdd_exit();
+	return cfg80211_vendor_cmd_reply(skb);
+
+fail:
+	hdd_err("nla put fail");
+	kfree_skb(skb);
+	return status;
+}
+
+/**
+ * hdd_get_roam_control_config() - Send requested roam config to userspace
+ * @hdd_ctx: HDD context
+ * @tb: list of attributes
+ * @vdev_id: vdev id
+ *
+ * Return: 0 on success; error number on failure
+ */
+static int hdd_get_roam_control_config(struct hdd_context *hdd_ctx,
+				       struct nlattr **tb,
+				       uint8_t vdev_id)
+{
+	QDF_STATUS status;
+	struct nlattr *tb2[QCA_ATTR_ROAM_CONTROL_MAX + 1];
+
+	hdd_enter();
+	/* The command must carry PARAM_ROAM_CONTROL_CONFIG */
+	if (!tb[PARAM_ROAM_CONTROL_CONFIG]) {
+		hdd_err("Attribute CONTROL_CONFIG is not present");
+		return -EINVAL;
+	}
+
+	if (wlan_cfg80211_nla_parse_nested(tb2, QCA_ATTR_ROAM_CONTROL_MAX,
+					   tb[PARAM_ROAM_CONTROL_CONFIG],
+					   roam_control_policy)) {
+		hdd_err("nla_parse failed");
+		return -EINVAL;
+	}
+
+	status = hdd_send_roam_control_config(hdd_ctx, vdev_id, tb2);
+	if (status) {
+		hdd_err("failed to enable/disable roam control");
+		return status;
+	}
+
+	return qdf_status_to_os_return(status);
+}
+
+#undef PARAM_ROAM_CONTROL_CONFIG
+#undef PARAM_FREQ_LIST_SCHEME_MAX
+#undef PARAM_FREQ_LIST_SCHEME
+#undef PARAM_SCAN_FREQ_LIST
+#undef PARAM_SCAN_FREQ_LIST_TYPE
+#undef PARAM_CAND_SEL_CRITERIA_MAX
+#undef PARAM_CAND_SEL_SCORE_RSSI
+
 /**
  * hdd_set_ext_roam_params() - parse ext roam params
  * @hdd_ctx:        HDD context
@@ -4051,13 +4716,13 @@ static int hdd_set_ext_roam_params(struct hdd_context *hdd_ctx,
 		tb[QCA_WLAN_VENDOR_ATTR_ROAMING_REQ_ID]);
 	hdd_debug("Req Id: %u Cmd Type: %u", req_id, cmd_type);
 	switch (cmd_type) {
-	case QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_SSID_WHITE_LIST:
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_SSID_WHITE_LIST:
 		ret = hdd_set_white_list(hdd_ctx, roam_params, tb, vdev_id);
 		if (ret)
 			goto fail;
 		break;
 
-	case QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_SET_EXTSCAN_ROAM_PARAMS:
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_SET_EXTSCAN_ROAM_PARAMS:
 		/* Parse and fetch 5G Boost Threshold */
 		if (!tb[PARAM_A_BAND_BOOST_THLD]) {
 			hdd_err("5G boost threshold failed");
@@ -4125,7 +4790,7 @@ static int hdd_set_ext_roam_params(struct hdd_context *hdd_ctx,
 				       roam_params,
 				       REASON_ROAM_EXT_SCAN_PARAMS_CHANGED);
 		break;
-	case QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_SET_LAZY_ROAM:
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_SET_LAZY_ROAM:
 		/* Parse and fetch Activate Good Rssi Roam */
 		if (!tb[PARAM_ROAM_ENABLE]) {
 			hdd_err("Activate Good Rssi Roam failed");
@@ -4139,14 +4804,29 @@ static int hdd_set_ext_roam_params(struct hdd_context *hdd_ctx,
 				       roam_params,
 				       REASON_ROAM_GOOD_RSSI_CHANGED);
 		break;
-	case QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_SET_BSSID_PREFS:
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_SET_BSSID_PREFS:
 		ret = hdd_set_bssid_prefs(hdd_ctx, roam_params, tb, vdev_id);
 		if (ret)
 			goto fail;
 		break;
-	case QCA_WLAN_VENDOR_ATTR_ROAM_SUBCMD_SET_BLACKLIST_BSSID:
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_SET_BLACKLIST_BSSID:
 		ret = hdd_set_blacklist_bssid(hdd_ctx, roam_params,
 					      tb, vdev_id);
+		if (ret)
+			goto fail;
+		break;
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_CONTROL_SET:
+		ret = hdd_set_roam_with_control_config(hdd_ctx, tb, vdev_id);
+		if (ret)
+			goto fail;
+		break;
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_CONTROL_CLEAR:
+		ret = hdd_clear_roam_control_config(hdd_ctx, tb, vdev_id);
+		if (ret)
+			goto fail;
+		break;
+	case QCA_WLAN_VENDOR_ROAMING_SUBCMD_CONTROL_GET:
+		ret = hdd_get_roam_control_config(hdd_ctx, tb, vdev_id);
 		if (ret)
 			goto fail;
 		break;
@@ -5450,6 +6130,7 @@ wlan_hdd_wifi_config_policy[QCA_WLAN_VENDOR_ATTR_CONFIG_MAX + 1] = {
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_SCAN_ENABLE] = {.type = NLA_U8 },
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_RSN_IE] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_GTX] = {.type = NLA_U8},
+	[QCA_WLAN_VENDOR_ATTR_CONFIG_ELNA_BYPASS] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_ACCESS_POLICY] = {.type = NLA_U32 },
 	[QCA_WLAN_VENDOR_ATTR_CONFIG_ACCESS_POLICY_IE_LIST] = {
 		.type = NLA_BINARY,
@@ -5549,41 +6230,6 @@ wlan_hdd_wifi_test_config_policy[
 };
 
 /**
- * wlan_hdd_add_qcn_ie() - Add QCN IE to a given IE buffer
- * @ie_data: IE buffer
- * @ie_len: length of the @ie_data
- *
- * Return: QDF_STATUS
- */
-static QDF_STATUS wlan_hdd_add_qcn_ie(uint8_t *ie_data, uint16_t *ie_len)
-{
-	tDot11fIEQCN_IE qcn_ie;
-	uint8_t qcn_ie_hdr[QCN_IE_HDR_LEN]
-		= {WLAN_ELEMID_VENDOR, DOT11F_IE_QCN_IE_MAX_LEN,
-			0x8C, 0xFD, 0xF0, 0x1};
-
-	if (((*ie_len) + QCN_IE_HDR_LEN +
-		QCN_IE_VERSION_SUBATTR_DATA_LEN) > MAX_DEFAULT_SCAN_IE_LEN) {
-		hdd_err("IE buffer not enough for QCN IE");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	/* Add QCN IE header */
-	qdf_mem_copy(ie_data + (*ie_len), qcn_ie_hdr, QCN_IE_HDR_LEN);
-	(*ie_len) += QCN_IE_HDR_LEN;
-
-	/* Retrieve Version sub-attribute data */
-	populate_dot11f_qcn_ie(&qcn_ie);
-
-	/* Add QCN IE data[version sub attribute] */
-	qdf_mem_copy(ie_data + (*ie_len), qcn_ie.version,
-				 (QCN_IE_VERSION_SUBATTR_LEN));
-	(*ie_len) += (QCN_IE_VERSION_SUBATTR_LEN);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
  * wlan_hdd_save_default_scan_ies() - API to store the default scan IEs
  * @hdd_ctx: HDD context
  * @adapter: Pointer to HDD adapter
@@ -5626,10 +6272,12 @@ static int wlan_hdd_save_default_scan_ies(struct hdd_context *hdd_ctx,
 
 	/* Add QCN IE if g_qcn_ie_support INI is enabled */
 	if (add_qcn_ie)
-		wlan_hdd_add_qcn_ie(scan_info->default_scan_ies,
-					&(scan_info->default_scan_ies_len));
+		sme_add_qcn_ie(hdd_ctx->mac_handle,
+			       scan_info->default_scan_ies,
+			       &scan_info->default_scan_ies_len);
 
-	hdd_debug("Saved default scan IE:");
+	hdd_debug("Saved default scan IE:len %d",
+		  scan_info->default_scan_ies_len);
 	qdf_trace_hex_dump(QDF_MODULE_ID_HDD, QDF_TRACE_LEVEL_DEBUG,
 				(uint8_t *) scan_info->default_scan_ies,
 				scan_info->default_scan_ies_len);
@@ -6651,6 +7299,32 @@ static int hdd_config_disconnect_ies(struct hdd_adapter *adapter,
 	return qdf_status_to_os_return(status);
 }
 
+#ifdef WLAN_FEATURE_ELNA
+/**
+ * hdd_set_elna_bypass() - Set eLNA bypass
+ * @adapter: Pointer to HDD adapter
+ * @attr: Pointer to struct nlattr
+ *
+ * Return: 0 on success; error number otherwise
+ */
+static int hdd_set_elna_bypass(struct hdd_adapter *adapter,
+			       const struct nlattr *attr)
+{
+	int ret;
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = hdd_objmgr_get_vdev(adapter);
+	if (!vdev)
+		return -EINVAL;
+
+	ret = os_if_fwol_set_elna_bypass(vdev, attr);
+
+	hdd_objmgr_put_vdev(vdev);
+
+	return ret;
+}
+#endif
+
 /**
  * typedef independent_setter_fn - independent attribute handler
  * @adapter: The adapter being configured
@@ -6737,7 +7411,134 @@ static const struct independent_setters independent_setters[] = {
 	 hdd_config_gtx},
 	{QCA_WLAN_VENDOR_ATTR_DISCONNECT_IES,
 	 hdd_config_disconnect_ies},
+#ifdef WLAN_FEATURE_ELNA
+	{QCA_WLAN_VENDOR_ATTR_CONFIG_ELNA_BYPASS,
+	 hdd_set_elna_bypass},
+#endif
 };
+
+#ifdef WLAN_FEATURE_ELNA
+/**
+ * hdd_get_elna_bypass() - Get eLNA bypass
+ * @adapter: Pointer to HDD adapter
+ * @skb: sk buffer to hold nl80211 attributes
+ * @attr: Pointer to struct nlattr
+ *
+ * Return: 0 on success; error number otherwise
+ */
+static int hdd_get_elna_bypass(struct hdd_adapter *adapter,
+			       struct sk_buff *skb,
+			       const struct nlattr *attr)
+{
+	int ret;
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = hdd_objmgr_get_vdev(adapter);
+	if (!vdev)
+		return -EINVAL;
+
+	ret = os_if_fwol_get_elna_bypass(vdev, skb, attr);
+
+	hdd_objmgr_put_vdev(vdev);
+
+	return ret;
+}
+#endif
+
+/**
+ * typedef config_getter_fn - get configuration handler
+ * @adapter: The adapter being configured
+ * @skb: sk buffer to hold nl80211 attributes
+ * @attr: The nl80211 attribute being applied
+ *
+ * Defines the signature of functions in the attribute vtable
+ *
+ * Return: 0 if the attribute was handled successfully, otherwise an errno
+ */
+typedef int (*config_getter_fn)(struct hdd_adapter *adapter,
+				struct sk_buff *skb,
+				const struct nlattr *attr);
+
+/**
+ * struct config_getters
+ * @id: vendor attribute which this entry handles
+ * @cb: callback function to invoke to process the attribute when present
+ */
+struct config_getters {
+	uint32_t id;
+	size_t max_attr_len;
+	config_getter_fn cb;
+};
+
+/* vtable for config getters */
+static const struct config_getters config_getters[] = {
+#ifdef WLAN_FEATURE_ELNA
+	{QCA_WLAN_VENDOR_ATTR_CONFIG_ELNA_BYPASS,
+	 sizeof(uint8_t),
+	 hdd_get_elna_bypass},
+#endif
+};
+
+/**
+ * hdd_get_configuration() - Handle get configuration
+ * @adapter: adapter upon which the vendor command was received
+ * @tb: parsed attribute array
+ *
+ * This is a table-driven function which dispatches attributes
+ * in a QCA_NL80211_VENDOR_SUBCMD_GET_WIFI_CONFIGURATION
+ * vendor command.
+ *
+ * Return: 0 if there were no issues, otherwise errno of the last issue
+ */
+static int hdd_get_configuration(struct hdd_adapter *adapter,
+				 struct nlattr **tb)
+{
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	uint32_t i, id;
+	unsigned long nl_buf_len = NLMSG_HDRLEN;
+	struct sk_buff *skb;
+	struct nlattr *attr;
+	config_getter_fn cb;
+	int errno = 0;
+
+	for (i = 0; i < QDF_ARRAY_SIZE(config_getters); i++) {
+		id = config_getters[i].id;
+		attr = tb[id];
+		if (!attr)
+			continue;
+
+		nl_buf_len += NLA_HDRLEN +
+			      NLA_ALIGN(config_getters[i].max_attr_len);
+	}
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(hdd_ctx->wiphy, nl_buf_len);
+	if (!skb) {
+		hdd_err("cfg80211_vendor_cmd_alloc_reply_skb failed");
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < QDF_ARRAY_SIZE(config_getters); i++) {
+		id = config_getters[i].id;
+		attr = tb[id];
+		if (!attr)
+			continue;
+
+		cb = config_getters[i].cb;
+		errno = cb(adapter, skb, attr);
+		if (errno)
+			break;
+	}
+
+	if (errno) {
+		hdd_err("Failed to get wifi configuration, errno = %d", errno);
+		kfree_skb(skb);
+		return -EINVAL;
+	}
+
+	cfg80211_vendor_cmd_reply(skb);
+
+	return errno;
+}
 
 /**
  * hdd_set_independent_configuration() - Handle independent attributes
@@ -6910,6 +7711,88 @@ static int wlan_hdd_cfg80211_wifi_configuration_set(struct wiphy *wiphy,
 		return errno;
 
 	errno = __wlan_hdd_cfg80211_wifi_configuration_set(wiphy, wdev,
+							   data, data_len);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
+
+/**
+ * __wlan_hdd_cfg80211_wifi_configuration_get() - Wifi configuration
+ * vendor command
+ * @wiphy: wiphy device pointer
+ * @wdev: wireless device pointer
+ * @data: Vendor command data buffer
+ * @data_len: Buffer length
+ *
+ * Handles QCA_WLAN_VENDOR_ATTR_CONFIG_MAX.
+ *
+ * Return: Error code.
+ */
+static int
+__wlan_hdd_cfg80211_wifi_configuration_get(struct wiphy *wiphy,
+					   struct wireless_dev *wdev,
+					   const void *data,
+					   int data_len)
+{
+	struct net_device *dev = wdev->netdev;
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	struct hdd_context *hdd_ctx  = wiphy_priv(wiphy);
+	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_CONFIG_MAX + 1];
+	int errno;
+	int ret;
+
+	hdd_enter_dev(dev);
+
+	if (QDF_GLOBAL_FTM_MODE == hdd_get_conparam()) {
+		hdd_err("Command not allowed in FTM mode");
+		return -EPERM;
+	}
+
+	errno = wlan_hdd_validate_context(hdd_ctx);
+	if (errno)
+		return errno;
+
+	if (wlan_cfg80211_nla_parse(tb, QCA_WLAN_VENDOR_ATTR_CONFIG_MAX, data,
+				    data_len, wlan_hdd_wifi_config_policy)) {
+		hdd_err("invalid attr");
+		return -EINVAL;
+	}
+
+	ret = hdd_get_configuration(adapter, tb);
+	if (ret)
+		errno = ret;
+
+	return errno;
+}
+
+/**
+ * wlan_hdd_cfg80211_wifi_configuration_get() - Wifi configuration
+ * vendor command
+ *
+ * @wiphy: wiphy device pointer
+ * @wdev: wireless device pointer
+ * @data: Vendor command data buffer
+ * @data_len: Buffer length
+ *
+ * Handles QCA_WLAN_VENDOR_ATTR_CONFIG_MAX.
+ *
+ * Return: EOK or other error codes.
+ */
+static int wlan_hdd_cfg80211_wifi_configuration_get(struct wiphy *wiphy,
+						    struct wireless_dev *wdev,
+						    const void *data,
+						    int data_len)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(wdev->netdev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_wifi_configuration_get(wiphy, wdev,
 							   data, data_len);
 
 	osif_vdev_sync_op_stop(vdev_sync);
@@ -12858,6 +13741,14 @@ const struct wiphy_vendor_command hdd_wiphy_vendor_commands[] = {
 #endif
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
+		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_GET_WIFI_CONFIGURATION,
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
+			WIPHY_VENDOR_CMD_NEED_NETDEV |
+			WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.doit = wlan_hdd_cfg80211_wifi_configuration_get
+	},
+	{
+		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd =
 			QCA_NL80211_VENDOR_SUBCMD_WIFI_TEST_CONFIGURATION,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
@@ -13528,6 +14419,53 @@ wlan_hdd_populate_srd_chan_info(struct hdd_context *hdd_ctx, uint32_t index)
 
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+static QDF_STATUS
+wlan_hdd_iftype_data_alloc(struct hdd_context *hdd_ctx)
+{
+	hdd_ctx->iftype_data_2g =
+			qdf_mem_malloc(sizeof(*hdd_ctx->iftype_data_2g));
+
+	if (!hdd_ctx->iftype_data_2g) {
+		hdd_err("mem alloc failed for 2g iftype data");
+		return QDF_STATUS_E_NOMEM;
+	}
+	hdd_ctx->iftype_data_5g =
+			qdf_mem_malloc(sizeof(*hdd_ctx->iftype_data_5g));
+
+	if (!hdd_ctx->iftype_data_5g) {
+		hdd_err("mem alloc failed for 5g iftype data");
+		qdf_mem_free(hdd_ctx->iftype_data_2g);
+		hdd_ctx->iftype_data_2g = NULL;
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static inline QDF_STATUS
+wlan_hdd_iftype_data_alloc(struct hdd_context *hdd_ctx)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+static void
+wlan_hdd_iftype_data_mem_free(struct hdd_context *hdd_ctx)
+{
+	qdf_mem_free(hdd_ctx->iftype_data_5g);
+	qdf_mem_free(hdd_ctx->iftype_data_2g);
+	hdd_ctx->iftype_data_5g = NULL;
+	hdd_ctx->iftype_data_2g = NULL;
+}
+#else
+static inline void
+wlan_hdd_iftype_data_mem_free(struct hdd_context *hdd_ctx)
+{
+}
+#endif
+
 /*
  * FUNCTION: wlan_hdd_cfg80211_init
  * This function is called by hdd_wlan_startup()
@@ -13611,14 +14549,17 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 	}
 	hdd_ctx->channels_5ghz = qdf_mem_malloc(band_5_ghz_chanenls_size);
 	if (!hdd_ctx->channels_5ghz)
-		goto mem_fail;
+		goto mem_fail_5g;
+
+	if (QDF_IS_STATUS_ERROR(wlan_hdd_iftype_data_alloc(hdd_ctx)))
+		goto mem_fail_iftype_data;
 
 	/*Initialise the supported cipher suite details */
 	if (ucfg_fwol_get_gcmp_enable(hdd_ctx->psoc)) {
 		cipher_suites = qdf_mem_malloc(sizeof(hdd_cipher_suites) +
 					       sizeof(hdd_gcmp_cipher_suits));
 		if (!cipher_suites)
-			return -ENOMEM;
+			goto mem_fail_cipher_suites;
 		wiphy->n_cipher_suites = QDF_ARRAY_SIZE(hdd_cipher_suites) +
 			 QDF_ARRAY_SIZE(hdd_gcmp_cipher_suits);
 		qdf_mem_copy(cipher_suites, &hdd_cipher_suites,
@@ -13629,7 +14570,7 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 	} else {
 		cipher_suites = qdf_mem_malloc(sizeof(hdd_cipher_suites));
 		if (!cipher_suites)
-			return -ENOMEM;
+			goto mem_fail_cipher_suites;
 		wiphy->n_cipher_suites = QDF_ARRAY_SIZE(hdd_cipher_suites);
 		qdf_mem_copy(cipher_suites, &hdd_cipher_suites,
 			     sizeof(hdd_cipher_suites));
@@ -13655,6 +14596,7 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 #endif
 	wiphy->features |= NL80211_FEATURE_INACTIVITY_TIMER;
 
+	wiphy->features |= NL80211_FEATURE_VIF_TXPOWER;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)) || \
 	defined(CFG80211_BEACON_TX_RATE_CUSTOM_BACKPORT)
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_BEACON_RATE_LEGACY);
@@ -13669,12 +14611,16 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 	hdd_exit();
 	return 0;
 
-mem_fail:
+mem_fail_cipher_suites:
+	wlan_hdd_iftype_data_mem_free(hdd_ctx);
+mem_fail_iftype_data:
+	qdf_mem_free(hdd_ctx->channels_5ghz);
+	hdd_ctx->channels_5ghz = NULL;
+mem_fail_5g:
 	hdd_err("Not enough memory to allocate channels");
-	if (hdd_ctx->channels_2ghz) {
-		qdf_mem_free(hdd_ctx->channels_2ghz);
-		hdd_ctx->channels_2ghz = NULL;
-	}
+	qdf_mem_free(hdd_ctx->channels_2ghz);
+	hdd_ctx->channels_2ghz = NULL;
+
 	return -ENOMEM;
 }
 
@@ -13699,8 +14645,9 @@ void wlan_hdd_cfg80211_deinit(struct wiphy *wiphy)
 		   (wiphy->bands[i]->channels))
 			wiphy->bands[i]->channels = NULL;
 	}
-	qdf_mem_free(hdd_ctx->channels_2ghz);
+	wlan_hdd_iftype_data_mem_free(hdd_ctx);
 	qdf_mem_free(hdd_ctx->channels_5ghz);
+	qdf_mem_free(hdd_ctx->channels_2ghz);
 	hdd_ctx->channels_2ghz = NULL;
 	hdd_ctx->channels_5ghz = NULL;
 
@@ -16594,7 +17541,7 @@ static int wlan_hdd_cfg80211_connect_start(struct hdd_adapter *adapter,
 	}
 
 	/* Disable roaming on all other adapters before connect start */
-	wlan_hdd_disable_roaming(adapter);
+	wlan_hdd_disable_roaming(adapter, RSO_CONNECT_START);
 
 	hdd_notify_teardown_tdls_links(hdd_ctx->psoc);
 
@@ -16926,7 +17873,7 @@ ret_status:
 	 * For success case, it is enabled in assoc completion handler
 	 */
 	if (status)
-		wlan_hdd_enable_roaming(adapter);
+		wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
 
 	hdd_exit();
 	return status;
@@ -18337,7 +19284,8 @@ int wlan_hdd_try_disconnect(struct hdd_adapter *adapter)
 	if (adapter->device_mode ==  QDF_STA_MODE) {
 		hdd_debug("Stop firmware roaming");
 		sme_stop_roaming(mac_handle, adapter->vdev_id,
-				 eCsrForcedDisassoc);
+				 REASON_DRIVER_DISABLED,
+				 RSO_INVALID_REQUESTOR);
 
 		/*
 		 * If firmware has already started roaming process, driver
@@ -18617,7 +19565,7 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 	 * STA+NDI concurrency gets preference over NDI+NDI. Disable
 	 * first NDI in case an NDI+NDI concurrency exists.
 	 */
-	ucfg_nan_check_and_disable_unsupported_ndi(hdd_ctx->psoc);
+	ucfg_nan_check_and_disable_unsupported_ndi(hdd_ctx->psoc, false);
 
 	if (req->bssid)
 		bssid = req->bssid;
@@ -18778,7 +19726,8 @@ int wlan_hdd_disconnect(struct hdd_adapter *adapter, u16 reason)
 	if (adapter->device_mode ==  QDF_STA_MODE) {
 		hdd_debug("Stop firmware roaming");
 		status = sme_stop_roaming(mac_handle, adapter->vdev_id,
-					  eCsrForcedDisassoc);
+					  REASON_DRIVER_DISABLED,
+					  RSO_INVALID_REQUESTOR);
 		/*
 		 * If firmware has already started roaming process, driver
 		 * needs to wait for processing of this disconnect request.
@@ -21848,11 +22797,35 @@ wlan_hdd_extauth_cache_pmkid(struct hdd_adapter *adapter,
 			hdd_debug("external_auth: Failed to cache PMKID");
 	}
 }
+
+/**
+ * wlan_hdd_extauth_copy_pmkid() - Copy the pmkid received from the
+ * external authentication command received from the userspace.
+ * @params: pointer to auth params
+ * @pmkid: Pointer to destination pmkid buffer to be filled
+ *
+ * The caller should ensure that destination pmkid buffer is not NULL.
+ *
+ * Return: None
+ */
+static void
+wlan_hdd_extauth_copy_pmkid(struct cfg80211_external_auth_params *params,
+			    uint8_t *pmkid)
+{
+	if (params->pmkid)
+		qdf_mem_copy(pmkid, params->pmkid, PMKID_LEN);
+}
+
 #else
 static void
 wlan_hdd_extauth_cache_pmkid(struct hdd_adapter *adapter,
 			     mac_handle_t mac_handle,
 			     struct cfg80211_external_auth_params *params)
+{}
+
+static void
+wlan_hdd_extauth_copy_pmkid(struct cfg80211_external_auth_params *params,
+			    uint8_t *pmkid)
 {}
 #endif
 /**
@@ -21879,6 +22852,7 @@ __wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
 	int ret;
 	mac_handle_t mac_handle;
 	struct qdf_mac_addr peer_mac_addr;
+	uint8_t pmkid[PMKID_LEN] = {0};
 
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
 		hdd_err("Command not allowed in FTM mode");
@@ -21899,8 +22873,9 @@ __wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
 
 	wlan_hdd_extauth_cache_pmkid(adapter, mac_handle, params);
 
+	wlan_hdd_extauth_copy_pmkid(params, pmkid);
 	sme_handle_sae_msg(mac_handle, adapter->vdev_id, params->status,
-			   peer_mac_addr);
+			   peer_mac_addr, pmkid);
 
 	return ret;
 }

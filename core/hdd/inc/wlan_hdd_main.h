@@ -105,6 +105,7 @@
 #include "wlan_hdd_twt.h"
 #include "wma_sar_public_structs.h"
 #include "wlan_mlme_ucfg_api.h"
+#include "pld_common.h"
 
 #ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
 #include "qdf_periodic_work.h"
@@ -186,6 +187,7 @@ static inline bool in_compat_syscall(void) { return is_compat_task(); }
 #define NUM_CPUS 1
 #endif
 
+#define HDD_PSOC_IDLE_SHUTDOWN_SUSPEND_DELAY (1000)
 /**
  * enum hdd_adapter_flags - event bitmap flags registered net device
  * @NET_DEVICE_REGISTERED: Adapter is registered with the kernel
@@ -453,6 +455,7 @@ struct hdd_tx_rx_stats {
 	__u32 rx_gro_dropped;
 	__u32 rx_non_aggregated;
 	__u32 rx_gro_flush_skip;
+	__u32 rx_gro_low_tput_flush;
 
 	/* txflow stats */
 	bool     is_txflow_paused;
@@ -809,9 +812,11 @@ struct hdd_rate_info {
  * @tx_bytes: bytes transmitted to this station
  * @rx_packets: packets received from this station
  * @rx_bytes: bytes received from this station
- * @rx_retries: cumulative retry counts
- * @tx_failed: number of failed transmissions
+ * @tx_retries: cumulative retry counts
+ * @tx_failed: the number of failed frames
+ * @tx_succeed: the number of succeed frames
  * @rssi: The signal strength (dbm)
+ * @peer_rssi_per_chain: the average value of RSSI (dbm) per chain
  * @tx_rate: last used tx rate info
  * @rx_rate: last used rx rate info
  *
@@ -824,7 +829,9 @@ struct hdd_fw_txrx_stats {
 	uint64_t rx_bytes;
 	uint32_t tx_retries;
 	uint32_t tx_failed;
+	uint32_t tx_succeed;
 	int8_t rssi;
+	int32_t peer_rssi_per_chain[WMI_MAX_CHAINS];
 	struct hdd_rate_info tx_rate;
 	struct hdd_rate_info rx_rate;
 };
@@ -872,7 +879,7 @@ enum dhcp_nego_status {
  * @rate_flags: Rate Flags for this connection
  * @ecsa_capable: Extended CSA capabilities
  * @max_phy_rate: Calcuated maximum phy rate based on mode, nss, mcs etc.
- * @tx_packets: Packets send to current station
+ * @tx_packets: The number of frames from host to firmware
  * @tx_bytes: Bytes send to current station
  * @rx_packets: Packets received from current station
  * @rx_bytes: Bytes received from current station
@@ -909,6 +916,17 @@ enum dhcp_nego_status {
  * MSB of rx_mc_bc_cnt indicates whether FW supports rx_mc_bc_cnt
  * feature or not, if first bit is 1 it indicates that FW supports this
  * feature, if it is 0 it indicates FW doesn't support this feature
+ * @tx_failed: the number of tx failed frames
+ * @peer_rssi_per_chain: the average value of RSSI (dbm) per chain
+ * @tx_retry_succeed: the number of frames retried but successfully transmit
+ * @rx_last_pkt_rssi: the rssi (dbm) calculate by last packet
+ * @tx_retry: the number of retried frames from host to firmware
+ * @tx_retry_exhaust: the number of frames retried but finally failed
+ *                    from host to firmware
+ * @tx_total_fw: the number of all frames from firmware to remote station
+ * @tx_retry_fw: the number of retried frames from firmware to remote station
+ * @tx_retry_exhaust_fw: the number of frames retried but finally failed from
+ *                    firmware to remote station
  */
 struct hdd_station_info {
 	bool in_use;
@@ -956,6 +974,15 @@ struct hdd_station_info {
 	uint8_t support_mode;
 	uint32_t rx_retry_cnt;
 	uint32_t rx_mc_bc_cnt;
+	uint32_t tx_failed;
+	uint32_t peer_rssi_per_chain[WMI_MAX_CHAINS];
+	uint32_t tx_retry_succeed;
+	uint32_t rx_last_pkt_rssi;
+	uint32_t tx_retry;
+	uint32_t tx_retry_exhaust;
+	uint32_t tx_total_fw;
+	uint32_t tx_retry_fw;
+	uint32_t tx_retry_exhaust_fw;
 };
 
 /**
@@ -1622,6 +1649,8 @@ struct hdd_fw_ver_info {
  * struct hdd_context - hdd shared driver and psoc/device context
  * @psoc: object manager psoc context
  * @pdev: object manager pdev context
+ * @iftype_data_2g: Interface data for 2g band
+ * @iftype_data_5g: Interface data for 5g band
  * @bus_bw_work: work for periodically computing DDR bus bandwidth requirements
  * @g_event_flags: a bitmap of hdd_driver_flags
  * @psoc_idle_timeout_work: delayed work for psoc idle shutdown
@@ -1653,6 +1682,11 @@ struct hdd_context {
 	/* Pointer for wiphy 2G/5G band channels */
 	struct ieee80211_channel *channels_2ghz;
 	struct ieee80211_channel *channels_5ghz;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+	struct ieee80211_sband_iftype_data *iftype_data_2g;
+	struct ieee80211_sband_iftype_data *iftype_data_5g;
+#endif
 
 	/* Completion  variable to indicate Mc Thread Suspended */
 	struct completion mc_sus_event_var;
@@ -1705,6 +1739,8 @@ struct hdd_context {
 	uint64_t prev_tx_offload_pkts;
 	int cur_tx_level;
 	uint64_t prev_tx;
+	qdf_atomic_t low_tput_gro_enable;
+	uint32_t bus_low_vote_cnt;
 #endif /*WLAN_FEATURE_DP_BUS_BANDWIDTH*/
 
 	struct completion ready_to_suspend;
@@ -1911,6 +1947,8 @@ struct hdd_context {
 #ifdef CLD_PM_QOS
 	struct pm_qos_request pm_qos_req;
 #endif
+	qdf_time_t runtime_resume_start_time_stamp;
+	qdf_time_t runtime_suspend_done_time_stamp;
 };
 
 /**
@@ -2325,6 +2363,12 @@ hdd_get_current_throughput_level(struct hdd_context *hdd_ctx)
 	return hdd_ctx->cur_vote_level;
 }
 
+static inline bool
+hdd_is_low_tput_gro_enable(struct hdd_context *hdd_ctx)
+{
+	return (qdf_atomic_read(&hdd_ctx->low_tput_gro_enable)) ? true : false;
+}
+
 #define GET_CUR_RX_LVL(config) ((config)->cur_rx_level)
 #define GET_BW_COMPUTE_INTV(config) ((config)->bus_bw_compute_interval)
 #else
@@ -2374,6 +2418,12 @@ static inline enum pld_bus_width_type
 hdd_get_current_throughput_level(struct hdd_context *hdd_ctx)
 {
 	return PLD_BUS_WIDTH_NONE;
+}
+
+static inline bool
+hdd_is_low_tput_gro_enable(struct hdd_context *hdd_ctx)
+{
+	return false;
 }
 
 #define GET_CUR_RX_LVL(config) 0
@@ -2641,24 +2691,28 @@ hdd_store_nss_chains_cfg_in_vdev(struct hdd_adapter *adapter);
 /**
  * wlan_hdd_disable_roaming() - disable roaming on all STAs except the input one
  * @cur_adapter: Current HDD adapter passed from caller
+ * @mlme_operation_requestor: roam disable requestor
  *
  * This function loops through all adapters and disables roaming on each STA
  * mode adapter except the current adapter passed from the caller
  *
  * Return: None
  */
-void wlan_hdd_disable_roaming(struct hdd_adapter *cur_adapter);
+void wlan_hdd_disable_roaming(struct hdd_adapter *cur_adapter,
+			      uint32_t mlme_operation_requestor);
 
 /**
  * wlan_hdd_enable_roaming() - enable roaming on all STAs except the input one
  * @cur_adapter: Current HDD adapter passed from caller
+ * @mlme_operation_requestor: roam disable requestor
  *
  * This function loops through all adapters and enables roaming on each STA
  * mode adapter except the current adapter passed from the caller
  *
  * Return: None
  */
-void wlan_hdd_enable_roaming(struct hdd_adapter *cur_adapter);
+void wlan_hdd_enable_roaming(struct hdd_adapter *cur_adapter,
+			     uint32_t mlme_operation_requestor);
 
 QDF_STATUS hdd_post_cds_enable_config(struct hdd_context *hdd_ctx);
 

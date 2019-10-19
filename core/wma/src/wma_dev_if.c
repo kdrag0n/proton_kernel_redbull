@@ -804,7 +804,8 @@ static QDF_STATUS wma_handle_vdev_detach(tp_wma_handle wma_handle,
 
 	iface->del_staself_req = del_sta_self_req_param;
 	msg = wma_fill_vdev_req(wma_handle, vdev_id, WMA_DEL_STA_SELF_REQ,
-				WMA_TARGET_REQ_TYPE_VDEV_DEL, iface, 6000);
+				WMA_TARGET_REQ_TYPE_VDEV_DEL, iface,
+				WMA_VDEV_DELETE_REQUEST_TIMEOUT);
 	if (!msg) {
 		WMA_LOGE("%s: Failed to fill vdev request for vdev_id %d",
 			 __func__, vdev_id);
@@ -2509,6 +2510,8 @@ __wma_handle_vdev_stop_rsp(wmi_vdev_stopped_event_fixed_param *resp_event)
 
 	/* Clear key information */
 	wma_clear_iface_key(iface);
+	qdf_runtime_pm_allow_suspend(
+			&iface->vdev_stop_runtime_wakelock);
 	wma_release_wakelock(&iface->vdev_stop_wakelock);
 
 	req_msg = wma_find_vdev_req(wma, resp_event->vdev_id,
@@ -2587,10 +2590,10 @@ __wma_handle_vdev_stop_rsp(wmi_vdev_stopped_event_fixed_param *resp_event)
 
 		status = wma_remove_bss_peer(wma, pdev, resp_event->vdev_id,
 					     params);
-		if (status != 0) {
+		if (status) {
 			WMA_LOGE("%s Del bss failed vdev:%d", __func__,
 				 resp_event->vdev_id);
-			wma_cleanup_target_req_param(req_msg);
+			wma_send_vdev_down_bss(wma, req_msg);
 			goto free_req_msg;
 		}
 
@@ -4054,19 +4057,15 @@ void wma_vdev_resp_timer(void *data)
 		 * Trigger host crash if the flag is set or if the timeout
 		 * is not due to fw down
 		 */
-		if (wma_crash_on_fw_timeout(wma->fw_timeout_crash) == true) {
+		if (wma_crash_on_fw_timeout(wma->fw_timeout_crash))
 			wma_trigger_recovery_assert_on_fw_timeout(
 				WMA_DELETE_BSS_REQ);
-			wma_cleanup_target_req_param(tgt_req);
-			goto free_tgt_req;
-		}
 
 		status = wma_remove_bss_peer(wma, pdev, tgt_req->vdev_id,
 					     params);
-		if (status != 0) {
-			WMA_LOGE("Del BSS failed vdev_id:%d", tgt_req->vdev_id);
-			wma_cleanup_target_req_param(tgt_req);
-			goto free_tgt_req;
+		if (status) {
+			WMA_LOGE("Del BSS failed call del bss response vdev_id:%d", tgt_req->vdev_id);
+			wma_send_vdev_down_bss(wma, tgt_req);
 		}
 
 		if (wmi_service_enabled(wma->wmi_handle,
@@ -4336,9 +4335,45 @@ static void wma_set_mgmt_frame_protection(tp_wma_handle wma)
 		WMA_LOGD("%s: QOS MFP/PMF set", __func__);
 	}
 }
+
+/**
+ * wma_set_peer_pmf_status() - Get the peer and update PMF capability of it
+ * @wma: wma handle
+ * @peer_mac: peer mac addr
+ * @is_pmf_enabled: Carries the status whether PMF is enabled or not
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+wma_set_peer_pmf_status(tp_wma_handle wma, uint8_t *peer_mac,
+			bool is_pmf_enabled)
+{
+	struct wlan_objmgr_peer *peer;
+
+	peer = wlan_objmgr_get_peer(wma->psoc,
+				    wlan_objmgr_pdev_get_pdev_id(wma->pdev),
+				    peer_mac, WLAN_LEGACY_WMA_ID);
+	if (!peer) {
+		WMA_LOGE("Peer of peer_mac %pM not found",
+			 peer_mac);
+		return QDF_STATUS_E_INVAL;
+	}
+	mlme_set_peer_pmf_status(peer, is_pmf_enabled);
+	wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
+	WMA_LOGD("set is_pmf_enabled %d for %pM", is_pmf_enabled, peer_mac);
+
+	return QDF_STATUS_SUCCESS;
+}
 #else
 static inline void wma_set_mgmt_frame_protection(tp_wma_handle wma)
 {
+}
+
+static QDF_STATUS
+wma_set_peer_pmf_status(tp_wma_handle wma, uint8_t *peer_mac,
+			bool is_pmf_enabled)
+{
+	return QDF_STATUS_SUCCESS;
 }
 #endif /* WLAN_FEATURE_11W */
 
@@ -4361,6 +4396,7 @@ static void wma_add_bss_ap_mode(tp_wma_handle wma, tpAddBssParams add_bss)
 	int8_t maxTxPower;
 	struct policy_mgr_hw_mode_params hw_mode = {0};
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+	struct wma_txrx_node *iface;
 
 	pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 
@@ -4403,6 +4439,8 @@ static void wma_add_bss_ap_mode(tp_wma_handle wma, tpAddBssParams add_bss)
 		goto peer_cleanup;
 	}
 
+	iface = &wma->interfaces[vdev_id];
+
 	add_bss->staContext.staIdx = cdp_peer_get_local_peer_id(soc, peer);
 
 	qdf_mem_zero(&req, sizeof(req));
@@ -4423,7 +4461,7 @@ static void wma_add_bss_ap_mode(tp_wma_handle wma, tpAddBssParams add_bss)
 
 	req.max_txpow = add_bss->maxTxPower;
 	maxTxPower = add_bss->maxTxPower;
-
+	iface->rmfEnabled = add_bss->rmfEnabled;
 	if (add_bss->rmfEnabled)
 		wma_set_mgmt_frame_protection(wma);
 
@@ -4700,6 +4738,8 @@ static void wma_add_bss_sta_mode(tp_wma_handle wma, tpAddBssParams add_bss)
 		iface->llbCoexist = add_bss->llbCoexist;
 		iface->shortSlotTimeSupported = add_bss->shortSlotTimeSupported;
 		iface->nwType = add_bss->nwType;
+		if (add_bss->rmfEnabled)
+			wma_set_peer_pmf_status(wma, add_bss->bssId, true);
 		if (add_bss->nonRoamReassoc) {
 			peer = cdp_peer_find_by_addr(soc,
 					pdev, add_bss->bssId,
@@ -5161,10 +5201,8 @@ static void wma_add_sta_req_ap_mode(tp_wma_handle wma, tpAddStaParams add_sta)
 		}
 	}
 #endif
-
-	iface->rmfEnabled = add_sta->rmfEnabled;
 	if (add_sta->rmfEnabled)
-		wma_set_mgmt_frame_protection(wma);
+		wma_set_peer_pmf_status(wma, add_sta->staMac, true);
 
 	if (add_sta->uAPSD) {
 		status = wma_set_ap_peer_uapsd(wma, add_sta->smesessionId,

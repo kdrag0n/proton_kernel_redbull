@@ -379,6 +379,19 @@ int ipa_uc_smmu_map(bool map, uint32_t num_buf, qdf_mem_info_t *buf_arr);
 bool ipa_is_fw_wdi_activated(struct wlan_objmgr_pdev *pdev);
 
 /**
+ * ipa_uc_cleanup_sta() - disconnect and cleanup sta iface
+ * @pdev: pdev obj
+ * @net_dev: Interface net device
+ *
+ * Send disconnect sta event to IPA driver and cleanup IPA iface,
+ * if not yet done
+ *
+ * Return: void
+ */
+void ipa_uc_cleanup_sta(struct wlan_objmgr_pdev *pdev,
+			qdf_netdev_t net_dev);
+
+/**
  * ipa_uc_disconnect_ap() - send ap disconnect event
  * @pdev: pdev obj
  * @net_dev: Interface net device
@@ -429,9 +442,15 @@ void ipa_component_config_update(struct wlan_objmgr_psoc *psoc);
  *
  * Return: IPA config tx buffer count
  */
-
 uint32_t ipa_get_tx_buf_count(void);
 
+/**
+ * ipa_update_tx_stats() - Update embedded tx traffic in bytes to IPA
+ *
+ * Return: IPA config tx buffer count
+ */
+void ipa_update_tx_stats(struct wlan_objmgr_pdev *pdev, uint64_t sta_tx,
+			 uint64_t ap_tx);
 #else /* Not IPA_OFFLOAD */
 typedef QDF_STATUS (*wlan_ipa_softap_xmit)(qdf_nbuf_t nbuf, qdf_netdev_t dev);
 typedef void (*wlan_ipa_send_to_nw)(qdf_nbuf_t nbuf, qdf_netdev_t dev);

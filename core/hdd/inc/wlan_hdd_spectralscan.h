@@ -27,6 +27,13 @@
 #define WLAN_HDD_SPECTRALSCAN_H
 
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
+
+#define SPECTRAL_VERSION_1                              1
+#define SPECTRAL_VERSION_2                              2
+#define SPECTRAL_VERSION_3                              3
+#define SPECTRAL_SUB_VERSION_0                          0
+#define SPECTRAL_SUB_VERSION_1                          1
+
 /*
  * enum spectral_scan_msg_type - spectral scan registration
  * @SPECTRAL_SCAN_REGISTER_REQ: spectral scan app register request
@@ -45,6 +52,20 @@ enum spectral_scan_msg_type {
 struct spectral_scan_msg {
 	uint32_t msg_type;
 	uint32_t pid;
+};
+
+/**
+ * struct spectral_scan_msg_v - spectral scan request message included version
+ * @msg_type: message type
+ * @pid: process id
+ * @version: version information
+ * @sub_version: sub version information
+ */
+struct spectral_scan_msg_v {
+	uint32_t msg_type;
+	uint32_t pid;
+	uint32_t version;
+	uint32_t sub_version;
 };
 
 #define FEATURE_SPECTRAL_SCAN_VENDOR_COMMANDS \
@@ -211,6 +232,17 @@ void spectral_scan_activate_service(struct hdd_context *hdd_ctx);
  * Return: None
  */
 void spectral_scan_deactivate_service(void);
+
+/**
+ * wlan_spectral_update_rx_chainmask() - API to update rx chainmask before
+ * start spectral gen3
+ * @adapter: pointer to adapter
+ *
+ * API to update rx chainmask before start spectral gen3.
+ *
+ * Return: QDF_STATUS_SUCCESS or non-zero on failure
+ */
+QDF_STATUS wlan_spectral_update_rx_chainmask(struct hdd_adapter *adapter);
 #else
 static inline void spectral_scan_activate_service(struct hdd_context *hdd_ctx)
 {
@@ -219,5 +251,13 @@ static inline void spectral_scan_activate_service(struct hdd_context *hdd_ctx)
 static inline void spectral_scan_deactivate_service(void)
 {
 }
+
+#ifdef WLAN_CONV_SPECTRAL_ENABLE
+static inline QDF_STATUS
+wlan_spectral_update_rx_chainmask(struct hdd_adapter *adapter)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* WLAN_CONV_SPECTRAL_ENABLE */
 #endif
 #endif

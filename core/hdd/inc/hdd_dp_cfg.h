@@ -640,6 +640,35 @@
 		500, \
 		CFG_VALUE_OR_DEFAULT, \
 		"High Threshold inorder to trigger High Tx Tp")
+
+/*
+ * <ini>
+ * gBusLowTputCntThreshold - Threshold count to trigger low Tput
+ * 			     GRO flush skip
+ * @Min: 0
+ * @Max: 200
+ * @Default: 10
+ *
+ * This ini is a threshold that if count of times for bus Tput level
+ * PLD_BUS_WIDTH_LOW in bus_bw_timer() >= this threshold, will enable skipping
+ * GRO flush, current default threshold is 10, then will delay GRO flush-skip
+ * 1 second for low Tput level.
+ *
+ * Supported Feature: GRO flush skip when low T-put
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_DP_BUS_LOW_BW_CNT_THRESHOLD \
+		CFG_INI_UINT( \
+		"gBusLowTputCntThreshold", \
+		0, \
+		200, \
+		10, \
+		CFG_VALUE_OR_DEFAULT, \
+		"Threshold to trigger GRO flush skip for low T-put")
+
 #endif /*WLAN_FEATURE_DP_BUS_BANDWIDTH*/
 
 /*
@@ -1001,14 +1030,21 @@
 #define CFG_DP_CONFIG_DP_TRACE_ALL
 #endif
 
+#ifdef WLAN_NUD_TRACKING
 /*
  * <ini>
  * gEnableNUDTracking - Will enable or disable NUD tracking within driver
  * @Min: 0
- * @Max: 1
- * @Default: 1
+ * @Max: 2
+ * @Default: 2
  *
- * This ini is used to enable or disable NUD tracking within driver
+ * This ini is used to specify the behaviour of the driver for NUD tracking.
+ * If the ini value is:-
+ * 0: Driver will not track the NUD failures, and ignore the same.
+ * 1: Driver will track the NUD failures and if honoured will disconnect from
+ * the connected BSSID.
+ * 2: Driver will track the NUD failures and if honoured will roam away from
+ * the connected BSSID to a new BSSID to retain the data connectivity.
  *
  * Related: None
  *
@@ -1018,10 +1054,16 @@
  *
  * <ini>
  */
-#ifdef WLAN_NUD_TRACKING
+#define CFG_DP_ROAM_AFTER_NUD_FAIL                   2
+#define CFG_DP_DISCONNECT_AFTER_NUD_FAIL             1
+#define CFG_DP_DISABLE_NUD_TRACKING                  0
+
 #define CFG_DP_ENABLE_NUD_TRACKING \
-		CFG_INI_BOOL("gEnableNUDTracking", \
-		true, "Ctrl to enable nud tracking")
+		CFG_INI_UINT("gEnableNUDTracking", \
+		 CFG_DP_DISABLE_NUD_TRACKING, \
+		 CFG_DP_ROAM_AFTER_NUD_FAIL, \
+		 CFG_DP_ROAM_AFTER_NUD_FAIL, \
+		 CFG_VALUE_OR_DEFAULT, "Driver NUD tracking behaviour")
 
 #define CFG_DP_ENABLE_NUD_TRACKING_ALL \
 			CFG(CFG_DP_ENABLE_NUD_TRACKING)
@@ -1083,7 +1125,8 @@
 	CFG(CFG_DP_TCP_DELACK_THRESHOLD_HIGH) \
 	CFG(CFG_DP_TCP_DELACK_THRESHOLD_LOW) \
 	CFG(CFG_DP_TCP_DELACK_TIMER_COUNT) \
-	CFG(CFG_DP_TCP_TX_HIGH_TPUT_THRESHOLD)
+	CFG(CFG_DP_TCP_TX_HIGH_TPUT_THRESHOLD) \
+	CFG(CFG_DP_BUS_LOW_BW_CNT_THRESHOLD)
 #else
 #define CFG_HDD_DP_BUS_BANDWIDTH
 #endif

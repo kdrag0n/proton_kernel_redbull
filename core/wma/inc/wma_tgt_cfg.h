@@ -112,6 +112,7 @@ struct wma_tgt_ht_cap {
  * @vht_mu_bformee: vht mu bformee
  * @vht_max_ampdu_len_exp: vht max ampdu len exp
  * @vht_txop_ps: vht txop ps
+ * @vht_mcs_10_11_supp: VHT MCS 10 & 11 support
  */
 struct wma_tgt_vht_cap {
 	uint32_t vht_max_mpdu;
@@ -127,6 +128,7 @@ struct wma_tgt_vht_cap {
 	uint32_t vht_mu_bformee;
 	uint32_t vht_max_ampdu_len_exp;
 	uint32_t vht_txop_ps;
+	uint32_t vht_mcs_10_11_supp;
 };
 
 /**
@@ -173,7 +175,6 @@ struct board_info {
  * @obss_color_collision_offloaded: obss color collision offloaded to firmware
  * @sar_version: Version of SAR supported by firmware
  * @bcast_twt_support: braodcast twt support
- * @ft_akm_service_bitmap: bitmap of FT akm supported by firmware
  */
 struct wma_tgt_cfg {
 	uint32_t target_fw_version;
@@ -214,6 +215,5 @@ struct wma_tgt_cfg {
 	enum sar_version sar_version;
 	struct nan_tgt_caps nan_caps;
 	bool bcast_twt_support;
-	uint32_t ft_akm_service_bitmap;
 };
 #endif /* WMA_TGT_CFG_H */

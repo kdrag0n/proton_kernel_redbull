@@ -911,12 +911,25 @@ IPA_OBJS :=	$(IPA_DIR)/dispatcher/src/wlan_ipa_ucfg_api.o \
 endif
 
 ######## FWOL ##########
-FWOL_DIR := components/fw_offload
-FWOL_INC := -I$(WLAN_ROOT)/$(FWOL_DIR)/core/inc \
-		-I$(WLAN_ROOT)/$(FWOL_DIR)/dispatcher/inc
+FWOL_CORE_INC := components/fw_offload/core/inc
+FWOL_CORE_SRC := components/fw_offload/core/src
+FWOL_DISPATCHER_INC := components/fw_offload/dispatcher/inc
+FWOL_DISPATCHER_SRC := components/fw_offload/dispatcher/src
+FWOL_TARGET_IF_INC := components/target_if/fw_offload/inc
+FWOL_TARGET_IF_SRC := components/target_if/fw_offload/src
+FWOL_OS_IF_INC := os_if/fw_offload/inc
+FWOL_OS_IF_SRC := os_if/fw_offload/src
 
-FWOL_OBJS :=	$(FWOL_DIR)/core/src/wlan_fw_offload_main.o \
-		$(FWOL_DIR)/dispatcher/src/wlan_fwol_ucfg_api.o
+FWOL_INC := -I$(WLAN_ROOT)/$(FWOL_CORE_INC) \
+	    -I$(WLAN_ROOT)/$(FWOL_DISPATCHER_INC) \
+	    -I$(WLAN_ROOT)/$(FWOL_TARGET_IF_INC) \
+	    -I$(WLAN_ROOT)/$(FWOL_OS_IF_INC)
+
+FWOL_OBJS :=	$(FWOL_CORE_SRC)/wlan_fw_offload_main.o \
+		$(FWOL_DISPATCHER_SRC)/wlan_fwol_ucfg_api.o \
+		$(FWOL_DISPATCHER_SRC)/wlan_fwol_tgt_api.o \
+		$(FWOL_TARGET_IF_SRC)/target_if_fwol.o \
+		$(FWOL_OS_IF_SRC)/os_if_fwol.o
 
 ######## SM FRAMEWORK  ##############
 UMAC_SM_DIR := umac/cmn_services/sm_engine
@@ -1208,6 +1221,11 @@ endif
 
 ifeq ($(CONFIG_WMI_BCN_OFFLOAD), y)
 WMI_OBJS += $(WMI_OBJ_DIR)/wmi_unified_bcn_api.o
+endif
+
+ifeq ($(CONFIG_WLAN_FW_OFFLOAD), y)
+WMI_OBJS += $(WMI_OBJ_DIR)/wmi_unified_fwol_api.o
+WMI_OBJS += $(WMI_OBJ_DIR)/wmi_unified_fwol_tlv.o
 endif
 
 ########### FWLOG ###########
@@ -1703,6 +1721,16 @@ WMA_OBJS :=	$(WMA_SRC_DIR)/wma_main.o \
 		$(WMA_SRC_DIR)/wlan_qct_wma_legacy.o\
 		$(WMA_NDP_OBJS)
 
+#######DIRECT_BUFFER_RX#########
+ifeq ($(CONFIG_DIRECT_BUF_RX_ENABLE), y)
+DBR_DIR = $(WLAN_COMMON_ROOT)/target_if/direct_buf_rx
+UMAC_DBR_INC := -I$(WLAN_COMMON_INC)/target_if/direct_buf_tx/inc
+UMAC_DBR_OBJS := $(DBR_DIR)/src/target_if_direct_buf_rx_api.o \
+		 $(DBR_DIR)/src/target_if_direct_buf_rx_main.o \
+		 $(WLAN_COMMON_ROOT)/wmi/src/wmi_unified_dbr_api.o \
+		 $(WLAN_COMMON_ROOT)/wmi/src/wmi_unified_dbr_tlv.o
+endif
+
 ifeq ($(CONFIG_WLAN_FEATURE_DSRC), y)
 WMA_OBJS+=	$(WMA_SRC_DIR)/wma_ocb.o
 endif
@@ -1868,6 +1896,7 @@ INCS +=		$(UMAC_TARGET_GREEN_AP_INC)
 INCS +=		$(UMAC_COMMON_INC)
 INCS +=		$(UMAC_SPECTRAL_INC)
 INCS +=		$(UMAC_TARGET_SPECTRAL_INC)
+INCS +=		$(UMAC_DBR_INC)
 INCS +=		$(UMAC_CRYPTO_INC)
 
 OBJS :=		$(HDD_OBJS) \
@@ -1933,7 +1962,9 @@ OBJS +=		$(PLD_OBJS)
 OBJS +=		$(UMAC_SM_OBJS)
 OBJS +=		$(UMAC_MLME_OBJS)
 OBJS +=		$(MLME_OBJS)
+ifeq ($(CONFIG_WLAN_FW_OFFLOAD), y)
 OBJS +=		$(FWOL_OBJS)
+endif
 OBJS +=		$(BLM_OBJS)
 
 ifeq ($(CONFIG_WLAN_FEATURE_DSRC), y)
@@ -1966,6 +1997,7 @@ OBJS +=		$(UMAC_COMMON_OBJS)
 OBJS +=		$(WCFG_OBJS)
 
 OBJS +=		$(UMAC_SPECTRAL_OBJS)
+OBJS +=		$(UMAC_DBR_OBJS)
 
 ifeq ($(CONFIG_QCACLD_FEATURE_GREEN_AP), y)
 OBJS +=		$(UMAC_GREEN_AP_OBJS)
@@ -2016,6 +2048,9 @@ cppflags-$(CONFIG_FEATURE_BLACKLIST_MGR) += -DFEATURE_BLACKLIST_MGR
 cppflags-$(CONFIG_SUPPORT_11AX) += -DSUPPORT_11AX
 cppflags-$(CONFIG_HDD_INIT_WITH_RTNL_LOCK) += -DCONFIG_HDD_INIT_WITH_RTNL_LOCK
 cppflags-$(CONFIG_WLAN_CONV_SPECTRAL_ENABLE) += -DWLAN_CONV_SPECTRAL_ENABLE
+cppflags-$(CONFIG_DIRECT_BUF_RX_ENABLE) += -DDIRECT_BUF_RX_ENABLE
+cppflags-$(CONFIG_WMI_DBR_SUPPORT) += -DWMI_DBR_SUPPORT
+cppflags-$(CONFIG_DIRECT_BUF_RX_ENABLE) += -DDBR_MULTI_SRNG_ENABLE
 cppflags-$(CONFIG_WMI_CMD_STRINGS) += -DWMI_CMD_STRINGS
 cppflags-$(CONFIG_WLAN_FEATURE_TWT) += -DWLAN_SUPPORT_TWT
 
@@ -2033,6 +2068,8 @@ cppflags-$(CONFIG_FEATURE_INTEROP_ISSUES_AP) += -DWLAN_FEATURE_INTEROP_ISSUES_AP
 cppflags-$(CONFIG_FEATURE_MEMDUMP_ENABLE) += -DWLAN_FEATURE_MEMDUMP_ENABLE
 cppflags-$(CONFIG_FEATURE_FW_LOG_PARSING) += -DFEATURE_FW_LOG_PARSING
 cppflags-$(CONFIG_FEATURE_OEM_DATA) += -DFEATURE_OEM_DATA
+cppflags-$(CONFIG_WLAN_FW_OFFLOAD) += -DWLAN_FW_OFFLOAD
+cppflags-$(CONFIG_WLAN_FEATURE_ELNA) += -DWLAN_FEATURE_ELNA
 
 cppflags-$(CONFIG_PLD_SDIO_CNSS_FLAG) += -DCONFIG_PLD_SDIO_CNSS
 cppflags-$(CONFIG_PLD_PCIE_CNSS_FLAG) += -DCONFIG_PLD_PCIE_CNSS
@@ -2121,6 +2158,7 @@ endif
 
 cppflags-y += -DWLAN_FEATURE_P2P
 cppflags-y += -DWLAN_FEATURE_WFD
+
 ifeq ($(CONFIG_QCOM_VOWIFI_11R), y)
 cppflags-y += -DKERNEL_SUPPORT_11R_CFG80211
 cppflags-y += -DUSE_80211_WMMTSPEC_FOR_RIC
@@ -2289,8 +2327,14 @@ cppflags-$(CONFIG_ATH_SUPPORT_FLOWMAC_MODULE) += -DATH_SUPPORT_FLOWMAC_MODULE
 #Enable spectral support
 cppflags-$(CONFIG_ATH_SUPPORT_SPECTRAL) += -DATH_SUPPORT_SPECTRAL
 
+#Enable legacy pktlog
+cppflags-$(CONFIG_PKTLOG_LEGACY) += -DPKTLOG_LEGACY
+
 #Enable WDI Event support
 cppflags-$(CONFIG_WDI_EVENT_ENABLE) += -DWDI_EVENT_ENABLE
+
+#Enable the type_specific_data in the struct ath_pktlog_arg
+cppflags-$(CONFIG_PKTLOG_HAS_SPECIFIC_DATA) += -DPKTLOG_HAS_SPECIFIC_DATA
 
 #Endianness selection
 ifeq ($(CONFIG_LITTLE_ENDIAN), y)
@@ -2784,6 +2828,9 @@ cppflags-y += -DPEER_CACHE_RX_PKTS
 cppflags-y += -DPCIE_REG_WINDOW_LOCAL_NO_CACHE
 
 ccflags-$(CONFIG_HASTINGS_BT_WAR) += -DHASTINGS_BT_WAR
+
+cppflags-$(CONFIG_WDI3_STATS_UPDATE) += -DWDI3_STATS_UPDATE
+ccflags-$(CONFIG_WMI_SEND_RECV_QMI) += -DWLAN_FEATURE_WMI_SEND_RECV_QMI
 
 KBUILD_CPPFLAGS += $(cppflags-y)
 

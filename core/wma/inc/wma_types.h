@@ -233,6 +233,7 @@
 #endif
 
 #define WMA_ROAM_SCAN_OFFLOAD_REQ   SIR_HAL_ROAM_SCAN_OFFLOAD_REQ
+#define WMA_ROAM_PRE_AUTH_STATUS    SIR_HAL_ROAM_PRE_AUTH_STATUS_IND
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 #define WMA_ROAM_OFFLOAD_SYNCH_IND  SIR_HAL_ROAM_OFFLOAD_SYNCH_IND
@@ -461,6 +462,9 @@
 #ifdef WLAN_MWS_INFO_DEBUGFS
 #define WMA_GET_MWS_COEX_INFO_REQ	     SIR_HAL_GET_MWS_COEX_INFO_REQ
 #endif
+#define WMA_SET_ROAM_TRIGGERS                SIR_HAL_SET_ROAM_TRIGGERS
+
+#define WMA_ROAM_INIT_PARAM                  SIR_HAL_INIT_ROAM_OFFLOAD_PARAM
 
 /* Bit 6 will be used to control BD rate for Management frames */
 #define HAL_USE_BD_RATE2_FOR_MANAGEMENT_FRAME 0x40
@@ -725,6 +729,10 @@ QDF_STATUS wma_register_roaming_callbacks(
 			struct roam_offload_synch_ind *roam_synch_data,
 			struct bss_description *bss_desc_ptr,
 			enum sir_roam_op_code reason),
+		QDF_STATUS (*csr_roam_auth_event_handle_cb)(
+			struct mac_context *mac,
+			uint8_t vdev_id,
+			struct qdf_mac_addr bssid),
 		QDF_STATUS (*pe_roam_synch_cb)(struct mac_context *mac,
 			struct roam_offload_synch_ind *roam_synch_data,
 			struct bss_description *bss_desc_ptr,
@@ -739,6 +747,10 @@ static inline QDF_STATUS wma_register_roaming_callbacks(
 			struct roam_offload_synch_ind *roam_synch_data,
 			struct bss_description *bss_desc_ptr,
 			enum sir_roam_op_code reason),
+		QDF_STATUS (*csr_roam_auth_event_handle_cb)(
+			struct mac_context *mac,
+			uint8_t vdev_id,
+			struct qdf_mac_addr bssid),
 		QDF_STATUS (*pe_roam_synch_cb)(struct mac_context *mac,
 			struct roam_offload_synch_ind *roam_synch_data,
 			struct bss_description *bss_desc_ptr,

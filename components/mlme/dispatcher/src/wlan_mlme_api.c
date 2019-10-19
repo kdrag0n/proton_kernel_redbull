@@ -471,6 +471,20 @@ QDF_STATUS wlan_mlme_cfg_get_he_ul_mumimo(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 }
 
+QDF_STATUS mlme_cfg_get_he_caps(struct wlan_objmgr_psoc *psoc,
+				tDot11fIEhe_cap *he_cap)
+{
+	struct wlan_mlme_psoc_obj *mlme_obj;
+
+	mlme_obj = mlme_get_psoc_obj(psoc);
+	if (!mlme_obj)
+		return QDF_STATUS_E_FAILURE;
+
+	*he_cap = mlme_obj->cfg.he_caps.he_cap_orig;
+
+	return QDF_STATUS_SUCCESS;
+}
+
 QDF_STATUS wlan_mlme_cfg_set_he_ul_mumimo(struct wlan_objmgr_psoc *psoc,
 					  uint32_t value)
 {
@@ -3107,6 +3121,9 @@ mlme_update_vht_cap(struct wlan_objmgr_psoc *psoc, struct wma_tgt_vht_cap *cfg)
 	if (vht_cap_info->short_gi_160mhz && !cfg->vht_short_gi_160)
 		vht_cap_info->short_gi_160mhz = cfg->vht_short_gi_160;
 
+	vht_cap_info->vht_mcs_10_11_supp = cfg->vht_mcs_10_11_supp;
+	mlme_legacy_debug(" vht_mcs_10_11_supp %d", cfg->vht_mcs_10_11_supp);
+
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -3429,6 +3446,20 @@ QDF_STATUS mlme_get_peer_phymode(struct wlan_objmgr_psoc *psoc, uint8_t *mac,
 
 	*peer_phymode = wlan_peer_get_phymode(peer);
 	wlan_objmgr_peer_release_ref(peer, WLAN_MLME_NB_ID);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS mlme_set_tgt_wpa3_roam_cap(struct wlan_objmgr_psoc *psoc,
+				      uint32_t akm_bitmap)
+{
+	struct wlan_mlme_psoc_obj *mlme_obj;
+
+	mlme_obj = mlme_get_psoc_obj(psoc);
+	if (!mlme_obj)
+		return QDF_STATUS_E_FAILURE;
+
+	mlme_obj->cfg.lfr.fw_akm_bitmap |= akm_bitmap;
 
 	return QDF_STATUS_SUCCESS;
 }

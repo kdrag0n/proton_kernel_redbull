@@ -750,6 +750,69 @@ void wlan_ipa_uc_stat(struct wlan_ipa_priv *ipa_ctx)
 }
 
 #ifdef FEATURE_METERING
+
+#ifdef WDI3_STATS_UPDATE
+/**
+ * wlan_ipa_wdi_meter_notifier_cb() - WLAN to IPA callback handler.
+ * IPA calls to get WLAN stats or set quota limit.
+ * @priv: pointer to private data registered with IPA (we register a
+ *	  pointer to the IPA context)
+ * @evt: the IPA event which triggered the callback
+ * @data: data associated with the event
+ *
+ * Return: None
+ */
+static void __wlan_ipa_wdi_meter_notifier_cb(qdf_ipa_wdi_meter_evt_type_t evt,
+					     void *data)
+{
+	struct wlan_ipa_priv *ipa_ctx = wlan_ipa_get_obj_context();
+	struct ipa_inform_wlan_bw *bw_info;
+
+	if (evt != IPA_INFORM_WLAN_BW)
+		return;
+
+	bw_info = data;
+	ipa_debug("bw_info idx:%d tp:%llu", bw_info->index,
+		  bw_info->throughput);
+
+	if (bw_info->index == ipa_ctx->curr_bw_level)
+		return;
+
+	if (bw_info->index == WLAN_IPA_BW_LEVEL_LOW) {
+		cdp_ipa_set_perf_level(ipa_ctx->dp_soc,
+				       QDF_IPA_CLIENT_WLAN2_CONS,
+				       ipa_ctx->config->ipa_bw_low);
+		ipa_ctx->curr_bw_level = WLAN_IPA_BW_LEVEL_LOW;
+	} else if (bw_info->index == WLAN_IPA_BW_LEVEL_MEDIUM) {
+		cdp_ipa_set_perf_level(ipa_ctx->dp_soc,
+				       QDF_IPA_CLIENT_WLAN2_CONS,
+				       ipa_ctx->config->ipa_bw_medium);
+		ipa_ctx->curr_bw_level = WLAN_IPA_BW_LEVEL_MEDIUM;
+	} else if (bw_info->index == WLAN_IPA_BW_LEVEL_HIGH) {
+		cdp_ipa_set_perf_level(ipa_ctx->dp_soc,
+				       QDF_IPA_CLIENT_WLAN2_CONS,
+				       ipa_ctx->config->ipa_bw_high);
+		ipa_ctx->curr_bw_level = WLAN_IPA_BW_LEVEL_HIGH;
+	}
+
+	ipa_debug("Requested BW level: %d", ipa_ctx->curr_bw_level);
+}
+
+void wlan_ipa_update_tx_stats(struct wlan_ipa_priv *ipa_ctx, uint64_t sta_tx,
+			      uint64_t ap_tx)
+{
+	qdf_ipa_wdi_tx_info_t tx_stats;
+
+	if (!qdf_atomic_read(&ipa_ctx->stats_quota))
+		return;
+
+	tx_stats.sta_tx = sta_tx;
+	tx_stats.ap_tx = ap_tx;
+	qdf_ipa_wdi_wlan_stats(&tx_stats);
+}
+
+#else
+
 /**
  * wlan_ipa_uc_sharing_stats_request() - Get IPA stats from IPA.
  * @ipa_ctx: IPA context
@@ -793,56 +856,6 @@ static void wlan_ipa_uc_set_quota(struct wlan_ipa_priv *ipa_ctx,
 				     quota_bytes);
 		qdf_mutex_release(&ipa_ctx->ipa_lock);
 	}
-}
-
-QDF_STATUS wlan_ipa_uc_op_metering(struct wlan_ipa_priv *ipa_ctx,
-				   struct op_msg_type *op_msg)
-{
-	struct op_msg_type *msg = op_msg;
-	struct ipa_uc_sharing_stats *uc_sharing_stats;
-	struct ipa_uc_quota_rsp *uc_quota_rsp;
-	struct ipa_uc_quota_ind *uc_quota_ind;
-	struct wlan_ipa_iface_context *iface_ctx;
-
-	if (msg->op_code == WLAN_IPA_UC_OPCODE_SHARING_STATS) {
-		/* fill-up ipa_uc_sharing_stats structure from FW */
-		uc_sharing_stats = (struct ipa_uc_sharing_stats *)
-			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
-
-		memcpy(&(ipa_ctx->ipa_sharing_stats), uc_sharing_stats,
-		       sizeof(struct ipa_uc_sharing_stats));
-
-		qdf_event_set(&ipa_ctx->ipa_uc_sharing_stats_comp);
-	} else if (msg->op_code == WLAN_IPA_UC_OPCODE_QUOTA_RSP) {
-		/* received set quota response */
-		uc_quota_rsp = (struct ipa_uc_quota_rsp *)
-			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
-
-		memcpy(&(ipa_ctx->ipa_quota_rsp), uc_quota_rsp,
-			   sizeof(struct ipa_uc_quota_rsp));
-
-		qdf_event_set(&ipa_ctx->ipa_uc_set_quota_comp);
-	} else if (msg->op_code == WLAN_IPA_UC_OPCODE_QUOTA_IND) {
-		/* hit quota limit */
-		uc_quota_ind = (struct ipa_uc_quota_ind *)
-			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
-
-		ipa_ctx->ipa_quota_ind.quota_bytes =
-					uc_quota_ind->quota_bytes;
-
-		/* send quota exceeded indication to IPA */
-		iface_ctx = wlan_ipa_get_iface(ipa_ctx, QDF_STA_MODE);
-		if (iface_ctx)
-			qdf_ipa_broadcast_wdi_quota_reach_ind(
-						iface_ctx->dev->ifindex,
-						uc_quota_ind->quota_bytes);
-		else
-			ipa_err("Failed quota_reach_ind: NULL interface");
-	} else {
-		return QDF_STATUS_E_INVAL;
-	}
-
-	return QDF_STATUS_SUCCESS;
 }
 
 /**
@@ -939,6 +952,60 @@ static void __wlan_ipa_wdi_meter_notifier_cb(qdf_ipa_wdi_meter_evt_type_t evt,
 	}
 }
 
+QDF_STATUS wlan_ipa_uc_op_metering(struct wlan_ipa_priv *ipa_ctx,
+				   struct op_msg_type *op_msg)
+{
+	struct op_msg_type *msg = op_msg;
+	struct ipa_uc_sharing_stats *uc_sharing_stats;
+	struct ipa_uc_quota_rsp *uc_quota_rsp;
+	struct ipa_uc_quota_ind *uc_quota_ind;
+	struct wlan_ipa_iface_context *iface_ctx;
+	uint32_t ifindex;
+	uint64_t quota_bytes;
+
+	if (msg->op_code == WLAN_IPA_UC_OPCODE_SHARING_STATS) {
+		/* fill-up ipa_uc_sharing_stats structure from FW */
+		uc_sharing_stats = (struct ipa_uc_sharing_stats *)
+			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
+
+		memcpy(&ipa_ctx->ipa_sharing_stats, uc_sharing_stats,
+		       sizeof(struct ipa_uc_sharing_stats));
+
+		qdf_event_set(&ipa_ctx->ipa_uc_sharing_stats_comp);
+	} else if (msg->op_code == WLAN_IPA_UC_OPCODE_QUOTA_RSP) {
+		/* received set quota response */
+		uc_quota_rsp = (struct ipa_uc_quota_rsp *)
+			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
+
+		memcpy(&ipa_ctx->ipa_quota_rsp, uc_quota_rsp,
+		       sizeof(struct ipa_uc_quota_rsp));
+
+		qdf_event_set(&ipa_ctx->ipa_uc_set_quota_comp);
+	} else if (msg->op_code == WLAN_IPA_UC_OPCODE_QUOTA_IND) {
+		/* hit quota limit */
+		uc_quota_ind = (struct ipa_uc_quota_ind *)
+			     ((uint8_t *)op_msg + sizeof(struct op_msg_type));
+
+		ipa_ctx->ipa_quota_ind.quota_bytes =
+					uc_quota_ind->quota_bytes;
+
+		/* send quota exceeded indication to IPA */
+		iface_ctx = wlan_ipa_get_iface(ipa_ctx, QDF_STA_MODE);
+		ifindex = iface_ctx->dev->ifindex;
+		quota_bytes = uc_quota_ind->quota_bytes;
+		if (iface_ctx)
+			qdf_ipa_broadcast_wdi_quota_reach_ind(ifindex,
+							      quota_bytes);
+		else
+			ipa_err("Failed quota_reach_ind: NULL interface");
+	} else {
+		return QDF_STATUS_E_INVAL;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* WDI3_STATS_UPDATE */
+
 /**
  * wlan_ipa_wdi_meter_notifier_cb() - SSR wrapper for
  * __wlan_ipa_wdi_meter_notifier_cb
@@ -961,5 +1028,4 @@ void wlan_ipa_wdi_meter_notifier_cb(qdf_ipa_wdi_meter_evt_type_t evt,
 
 	qdf_op_unprotect(op_sync);
 }
-
 #endif /* FEATURE_METERING */

@@ -191,6 +191,7 @@
 /* FW response timeout values in milli seconds */
 #define WMA_VDEV_START_REQUEST_TIMEOUT   SIR_VDEV_START_REQUEST_TIMEOUT
 #define WMA_VDEV_STOP_REQUEST_TIMEOUT    SIR_VDEV_STOP_REQUEST_TIMEOUT
+#define WMA_VDEV_DELETE_REQUEST_TIMEOUT  SIR_VDEV_DELETE_REQUEST_TIMEOUT
 #define WMA_VDEV_PLCY_MGR_TIMEOUT        SIR_VDEV_PLCY_MGR_TIMEOUT
 #define WMA_VDEV_HW_MODE_REQUEST_TIMEOUT WMA_VDEV_PLCY_MGR_TIMEOUT
 #define WMA_VDEV_DUAL_MAC_CFG_TIMEOUT    WMA_VDEV_PLCY_MGR_TIMEOUT
@@ -753,8 +754,10 @@ struct roam_synch_frame_ind {
  * @vdev_start_wakelock: wakelock to protect vdev start op with firmware
  * @vdev_stop_wakelock: wakelock to protect vdev stop op with firmware
  * @vdev_set_key_wakelock: wakelock to protect vdev set key op with firmware
+ * @vdev_start_runtime_wakelock: runtime pm wakelock for vdev start
+ * @vdev_stop_runtime_wakelock: runtime pm wakelock for vdev stop
+ * @vdev_set_key_runtime_wakelock: runtime pm wakelock for set key
  * @channel: channel
- * @roam_offload_enabled: is roam offload enable/disable
  * @roam_scan_stats_req: cached roam scan stats request
  *
  * It stores parameters per vdev in wma.
@@ -827,9 +830,11 @@ struct wma_txrx_node {
 	qdf_wake_lock_t vdev_start_wakelock;
 	qdf_wake_lock_t vdev_stop_wakelock;
 	qdf_wake_lock_t vdev_set_key_wakelock;
+	qdf_runtime_lock_t vdev_start_runtime_wakelock;
+	qdf_runtime_lock_t vdev_stop_runtime_wakelock;
+	qdf_runtime_lock_t vdev_set_key_runtime_wakelock;
 	struct roam_synch_frame_ind roam_synch_frame_ind;
 	bool is_waiting_for_key;
-	bool roam_offload_enabled;
 	uint8_t channel;
 	struct sir_roam_scan_stats *roam_scan_stats_req;
 };
@@ -1004,6 +1009,8 @@ struct wma_wlm_stats_data {
  *   event in the serialized MC thread context with a timer.
  * @csr_roam_synch_cb: CSR callback for firmware Roam Sync events
  * @pe_roam_synch_cb: pe callback for firmware Roam Sync events
+ * @csr_roam_auth_event_handle_cb: CSR callback for target authentication
+ * offload event.
  * @wmi_cmd_rsp_wake_lock: wmi command response wake lock
  * @wmi_cmd_rsp_runtime_lock: wmi command response bus lock
  * @active_uc_apf_mode: Setting that determines how APF is applied in
@@ -1131,6 +1138,9 @@ typedef struct {
 		struct roam_offload_synch_ind *roam_synch_data,
 		struct bss_description *bss_desc_ptr,
 		enum sir_roam_op_code reason);
+	QDF_STATUS (*csr_roam_auth_event_handle_cb)(struct mac_context *mac,
+						    uint8_t vdev_id,
+						    struct qdf_mac_addr bssid);
 	QDF_STATUS (*pe_roam_synch_cb)(struct mac_context *mac,
 		struct roam_offload_synch_ind *roam_synch_data,
 		struct bss_description *bss_desc_ptr,
@@ -2264,6 +2274,24 @@ void wma_vdev_clear_pause_bit(uint8_t vdev_id, wmi_tx_pause_type bit_pos)
 QDF_STATUS wma_process_roaming_config(tp_wma_handle wma_handle,
 				     struct roam_offload_scan_req *roam_req);
 
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+/**
+ * wma_send_roam_preauth_status() - Send the preauth status to wmi
+ * @handle: WMA handle
+ * @roam_req: Pointer to wmi_roam_auth_status_params from sae
+ *
+ * Return: None
+ */
+void
+wma_send_roam_preauth_status(tp_wma_handle wma_handle,
+			     struct wmi_roam_auth_status_params *params);
+#else
+static inline void
+wma_send_roam_preauth_status(tp_wma_handle wma_handle,
+			     struct wmi_roam_auth_status_params *params)
+{}
+#endif
+
 #ifdef WMI_INTERFACE_EVENT_LOGGING
 static inline void wma_print_wmi_cmd_log(uint32_t count,
 					 qdf_abstract_print *print,
@@ -2565,4 +2593,16 @@ int wma_motion_det_base_line_host_event_handler(void *handle, u_int8_t *event,
 						u_int32_t len);
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
 
+/**
+ * wma_get_rx_chainmask() - API to get rx chainmask from mac phy capability
+ * @pdev_id: pdev id
+ * @chainmask_2g: pointer to return 2g chainmask
+ * @chainmask_5g: pointer to return 5g chainmask
+ *
+ * API to get rx chainmask from mac phy capability directly.
+ *
+ * Return: QDF_STATUS_SUCCESS or non-zero on failure
+ */
+QDF_STATUS wma_get_rx_chainmask(uint8_t pdev_id, uint32_t *chainmask_2g,
+				uint32_t *chainmask_5g);
 #endif

@@ -826,8 +826,6 @@ struct csr_roam_profile {
 	bool force_24ghz_in_ht20;
 	uint32_t cac_duration_ms;
 	uint32_t dfs_regdomain;
-	bool supplicant_disabled_roaming;
-	bool driver_disabled_roaming;
 #ifdef WLAN_FEATURE_FILS_SK
 	uint8_t *hlp_ie;
 	uint32_t hlp_ie_len;
@@ -1030,7 +1028,7 @@ struct csr_config_params {
 	struct csr_sta_roam_policy_params sta_roam_policy_params;
 	bool enable_bcast_probe_rsp;
 	bool is_fils_enabled;
-	bool is_force_1x1;
+	enum force_1x1_type is_force_1x1;
 	uint8_t oce_feature_bitmap;
 	uint32_t offload_11k_enable_bitmask;
 	bool wep_tkip_in_he;
@@ -1395,13 +1393,20 @@ typedef QDF_STATUS (*csr_session_close_cb)(uint8_t session_id);
 #define CSR_IS_FW_FT_SAE_SUPPORTED(fw_akm_bitmap) \
 	(((fw_akm_bitmap) & (1 << AKM_FT_SAE)) ? true : false)
 
+#define CSR_IS_FW_SAE_ROAM_SUPPORTED(fw_akm_bitmap) \
+	(((fw_akm_bitmap) & (1 << AKM_SAE)) ? true : false)
 #else
 #define CSR_IS_AUTH_TYPE_SAE(auth_type) (false)
 
 #define CSR_IS_AKM_FT_SAE(auth_type) (false)
 
 #define CSR_IS_FW_FT_SAE_SUPPORTED(fw_akm_bitmap) (false)
+
+#define CSR_IS_FW_SAE_ROAM_SUPPORTED(fw_akm_bitmap) (false)
 #endif
+
+#define CSR_IS_FW_OWE_ROAM_SUPPORTED(fw_akm_bitmap) \
+	(((fw_akm_bitmap) & (1 << AKM_OWE)) ? true : false)
 
 #define CSR_IS_AKM_FT_SUITEB_SHA384(auth_type) \
 	(eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384 == (auth_type))
@@ -1521,4 +1526,16 @@ void csr_clear_channel_status(struct mac_context *mac);
  */
 QDF_STATUS csr_update_owe_info(struct mac_context *mac,
 			       struct assoc_ind *assoc_ind);
+
+/**
+ * csr_send_roam_offload_init_msg() - Send roam enable/disable flag to fw
+ * @mac: mac context
+ * @vdev_id: vdev id
+ * @enable: enable/disable roam flag
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+csr_send_roam_offload_init_msg(struct mac_context *mac, uint32_t vdev_id,
+			       bool enable);
 #endif

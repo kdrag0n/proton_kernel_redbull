@@ -3115,7 +3115,7 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 			"\n[classified] BK %u, BE %u, VI %u, VO %u"
 			"\n\nReceive[%lu] - "
 			"packets %u, dropped %u, unsolict_arp_n_mcast_drp %u, delivered %u, refused %u\n"
-			"GRO - agg %u non-agg %u flush-skip %u disabled(conc %u low-tput %u)\n",
+			"GRO - agg %u non-agg %u flush_skip %u low_tput_flush %u disabled(conc %u low-tput %u)\n",
 			qdf_system_ticks(),
 			stats->tx_called,
 			stats->tx_dropped,
@@ -3135,6 +3135,7 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 			total_rx_refused,
 			stats->rx_aggregated, stats->rx_non_aggregated,
 			stats->rx_gro_flush_skip,
+			stats->rx_gro_low_tput_flush,
 			qdf_atomic_read(&hdd_ctx->disable_rx_ol_in_concurrency),
 			qdf_atomic_read(&hdd_ctx->disable_rx_ol_in_low_tput));
 
@@ -9477,7 +9478,7 @@ static int __iw_set_pno(struct net_device *dev,
 
 	vdev = wlan_objmgr_get_vdev_by_macaddr_from_pdev(hdd_ctx->pdev,
 							 dev->dev_addr,
-							 WLAN_LEGACY_MAC_ID);
+							 WLAN_OSIF_ID);
 	if (!vdev) {
 		hdd_err("vdev object is NULL");
 		return -EIO;
@@ -9488,7 +9489,8 @@ static int __iw_set_pno(struct net_device *dev,
 	data = qdf_mem_malloc(len);
 	if (!data) {
 		hdd_err("fail to allocate memory %zu", len);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exit;
 	}
 	qdf_mem_copy(data, extra, (len-1));
 	ptr = data;
@@ -9687,7 +9689,7 @@ static int __iw_set_pno(struct net_device *dev,
 	}
 
 exit:
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_OSIF_ID);
 
 	qdf_mem_free(data);
 	return ret;

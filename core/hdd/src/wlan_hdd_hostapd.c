@@ -2608,7 +2608,13 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 		 */
 		qdf_atomic_set(&adapter->ch_switch_in_progress, 0);
 		policy_mgr_set_chan_switch_complete_evt(hdd_ctx->psoc);
-		wlan_hdd_enable_roaming(adapter);
+		wlan_hdd_enable_roaming(adapter,
+					RSO_SAP_CHANNEL_CHANGE);
+
+		/* Check any other sap need restart */
+		if (ap_ctx->sap_context->csa_reason ==
+		    CSA_REASON_UNSAFE_CHANNEL)
+			hdd_unsafe_channel_restart_sap(hdd_ctx);
 		return QDF_STATUS_SUCCESS;
 
 	default:
@@ -2870,15 +2876,23 @@ int hdd_softap_set_channel_change(struct net_device *dev, int target_channel,
 	struct hdd_context *hdd_ctx = NULL;
 	struct hdd_adapter *sta_adapter;
 	struct hdd_station_ctx *sta_ctx;
+	struct sap_context *sap_ctx;
 	uint8_t conc_rule1 = 0;
 	uint8_t scc_on_lte_coex = 0;
 	bool is_p2p_go_session = false;
+	struct wlan_objmgr_vdev *vdev;
 
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	ret = wlan_hdd_validate_context(hdd_ctx);
 	if (ret)
 		return ret;
 
+	if (adapter->device_mode != QDF_SAP_MODE &&
+	    adapter->device_mode != QDF_P2P_GO_MODE)
+		return -EINVAL;
+	sap_ctx = WLAN_HDD_GET_SAP_CTX_PTR(adapter);
+	if (!sap_ctx)
+		return -EINVAL;
 	/*
 	 * If sta connection is in progress do not allow SAP channel change from
 	 * user space as it may change the HW mode requirement, for which sta is
@@ -2943,7 +2957,9 @@ int hdd_softap_set_channel_change(struct net_device *dev, int target_channel,
 				policy_mgr_convert_device_mode_to_qdf_type(
 					adapter->device_mode),
 				target_channel,
-				adapter->vdev_id)) {
+				adapter->vdev_id,
+				forced,
+				sap_ctx->csa_reason)) {
 		hdd_err("Channel switch failed due to concurrency check failure");
 		qdf_atomic_set(&adapter->ch_switch_in_progress, 0);
 		return -EINVAL;
@@ -2970,14 +2986,21 @@ int hdd_softap_set_channel_change(struct net_device *dev, int target_channel,
 		return -EINVAL;
 	}
 	/* Disable Roaming on all adapters before doing channel change */
-	wlan_hdd_disable_roaming(adapter);
+	wlan_hdd_disable_roaming(adapter, RSO_SAP_CHANNEL_CHANGE);
 
 	/*
 	 * Post the Channel Change request to SAP.
 	 */
 
-	if (wlan_vdev_mlme_get_opmode(adapter->vdev) == QDF_P2P_GO_MODE)
+	vdev = hdd_objmgr_get_vdev(adapter);
+	if (!vdev) {
+		qdf_atomic_set(&adapter->ch_switch_in_progress, 0);
+		wlan_hdd_enable_roaming(adapter, RSO_SAP_CHANNEL_CHANGE);
+		return -EINVAL;
+	}
+	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_P2P_GO_MODE)
 		is_p2p_go_session = true;
+	hdd_objmgr_put_vdev(vdev);
 
 	status = wlansap_set_channel_change_with_csa(
 		WLAN_HDD_GET_SAP_CTX_PTR(adapter),
@@ -2999,7 +3022,8 @@ int hdd_softap_set_channel_change(struct net_device *dev, int target_channel,
 		 * If Posting of the Channel Change request fails
 		 * enable roaming on all adapters
 		 */
-		wlan_hdd_enable_roaming(adapter);
+		wlan_hdd_enable_roaming(adapter,
+					RSO_SAP_CHANNEL_CHANGE);
 
 		ret = -EINVAL;
 	}
@@ -3069,7 +3093,8 @@ void wlan_hdd_set_sap_csa_reason(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 		return;
 	}
 	sap_ctx = WLAN_HDD_GET_SAP_CTX_PTR(ap_adapter);
-	sap_ctx->csa_reason = reason;
+	if (sap_ctx)
+		sap_ctx->csa_reason = reason;
 }
 
 QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
@@ -3147,7 +3172,7 @@ QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
 	 * Need to take care of 3 port cases with 2 STA iface in future.
 	 */
 	intf_ch = wlansap_check_cc_intf(hdd_ap_ctx->sap_context);
-	hdd_info("intf_ch: %d", intf_ch);
+	hdd_info("sap_vdev %d intf_ch: %d", vdev_id, intf_ch);
 	if (QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION !=
 		mcc_to_scc_switch) {
 		policy_mgr_get_chan_by_session_id(psoc, vdev_id, &sap_ch);
@@ -3170,7 +3195,8 @@ sap_restart:
 		 hdd_ap_ctx->sap_config.channel, intf_ch);
 	ch_params.ch_width = CH_WIDTH_MAX;
 	hdd_ap_ctx->bss_stop_reason = BSS_STOP_DUE_TO_MCC_SCC_SWITCH;
-	hdd_ap_ctx->sap_context->csa_reason =
+	if (hdd_ap_ctx->sap_context)
+		hdd_ap_ctx->sap_context->csa_reason =
 			CSA_REASON_CONCURRENT_STA_CHANGED_CHANNEL;
 
 	wlan_reg_set_channel_params(hdd_ctx->pdev,
@@ -5003,7 +5029,7 @@ int wlan_hdd_cfg80211_start_bss(struct hdd_adapter *adapter,
 	}
 
 	/* Disable Roaming on all adapters before starting bss */
-	wlan_hdd_disable_roaming(adapter);
+	wlan_hdd_disable_roaming(adapter, RSO_START_BSS);
 
 	sme_config = qdf_mem_malloc(sizeof(*sme_config));
 	if (!sme_config) {
@@ -5643,7 +5669,7 @@ error:
 
 free:
 	/* Enable Roaming after start bss in case of failure/success */
-	wlan_hdd_enable_roaming(adapter);
+	wlan_hdd_enable_roaming(adapter, RSO_START_BSS);
 	qdf_mem_free(sme_config);
 	return ret;
 }
@@ -5687,10 +5713,9 @@ static int __wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
-	QDF_STATUS status = QDF_STATUS_E_FAILURE;
+	QDF_STATUS status;
 	QDF_STATUS qdf_status = QDF_STATUS_E_FAILURE;
 	tSirUpdateIE update_ie;
-	struct hdd_beacon_data *old;
 	int ret;
 	mac_handle_t mac_handle;
 
@@ -5764,12 +5789,6 @@ static int __wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 				     WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
 				     WLAN_CONTROL_PATH);
 
-	old = adapter->session.ap.beacon;
-	if (!old) {
-		hdd_err("Session id: %d beacon data points to NULL",
-		       adapter->vdev_id);
-		return -EINVAL;
-	}
 	wlan_hdd_cleanup_actionframe(adapter);
 	wlan_hdd_cleanup_remain_on_channel_ctx(adapter);
 	mutex_lock(&hdd_ctx->sap_lock);
@@ -5799,9 +5818,17 @@ static int __wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 						adapter->vdev_id);
 		hdd_green_ap_start_state_mc(hdd_ctx, adapter->device_mode,
 					    false);
-		adapter->session.ap.beacon = NULL;
-		qdf_mem_free(old);
+
+		if (adapter->session.ap.beacon) {
+			qdf_mem_free(adapter->session.ap.beacon);
+			adapter->session.ap.beacon = NULL;
+		}
+	} else {
+		hdd_debug("SAP already down");
+		mutex_unlock(&hdd_ctx->sap_lock);
+		return 0;
 	}
+
 	mutex_unlock(&hdd_ctx->sap_lock);
 
 	mac_handle = hdd_ctx->mac_handle;
@@ -6276,6 +6303,8 @@ static int __wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 		ucfg_nan_disable_concurrency(hdd_ctx->psoc);
 	}
 
+	/* NDI + SAP not supported */
+	ucfg_nan_check_and_disable_unsupported_ndi(hdd_ctx->psoc, true);
 	if (!policy_mgr_nan_sap_pre_enable_conc_check(hdd_ctx->psoc,
 						      PM_SAP_MODE, channel))
 		hdd_debug("NAN disabled due to concurrency constraints");

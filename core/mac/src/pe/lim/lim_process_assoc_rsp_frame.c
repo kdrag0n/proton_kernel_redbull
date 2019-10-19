@@ -159,26 +159,33 @@ void lim_update_assoc_sta_datas(struct mac_context *mac_ctx,
 	else if (assoc_rsp->vendor_vht_ie.VHTCaps.present)
 		vht_caps = &assoc_rsp->vendor_vht_ie.VHTCaps;
 
-	if (IS_DOT11_MODE_VHT(session_entry->dot11mode)) {
-		if ((vht_caps) && vht_caps->present) {
-			sta_ds->mlmStaContext.vhtCapability =
-				vht_caps->present;
-			/*
-			 * If 11ac is supported and if the peer is
-			 * sending VHT capabilities,
-			 * then htMaxRxAMpduFactor should be
-			 * overloaded with VHT maxAMPDULenExp
-			 */
-			sta_ds->htMaxRxAMpduFactor = vht_caps->maxAMPDULenExp;
-			if (session_entry->htSupportedChannelWidthSet) {
-				if (assoc_rsp->VHTOperation.present)
-					sta_ds->vhtSupportedChannelWidthSet =
+	if ((IS_DOT11_MODE_VHT(session_entry->dot11mode)) &&
+	    ((vht_caps) && vht_caps->present)) {
+		sta_ds->mlmStaContext.vhtCapability =
+			vht_caps->present;
+		/*
+		 * If 11ac is supported and if the peer is
+		 * sending VHT capabilities,
+		 * then htMaxRxAMpduFactor should be
+		 * overloaded with VHT maxAMPDULenExp
+		 */
+		sta_ds->htMaxRxAMpduFactor = vht_caps->maxAMPDULenExp;
+		if (session_entry->htSupportedChannelWidthSet) {
+			if (assoc_rsp->VHTOperation.present)
+				sta_ds->vhtSupportedChannelWidthSet =
 					assoc_rsp->VHTOperation.chanWidth;
-				else
-					sta_ds->vhtSupportedChannelWidthSet =
-						eHT_CHANNEL_WIDTH_40MHZ;
-			}
+			else
+				sta_ds->vhtSupportedChannelWidthSet =
+					eHT_CHANNEL_WIDTH_40MHZ;
 		}
+		sta_ds->vht_mcs_10_11_supp = 0;
+		if (mac_ctx->mlme_cfg->vht_caps.vht_cap_info.
+		    vht_mcs_10_11_supp &&
+		    assoc_rsp->qcn_ie.present &&
+		    assoc_rsp->qcn_ie.vht_mcs11_attr.present)
+			sta_ds->vht_mcs_10_11_supp =
+				assoc_rsp->qcn_ie.vht_mcs11_attr.
+				vht_mcs_10_11_supp;
 	}
 
 	if (IS_DOT11_MODE_HE(session_entry->dot11mode))
@@ -913,12 +920,12 @@ lim_process_assoc_rsp_frame(struct mac_context *mac_ctx,
 			goto assocReject;
 		}
 
-		if (ap_nss < session_entry->nss) {
+		if (ap_nss < session_entry->nss)
 			session_entry->nss = ap_nss;
-			lim_objmgr_update_vdev_nss(mac_ctx->psoc,
-						   session_entry->smeSessionId,
-						   ap_nss);
-		}
+
+		lim_objmgr_update_vdev_nss(mac_ctx->psoc,
+					   session_entry->smeSessionId,
+					   session_entry->nss);
 
 		if ((session_entry->limMlmState ==
 		    eLIM_MLM_WT_FT_REASSOC_RSP_STATE) ||
@@ -1006,12 +1013,12 @@ lim_process_assoc_rsp_frame(struct mac_context *mac_ctx,
 	if (lim_search_pre_auth_list(mac_ctx, hdr->sa))
 		lim_delete_pre_auth_node(mac_ctx, hdr->sa);
 
-	if (ap_nss < session_entry->nss) {
+	if (ap_nss < session_entry->nss)
 		session_entry->nss = ap_nss;
-		lim_objmgr_update_vdev_nss(mac_ctx->psoc,
-					   session_entry->smeSessionId,
-					   ap_nss);
-	}
+
+	lim_objmgr_update_vdev_nss(mac_ctx->psoc,
+				   session_entry->smeSessionId,
+				   session_entry->nss);
 
 	lim_update_assoc_sta_datas(mac_ctx, sta_ds, assoc_rsp, session_entry);
 	/*

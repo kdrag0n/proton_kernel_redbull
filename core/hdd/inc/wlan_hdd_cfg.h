@@ -176,6 +176,7 @@ struct hdd_config {
 	uint32_t tcp_tx_high_tput_thres;
 	uint32_t tcp_delack_timer_count;
 	bool     enable_tcp_param_update;
+	uint32_t bus_low_cnt_threshold;
 #endif /*WLAN_FEATURE_DP_BUS_BANDWIDTH*/
 
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
@@ -201,7 +202,7 @@ struct hdd_config {
 	uint8_t dp_trace_config[DP_TRACE_CONFIG_STRING_LENGTH];
 #endif
 #ifdef WLAN_NUD_TRACKING
-	bool enable_nud_tracking;
+	uint8_t enable_nud_tracking;
 #endif
 	uint8_t operating_channel;
 	uint8_t num_vdevs;
