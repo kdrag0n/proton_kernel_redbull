@@ -102,6 +102,10 @@
 #include "wmi_unified_sta_api.h"
 #endif
 
+#ifdef WLAN_FW_OFFLOAD
+#include "wmi_unified_fwol_api.h"
+#endif
+
 typedef qdf_nbuf_t wmi_buf_t;
 #define wmi_buf_data(_buf) qdf_nbuf_data(_buf)
 
@@ -280,6 +284,45 @@ QDF_STATUS
 wmi_unified_cmd_send_fl(wmi_unified_t wmi_handle, wmi_buf_t buf,
 			uint32_t buflen, uint32_t cmd_id,
 			const char *func, uint32_t line);
+
+#ifdef WLAN_FEATURE_WMI_SEND_RECV_QMI
+/**
+ * wmi_unified_cmd_send_over_qmi() -  generic function to send unified WMI command
+ *                               over QMI
+ * @wmi_handle: handle to WMI.
+ * @buf: wmi command buffer
+ * @buflen: wmi command buffer length
+ * @cmd_id: WMI cmd id
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wmi_unified_cmd_send_over_qmi(struct wmi_unified *wmi_handle,
+				    wmi_buf_t buf, uint32_t buflen,
+				    uint32_t cmd_id);
+
+/**
+ * wmi_process_qmi_fw_event() - Process WMI event received over QMI
+ * @wmi_cb_ctx: WMI handle received as call back context
+ * @buf: Pointer to WMI event buffer
+ * @len: Len of WMI buffer received
+ *
+ * Return: None
+ */
+int wmi_process_qmi_fw_event(void *wmi_cb_ctx, void *buf, int len);
+#else
+static inline
+QDF_STATUS wmi_unified_cmd_send_over_qmi(struct wmi_unified *wmi_handle,
+				    wmi_buf_t buf, uint32_t buflen,
+				    uint32_t cmd_id)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline int wmi_process_qmi_fw_event(void *wmi_cb_ctx, void *buf, int len)
+{
+	return -EINVAL;
+}
+#endif
 
 /**
  * wmi_unified_register_event() - WMI event handler
@@ -1331,6 +1374,20 @@ QDF_STATUS wmi_unified_peer_rx_reorder_queue_remove_send(void *wmi_hdl,
 
 QDF_STATUS wmi_extract_service_ready_ext(void *wmi_hdl, uint8_t *evt_buf,
 		struct wlan_psoc_host_service_ext_param *param);
+
+/*
+ * wmi_extract_service_ready_ext2() - extract extended2 service ready
+ * @wmi_handle: wmi handle
+ * @evt_buff: pointer to event buffer
+ * @param: wmi ext2 base parameters
+ *
+ *
+ * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
+ */
+QDF_STATUS wmi_extract_service_ready_ext2(
+		struct wmi_unified *wmi_handle, uint8_t *evt_buf,
+		struct wlan_psoc_host_service_ext2_param *param);
+
 QDF_STATUS wmi_extract_hw_mode_cap_service_ready_ext(
 			void *wmi_hdl,
 			uint8_t *evt_buf, uint8_t hw_mode_idx,

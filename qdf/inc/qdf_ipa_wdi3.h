@@ -398,5 +398,30 @@ static inline int qdf_ipa_wdi_release_smmu_mapping(uint32_t num_buffers,
 	return __qdf_ipa_wdi_release_smmu_mapping(num_buffers, info);
 }
 
+#ifdef WDI3_STATS_UPDATE
+/**
+ * qdf_ipa_wdi_wlan_stats() - send embedded Tx in bytes to IPA
+ *
+ * @tx_stats: tx stats in bytes on sta and sap interface
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static inline int qdf_ipa_wdi_wlan_stats(qdf_ipa_wdi_tx_info_t *tx_stats)
+{
+	return __qdf_ipa_wdi_wlan_stats(tx_stats);
+}
+
+/**
+ * ipa_uc_bw_monitor() - start/stop uc bw monitoring
+ * @bw_info: set bw info levels to monitor
+ *
+ * Returns: 0 on success, negative on failure
+ */
+static inline int qdf_ipa_uc_bw_monitor(qdf_ipa_wdi_bw_info_t *bw_info)
+{
+	return __qdf_ipa_uc_bw_monitor(bw_info);
+}
+#endif
+
 #endif /* IPA_OFFLOAD */
 #endif /* _QDF_IPA_WDI3_H */

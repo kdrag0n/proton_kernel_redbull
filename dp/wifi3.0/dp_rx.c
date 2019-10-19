@@ -1376,6 +1376,7 @@ static void dp_rx_msdu_stats_update(struct dp_soc *soc,
 	DP_STATS_INC_PKT(peer, rx.rcvd_reo[ring_id], 1, msdu_len);
 	DP_STATS_INCC(peer, rx.non_amsdu_cnt, 1, is_not_amsdu);
 	DP_STATS_INCC(peer, rx.amsdu_cnt, 1, !is_not_amsdu);
+	DP_STATS_INCC(peer, rx.rx_retries, 1, qdf_nbuf_is_rx_retry_flag(nbuf));
 
 	tid_stats->msdu_cnt++;
 	if (qdf_unlikely(qdf_nbuf_is_da_mcbc(nbuf) &&
@@ -1613,10 +1614,14 @@ void dp_rx_deliver_to_stack_no_peer(struct dp_soc *soc, qdf_nbuf_t nbuf)
 	msdu_len = QDF_NBUF_CB_RX_PKT_LEN(nbuf);
 	pkt_len = msdu_len + l2_hdr_offset + RX_PKT_TLVS_LEN;
 
-	qdf_nbuf_set_pktlen(nbuf, pkt_len);
-	qdf_nbuf_pull_head(nbuf,
-			   RX_PKT_TLVS_LEN +
-			   l2_hdr_offset);
+	if (qdf_unlikely(qdf_nbuf_is_frag(nbuf))) {
+		qdf_nbuf_pull_head(nbuf, RX_PKT_TLVS_LEN);
+	} else {
+		qdf_nbuf_set_pktlen(nbuf, pkt_len);
+		qdf_nbuf_pull_head(nbuf,
+				   RX_PKT_TLVS_LEN +
+				   l2_hdr_offset);
+	}
 
 	/* only allow special frames */
 	if (!dp_is_special_data(nbuf))
@@ -1704,7 +1709,7 @@ uint32_t dp_rx_process(struct dp_intr *int_ctx, void *hal_ring,
 	qdf_assert_always(hal_soc);
 
 	scn = soc->hif_handle;
-	hif_pm_runtime_mark_last_busy(scn);
+	hif_pm_runtime_mark_dp_rx_busy(scn);
 	intr_id = int_ctx->dp_intr_id;
 
 more_data:
@@ -1803,6 +1808,9 @@ more_data:
 
 		/* Get MSDU DESC info */
 		hal_rx_msdu_desc_info_get(ring_desc, &msdu_desc_info);
+
+		if (mpdu_desc_info.mpdu_flags & HAL_MPDU_F_RETRY_BIT)
+			qdf_nbuf_set_rx_retry_flag(rx_desc->nbuf, 1);
 
 		if (qdf_unlikely(mpdu_desc_info.mpdu_flags &
 				HAL_MPDU_F_RAW_AMPDU)) {
@@ -2174,7 +2182,7 @@ done:
 				goto more_data;
 		}
 
-		if (vdev->osif_gro_flush && rx_ol_pkt_cnt) {
+		if (vdev && vdev->osif_gro_flush && rx_ol_pkt_cnt) {
 			vdev->osif_gro_flush(vdev->osif_vdev,
 					     reo_ring_num);
 		}

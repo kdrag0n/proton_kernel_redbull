@@ -329,6 +329,21 @@ wmi_unified_send_idle_roam_params(wmi_unified_t wmi_handle,
 				  struct wmi_idle_roam_params *req);
 
 /**
+ * wmi_unified_send_roam_preauth_status() - Send roam preauthentication status
+ * to target.
+ * @wmi_handle: wmi handle
+ * @param: Roam auth status params
+ *
+ * This function passes preauth status of WPA3 SAE auth to firmware. It is
+ * called when external_auth_status event is received from userspace.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_unified_send_roam_preauth_status(wmi_unified_t wmi_handle,
+				     struct wmi_roam_auth_status_params *param);
+
+/**
  * wmi_unified_offload_11k_cmd() - send 11k offload command
  * @wmi_hdl: wmi handle
  * @params: 11k offload params
@@ -351,4 +366,17 @@ QDF_STATUS wmi_unified_offload_11k_cmd(void *wmi_hdl,
 QDF_STATUS wmi_unified_invoke_neighbor_report_cmd(void *wmi_hdl,
 			struct wmi_invoke_neighbor_report_params *params);
 
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+/**
+ * wmi_unified_set_roam_triggers() - send roam trigger bitmap
+ * @wmi_handle: wmi handle
+ * @triggers: Roam trigger bitmap params as defined @roam_control_trigger_reason
+ *
+ * This function passes the roam trigger bitmap to fw
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS wmi_unified_set_roam_triggers(wmi_unified_t wmi_handle,
+					 struct roam_triggers *triggers);
+#endif
 #endif /* _WMI_UNIFIED_ROAM_API_H_ */

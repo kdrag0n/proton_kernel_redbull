@@ -64,7 +64,6 @@ cdp_dump_flow_pool_info(struct cdp_soc_t *soc)
 #include "dp_txrx_wds.h"
 #endif
 #ifdef CONFIG_MCL
-extern int con_mode_monitor;
 #ifndef REMOVE_PKT_LOG
 #include <pktlog_ac_api.h>
 #include <pktlog_ac.h>
@@ -1703,6 +1702,36 @@ static QDF_STATUS dp_soc_attach_poll(void *txrx_soc)
 	return QDF_STATUS_SUCCESS;
 }
 
+/**
+ * dp_soc_set_interrupt_mode() - Set the interrupt mode in soc
+ * txrx_soc: DP soc handle
+ *
+ * Set the appropriate interrupt mode flag in the soc
+ */
+static void dp_soc_set_interrupt_mode(struct cdp_soc_t *txrx_soc)
+{
+	struct dp_soc *soc = (struct dp_soc *)txrx_soc;
+	uint32_t msi_base_data, msi_vector_start;
+	int msi_vector_count, ret;
+
+	soc->intr_mode = DP_INTR_LEGACY;
+
+	if (!(soc->wlan_cfg_ctx->napi_enabled) ||
+	    (soc->cdp_soc.ol_ops->get_con_mode &&
+	     soc->cdp_soc.ol_ops->get_con_mode() == QDF_GLOBAL_MONITOR_MODE)) {
+		soc->intr_mode = DP_INTR_POLL;
+	} else {
+		ret = pld_get_user_msi_assignment(soc->osdev->dev, "DP",
+						  &msi_vector_count,
+						  &msi_base_data,
+						  &msi_vector_start);
+		if (ret)
+			return;
+
+		soc->intr_mode = DP_INTR_MSI;
+	}
+}
+
 static QDF_STATUS dp_soc_interrupt_attach(void *txrx_soc);
 #if defined(CONFIG_MCL)
 /*
@@ -1719,7 +1748,9 @@ static QDF_STATUS dp_soc_interrupt_attach_wrapper(void *txrx_soc)
 	struct dp_soc *soc = (struct dp_soc *)txrx_soc;
 
 	if (!(soc->wlan_cfg_ctx->napi_enabled) ||
-	     con_mode_monitor == QDF_GLOBAL_MONITOR_MODE) {
+	    (soc->cdp_soc.ol_ops->get_con_mode &&
+	     soc->cdp_soc.ol_ops->get_con_mode() ==
+	     QDF_GLOBAL_MONITOR_MODE)) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO,
 				  "%s: Poll mode", __func__);
 		return dp_soc_attach_poll(txrx_soc);
@@ -1848,8 +1879,6 @@ static void dp_soc_interrupt_map_calculate_msi(struct dp_soc *soc,
 	unsigned int vector =
 		(intr_ctx_num % msi_vector_count) + msi_vector_start;
 	int num_irq = 0;
-
-	soc->intr_mode = DP_INTR_MSI;
 
 	if (tx_mask | rx_mask | rx_mon_mask | rx_err_ring_mask |
 	    rx_wbm_rel_ring_mask | reo_status_ring_mask | rxdma2host_ring_mask)
@@ -4755,7 +4784,7 @@ static void dp_vdev_flush_peers(struct cdp_vdev *vdev_handle, bool unmap_only)
 							 0);
 			}
 		} else {
-			peer = dp_peer_find_by_id(soc, peer_ids[i]);
+			peer = __dp_peer_find_by_id(soc, peer_ids[i]);
 
 			if (peer) {
 				dp_info("peer: %pM is getting flush",
@@ -7554,19 +7583,19 @@ static void dp_set_vdev_param(struct cdp_vdev *vdev_handle,
 	switch (param) {
 	case CDP_ENABLE_WDS:
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "wds_enable %d for vdev(%p) id(%d)\n",
+			  "wds_enable %d for vdev(%pK) id(%d)\n",
 			  val, vdev, vdev->vdev_id);
 		vdev->wds_enabled = val;
 		break;
 	case CDP_ENABLE_MEC:
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "mec_enable %d for vdev(%p) id(%d)\n",
+			  "mec_enable %d for vdev(%pK) id(%d)\n",
 			  val, vdev, vdev->vdev_id);
 		vdev->mec_enabled = val;
 		break;
 	case CDP_ENABLE_DA_WAR:
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "da_war_enable %d for vdev(%p) id(%d)\n",
+			  "da_war_enable %d for vdev(%pK) id(%d)\n",
 			  val, vdev, vdev->vdev_id);
 		vdev->pdev->soc->da_war_enabled = val;
 		dp_wds_flush_ast_table_wifi3(((struct cdp_soc_t *)
@@ -8932,6 +8961,7 @@ static struct cdp_cmn_ops dp_ops_cmn = {
 	.txrx_soc_set_nss_cfg = dp_soc_set_nss_cfg_wifi3,
 	.txrx_soc_get_nss_cfg = dp_soc_get_nss_cfg_wifi3,
 	.txrx_intr_attach = dp_soc_interrupt_attach_wrapper,
+	.set_intr_mode = dp_soc_set_interrupt_mode,
 	.txrx_intr_detach = dp_soc_interrupt_detach,
 	.set_pn_check = dp_set_pn_check_wifi3,
 	.update_config_parameters = dp_update_config_parameters,
@@ -9097,11 +9127,14 @@ void dp_flush_ring_hptp(struct dp_soc *soc, void *hal_ring)
 {
 	struct hal_srng *hal_srng = (struct hal_srng *)hal_ring;
 
-	if (hal_srng) {
+	if (hal_srng && hal_srng_get_clear_event(hal_srng,
+						 HAL_SRNG_FLUSH_EVENT)) {
 		/* Acquire the lock */
 		hal_srng_access_start(soc->hal_soc, hal_srng);
 
 		hal_srng_access_end(soc->hal_soc, hal_srng);
+
+		hal_srng_set_flush_last_ts(hal_srng);
 	}
 }
 
@@ -9535,7 +9568,9 @@ void *dp_soc_init(void *dpsoc, HTC_HANDLE htc_handle, void *hif_handle)
 					       REO_DST_RING_SIZE_QCA6290);
 		wlan_cfg_set_raw_mode_war(soc->wlan_cfg_ctx, true);
 		soc->ast_override_support = 1;
-		if (con_mode_monitor == QDF_GLOBAL_MONITOR_MODE) {
+		if (soc->cdp_soc.ol_ops->get_con_mode &&
+		    soc->cdp_soc.ol_ops->get_con_mode() ==
+		    QDF_GLOBAL_MONITOR_MODE) {
 			int int_ctx;
 
 			for (int_ctx = 0; int_ctx < WLAN_CFG_INT_NUM_CONTEXTS; int_ctx++) {

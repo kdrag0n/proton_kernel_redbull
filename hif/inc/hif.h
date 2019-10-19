@@ -117,7 +117,7 @@ struct CE_state;
 #ifdef CONFIG_WIN
 #define HIF_MAX_GROUP 12
 #else
-#define HIF_MAX_GROUP 8
+#define HIF_MAX_GROUP 7
 #endif
 
 #ifdef CONFIG_SLUB_DEBUG_ON
@@ -335,7 +335,7 @@ enum hif_event_type {
 
 /* HIF_EVENT_HIST_MAX should always be power of 2 */
 #define HIF_EVENT_HIST_MAX		512
-#define HIF_NUM_INT_CONTEXTS		7
+#define HIF_NUM_INT_CONTEXTS		HIF_MAX_GROUP
 #define HIF_EVENT_HIST_DISABLE_MASK	0
 
 /**
@@ -872,6 +872,9 @@ bool hif_pm_runtime_is_suspended(struct hif_opaque_softc *hif_ctx);
 int hif_pm_runtime_get_monitor_wake_intr(struct hif_opaque_softc *hif_ctx);
 void hif_pm_runtime_set_monitor_wake_intr(struct hif_opaque_softc *hif_ctx,
 					  int val);
+void hif_pm_runtime_mark_dp_rx_busy(struct hif_opaque_softc *hif_ctx);
+int hif_pm_runtime_is_dp_rx_busy(struct hif_opaque_softc *hif_ctx);
+qdf_time_t hif_pm_runtime_get_dp_rx_busy_mark(struct hif_opaque_softc *hif_ctx);
 #else
 struct hif_pm_runtime_lock {
 	const char *name;
@@ -919,6 +922,14 @@ hif_pm_runtime_get_monitor_wake_intr(struct hif_opaque_softc *hif_ctx)
 static inline void
 hif_pm_runtime_set_monitor_wake_intr(struct hif_opaque_softc *hif_ctx, int val)
 { return; }
+static inline void
+hif_pm_runtime_mark_dp_rx_busy(struct hif_opaque_softc *hif_ctx) {};
+static inline int
+hif_pm_runtime_is_dp_rx_busy(struct hif_opaque_softc *hif_ctx)
+{ return 0; }
+static inline qdf_time_t
+hif_pm_runtime_get_dp_rx_busy_mark(struct hif_opaque_softc *hif_ctx)
+{ return 0; }
 #endif
 
 void hif_enable_power_management(struct hif_opaque_softc *hif_ctx,
@@ -1048,8 +1059,8 @@ void hif_init_ini_config(struct hif_opaque_softc *hif_ctx,
 void hif_update_tx_ring(struct hif_opaque_softc *osc, u_int32_t num_htt_cmpls);
 qdf_nbuf_t hif_batch_send(struct hif_opaque_softc *osc, qdf_nbuf_t msdu,
 		uint32_t transfer_id, u_int32_t len, uint32_t sendhead);
-int hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu, uint32_t
-		transfer_id, u_int32_t len);
+QDF_STATUS hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu,
+			   uint32_t transfer_id, u_int32_t len);
 int hif_send_fast(struct hif_opaque_softc *osc, qdf_nbuf_t nbuf,
 	uint32_t transfer_id, uint32_t download_len);
 void hif_pkt_dl_len_set(void *hif_sc, unsigned int pkt_download_len);

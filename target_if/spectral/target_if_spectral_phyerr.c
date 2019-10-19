@@ -100,33 +100,6 @@ target_if_spectral_dump_fft(uint8_t *pfft, int fftlen)
 	return 0;
 }
 
-/**
- * target_if_spectral_send_tlv_to_host() - Send the TLV information to Host
- * @spectral: Pointer to target_if spectral object
- * @data: Pointer to the TLV
- * @datalen: data length
- *
- * Send the TLV information to Host
- *
- * Return: Success or failure
- */
-int
-target_if_spectral_send_tlv_to_host(struct target_if_spectral *spectral,
-				    uint8_t *data, uint32_t datalen)
-{
-	int status = true;
-	void *nl_data = spectral->nl_cb.get_nbuff(spectral->pdev_obj);
-
-	if (nl_data) {
-		memcpy(nl_data, data, datalen);
-		if (spectral->send_phy_data(spectral->pdev_obj) == 0)
-			spectral->spectral_sent_msg++;
-	} else {
-		status = false;
-	}
-	return status;
-}
-
 void
 target_if_dbg_print_samp_param(struct target_if_samp_msg_params *p)
 {
@@ -806,6 +779,8 @@ target_if_process_phyerr_gen2(struct target_if_spectral *spectral,
 	}
 
 	OS_MEMZERO(&params, sizeof(params));
+	/* Gen 2 only supports normal Spectral scan currently */
+	params.smode = SPECTRAL_SCAN_MODE_NORMAL;
 
 	if (ptlv->tag == TLV_TAG_SEARCH_FFT_REPORT_GEN2) {
 		if (spectral->is_160_format) {
@@ -879,13 +854,13 @@ target_if_process_phyerr_gen2(struct target_if_spectral *spectral,
 		 *       This is marked for future enhancements.
 		 */
 		chn_idx_highest_enabled =
-		    ((spectral->params.ss_chn_mask & 0x8) ? 3 :
-		     (spectral->params.ss_chn_mask & 0x4) ? 2 :
-		     (spectral->params.ss_chn_mask & 0x2) ? 1 : 0);
+		   ((spectral->params[params.smode].ss_chn_mask & 0x8) ? 3 :
+		    (spectral->params[params.smode].ss_chn_mask & 0x4) ? 2 :
+		    (spectral->params[params.smode].ss_chn_mask & 0x2) ? 1 : 0);
 		chn_idx_lowest_enabled =
-		    ((spectral->params.ss_chn_mask & 0x1) ? 0 :
-		     (spectral->params.ss_chn_mask & 0x2) ? 1 :
-		     (spectral->params.ss_chn_mask & 0x4) ? 2 : 3);
+		   ((spectral->params[params.smode].ss_chn_mask & 0x1) ? 0 :
+		    (spectral->params[params.smode].ss_chn_mask & 0x2) ? 1 :
+		    (spectral->params[params.smode].ss_chn_mask & 0x4) ? 2 : 3);
 		control_rssi = (uint8_t)
 		    p_rfqual->pc_rssi_info[chn_idx_highest_enabled].rssi_pri20;
 		extension_rssi = (uint8_t)
@@ -1201,6 +1176,7 @@ target_if_process_sfft_report_gen3(
 
 int
 target_if_dump_fft_report_gen3(struct target_if_spectral *spectral,
+			enum spectral_scan_mode smode,
 			struct spectral_phyerr_fft_report_gen3 *p_fft_report,
 			struct spectral_search_fft_info_gen3 *p_sfft)
 {
@@ -1213,7 +1189,7 @@ target_if_dump_fft_report_gen3(struct target_if_spectral *spectral,
 	int fft_bin_len_adj = 0;
 	int fft_bin_len_inband_tfer = 0;
 
-	if ((spectral->params.ss_rpt_mode == 1) &&
+	if ((spectral->params[smode].ss_rpt_mode == 1) &&
 	    spectral->null_fftbin_adj) {
 		/* fft_bin_len_adj is intentionally left at 0. */
 		fft_bin_len_to_dump = 0;
@@ -1235,7 +1211,7 @@ target_if_dump_fft_report_gen3(struct target_if_spectral *spectral,
 		} else
 			fft_bin_len_adj = fft_bin_len;
 
-		if ((spectral->params.ss_rpt_mode == 2) &&
+		if ((spectral->params[smode].ss_rpt_mode == 2) &&
 		    spectral->inband_fftbin_size_adj) {
 			fft_bin_len_adj >>= 1;
 			fft_bin_len_inband_tfer = fft_bin_len >> 1;
@@ -1258,10 +1234,10 @@ target_if_dump_fft_report_gen3(struct target_if_spectral *spectral,
 		       fft_bin_len,
 		       fft_bin_len);
 
-	if ((spectral->params.ss_rpt_mode == 1) &&
+	if ((spectral->params[smode].ss_rpt_mode == 1) &&
 	    spectral->null_fftbin_adj)
 		spectral_debug("WAR: Considering number of FFT bins as 0");
-	else if ((spectral->params.ss_rpt_mode == 2) &&
+	else if ((spectral->params[smode].ss_rpt_mode == 2) &&
 		 spectral->inband_fftbin_size_adj) {
 		spectral_debug("FW fftbins actually transferred (in-band report mode) "
 					"%d(0x%x)",
@@ -1307,6 +1283,12 @@ target_if_160mhz_delivery_state_change(struct target_if_spectral *spectral,
 	if (spectral->ch_width != CH_WIDTH_160MHZ)
 		return QDF_STATUS_E_FAILURE;
 
+	/* agile reports should not be coupled with 160 MHz state machine
+	 * for normal Spectral
+	 */
+	if (detector_id == SPECTRAL_DETECTOR_AGILE)
+		return QDF_STATUS_SUCCESS;
+
 	switch (spectral->state_160mhz_delivery) {
 	case SPECTRAL_REPORT_WAIT_PRIMARY80:
 		if (detector_id == SPECTRAL_DETECTOR_PRIMARY)
@@ -1331,8 +1313,9 @@ target_if_160mhz_delivery_state_change(struct target_if_spectral *spectral,
 		break;
 
 	case SPECTRAL_REPORT_RX_SECONDARY80:
-		/* We don't care about detector id in this state */
-		reset_160mhz_delivery_state_machine(spectral);
+		/* We don't care about detector id in this state. */
+		reset_160mhz_delivery_state_machine(spectral,
+						    SPECTRAL_SCAN_MODE_NORMAL);
 		break;
 
 	case SPECTRAL_REPORT_RX_PRIMARY80:
@@ -1444,6 +1427,27 @@ target_if_spectral_get_lowest_chn_idx(uint8_t chainmask)
 	return idx;
 }
 
+static QDF_STATUS
+target_if_get_spectral_mode(enum spectral_detector_id detector_id,
+			    enum spectral_scan_mode *smode) {
+	switch (detector_id) {
+	case SPECTRAL_DETECTOR_PRIMARY:
+	case SPECTRAL_DETECTOR_SECONDARY:
+		*smode = SPECTRAL_SCAN_MODE_NORMAL;
+		break;
+
+	case SPECTRAL_DETECTOR_AGILE:
+		*smode = SPECTRAL_SCAN_MODE_AGILE;
+		break;
+
+	default:
+		spectral_err("Invalid Spectral detector id");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
 int
 target_if_consume_spectral_report_gen3(
 	 struct target_if_spectral *spectral,
@@ -1490,41 +1494,45 @@ target_if_consume_spectral_report_gen3(
 	struct wlan_objmgr_vdev *vdev;
 	uint8_t vdev_rxchainmask;
 	struct sscan_report_fields_gen3 sscan_report_fields;
-	uint8_t detector_id;
+	enum spectral_detector_id detector_id;
 	QDF_STATUS ret;
 
-	if (is_primaryseg_expected(spectral)) {
-		/* Process Spectral scan summary report */
-		if (target_if_verify_sig_and_tag_gen3(
-				spectral, data,
-				TLV_TAG_SPECTRAL_SUMMARY_REPORT_GEN3) != 0) {
-			spectral_err_rl("Wrong tag/sig in sscan summary(0)");
-			goto fail;
-		}
+	params.smode = SPECTRAL_SCAN_MODE_NORMAL;
 
-		detector_id = target_if_get_detector_id_sscan_report_gen3(data);
-		/* Agile detector is not supported */
-		if (detector_id >= SPECTRAL_DETECTOR_AGILE) {
-			spectral->diag_stats.spectral_invalid_detector_id++;
-			spectral_err("Invalid detector id %u, expected is 0",
-				     detector_id);
-			goto fail;
-		}
-		target_if_consume_sscan_report_gen3(spectral, data,
-						    &sscan_report_fields);
+	/* Process Spectral scan summary report */
+	if (target_if_verify_sig_and_tag_gen3(
+			spectral, data,
+			TLV_TAG_SPECTRAL_SUMMARY_REPORT_GEN3) != 0) {
+		spectral_err_rl("Wrong tag/sig in sscan summary");
+		goto fail;
+	}
+
+	detector_id = target_if_get_detector_id_sscan_report_gen3(data);
+	if (detector_id > SPECTRAL_DETECTOR_AGILE) {
+		spectral->diag_stats.spectral_invalid_detector_id++;
+		spectral_err("Invalid detector id %u, expected is 0/1/2",
+			     detector_id);
+		goto fail;
+	}
+	target_if_consume_sscan_report_gen3(spectral, data,
+					    &sscan_report_fields);
+	/* Advance buf pointer to the search fft report */
+	data += sizeof(struct spectral_sscan_report_gen3);
+
+	if ((detector_id == SPECTRAL_DETECTOR_AGILE) ||
+	    is_primaryseg_expected(spectral)) {
 		/* RSSI is in 1/2 dBm steps, Covert it to dBm scale */
 		rssi = (sscan_report_fields.inband_pwr_db) >> 1;
 		params.agc_total_gain =
 			sscan_report_fields.sscan_agc_total_gain;
 		params.gainchange = sscan_report_fields.sscan_gainchange;
-		/* Advance buf pointer to the search fft report */
-		data += sizeof(struct spectral_sscan_report_gen3);
 
 		/* Process Spectral search FFT report */
 		if (target_if_verify_sig_and_tag_gen3(
 				spectral, data,
 				TLV_TAG_SEARCH_FFT_REPORT_GEN3) != 0) {
-			spectral_err_rl("Unexpected tag/signature in sfft(0)");
+			spectral_err_rl("Unexpected tag/sig in sfft, detid= %u",
+					detector_id);
 			goto fail;
 		}
 		p_fft_report = (struct spectral_phyerr_fft_report_gen3 *)data;
@@ -1537,7 +1545,32 @@ target_if_consume_spectral_report_gen3(
 
 		report_len = (fft_hdr_length + 8);
 
-		if ((spectral->params.ss_rpt_mode == 1) &&
+		target_if_process_sfft_report_gen3(p_fft_report, p_sfft);
+		/* It is expected to have same detector id for
+		 * summary and fft report
+		 */
+		if (detector_id != p_sfft->fft_detector_id) {
+			spectral_err_rl
+				("Different detid in ssummary(%u) and sfft(%u)",
+				 detector_id, p_sfft->fft_detector_id);
+			goto fail;
+		}
+
+		if (detector_id > SPECTRAL_DETECTOR_AGILE) {
+			spectral->diag_stats.spectral_invalid_detector_id++;
+			spectral_err("Invalid detector id %u, expected is 0/2",
+				     detector_id);
+			goto fail;
+		}
+
+		ret = target_if_get_spectral_mode(detector_id, &params.smode);
+		if (QDF_IS_STATUS_ERROR(ret)) {
+			spectral_err_rl("Failed to get mode from detid= %u",
+					detector_id);
+			goto fail;
+		}
+
+		if ((spectral->params[params.smode].ss_rpt_mode == 1) &&
 		    spectral->null_fftbin_adj) {
 			/*
 			 * No FFT bins are expected. Explicitly set FFT bin
@@ -1562,14 +1595,11 @@ target_if_consume_spectral_report_gen3(
 				 */
 				fft_bin_len >>= 2;
 			}
-			if ((spectral->params.ss_rpt_mode == 2) &&
+			if ((spectral->params[params.smode].ss_rpt_mode == 2) &&
 			    spectral->inband_fftbin_size_adj) {
 				fft_bin_len >>= 1;
 			}
 		}
-
-		target_if_process_sfft_report_gen3(p_fft_report, p_sfft);
-		detector_id = p_sfft->fft_detector_id;
 
 		if (report->reset_delay) {
 			spectral->timestamp_war_offset += (report->reset_delay +
@@ -1578,14 +1608,6 @@ target_if_consume_spectral_report_gen3(
 		tsf64 = p_sfft->timestamp;
 		spectral->last_fft_timestamp = p_sfft->timestamp;
 		tsf64 += spectral->timestamp_war_offset;
-
-		/* Agile detector is not supported */
-		if (detector_id >= SPECTRAL_DETECTOR_AGILE) {
-			spectral->diag_stats.spectral_invalid_detector_id++;
-			spectral_err("Invalid detector id %u, expected is 0",
-				     detector_id);
-			goto fail;
-		}
 
 		/* Take care of state transitions for 160 MHz and 80p80 */
 		if (spectral->ch_width == CH_WIDTH_160MHZ) {
@@ -1597,7 +1619,7 @@ target_if_consume_spectral_report_gen3(
 		}
 
 		if (spectral_debug_level & (DEBUG_SPECTRAL2 | DEBUG_SPECTRAL4))
-			target_if_dump_fft_report_gen3(spectral,
+			target_if_dump_fft_report_gen3(spectral, params.smode,
 						       p_fft_report, p_sfft);
 
 		params.rssi         = rssi;
@@ -1605,7 +1627,9 @@ target_if_consume_spectral_report_gen3(
 		vdev = target_if_spectral_get_vdev(spectral);
 		if (!vdev) {
 			spectral_info("First vdev is NULL");
-			reset_160mhz_delivery_state_machine(spectral);
+			reset_160mhz_delivery_state_machine
+						(spectral,
+						 SPECTRAL_SCAN_MODE_NORMAL);
 			return -EPERM;
 		}
 		vdev_rxchainmask = wlan_vdev_mlme_get_rxchainmask(vdev);
@@ -1638,37 +1662,18 @@ target_if_consume_spectral_report_gen3(
 		params.pwr_count         = fft_bin_len;
 		params.tstamp            = (tsf64 & SPECTRAL_TSMASK);
 	} else if (is_secondaryseg_expected(spectral)) {
-		/* Process Spectral scan summary report */
-		if (target_if_verify_sig_and_tag_gen3(
-				spectral, data,
-				TLV_TAG_SPECTRAL_SUMMARY_REPORT_GEN3) != 0) {
-			spectral_err_rl("Wrong tag/sig in sscan summary(1)");
-			goto fail;
-		}
-
-		detector_id = target_if_get_detector_id_sscan_report_gen3(data);
-		/* Agile detector is not supported */
-		if (detector_id >= SPECTRAL_DETECTOR_AGILE) {
-			spectral->diag_stats.spectral_invalid_detector_id++;
-			spectral_err("Invalid detector id %u, expected is 1",
-				     detector_id);
-			goto fail;
-		}
-		target_if_consume_sscan_report_gen3(spectral, data,
-						    &sscan_report_fields);
 		/* RSSI is in 1/2 dBm steps, Covert it to dBm scale */
 		rssi = (sscan_report_fields.inband_pwr_db) >> 1;
 		params.agc_total_gain_sec80 =
 			sscan_report_fields.sscan_agc_total_gain;
 		params.gainchange_sec80 = sscan_report_fields.sscan_gainchange;
-		/* Advance buf pointer to the search fft report */
-		data += sizeof(struct spectral_sscan_report_gen3);
 
 		/* Process Spectral search FFT report */
 		if (target_if_verify_sig_and_tag_gen3(
 				spectral, data,
 				TLV_TAG_SEARCH_FFT_REPORT_GEN3) != 0) {
-			spectral_err_rl("Unexpected tag/signature in sfft(1)");
+			spectral_err_rl("Unexpected tag/sig in sfft, detid= %u",
+					detector_id);
 			goto fail;
 		}
 		p_fft_report = (struct spectral_phyerr_fft_report_gen3 *)data;
@@ -1681,7 +1686,32 @@ target_if_consume_spectral_report_gen3(
 
 		report_len     = (fft_hdr_length + 8);
 
-		if ((spectral->params.ss_rpt_mode == 1) &&
+		target_if_process_sfft_report_gen3(p_fft_report, p_sfft);
+		/* It is expected to have same detector id for
+		 * summary and fft report
+		 */
+		if (detector_id != p_sfft->fft_detector_id) {
+			spectral_err_rl
+				("Different detid in ssummary(%u) and sfft(%u)",
+				 detector_id, p_sfft->fft_detector_id);
+			goto fail;
+		}
+
+		if (detector_id > SPECTRAL_DETECTOR_AGILE) {
+			spectral->diag_stats.spectral_invalid_detector_id++;
+			spectral_err("Invalid detector id %u, expected is 1",
+				     detector_id);
+			goto fail;
+		}
+
+		ret = target_if_get_spectral_mode(detector_id, &params.smode);
+		if (QDF_IS_STATUS_ERROR(ret)) {
+			spectral_err("Failed to get mode from detid= %u",
+				     detector_id);
+			goto fail;
+		}
+
+		if ((spectral->params[params.smode].ss_rpt_mode == 1) &&
 		    spectral->null_fftbin_adj) {
 			/*
 			 * No FFT bins are expected. Explicitly set FFT bin
@@ -1707,20 +1737,10 @@ target_if_consume_spectral_report_gen3(
 				fft_bin_len >>= 2;
 			}
 
-			if ((spectral->params.ss_rpt_mode == 2) &&
+			if ((spectral->params[params.smode].ss_rpt_mode == 2) &&
 			    spectral->inband_fftbin_size_adj) {
 				fft_bin_len >>= 1;
 			}
-		}
-
-		target_if_process_sfft_report_gen3(p_fft_report, p_sfft);
-		detector_id = p_sfft->fft_detector_id;
-		/* Agile detector is not supported */
-		if (detector_id >= SPECTRAL_DETECTOR_AGILE) {
-			spectral->diag_stats.spectral_invalid_detector_id++;
-			spectral_err("Invalid detector id %u, expected is 1",
-				     detector_id);
-			goto fail;
 		}
 
 		/* Take care of state transitions for 160 MHz and 80p80 */
@@ -1732,9 +1752,9 @@ target_if_consume_spectral_report_gen3(
 				goto fail;
 		}
 
-		if (spectral_debug_level &
-		    (DEBUG_SPECTRAL2 | DEBUG_SPECTRAL4))
-			target_if_dump_fft_report_gen3(spectral, p_fft_report, p_sfft);
+		if (spectral_debug_level & (DEBUG_SPECTRAL2 | DEBUG_SPECTRAL4))
+			target_if_dump_fft_report_gen3(spectral, params.smode,
+						       p_fft_report, p_sfft);
 
 		params.vhtop_ch_freq_seg1 = 0;
 		params.vhtop_ch_freq_seg2 = 0;
@@ -1744,7 +1764,9 @@ target_if_consume_spectral_report_gen3(
 		vdev = target_if_spectral_get_vdev(spectral);
 		if (!vdev) {
 			spectral_info("First vdev is NULL");
-			reset_160mhz_delivery_state_machine(spectral);
+			reset_160mhz_delivery_state_machine
+						(spectral,
+						 SPECTRAL_SCAN_MODE_NORMAL);
 			return -EPERM;
 		}
 		vdev_rxchainmask = wlan_vdev_mlme_get_rxchainmask(vdev);
@@ -1786,7 +1808,8 @@ target_if_consume_spectral_report_gen3(
 
  fail:
 	spectral_err_rl("Error while processing Spectral report");
-	reset_160mhz_delivery_state_machine(spectral);
+	reset_160mhz_delivery_state_machine(spectral,
+					    SPECTRAL_SCAN_MODE_NORMAL);
 	return -EPERM;
 }
 

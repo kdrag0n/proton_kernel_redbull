@@ -629,6 +629,7 @@ typedef enum {
  * @maxreqpower: Max regulatory power
  * @antennamac: Max antenna
  * @reg_class_id: Regulatory class id.
+ * @max_bw_supported: max BW supported
  */
 
 struct channel_param {
@@ -652,6 +653,7 @@ struct channel_param {
 	int8_t   maxregpower;
 	uint8_t  antennamax;
 	uint8_t  reg_class_id;
+	wmi_host_channel_width max_bw_supported;
 };
 
 #ifdef FEATURE_OEM_DATA
@@ -4851,6 +4853,9 @@ typedef enum {
 	wmi_pdev_interop_issues_ap_event_id,
 #endif
 	wmi_coex_report_antenna_isolation_event_id,
+	wmi_roam_auth_offload_event_id,
+	wmi_get_elna_bypass_event_id,
+	wmi_service_ready_ext2_event_id,
 	wmi_events_max,
 } wmi_conv_event_id;
 
@@ -5335,6 +5340,9 @@ typedef enum {
 	wmi_service_adaptive_11r_support,
 	wmi_service_data_stall_recovery_support,
 	wmi_service_tx_compl_tsf64,
+	wmi_service_sae_roam_support,
+	wmi_service_owe_roam_support,
+	wmi_service_ext2_msg,
 	wmi_services_max,
 } wmi_conv_service_ids;
 #define WMI_SERVICE_UNAVAILABLE 0xFFFF

@@ -145,18 +145,6 @@ enum spectral_detector_id {
 };
 
 /**
- * enum spectral_160mhz_report_delivery_event - 160 MHz state machine event
- * @SPECTRAL_REPORT_EVENT_DETECTORID0: Received detector id 0
- * @SPECTRAL_REPORT_EVENT_DETECTORID1: Received detector id 1
- * @SPECTRAL_REPORT_EVENT_DETECTORID_INVALID: Received invalid detector id
- */
-enum spectral_160mhz_report_delivery_event {
-	SPECTRAL_REPORT_EVENT_DETECTORID0,
-	SPECTRAL_REPORT_EVENT_DETECTORID1,
-	SPECTRAL_REPORT_EVENT_DETECTORID_INVALID,
-};
-
-/**
  * struct spectral_search_fft_info_gen2 - spectral search fft report for gen2
  * @relpwr_db:       Total bin power in db
  * @num_str_bins_ib: Number of strong bins
@@ -535,19 +523,26 @@ struct target_if_spectral_ops {
 		void *arg, enum spectral_capability_type type);
 	uint32_t (*set_rxfilter)(void *arg, int rxfilter);
 	uint32_t (*get_rxfilter)(void *arg);
-	uint32_t (*is_spectral_active)(void *arg);
-	uint32_t (*is_spectral_enabled)(void *arg);
-	uint32_t (*start_spectral_scan)(void *arg);
-	uint32_t (*stop_spectral_scan)(void *arg);
+	uint32_t (*is_spectral_active)(void *arg,
+				       enum spectral_scan_mode smode);
+	uint32_t (*is_spectral_enabled)(void *arg,
+					enum spectral_scan_mode smode);
+	uint32_t (*start_spectral_scan)(void *arg,
+					enum spectral_scan_mode smode,
+					enum spectral_cp_error_code *err);
+	uint32_t (*stop_spectral_scan)(void *arg,
+				       enum spectral_scan_mode smode);
 	uint32_t (*get_extension_channel)(void *arg);
 	int8_t    (*get_ctl_noisefloor)(void *arg);
 	int8_t    (*get_ext_noisefloor)(void *arg);
 	uint32_t (*configure_spectral)(
 			void *arg,
-			struct spectral_config *params);
+			struct spectral_config *params,
+			enum spectral_scan_mode smode);
 	uint32_t (*get_spectral_config)(
 			void *arg,
-			struct spectral_config *params);
+			struct spectral_config *params,
+			enum spectral_scan_mode smode);
 	uint32_t (*get_ent_spectral_mask)(void *arg);
 	uint32_t (*get_mac_address)(void *arg, char *addr);
 	uint32_t (*get_current_channel)(void *arg);
@@ -788,7 +783,7 @@ struct wmi_spectral_cmd_ops {
  * generation
  * @nl_cb: Netlink callbacks
  * @use_nl_bcast: Whether to use Netlink broadcast/unicast
- * @send_phy_data: Send data to the applicaton layer
+ * @send_phy_data: Send data to the application layer for a particular msg type
  * @inband_fftbin_size_adj: Whether to carry out FFT bin size adjustment for
  * in-band report format. This would be required on some chipsets under the
  * following circumstances: In report mode 2 only the in-band bins are DMA'ed.
@@ -861,8 +856,8 @@ struct target_if_spectral {
 	int                                     spectral_sent_msg;
 	int                                     classify_scan;
 	qdf_timer_t                             classify_timer;
-	struct spectral_config                  params;
-	bool                                    params_valid;
+	struct spectral_config params[SPECTRAL_SCAN_MODE_MAX];
+	bool params_valid[SPECTRAL_SCAN_MODE_MAX];
 	struct spectral_classifier_params       classifier_params;
 	int                                     last_capture_time;
 	int                                     num_spectral_data;
@@ -889,7 +884,8 @@ struct target_if_spectral {
 		*noise_pwr_chain_ext[HOST_MAX_ANTENNA];
 	uint64_t                               tsf64;
 #if ATH_PERF_PWR_OFFLOAD
-	struct target_if_spectral_param_state_info    param_info;
+	struct target_if_spectral_param_state_info
+					param_info[SPECTRAL_SCAN_MODE_MAX];
 #endif
 	uint32_t                               ch_width;
 	struct spectral_diag_stats              diag_stats;
@@ -908,7 +904,8 @@ struct target_if_spectral {
 	struct wmi_spectral_cmd_ops param_wmi_cmd_ops;
 	struct spectral_nl_cb nl_cb;
 	bool use_nl_bcast;
-	int (*send_phy_data)(struct wlan_objmgr_pdev *pdev);
+	int (*send_phy_data)(struct wlan_objmgr_pdev *pdev,
+			     enum spectral_msg_type smsg_type);
 	enum spectral_fftbin_size_war          fftbin_size_war;
 	u_int8_t                               inband_fftbin_size_adj;
 	u_int8_t                               null_fftbin_adj;
@@ -997,6 +994,7 @@ struct target_if_samp_msg_params {
 	uint8_t agc_total_gain_sec80;
 	uint8_t gainchange;
 	uint8_t gainchange_sec80;
+	enum spectral_scan_mode smode;
 };
 
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
@@ -1101,12 +1099,14 @@ void target_if_spectral_send_intf_found_msg(
 /**
  * target_if_stop_spectral_scan() - Stop spectral scan
  * @pdev: Pointer to pdev object
+ * @smode: Spectral scan mode
  *
  * API to stop the current on-going spectral scan
  *
- * Return: None
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-void target_if_stop_spectral_scan(struct wlan_objmgr_pdev *pdev);
+QDF_STATUS target_if_stop_spectral_scan(struct wlan_objmgr_pdev *pdev,
+					const enum spectral_scan_mode smode);
 
 /**
  * target_if_spectral_get_vdev() - Get pointer to vdev to be used for Spectral
@@ -1180,6 +1180,7 @@ int target_if_spectral_dump_phyerr_data_gen2(
 /**
  * target_if_dump_fft_report_gen3() - Dump FFT Report for gen3
  * @spectral: Pointer to Spectral object
+ * @smode: Spectral scan mode
  * @p_fft_report: Pointer to fft report
  * @p_sfft: Pointer to search fft report
  *
@@ -1188,8 +1189,9 @@ int target_if_spectral_dump_phyerr_data_gen2(
  * Return: Success/Failure
  */
 int target_if_dump_fft_report_gen3(struct target_if_spectral *spectral,
-	struct spectral_phyerr_fft_report_gen3 *p_fft_report,
-	struct spectral_search_fft_info_gen3 *p_sfft);
+		enum spectral_scan_mode smode,
+		struct spectral_phyerr_fft_report_gen3 *p_fft_report,
+		struct spectral_search_fft_info_gen3 *p_sfft);
 
 /**
  * target_if_dbg_print_samp_msg() - Print contents of SAMP Message
@@ -1324,10 +1326,16 @@ void target_if_spectral_set_rxchainmask(struct wlan_objmgr_pdev *pdev,
 {
 	struct wlan_objmgr_psoc *psoc = NULL;
 	struct target_if_spectral *spectral = NULL;
+	enum spectral_scan_mode smode = SPECTRAL_SCAN_MODE_NORMAL;
 
 	psoc = wlan_pdev_get_psoc(pdev);
 	if (!psoc) {
 		spectral_err("psoc is NULL");
+		return;
+	}
+
+	if (smode >= SPECTRAL_SCAN_MODE_MAX) {
+		spectral_err("Invalid Spectral mode %u", smode);
 		return;
 	}
 
@@ -1338,7 +1346,9 @@ void target_if_spectral_set_rxchainmask(struct wlan_objmgr_pdev *pdev,
 	}
 
 	spectral = get_target_if_spectral_handle_from_pdev(pdev);
-	spectral->params.ss_chn_mask = spectral_rx_chainmask;
+	/* set chainmask for all the modes */
+	for (; smode < SPECTRAL_SCAN_MODE_MAX; smode++)
+		spectral->params[smode].ss_chn_mask = spectral_rx_chainmask;
 }
 
 /**
@@ -1375,65 +1385,25 @@ void target_if_spectral_process_phyerr(
 					tsf64, acs_stats);
 }
 
-/**
- * save_spectral_report_skb() - Save Spectral report skb
- * @spectral: Pointer to Spectral
- * @skb: Pointer to skb
- *
- * Save spectral report skb
- *
- * Return: void
- */
-static inline void
-save_spectral_report_skb(struct target_if_spectral *spectral, void *skb) {
-	if (spectral->ch_width == CH_WIDTH_160MHZ)
-		spectral->spectral_report_cache = skb;
-}
+static QDF_STATUS
+target_if_get_spectral_msg_type(enum spectral_scan_mode smode,
+				enum spectral_msg_type *msg_type) {
 
-/**
- * restore_spectral_report_skb() - Restore Spectral report skb
- * @spectral: Pointer to Spectral
- * @skb: Pointer to restore location
- *
- * Restore spectral report skb
- *
- * Return: void
- */
-static inline void
-restore_spectral_report_skb(struct target_if_spectral *spectral, void **dest) {
-	if (spectral->ch_width == CH_WIDTH_160MHZ) {
-		QDF_ASSERT(spectral->spectral_report_cache);
-		*dest = spectral->spectral_report_cache;
+	switch (smode) {
+	case SPECTRAL_SCAN_MODE_NORMAL:
+		*msg_type = SPECTRAL_MSG_NORMAL_MODE;
+		break;
+
+	case SPECTRAL_SCAN_MODE_AGILE:
+		*msg_type = SPECTRAL_MSG_AGILE_MODE;
+		break;
+
+	default:
+		spectral_err("Invalid spectral mode");
+		return QDF_STATUS_E_FAILURE;
 	}
-}
 
-/**
- * clear_spectral_report_skb() - Clear Spectral report skb
- * @spectral: Pointer to Spectral
- *
- * Clear spectral report skb
- *
- * Return: void
- */
-static inline void
-clear_spectral_report_skb(struct target_if_spectral *spectral) {
-	if (spectral->ch_width == CH_WIDTH_160MHZ)
-		spectral->spectral_report_cache = NULL;
-}
-
-/**
- * free_and_clear_spectral_report_skb() - Free and clear Spectral report skb
- * @spectral: Pointer to Spectral
- *
- * Free and clear spectral report skb
- *
- * Return: void
- */
-static inline void
-free_and_clear_spectral_report_skb(struct target_if_spectral *spectral) {
-	if (spectral->spectral_report_cache)
-		spectral->nl_cb.free_nbuff(spectral->pdev_obj);
-	spectral->spectral_report_cache = NULL;
+	return QDF_STATUS_SUCCESS;
 }
 
 /**
@@ -1446,26 +1416,10 @@ free_and_clear_spectral_report_skb(struct target_if_spectral *spectral) {
  * Return: void
  */
 static inline void
-init_160mhz_delivery_state_machine(struct target_if_spectral *spectral) {
+init_160mhz_delivery_state_machine(struct target_if_spectral *spectral)
+{
 	spectral->state_160mhz_delivery =
 		SPECTRAL_REPORT_WAIT_PRIMARY80;
-	spectral->spectral_report_cache = NULL;
-}
-
-/**
- * deinit_160mhz_delivery_state_machine() - Deinitialize 160MHz Spectral
- *                                        state machine
- * @spectral: Pointer to Spectral
- *
- * Deinitialize 160MHz Spectral state machine
- *
- * Return: void
- */
-static inline void
-deinit_160mhz_delivery_state_machine(struct target_if_spectral *spectral) {
-	if (spectral->spectral_report_cache)
-		spectral->nl_cb.free_nbuff(spectral->pdev_obj);
-	spectral->spectral_report_cache = NULL;
 }
 
 /**
@@ -1477,11 +1431,24 @@ deinit_160mhz_delivery_state_machine(struct target_if_spectral *spectral) {
  * Return: void
  */
 static inline void
-reset_160mhz_delivery_state_machine(struct target_if_spectral *spectral) {
+reset_160mhz_delivery_state_machine(struct target_if_spectral *spectral,
+				    enum spectral_scan_mode smode)
+{
+	enum spectral_msg_type smsg_type;
+	QDF_STATUS ret;
+
 	if (spectral->ch_width == CH_WIDTH_160MHZ) {
 		spectral->state_160mhz_delivery =
 			SPECTRAL_REPORT_WAIT_PRIMARY80;
-		free_and_clear_spectral_report_skb(spectral);
+
+		ret = target_if_get_spectral_msg_type(smode, &smsg_type);
+		if (QDF_IS_STATUS_ERROR(ret)) {
+			spectral_err("Failed to reset 160 MHz state machine");
+			return;
+		}
+
+		spectral->nl_cb.free_sbuff(spectral->pdev_obj,
+					   smsg_type);
 	}
 }
 
@@ -1573,42 +1540,52 @@ target_if_160mhz_delivery_state_change(struct target_if_spectral *spectral,
 /**
  * target_if_sops_is_spectral_enabled() - Get whether Spectral is enabled
  * @arg: Pointer to handle for Spectral target_if internal private data
+ * @smode: Spectral scan mode
  *
  * Function to check whether Spectral is enabled
  *
  * Return: True if Spectral is enabled, false if Spectral is not enabled
  */
-uint32_t target_if_sops_is_spectral_enabled(void *arg);
+uint32_t target_if_sops_is_spectral_enabled(void *arg,
+					    enum spectral_scan_mode smode);
 
 /**
  * target_if_sops_is_spectral_active() - Get whether Spectral is active
  * @arg: Pointer to handle for Spectral target_if internal private data
+ * @smode: Spectral scan mode
  *
  * Function to check whether Spectral is active
  *
  * Return: True if Spectral is active, false if Spectral is not active
  */
-uint32_t target_if_sops_is_spectral_active(void *arg);
+uint32_t target_if_sops_is_spectral_active(void *arg,
+					   enum spectral_scan_mode smode);
 
 /**
  * target_if_sops_start_spectral_scan() - Start Spectral scan
  * @arg: Pointer to handle for Spectral target_if internal private data
+ * @smode: Spectral scan mode
+ * @err: Pointer to error code
  *
  * Function to start spectral scan
  *
  * Return: 0 on success else failure
  */
-uint32_t target_if_sops_start_spectral_scan(void *arg);
+uint32_t target_if_sops_start_spectral_scan(void *arg,
+					    enum spectral_scan_mode smode,
+					    enum spectral_cp_error_code *err);
 
 /**
  * target_if_sops_stop_spectral_scan() - Stop Spectral scan
  * @arg: Pointer to handle for Spectral target_if internal private data
+ * @smode: Spectral scan mode
  *
  * Function to stop spectral scan
  *
  * Return: 0 in case of success, -1 on failure
  */
-uint32_t target_if_sops_stop_spectral_scan(void *arg);
+uint32_t target_if_sops_stop_spectral_scan(void *arg,
+					   enum spectral_scan_mode smode);
 
 /**
  * target_if_spectral_get_extension_channel() - Get the current Extension
@@ -1705,11 +1682,13 @@ uint32_t target_if_spectral_set_rxfilter(void *arg, int rxfilter);
  * parameters
  * @arg: Pointer to handle for Spectral target_if internal private data
  * @params: Spectral parameters
+ * @smode: Spectral scan mode
  *
  * Return: 0 in case of success, -1 on failure
  */
 uint32_t target_if_spectral_sops_configure_params(
-				void *arg, struct spectral_config *params);
+				void *arg, struct spectral_config *params,
+				enum spectral_scan_mode smode);
 
 /**
  * target_if_spectral_get_rxfilter() - Get the current RX Filter settings
@@ -1736,14 +1715,18 @@ void target_if_pdev_spectral_deinit(struct wlan_objmgr_pdev *pdev);
  * @pdev:       Pointer to pdev object
  * @threshtype: config type
  * @value:      config value
+ * @smode: Spectral scan mode
+ * @err: Pointer to Spectral error code
  *
  * API to set spectral configurations
  *
- * Return: 0 in case of success, -1 on failure
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-int target_if_set_spectral_config(struct wlan_objmgr_pdev *pdev,
-					const uint32_t threshtype,
-					const uint32_t value);
+QDF_STATUS target_if_set_spectral_config(struct wlan_objmgr_pdev *pdev,
+					 const uint32_t threshtype,
+					 const uint32_t value,
+					 const enum spectral_scan_mode smode,
+					 enum spectral_cp_error_code *err);
 
 /**
  * target_if_pdev_spectral_init() - Initialize target_if Spectral
@@ -1760,11 +1743,13 @@ void *target_if_pdev_spectral_init(struct wlan_objmgr_pdev *pdev);
  * parameters
  * @arg: Pointer to handle for Spectral target_if internal private data
  * @params: Pointer to buffer into which Spectral parameters should be copied
+ * @smode: Spectral scan mode
  *
  * Return: 0 in case of success, -1 on failure
  */
 uint32_t target_if_spectral_sops_get_params(
-			void *arg, struct spectral_config *params);
+			void *arg, struct spectral_config *params,
+			enum spectral_scan_mode smode);
 
 /**
  * target_if_init_spectral_capability() - Initialize Spectral capability
@@ -1780,31 +1765,39 @@ target_if_init_spectral_capability(struct target_if_spectral *spectral);
 /**
  * target_if_start_spectral_scan() - Start spectral scan
  * @pdev: Pointer to pdev object
+ * @smode: Spectral scan mode
+ * @err: Spectral error code
  *
  * API to start spectral scan
  *
- * Return: 0 in case of success, -1 on failure
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-int target_if_start_spectral_scan(struct wlan_objmgr_pdev *pdev);
+QDF_STATUS target_if_start_spectral_scan(struct wlan_objmgr_pdev *pdev,
+					 enum spectral_scan_mode smode,
+					 enum spectral_cp_error_code *err);
 
 /**
  * target_if_get_spectral_config() - Get spectral configuration
  * @pdev: Pointer to pdev object
  * @param: Pointer to spectral_config structure in which the configuration
  * should be returned
+ * @smode: Spectral scan mode
  *
  * API to get the current spectral configuration
  *
- * Return: 0 in case of success, -1 on failure
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-void target_if_get_spectral_config(struct wlan_objmgr_pdev *pdev,
-					  struct spectral_config *param);
+QDF_STATUS target_if_get_spectral_config(struct wlan_objmgr_pdev *pdev,
+					 struct spectral_config *param,
+					 enum spectral_scan_mode smode);
 
 /**
  * target_if_spectral_scan_enable_params() - Enable use of desired Spectral
  *                                           parameters
  * @spectral: Pointer to Spectral target_if internal private data
  * @spectral_params: Pointer to Spectral parameters
+ * @smode: Spectral scan mode
+ * @err: Spectral error code
  *
  * Enable use of desired Spectral parameters by configuring them into HW, and
  * starting Spectral scan
@@ -1812,32 +1805,40 @@ void target_if_get_spectral_config(struct wlan_objmgr_pdev *pdev,
  * Return: 0 on success, 1 on failure
  */
 int target_if_spectral_scan_enable_params(
-		struct target_if_spectral *spectral, struct spectral_config *spectral_params);
+		struct target_if_spectral *spectral,
+		struct spectral_config *spectral_params,
+		enum spectral_scan_mode smode,
+		enum spectral_cp_error_code *err);
 
 /**
  * target_if_is_spectral_active() - Get whether Spectral is active
  * @pdev: Pointer to pdev object
+ * @smode: Spectral scan mode
  *
  * Return: True if Spectral is active, false if Spectral is not active
  */
-bool target_if_is_spectral_active(struct wlan_objmgr_pdev *pdev);
+bool target_if_is_spectral_active(struct wlan_objmgr_pdev *pdev,
+				  enum spectral_scan_mode smode);
 
 /**
  * target_if_is_spectral_enabled() - Get whether Spectral is enabled
  * @pdev: Pointer to pdev object
+ * @smode: Spectral scan mode
  *
  * Return: True if Spectral is enabled, false if Spectral is not enabled
  */
-bool target_if_is_spectral_enabled(struct wlan_objmgr_pdev *pdev);
+bool target_if_is_spectral_enabled(struct wlan_objmgr_pdev *pdev,
+				   enum spectral_scan_mode smode);
 
 /**
  * target_if_set_debug_level() - Set debug level for Spectral
  * @pdev: Pointer to pdev object
  * @debug_level: Debug level
  *
- * Return: 0 in case of success
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
+ *
  */
-int target_if_set_debug_level(struct wlan_objmgr_pdev *pdev,
+QDF_STATUS target_if_set_debug_level(struct wlan_objmgr_pdev *pdev,
 				     uint32_t debug_level);
 
 /**
@@ -1852,37 +1853,23 @@ uint32_t target_if_get_debug_level(struct wlan_objmgr_pdev *pdev);
 /**
  * target_if_get_spectral_capinfo() - Get Spectral capability information
  * @pdev: Pointer to pdev object
- * @outdata: Buffer into which data should be copied
+ * @scaps: Buffer into which data should be copied
  *
- * Return: void
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-void target_if_get_spectral_capinfo(
-	struct wlan_objmgr_pdev *pdev,
-	 void *outdata);
+QDF_STATUS target_if_get_spectral_capinfo(struct wlan_objmgr_pdev *pdev,
+					  struct spectral_caps *scaps);
 
 
 /**
  * target_if_get_spectral_diagstats() - Get Spectral diagnostic statistics
  * @pdev:  Pointer to pdev object
- * @outdata: Buffer into which data should be copied
+ * @stats: Buffer into which data should be copied
  *
- * Return: void
+ * Return: QDF_STATUS_SUCCESS in case of success, else QDF_STATUS_E_FAILURE
  */
-void target_if_get_spectral_diagstats(struct wlan_objmgr_pdev *pdev,
-					     void *outdata);
-
-/*
- * target_if_spectral_send_tlv_to_host - target_if_spectral_send_tlv_to_host
- * @spectral: Send the TLV information to Host
- * @data: Pointer to the TLV
- * @datalen: tlv length
- *
- * Return: Success/Failure
- *
- */
-int target_if_spectral_send_tlv_to_host(
-	struct target_if_spectral *spectral,
-	 uint8_t *data, uint32_t datalen);
+QDF_STATUS target_if_get_spectral_diagstats(struct wlan_objmgr_pdev *pdev,
+					    struct spectral_diag_stats *stats);
 
 void target_if_register_wmi_spectral_cmd_ops(
 	struct wlan_objmgr_pdev *pdev,

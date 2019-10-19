@@ -32,6 +32,10 @@
 #include "qdf_atomic.h"
 #include <wbuff.h>
 
+#ifdef WLAN_FW_OFFLOAD
+#include "wlan_fwol_public_structs.h"
+#endif
+
 #ifdef DFS_COMPONENT_ENABLE
 #include <wlan_dfs_public_struct.h>
 #endif
@@ -594,6 +598,9 @@ QDF_STATUS (*send_disconnect_roam_params)(
 
 QDF_STATUS (*send_idle_roam_params)(wmi_unified_t wmi_handle,
 				    struct wmi_idle_roam_params *req);
+
+QDF_STATUS (*send_roam_preauth_status)(wmi_unified_t wmi_handle,
+				struct wmi_roam_auth_status_params *params);
 
 QDF_STATUS (*send_btm_config)(wmi_unified_t wmi_handle,
 			      struct wmi_btm_config *params);
@@ -1648,9 +1655,15 @@ QDF_STATUS (*send_peer_rx_reorder_queue_setup_cmd)(wmi_unified_t wmi_handle,
 QDF_STATUS (*send_peer_rx_reorder_queue_remove_cmd)(wmi_unified_t wmi_handle,
 		struct rx_reorder_queue_remove_params *param);
 
-QDF_STATUS (*extract_service_ready_ext)(wmi_unified_t wmi_handle,
+QDF_STATUS (*extract_service_ready_ext)(
+			wmi_unified_t wmi_handle,
 			uint8_t *evt_buf,
 			struct wlan_psoc_host_service_ext_param *param);
+
+QDF_STATUS (*extract_service_ready_ext2)(
+			wmi_unified_t wmi_handle,
+			uint8_t *evt_buf,
+			struct wlan_psoc_host_service_ext2_param *param);
 
 QDF_STATUS (*extract_hw_mode_cap_service_ready_ext)(
 			wmi_unified_t wmi_handle,
@@ -1973,6 +1986,19 @@ QDF_STATUS (*send_mws_coex_status_req_cmd)(wmi_unified_t wmi_handle,
 QDF_STATUS (*set_rx_pkt_type_routing_tag_cmd)(
 	wmi_unified_t wmi_hdl, struct wmi_rx_pkt_protocol_routing_info *param);
 #endif /* WLAN_SUPPORT_RX_PROTOCOL_TYPE_TAG */
+
+QDF_STATUS (*send_set_roam_trigger_cmd)(wmi_unified_t wmi_handle,
+					uint32_t vdev_id,
+					uint32_t trigger_bitmap);
+#ifdef WLAN_FEATURE_ELNA
+QDF_STATUS (*send_set_elna_bypass_cmd)(wmi_unified_t wmi_handle,
+				       struct set_elna_bypass_request *req);
+QDF_STATUS (*send_get_elna_bypass_cmd)(wmi_unified_t wmi_handle,
+				       struct get_elna_bypass_request *req);
+QDF_STATUS (*extract_get_elna_bypass_resp)(wmi_unified_t wmi_handle,
+					 void *resp_buf,
+					 struct get_elna_bypass_response *resp);
+#endif /* WLAN_FEATURE_ELNA */
 };
 
 /* Forward declartion for psoc*/
@@ -2352,6 +2378,20 @@ void wmi_blacklist_mgr_attach_tlv(struct wmi_unified *wmi_handle)
 void wmi_sta_attach_tlv(struct wmi_unified *wmi_handle);
 #else
 static inline void wmi_sta_attach_tlv(struct wmi_unified *wmi_handle)
+{
+}
+#endif
+
+/**
+ * wmi_fwol_attach_tlv() - attach fw offload tlv handlers
+ * @wmi_handle: wmi handle
+ *
+ * Return: void
+ */
+#ifdef WLAN_FW_OFFLOAD
+void wmi_fwol_attach_tlv(wmi_unified_t wmi_handle);
+#else
+static inline void wmi_fwol_attach_tlv(wmi_unified_t wmi_handle)
 {
 }
 #endif

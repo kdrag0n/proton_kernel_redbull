@@ -391,6 +391,7 @@ struct cdp_cmn_ops {
 
 	int(*txrx_soc_get_nss_cfg)(ol_txrx_soc_handle soc);
 	QDF_STATUS (*txrx_intr_attach)(void *soc);
+	void (*set_intr_mode)(struct cdp_soc_t *soc);
 	void (*txrx_intr_detach)(void *soc);
 	void  (*set_pn_check)(struct cdp_vdev *vdev,
 		struct cdp_peer *peer_handle, enum cdp_sec_type sec_type,
@@ -971,6 +972,7 @@ struct ol_if_ops {
 						uint32_t flags);
 
 	bool (*is_roam_inprogress)(uint32_t vdev_id);
+	enum QDF_GLOBAL_MODE (*get_con_mode)(void);
 	/* TODO: Add any other control path calls required to OL_IF/WMA layer */
 };
 

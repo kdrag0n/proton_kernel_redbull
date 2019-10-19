@@ -139,6 +139,8 @@ struct roam_offload_scan_rssi_params {
  * roam_scan_inactivity_time.
  * @roam_scan_period_after_inactivity: Roam scan period in ms after device is
  * in inactive state.
+ * @full_scan_period: Full scan period is the idle period in seconds
+ * between two successive full channel roam scans.
  */
 struct roam_scan_period_params {
 	uint32_t vdev_id;
@@ -147,6 +149,7 @@ struct roam_scan_period_params {
 	uint32_t roam_scan_inactivity_time;
 	uint32_t roam_inactive_data_packet_count;
 	uint32_t roam_scan_period_after_inactivity;
+	uint32_t full_scan_period;
 };
 
 /**
@@ -394,7 +397,8 @@ struct param_slot_scoring {
  * @rssi_scoring: RSSI scoring information.
  * @esp_qbss_scoring: ESP/QBSS scoring percentage information
  * @oce_wan_scoring: OCE WAN metrics percentage information
-*/
+ * @vendor_roam_score_algorithm: Prefered algorithm for roam candidate selection
+ */
 struct scoring_param {
 	uint32_t disable_bitmap;
 	int32_t rssi_weightage;
@@ -413,6 +417,7 @@ struct scoring_param {
 	uint32_t nss_index_score;
 	uint32_t roam_score_delta;
 	uint32_t roam_trigger_bitmap;
+	uint32_t vendor_roam_score_algorithm;
 	struct rssi_scoring rssi_scoring;
 	struct param_slot_scoring esp_qbss_scoring;
 	struct param_slot_scoring oce_wan_scoring;
@@ -689,6 +694,24 @@ struct wmi_disconnect_roam_params {
 };
 
 /**
+ * struct wmi_roam_auth_status_params - WPA3 roam auth response status
+ * parameters
+ * @vdev_id: Vdev on which roam preauth is happening
+ * @preauth_status: Status of the Auth response.
+ *      IEEE80211_STATUS_SUCCESS(0) for success. Corresponding
+ *      IEEE80211 failure status code for failure.
+ *
+ * @bssid: Candidate BSSID
+ * @pmkid: PMKID derived for the auth
+ */
+struct wmi_roam_auth_status_params {
+	uint32_t vdev_id;
+	uint32_t preauth_status;
+	struct qdf_mac_addr bssid;
+	uint8_t pmkid[PMKID_LEN];
+};
+
+/**
  * @time_offset: time offset after 11k offload command to trigger a neighbor
  *	report request (in seconds)
  * @low_rssi_offset: Offset from rssi threshold to trigger a neighbor
@@ -738,6 +761,52 @@ struct wmi_invoke_neighbor_report_params {
 	uint32_t vdev_id;
 	uint32_t send_resp_to_host;
 	struct mac_ssid ssid;
+};
+
+/**
+ * enum roam_control_trigger_reason - Bitmap of roaming triggers
+ *
+ * @ROAM_TRIGGER_REASON_PER: Set if the roam has to be triggered based on
+ *     a bad packet error rates (PER).
+ * @ROAM_TRIGGER_REASON_BEACON_MISS: Set if the roam has to be triggered
+ *     based on beacon misses from the connected AP.
+ * @ROAM_TRIGGER_REASON_POOR_RSSI: Set if the roam has to be triggered
+ *     due to poor RSSI of the connected AP.
+ * @ROAM_TRIGGER_REASON_BETTER_RSSI: Set if the roam has to be triggered
+ *     upon finding a BSSID with a better RSSI than the connected BSSID.
+ *     Here the RSSI of the current BSSID need not be poor.
+ * @ROAM_TRIGGER_REASON_PERIODIC: Set if the roam has to be triggered
+ *     by triggering a periodic scan to find a better AP to roam.
+ * @ROAM_TRIGGER_REASON_DENSE: Set if the roam has to be triggered
+ *     when the connected channel environment is too noisy/congested.
+ * @ROAM_TRIGGER_REASON_BTM: Set if the roam has to be triggered
+ *     when BTM Request frame is received from the connected AP.
+ * @ROAM_TRIGGER_REASON_BSS_LOAD: Set if the roam has to be triggered
+ *     when the channel utilization is goes above the configured threshold.
+ *
+ * Set the corresponding roam trigger reason bit to consider it for roam
+ * trigger.
+ */
+enum roam_control_trigger_reason {
+	ROAM_CONTROL_TRIGGER_REASON_PER			= 1 << 0,
+	ROAM_CONTROL_TRIGGER_REASON_BEACON_MISS		= 1 << 1,
+	ROAM_CONTROL_TRIGGER_REASON_POOR_RSSI		= 1 << 2,
+	ROAM_CONTROL_TRIGGER_REASON_BETTER_RSSI		= 1 << 3,
+	ROAM_CONTROL_TRIGGER_REASON_PERIODIC		= 1 << 4,
+	ROAM_CONTROL_TRIGGER_REASON_DENSE		= 1 << 5,
+	ROAM_CONTROL_TRIGGER_REASON_BTM			= 1 << 6,
+	ROAM_CONTROL_TRIGGER_REASON_BSS_LOAD		= 1 << 7,
+};
+
+/**
+ * struct roam_triggers - vendor configured roam triggers
+ * @vdev_id: vdev id
+ * @trigger_bitmap: vendor configured roam trigger bitmap as
+ *		    defined @enum roam_control_trigger_reason
+ */
+struct roam_triggers {
+	uint32_t vdev_id;
+	uint32_t trigger_bitmap;
 };
 
 #endif /* _WMI_UNIFIED_ROAM_PARAM_H_ */
