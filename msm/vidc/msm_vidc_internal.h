@@ -53,6 +53,7 @@
 #define DCVS_FTB_WINDOW 16
 /* Superframe can have maximum of 32 frames */
 #define VIDC_SUPERFRAME_MAX 32
+#define COLOR_RANGE_UNSPECIFIED (-1)
 
 #define V4L2_EVENT_VIDC_BASE  10
 #define INPUT_MPLANE V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
@@ -186,6 +187,7 @@ struct recon_buf {
 struct eos_buf {
 	struct list_head list;
 	struct msm_smem smem;
+	u32 is_queued;
 };
 
 struct internal_buf {
@@ -207,7 +209,6 @@ struct msm_vidc_buf_data {
 	u32 index;
 	u32 input_tag;
 	u32 input_tag2;
-	u32 filled_length;
 };
 
 struct msm_vidc_window_data {
@@ -272,6 +273,7 @@ enum vpu_version {
 	VPU_VERSION_AR50 = 1,
 	VPU_VERSION_IRIS1,
 	VPU_VERSION_IRIS2,
+	VPU_VERSION_AR50_LITE,
 };
 
 struct msm_vidc_ubwc_config_data {
@@ -346,15 +348,7 @@ struct msm_video_device {
 	struct video_device vdev;
 };
 
-struct session_crop {
-	u32 left;
-	u32 top;
-	u32 width;
-	u32 height;
-};
-
 struct session_prop {
-	struct session_crop crop_info;
 	u32 fps;
 	u32 bitrate;
 	bool bframe_changed;
@@ -394,10 +388,6 @@ enum dcvs_flags {
 
 struct clock_data {
 	int buffer_counter;
-	u64 load;
-	u64 load_low;
-	u64 load_norm;
-	u64 load_high;
 	int min_threshold;
 	int nom_threshold;
 	int max_threshold;
@@ -424,6 +414,7 @@ struct clock_data {
 };
 
 struct vidc_bus_vote_data {
+	u32 sid;
 	enum hal_domain domain;
 	enum hal_video_codec codec;
 	enum hal_uncompressed_format color_formats[2];
@@ -514,12 +505,12 @@ struct msm_vidc_inst {
 	struct msm_vidc_core *core;
 	enum session_type session_type;
 	void *session;
+	u32 sid;
 	struct msm_cvp_external *cvp;
 	struct session_prop prop;
 	enum instance_state state;
 	struct msm_vidc_format fmts[MAX_PORT_NUM];
 	struct buf_queue bufq[MAX_PORT_NUM];
-	struct msm_vidc_list freqs;
 	struct msm_vidc_list input_crs;
 	struct msm_vidc_list scratchbufs;
 	struct msm_vidc_list persistbufs;
@@ -537,7 +528,6 @@ struct msm_vidc_inst {
 	struct vidc_frame_data superframe_data[VIDC_SUPERFRAME_MAX];
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct completion completions[SESSION_MSG_END - SESSION_MSG_START + 1];
-	struct v4l2_ctrl **cluster;
 	struct v4l2_fh event_handler;
 	struct msm_smem *extradata_handle;
 	bool in_reconfig;
@@ -578,14 +568,11 @@ struct msm_vidc_inst {
 	int (*buffer_size_calculators)(struct msm_vidc_inst *inst);
 	bool all_intra;
 	bool is_perf_eligible_session;
+	u32 max_filled_len;
+	int full_range;
 };
 
 extern struct msm_vidc_drv *vidc_driver;
-
-struct msm_vidc_ctrl_cluster {
-	struct v4l2_ctrl **cluster;
-	struct list_head list;
-};
 
 struct msm_vidc_ctrl {
 	u32 id;
@@ -631,18 +618,19 @@ struct msm_vidc_cvp_buffer {
 void msm_comm_handle_thermal_event(void);
 int msm_smem_alloc(size_t size, u32 align, u32 flags,
 	enum hal_buffer buffer_type, int map_kernel,
-	void  *res, u32 session_type, struct msm_smem *smem);
-int msm_smem_free(struct msm_smem *smem);
+	void  *res, u32 session_type, struct msm_smem *smem, u32 sid);
+int msm_smem_free(struct msm_smem *smem, u32 sid);
 
 struct context_bank_info *msm_smem_get_context_bank(u32 session_type,
 	bool is_secure, struct msm_vidc_platform_resources *res,
-	enum hal_buffer buffer_type);
+	enum hal_buffer buffer_type, u32 sid);
 int msm_smem_map_dma_buf(struct msm_vidc_inst *inst, struct msm_smem *smem);
 int msm_smem_unmap_dma_buf(struct msm_vidc_inst *inst, struct msm_smem *smem);
-struct dma_buf *msm_smem_get_dma_buf(int fd);
-void msm_smem_put_dma_buf(void *dma_buf);
+struct dma_buf *msm_smem_get_dma_buf(int fd, u32 sid);
+void msm_smem_put_dma_buf(void *dma_buf, u32 sid);
 int msm_smem_cache_operations(struct dma_buf *dbuf,
-	enum smem_cache_ops cache_op, unsigned long offset, unsigned long size);
+	enum smem_cache_ops cache_op, unsigned long offset,
+	unsigned long size, u32 sid);
 void msm_vidc_fw_unload_handler(struct work_struct *work);
 void msm_vidc_ssr_handler(struct work_struct *work);
 /*
