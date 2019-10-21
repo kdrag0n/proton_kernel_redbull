@@ -70,10 +70,18 @@ static int dsi_backlight_update_dcs(struct dsi_backlight_config *bl, u32 bl_lvl)
 	dsi = &panel->mipi_device;
 
 	num_params = bl->bl_max_level > 0xFF ? 2 : 1;
-	if ((num_params == 2) && (bl->big_endian))
-		brightness = cpu_to_be16(bl_lvl);
-	else
+	if (num_params == 2) {
+		const u32 hbyte = bl->high_byte_offset;
+		/* update bit assignment according to high byte offset */
+		brightness = ((bl_lvl >> hbyte) << 8) |
+			     ((BIT(hbyte) - 1) & bl_lvl);
+		/* update byte order according to endianness */
+		if (bl->big_endian)
+			brightness = cpu_to_be16(brightness);
+	} else {
 		brightness = (u16)bl_lvl;
+	}
+
 	rc = mipi_dsi_dcs_set_display_brightness(dsi, brightness, num_params);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
@@ -1065,6 +1073,16 @@ int dsi_panel_bl_parse_config(struct device *parent, struct dsi_backlight_config
 
 	bl->big_endian = utils->read_bool(utils->data,
 					"google,dsi-bl-cmd-big-endian");
+
+	rc = utils->read_u32(utils->data, "google,dsi-bl-cmd-high-byte-offset",
+		&val);
+	if (rc) {
+		pr_debug("[%s] dsi-bl-cmd-high-byte-offset unspecified, defaulting to 8\n",
+			 panel->name);
+		bl->high_byte_offset = 8;
+	} else {
+		bl->high_byte_offset = val;
+	}
 
 	bl->en_gpio = utils->get_named_gpio(utils->data,
 					      "qcom,platform-bklight-en-gpio",
