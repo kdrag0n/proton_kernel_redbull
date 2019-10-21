@@ -703,7 +703,7 @@ static const struct of_device_id cam_req_mgr_dt_match[] = {
 	{.compatible = "qcom,cam-req-mgr"},
 	{}
 };
-MODULE_DEVICE_TABLE(of, cam_dt_match);
+MODULE_DEVICE_TABLE(of, cam_req_mgr_dt_match);
 
 static struct platform_driver cam_req_mgr_driver = {
 	.probe = cam_req_mgr_probe,
