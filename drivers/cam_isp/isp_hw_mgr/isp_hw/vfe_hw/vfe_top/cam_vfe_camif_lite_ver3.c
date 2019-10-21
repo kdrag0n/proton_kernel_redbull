@@ -225,7 +225,7 @@ int cam_vfe_camif_lite_ver3_acquire_resource(
 	camif_lite_data->sync_mode   = acquire_data->vfe_in.sync_mode;
 	camif_lite_data->event_cb    = acquire_data->event_cb;
 	camif_lite_data->priv        = acquire_data->priv;
-
+	camif_lite_res->rdi_only_ctx = 0;
 	CAM_DBG(CAM_ISP, "Acquired VFE:%d CAMIF LITE:%d sync_mode=%d",
 		camif_lite_res->hw_intf->hw_idx,
 		camif_lite_res->res_id,
@@ -294,10 +294,6 @@ static int cam_vfe_camif_lite_resource_start(
 		rsrc_data->camif_lite_reg->lite_epoch_irq);
 
 skip_core_cfg:
-	/* Enable Camif */
-	cam_io_w_mb(0x1,
-		rsrc_data->mem_base +
-		rsrc_data->camif_lite_reg->lite_module_config);
 
 	camif_lite_res->res_state = CAM_ISP_RESOURCE_STATE_STREAMING;
 
