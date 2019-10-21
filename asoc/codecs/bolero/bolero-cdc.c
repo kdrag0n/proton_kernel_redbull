@@ -504,6 +504,8 @@ int bolero_register_macro(struct device *dev, u16 macro_id,
 	if (macro_id == TX_MACRO) {
 		priv->macro_params[macro_id].reg_wake_irq = ops->reg_wake_irq;
 		priv->macro_params[macro_id].clk_switch = ops->clk_switch;
+		priv->macro_params[macro_id].reg_evt_listener =
+							ops->reg_evt_listener;
 	}
 
 	priv->num_dais += ops->num_dais;
@@ -567,6 +569,7 @@ void bolero_unregister_macro(struct device *dev, u16 macro_id)
 	if (macro_id == TX_MACRO) {
 		priv->macro_params[macro_id].reg_wake_irq = NULL;
 		priv->macro_params[macro_id].clk_switch = NULL;
+		priv->macro_params[macro_id].reg_evt_listener = NULL;
 	}
 
 	priv->num_dais -= priv->macro_params[macro_id].num_dais;
@@ -577,6 +580,29 @@ void bolero_unregister_macro(struct device *dev, u16 macro_id)
 		snd_soc_unregister_component(dev->parent);
 }
 EXPORT_SYMBOL(bolero_unregister_macro);
+
+void bolero_wsa_pa_on(struct device *dev)
+{
+	struct bolero_priv *priv;
+
+	if (!dev) {
+		pr_err("%s: dev is null\n", __func__);
+		return;
+	}
+	if (!bolero_is_valid_child_dev(dev)) {
+		dev_err(dev, "%s: not a valid child dev\n",
+			__func__);
+		return;
+	}
+	priv = dev_get_drvdata(dev->parent);
+	if (!priv) {
+		dev_err(dev, "%s: priv is null\n", __func__);
+		return;
+	}
+
+	bolero_cdc_notifier_call(priv, BOLERO_WCD_EVT_PA_ON_POST_FSCLK);
+}
+EXPORT_SYMBOL(bolero_wsa_pa_on);
 
 static ssize_t bolero_version_read(struct snd_info_entry *entry,
 				   void *file_private_data,
@@ -635,7 +661,11 @@ static int bolero_ssr_enable(struct device *dev, void *data)
 	priv->dev_up = true;
 	mutex_unlock(&priv->clk_lock);
 	regcache_mark_dirty(priv->regmap);
+	bolero_clk_rsc_enable_all_clocks(priv->clk_dev, true);
 	regcache_sync(priv->regmap);
+	/* Add a 100usec sleep to ensure last register write is done */
+	usleep_range(100,110);
+	bolero_clk_rsc_enable_all_clocks(priv->clk_dev, false);
 	/* call ssr event for supported macros */
 	for (macro_idx = START_MACRO; macro_idx < MAX_MACRO; macro_idx++) {
 		if (!priv->macro_params[macro_idx].event_handler)
@@ -802,6 +832,41 @@ int bolero_tx_clk_switch(struct snd_soc_component *component)
 	return ret;
 }
 EXPORT_SYMBOL(bolero_tx_clk_switch);
+
+/**
+ * bolero_register_event_listener - Register/Deregister to event listener
+ *
+ * @component: pointer to codec component instance.
+ * @enable: when set to 1 registers to event listener otherwise, derigisters
+ *          from the event listener
+ *
+ * Returns 0 on success or -EINVAL on error.
+ */
+int bolero_register_event_listener(struct snd_soc_component *component,
+				   bool enable)
+{
+	struct bolero_priv *priv = NULL;
+	int ret = 0;
+
+	if (!component)
+		return -EINVAL;
+
+	priv = snd_soc_component_get_drvdata(component);
+	if (!priv)
+		return -EINVAL;
+
+	if (!bolero_is_valid_codec_dev(priv->dev)) {
+		dev_err(component->dev, "%s: invalid codec\n", __func__);
+		return -EINVAL;
+	}
+
+	if (priv->macro_params[TX_MACRO].reg_evt_listener)
+		ret = priv->macro_params[TX_MACRO].reg_evt_listener(component,
+								    enable);
+
+	return ret;
+}
+EXPORT_SYMBOL(bolero_register_event_listener);
 
 static int bolero_soc_codec_probe(struct snd_soc_component *component)
 {
@@ -1118,6 +1183,21 @@ int bolero_runtime_suspend(struct device *dev)
 	return 0;
 }
 EXPORT_SYMBOL(bolero_runtime_suspend);
+
+bool bolero_check_core_votes(struct device *dev)
+{
+	struct bolero_priv *priv = dev_get_drvdata(dev->parent);
+	bool ret = true;
+
+	mutex_lock(&priv->vote_lock);
+	if ((priv->lpass_core_hw_vote && !priv->core_hw_vote_count) ||
+		(priv->lpass_audio_hw_vote && !priv->core_audio_vote_count))
+		ret = false;
+	mutex_unlock(&priv->vote_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(bolero_check_core_votes);
 
 static const struct of_device_id bolero_dt_match[] = {
 	{.compatible = "qcom,bolero-codec"},
