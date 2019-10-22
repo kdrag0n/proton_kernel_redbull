@@ -16,6 +16,7 @@
 #include <linux/of_platform.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/msm-bus.h>
 
 #include <soc/qcom/rpmh.h>
 #include <drm/drmP.h>
@@ -36,10 +37,11 @@
 /**
  * rsc_min_threshold will be set to MIN_THRESHOLD_OVERHEAD_TIME which
  * takes into account back off time + overhead from RSC/RSC_WRAPPER. The
- * overhead buffer time is required to be greater than 14. For measure,
- * this value assumes 18.
+ * overhead buffer time is required to be greater than 14. Program it
+ * with a higher value (3.3 ms), so it has sufficient time to complete
+ * the sequence in rare cases.
  */
-#define MIN_THRESHOLD_OVERHEAD_TIME	18
+#define MIN_THRESHOLD_OVERHEAD_TIME	64
 
 #define DEFAULT_PANEL_FPS		60
 #define DEFAULT_PANEL_JITTER_NUMERATOR	2
@@ -1317,6 +1319,7 @@ static int sde_rsc_runtime_suspend(struct device *dev)
 {
 	struct sde_rsc_priv *rsc = dev_get_drvdata(dev);
 	struct dss_module_power *mp;
+	u32 reg_bus_hdl;
 
 	if (!rsc) {
 		pr_err("invalid drv data\n");
@@ -1325,6 +1328,10 @@ static int sde_rsc_runtime_suspend(struct device *dev)
 
 	mp = &rsc->phandle.mp;
 	msm_dss_enable_clk(mp->clk_config, mp->num_clk, false);
+	reg_bus_hdl = rsc->phandle.reg_bus_hdl;
+	if (reg_bus_hdl)
+		msm_bus_scale_client_update_request(reg_bus_hdl,
+				VOTE_INDEX_DISABLE);
 	msm_dss_enable_vreg(mp->vreg_config, mp->num_vreg, false);
 
 	return 0;
@@ -1335,6 +1342,7 @@ static int sde_rsc_runtime_resume(struct device *dev)
 	struct sde_rsc_priv *rsc = dev_get_drvdata(dev);
 	struct dss_module_power *mp;
 	int rc = 0;
+	u32 reg_bus_hdl;
 
 	if (!rsc) {
 		pr_err("invalid drv data\n");
@@ -1348,12 +1356,30 @@ static int sde_rsc_runtime_resume(struct device *dev)
 		goto end;
 	}
 
+	reg_bus_hdl = rsc->phandle.reg_bus_hdl;
+	if (reg_bus_hdl) {
+		rc = msm_bus_scale_client_update_request(reg_bus_hdl,
+				VOTE_INDEX_LOW);
+		if (rc) {
+			pr_err("failed to set reg bus vote rc=%d\n", rc);
+			goto reg_bus_hdl_err;
+		}
+	}
+
 	rc = msm_dss_enable_clk(mp->clk_config, mp->num_clk, true);
 	if (rc) {
 		pr_err("clock enable failed rc:%d\n", rc);
-		msm_dss_enable_vreg(mp->vreg_config, mp->num_vreg, false);
+		goto clk_err;
 	}
 
+	return rc;
+
+clk_err:
+	if (reg_bus_hdl)
+		msm_bus_scale_client_update_request(reg_bus_hdl,
+				VOTE_INDEX_DISABLE);
+reg_bus_hdl_err:
+	msm_dss_enable_vreg(mp->vreg_config, mp->num_vreg, false);
 end:
 	return rc;
 }

@@ -245,8 +245,12 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 		DSI_ERR("[%d] DSI display post enabled failed, rc=%d\n",
 		       c_bridge->id, rc);
 
-	if (c_bridge->display && c_bridge->display->drm_conn)
+	if (c_bridge->display && c_bridge->display->drm_conn) {
 		sde_connector_helper_bridge_post_enable(c_bridge->display->drm_conn);
+		if (c_bridge->dsi_mode.dsi_mode_flags & DSI_MODE_FLAG_POMS)
+			sde_connector_schedule_status_work(display->drm_conn,
+				true);
+	}
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
