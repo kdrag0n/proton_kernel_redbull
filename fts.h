@@ -45,6 +45,8 @@
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
+#undef DYNAMIC_REFRESH_RATE
+
 #ifdef CONFIG_DRM
 #undef CONFIG_DRM
 #endif
@@ -444,7 +446,9 @@ struct fts_ts_info {
 #ifdef CONFIG_DRM
 	struct notifier_block notifier;	/* Notify on suspend/resume */
 #endif
+#ifdef DYNAMIC_REFRESH_RATE
 	int display_refresh_rate;	/* Display rate in Hz */
+#endif
 	bool sensor_sleep;		/* True if suspend called */
 	struct wakeup_source wakesrc;	/* Wake Lock struct */
 
