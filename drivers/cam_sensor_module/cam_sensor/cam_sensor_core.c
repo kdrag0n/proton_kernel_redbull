@@ -828,7 +828,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->slave_info.sensor_slave_addr,
 			s_ctrl->sensordata->slave_info.sensor_id);
 
-#ifdef CONFIG_CAMERA_FW_UPDATE
+#if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 		if (s_ctrl->fw_update_flag) {
 			CAM_INFO(CAM_SENSOR, "[OISFW]Check OIS FW update");
 			//rc = checkOISFWUpdate(s_ctrl); disable OIS FW update. It's not ready.
