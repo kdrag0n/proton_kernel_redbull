@@ -8,4 +8,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_req_mgr
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_sensor_module/cam_cci
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_smmu
 
-obj-$(CONFIG_CAMERA_FW_UPDATE) += fw_update.o PhoneUpdate.o
+obj-$(CONFIG_CAMERA_FW_UPDATE) += fw-update.o
+fw-update-objs += fw_update.o PhoneUpdate.o

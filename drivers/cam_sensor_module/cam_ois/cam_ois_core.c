@@ -16,6 +16,7 @@
 #include "cam_packet_util.h"
 #include "../cam_fw_update/fw_update.h"
 
+#if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 int cam_ois_calibration(struct cam_ois_ctrl_t *o_ctrl,
 	stReCalib *cal_result)
 {
@@ -36,6 +37,7 @@ int cam_ois_calibration(struct cam_ois_ctrl_t *o_ctrl,
 	}
 	return rc;
 }
+#endif
 
 static bool ois_debug;
 module_param(ois_debug, bool, 0644);
@@ -801,8 +803,10 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
 	struct cam_sensor_power_ctrl_t  *power_info = &soc_private->power_info;
 	struct cam_cmd_get_ois_data     *cmd_get_ois = NULL;
+#if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 	int32_t                         *cal_rc;
 	stReCalib                       *cal_result;
+#endif
 
 	ioctl_ctrl = (struct cam_control *)arg;
 	if (copy_from_user(&dev_config,
@@ -1067,6 +1071,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 			rc = cam_ois_read_reg(o_ctrl, cmd_get_ois);
 		}
 		break;
+#if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 	case CAM_OIS_PACKET_OPCODE_CALIBRATION:
 		if (cam_ois_util_validate_packet(csl_packet))
 			return -EINVAL;
@@ -1089,6 +1094,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		cal_result = (stReCalib *)(offset + 1);
 		*cal_rc = cam_ois_calibration(o_ctrl, cal_result);
 		break;
+#endif
 	default:
 		CAM_ERR(CAM_OIS, "Invalid Opcode: %d",
 			(csl_packet->header.op_code & 0xFFFFFF));
