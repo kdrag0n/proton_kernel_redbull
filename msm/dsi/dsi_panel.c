@@ -3749,13 +3749,13 @@ void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 
 	timing->min_dsi_clk_hz = min_bitclk_hz;
 
-	if (timing->clk_rate_hz) {
+	if (mode->priv_info->mdp_transfer_time_us) {
+		timing->dsi_transfer_time_us =
+			mode->priv_info->mdp_transfer_time_us;
+	} else if (timing->clk_rate_hz) {
 		/* adjust the transfer time proportionately for bit clk*/
 		timing->dsi_transfer_time_us = mult_frac(frame_time_us,
 				min_bitclk_hz, timing->clk_rate_hz);
-	} else if (mode->priv_info->mdp_transfer_time_us) {
-		timing->dsi_transfer_time_us =
-			mode->priv_info->mdp_transfer_time_us;
 	} else {
 
 		min_threshold_us = mult_frac(frame_time_us,
