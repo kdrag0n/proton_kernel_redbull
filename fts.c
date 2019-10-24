@@ -5009,6 +5009,7 @@ static int fts_screen_state_chg_callback(struct notifier_block *nb,
 		break;
 	}
 
+#ifdef DYNAMIC_REFRESH_RATE
 	if (info->display_refresh_rate != evdata->refresh_rate) {
 		info->display_refresh_rate = evdata->refresh_rate;
 		if (gpio_is_valid(info->board->disp_rate_gpio))
@@ -5017,6 +5018,7 @@ static int fts_screen_state_chg_callback(struct notifier_block *nb,
 		pr_debug("Refresh rate changed to %d Hz.\n",
 			info->display_refresh_rate);
 	}
+#endif
 
 	return NOTIFY_OK;
 }
@@ -5194,6 +5196,7 @@ static int fts_set_gpio(struct fts_ts_info *info)
 				__func__);
 	}
 
+#ifdef DYNAMIC_REFRESH_RATE
 	if (gpio_is_valid(bdata->disp_rate_gpio)) {
 		retval = fts_gpio_setup(bdata->disp_rate_gpio, true, 1,
 					(info->display_refresh_rate == 90));
@@ -5201,6 +5204,7 @@ static int fts_set_gpio(struct fts_ts_info *info)
 			pr_err("%s: Failed to configure disp_rate_gpio\n",
 				__func__);
 	}
+#endif
 
 	if (bdata->reset_gpio >= 0) {
 		retval = fts_gpio_setup(bdata->reset_gpio, true, 1, 0);
@@ -5398,8 +5402,10 @@ static int fts_probe(struct spi_device *client)
 	info->client = client;
 	info->dev = &info->client->dev;
 
+#ifdef DYNAMIC_REFRESH_RATE
 	/* Set default display refresh rate */
 	info->display_refresh_rate = 60;
+#endif
 
 	dev_set_drvdata(info->dev, info);
 
