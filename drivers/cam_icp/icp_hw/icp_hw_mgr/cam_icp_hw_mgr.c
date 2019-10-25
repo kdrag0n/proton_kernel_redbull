@@ -57,6 +57,37 @@ static struct cam_icp_hw_mgr icp_hw_mgr;
 
 static void cam_icp_mgr_process_dbg_buf(unsigned int debug_lvl);
 
+static int cam_icp_dump_io_cfg(struct cam_icp_hw_ctx_data *ctx_data,
+	int32_t buf_handle)
+{
+	uintptr_t vaddr_ptr;
+	uint32_t  *ptr;
+	size_t    len;
+	int       rc, i;
+	char      buf[512];
+	int       used = 0;
+
+	rc = cam_mem_get_cpu_buf(buf_handle, &vaddr_ptr, &len);
+	if (rc) {
+		CAM_ERR(CAM_ICP, "Unable to get io_cfg buf address for %d",
+			ctx_data->ctx_id);
+		return rc;
+	}
+
+	len = len / sizeof(uint32_t);
+	ptr = (uint32_t *)vaddr_ptr;
+	for (i = 0; i < len; i++) {
+		used += snprintf(buf + used,
+			sizeof(buf) - used, "0X%08X-", ptr[i]);
+		if (!(i % 8)) {
+			CAM_INFO(CAM_ICP, "%s: %s", __func__, buf);
+			used = 0;
+		}
+	}
+
+	return rc;
+}
+
 static const char *cam_icp_dev_type_to_name(
 	uint32_t dev_type)
 {
@@ -4406,7 +4437,8 @@ static void cam_icp_mgr_print_io_bufs(struct cam_packet *packet,
 			rc = cam_mem_get_io_buf(io_cfg[i].mem_handle[j],
 				mmu_hdl, &iova_addr, &src_buf_size);
 			if (rc < 0) {
-				CAM_ERR(CAM_UTIL, "get src buf address fail");
+				CAM_ERR(CAM_UTIL,
+					"get src buf address fail rc %d", rc);
 				continue;
 			}
 			if (iova_addr >> 32) {
@@ -5142,6 +5174,8 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 	rc = cam_icp_mgr_send_config_io(ctx_data, io_buf_addr);
 	if (rc) {
 		CAM_ERR(CAM_ICP, "IO Config command failed %d", rc);
+		cam_icp_dump_io_cfg(ctx_data,
+			icp_dev_acquire_info->io_config_cmd_handle);
 		goto ioconfig_failed;
 	}
 
