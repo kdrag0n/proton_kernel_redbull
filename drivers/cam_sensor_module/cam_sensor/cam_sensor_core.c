@@ -12,7 +12,7 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
-#ifdef CONFIG_CAMERA_FW_UPDATE
+#if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 #include "../cam_fw_update/fw_update.h"
 
 static ssize_t ois_fw_ver_show(struct device *dev,
