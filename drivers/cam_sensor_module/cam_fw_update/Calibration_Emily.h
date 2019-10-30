@@ -5,8 +5,8 @@
  * @author		(C) 2019 ON Semiconductor.
  *
  * @file		Calibration_Emily.h
- * @date		svn:$Date:: 2019-09-19 14:22:48 +0900#$
- * @version 	svn:$Revision: 17 $
+ * @date		svn:$Date:: 2019-09-19 10:14:36 +0900#$
+ * @version 	svn:$Revision: 86 $
  * @attention
  **/
 #ifndef CALIBRATION_EMILY_H_
