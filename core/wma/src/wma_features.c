@@ -1801,6 +1801,12 @@ static void wma_print_wow_stats(t_wma_handle *wma,
 	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(wma->psoc,
 						    wake_info->vdev_id,
 						    WLAN_LEGACY_WMA_ID);
+	if (!vdev) {
+		WMA_LOGE("%s, vdev_id: %d, failed to get vdev from psoc",
+			 __func__, wake_info->vdev_id);
+		return;
+	}
+
 	ucfg_mc_cp_stats_get_vdev_wake_lock_stats(vdev, &stats);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_WMA_ID);
 	wma_wow_stats_display(&stats);
@@ -6093,3 +6099,50 @@ int wma_vdev_bss_color_collision_info_handler(void *handle,
 
 	return 0;
 }
+
+#ifdef FEATURE_ANI_LEVEL_REQUEST
+int wma_get_ani_level_evt_handler(void *handle, uint8_t *event_buf,
+				  uint32_t len)
+{
+	tp_wma_handle wma = (tp_wma_handle)handle;
+	struct wmi_host_ani_level_event *ani = NULL;
+	uint32_t num_freqs = 0;
+	QDF_STATUS status;
+	tpAniSirGlobal pmac;
+	int ret = 0;
+
+	pmac = (tpAniSirGlobal)cds_get_context(QDF_MODULE_ID_PE);
+	if (!pmac || !wma) {
+		WMA_LOGE(FL("Invalid pmac or wma"));
+		return -EINVAL;
+	}
+
+	status = wmi_unified_extract_ani_level(wma->wmi_handle, event_buf,
+					       &ani, &num_freqs);
+
+	if (QDF_IS_STATUS_ERROR(status)) {
+		WMA_LOGE("%s: Failed to extract ani level", __func__);
+		return -EINVAL;
+	}
+
+	if (!pmac->ani_params.ani_level_cb) {
+		WMA_LOGE(FL("Invalid ani_level_cb"));
+		ret = -EINVAL;
+		goto free;
+	}
+
+	pmac->ani_params.ani_level_cb(ani, num_freqs,
+				      pmac->ani_params.context);
+
+free:
+	qdf_mem_free(ani);
+	return ret;
+}
+#else
+int wma_get_ani_level_evt_handler(void *handle, uint8_t *event_buf,
+				  uint32_t len)
+{
+	return 0;
+}
+#endif
+
