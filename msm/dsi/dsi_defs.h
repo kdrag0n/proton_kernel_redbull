@@ -105,6 +105,7 @@ enum dsi_mode_flags {
 	DSI_MODE_FLAG_VRR			= BIT(4),
 	DSI_MODE_FLAG_POMS			= BIT(5),
 	DSI_MODE_FLAG_DYN_CLK			= BIT(6),
+	DSI_MODE_FLAG_DMS_FPS			= BIT(7),
 };
 
 /**

@@ -2857,9 +2857,11 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	if (msm_is_mode_seamless_dms(adj_mode) ||
 			(msm_is_mode_seamless_dyn_clk(adj_mode) &&
 			 is_cmd_mode)) {
+		SDE_ATRACE_BEGIN("pre_modeset");
 		/* restore resource state before releasing them */
 		ret = sde_encoder_resource_control(drm_enc,
 				SDE_ENC_RC_EVENT_PRE_MODESET);
+		SDE_ATRACE_END("pre_modeset");
 		if (ret) {
 			SDE_ERROR_ENC(sde_enc,
 					"sde resource control failed: %d\n",
@@ -2869,9 +2871,11 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 
 		/*
 		 * Disable dsc before switch the mode and after pre_modeset,
-		 * to guarantee that previous kickoff finished.
+		 * to guarantee that previous kickoff finished. No need to
+		 * disable if there's only change in refresh rate
 		 */
-		_sde_encoder_dsc_disable(sde_enc);
+		if (!msm_is_mode_seamless_dms_fps(adj_mode))
+			_sde_encoder_dsc_disable(sde_enc);
 	} else if (msm_is_mode_seamless_poms(adj_mode)) {
 		_sde_encoder_modeset_helper_locked(drm_enc,
 					SDE_ENC_RC_EVENT_PRE_MODESET);
@@ -2952,9 +2956,12 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	/* update resources after seamless mode change */
 	if (msm_is_mode_seamless_dms(adj_mode) ||
 			(msm_is_mode_seamless_dyn_clk(adj_mode) &&
-			is_cmd_mode))
+			is_cmd_mode)) {
+		SDE_ATRACE_BEGIN("post_modeset");
 		sde_encoder_resource_control(&sde_enc->base,
 						SDE_ENC_RC_EVENT_POST_MODESET);
+		SDE_ATRACE_END("post_modeset");
+	}
 	else if (msm_is_mode_seamless_poms(adj_mode))
 		_sde_encoder_modeset_helper_locked(drm_enc,
 						SDE_ENC_RC_EVENT_POST_MODESET);

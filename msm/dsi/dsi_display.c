@@ -20,6 +20,7 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 #include "dsi_parser.h"
+#include "sde_trace.h"
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -4351,6 +4352,7 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 	int i;
 	struct dsi_display_ctrl *ctrl;
 	struct dsi_display_mode_priv_info *priv_info;
+	u64 cur_bit_clk_rate_hz;
 
 	priv_info = mode->priv_info;
 	if (!priv_info) {
@@ -4371,6 +4373,8 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 		       display->name, rc);
 		goto error;
 	}
+
+	cur_bit_clk_rate_hz = display->config.bit_clk_rate_hz;
 
 	memcpy(&display->config.lane_map, &display->lane_map,
 	       sizeof(display->lane_map));
@@ -4418,6 +4422,7 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 	}
 
 	if ((mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) &&
+			(cur_bit_clk_rate_hz != priv_info->clk_rate_hz) &&
 			(display->panel->panel_mode == DSI_OP_CMD_MODE))
 		atomic_set(&display->clkrate_change_pending, 1);
 
@@ -6131,6 +6136,11 @@ int dsi_display_validate_mode_change(struct dsi_display *display,
 					adj_mode->timing.refresh_rate,
 					cur_mode->timing.h_front_porch,
 					adj_mode->timing.h_front_porch);
+			} else {
+				DSI_DEBUG("Switching to %d FPS with mode switch\n",
+					adj_mode->timing.refresh_rate);
+				adj_mode->dsi_mode_flags |= DSI_MODE_FLAG_DMS_FPS;
+				goto error;
 			}
 		}
 
@@ -7102,7 +7112,9 @@ int dsi_display_enable(struct dsi_display *display)
 		}
 	}
 
-	if (mode->priv_info->dsc_enabled) {
+	/* only update PPS if something other than refresh rate is changing */
+	if (mode->priv_info->dsc_enabled &&
+	    !(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS_FPS)) {
 		mode->priv_info->dsc.pic_width *= display->ctrl_count;
 		rc = dsi_panel_update_pps(display->panel);
 		if (rc) {
