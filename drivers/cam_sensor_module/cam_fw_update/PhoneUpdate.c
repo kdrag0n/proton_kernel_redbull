@@ -35,6 +35,7 @@
 #define CNT100MS				1352
 #define CNT200MS				2703
 
+#define F_CPU
 #ifdef F_CPU
 #define BURST_LENGTH_UC 		( 120 )
 #else
@@ -325,7 +326,7 @@ UINT_8 ProgramFlash129_Standard( CODE_TBL_EXT *ptr )
 	data[ 1 ] = 0x08;
 	data[ 2 ] = 0x00;
 
-	for( i = 1; i < ( (ptr->SizeFromCode - 64) / 64 ); i++ ) {
+	for( i = 1; i < ( ptr->SizeFromCode / 64 ); i++ ) {
 		if( ++UcOddEvn > 1 )	UcOddEvn = 0 ;
 		if( UcOddEvn == 0 )		data[ 1 ] = 0x08 ;
 		else					data[ 1 ] = 0x09 ;
