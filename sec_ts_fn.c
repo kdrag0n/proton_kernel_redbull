@@ -679,10 +679,46 @@ static ssize_t fw_version_show(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	int written = 0;
 
-	written = scnprintf(buf, PAGE_SIZE, "SE-V%02X.%02X.%02X\n",
-		ts->plat_data->panel_revision,
-		ts->plat_data->img_version_of_ic[2],
-		ts->plat_data->img_version_of_ic[3]);
+	/* If there is no FW file avaiable,
+	 * sec_ts_save_version_of_ic() and sec_ts_save_version_of_bin() will
+	 * no be called. Need to get through SEC_TS_READ_IMG_VERSION cmd.
+	 */
+	if (ts->plat_data->panel_revision == 0 &&
+		ts->plat_data->img_version_of_bin[2] == 0 &&
+		ts->plat_data->img_version_of_bin[3] == 0 ) {
+		int ret;
+		u8 fw_ver[4];
+
+		sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+		ret = ts->sec_ts_read(ts, SEC_TS_READ_IMG_VERSION, fw_ver, 4);
+		sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+				"%s: firmware version read error\n", __func__);
+			return -EIO;
+		}
+		written += scnprintf(buf + written, PAGE_SIZE - written,
+			"SE-V%02X.%02X.%02X\n",
+			ts->plat_data->panel_revision,
+			fw_ver[2],
+			fw_ver[3]);
+		written += scnprintf(buf + written, PAGE_SIZE - written,
+			"FW file: N/A\n");
+	} else {
+		written += scnprintf(buf + written, PAGE_SIZE - written,
+			"SE-V%02X.%02X.%02X\n",
+			ts->plat_data->panel_revision,
+			ts->plat_data->img_version_of_ic[2],
+			ts->plat_data->img_version_of_ic[3]);
+		written += scnprintf(buf + written, PAGE_SIZE - written,
+			"FW file: %s\n",
+			ts->plat_data->firmware_name);
+	}
+
+	written += scnprintf(buf + written, PAGE_SIZE - written,
+		"Cal: %#X\n", ts->cal_status);
+
 	return written;
 }
 
