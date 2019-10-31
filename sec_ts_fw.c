@@ -12,6 +12,7 @@
 
 #include "sec_ts.h"
 
+#define SEC_TS_ENABLE_FW_VERIFY		0
 #define SEC_TS_FW_BLK_SIZE		256
 
 enum {
@@ -526,6 +527,7 @@ err:
 	return -EIO;
 }
 
+#if SEC_TS_ENABLE_FW_VERIFY
 static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_size, u8 *buf)
 {
 	int ret;
@@ -622,6 +624,7 @@ static int sec_ts_memoryread(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 
 	return read_size;
 }
+#endif
 
 static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *data, int retry)
 {
@@ -646,6 +649,7 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 		goto err_write_fail;
 	}
 
+#if SEC_TS_ENABLE_FW_VERIFY
 	if (sec_ts_memoryread(ts, addr, mem_rb, fw_size) >= 0) {
 		u32 ii;
 
@@ -669,6 +673,7 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 	input_info(true, &ts->client->dev, "%s: verify done(%d)\n", __func__, ret);
 
 out:
+#endif
 	vfree(mem_rb);
 err_write_fail:
 	sec_ts_delay(10);
