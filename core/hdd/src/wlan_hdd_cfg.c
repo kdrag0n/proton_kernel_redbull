@@ -2624,6 +2624,14 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_IPA_LOW_BANDWIDTH_MBPS_DEFAULT,
 		     CFG_IPA_LOW_BANDWIDTH_MBPS_MIN,
 		     CFG_IPA_LOW_BANDWIDTH_MBPS_MAX),
+
+	REG_VARIABLE(CFG_IPA_FORCE_VOTING_ENABLE, WLAN_PARAM_Integer,
+		     struct hdd_config, IpaForceVoting,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_IPA_FORCE_VOTING_ENABLE_DEFAULT,
+		     CFG_IPA_FORCE_VOTING_ENABLE_MIN,
+		     CFG_IPA_FORCE_VOTING_ENABLE_MAX),
+
 #endif
 
 	REG_VARIABLE(CFG_VHT_AMPDU_LEN_EXPONENT_NAME, WLAN_PARAM_Integer,
@@ -3196,6 +3204,14 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_WLAN_LOGGING_CONSOLE_SUPPORT_DEFAULT,
 		     CFG_WLAN_LOGGING_CONSOLE_SUPPORT_DISABLE,
 		     CFG_WLAN_LOGGING_CONSOLE_SUPPORT_ENABLE),
+
+	REG_VARIABLE(CFG_HOST_LOG_CUSTOM_NETLINK_PROTO,
+		     WLAN_PARAM_Integer,
+		     struct hdd_config, host_log_custom_nl_proto,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_HOST_LOG_CUSTOM_NETLINK_PROTO_DEFAULT,
+		     CFG_HOST_LOG_CUSTOM_NETLINK_PROTO_MIN,
+		     CFG_HOST_LOG_CUSTOM_NETLINK_PROTO_MAX),
 #endif /* WLAN_LOGGING_SOCK_SVC_ENABLE */
 
 #ifdef WLAN_FEATURE_LPSS
@@ -3938,6 +3954,13 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_SET_TSF_PTP_OPT_MAX),
 #endif /* WLAN_FEATURE_TSF_PLUS */
 #endif
+
+	REG_VARIABLE(CFG_ENABLE_TW_COEX_LEGACY_NAME, WLAN_PARAM_Integer,
+		     struct hdd_config, enable_three_way_coex_config_legacy,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_ENABLE_TW_COEX_LEGACY_DEFAULT,
+		     CFG_ENABLE_TW_COEX_LEGACY_MIN,
+		     CFG_ENABLE_TW_COEX_LEGACY_MAX),
 
 	REG_VARIABLE(CFG_ROAM_DENSE_TRAFFIC_THRESHOLD, WLAN_PARAM_Integer,
 		struct hdd_config, roam_dense_traffic_thresh,
@@ -7353,6 +7376,8 @@ void hdd_cfg_print(struct hdd_context *hdd_ctx)
 		  hdd_ctx->config->IpaMediumBandwidthMbps);
 	hdd_debug("Name = [IpaLowBandwidthMbps] Value = [%u] ",
 		  hdd_ctx->config->IpaLowBandwidthMbps);
+	hdd_debug("Name = [IpaForceVoting] Value = [%u] ",
+		  hdd_ctx->config->IpaForceVoting);
 #endif
 	hdd_debug("Name = [gEnableOverLapCh] Value = [%u] ",
 		  hdd_ctx->config->gEnableOverLapCh);
@@ -7973,6 +7998,9 @@ void hdd_cfg_print(struct hdd_context *hdd_ctx)
 	hdd_debug("Name = [%s] Value = [%u]",
 		  CFG_ENABLE_PEER_UNMAP_CONF_NAME,
 		  hdd_ctx->config->enable_peer_unmap_conf_support);
+	hdd_debug("Name = [%s] Value = [%u]",
+		  CFG_ENABLE_TW_COEX_LEGACY_NAME,
+		  hdd_ctx->config->enable_three_way_coex_config_legacy);
 	hdd_cfg_print_action_oui(hdd_ctx);
 	hdd_cfg_print_btc_params(hdd_ctx);
 	hdd_cfg_print_roam_preauth(hdd_ctx);
