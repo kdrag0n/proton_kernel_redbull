@@ -3901,7 +3901,7 @@ int execute_p2ptest(struct sec_ts_data *ts)
 		goto err_exit;
 	}
 
-	sec_ts_delay(1000);
+	sec_ts_delay(1500);
 
 	rc = sec_ts_wait_for_ready(ts, SEC_TS_VENDOR_ACK_P2P_TEST_DONE);
 	if (rc < 0) {
@@ -3957,7 +3957,7 @@ int execute_selftest(struct sec_ts_data *ts, bool save_result)
 		goto err_exit;
 	}
 
-	sec_ts_delay(350);
+	sec_ts_delay(1500);
 
 	rc = sec_ts_wait_for_ready(ts, SEC_TS_VENDOR_ACK_SELF_TEST_DONE);
 	if (rc < 0) {
@@ -4624,7 +4624,7 @@ int sec_ts_execute_force_calibration(struct sec_ts_data *ts, int cal_mode)
 		return rc;
 	}
 
-	sec_ts_delay(1000);
+	sec_ts_delay(4000);
 
 	rc = sec_ts_wait_for_ready(ts, SEC_TS_VENDOR_ACK_OFFSET_CAL_DONE);
 
