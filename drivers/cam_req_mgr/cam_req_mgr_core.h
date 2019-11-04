@@ -25,9 +25,6 @@
 
 #define MAX_SYNC_COUNT 65535
 
-/* Default frame rate is 30 */
-#define DEFAULT_FRAME_DURATION 33333333
-
 #define SYNC_LINK_SOF_CNT_MAX_LMT 1
 
 #define MAXIMUM_LINKS_PER_SESSION  4
@@ -335,10 +332,6 @@ struct cam_req_mgr_connected_device {
  *                         other link
  * @retry_cnt            : Counter that tracks number of attempts to apply
  *                         the same req
- * @is_shutdown          : Flag to indicate if link needs to be disconnected
- *                         as part of shutdown.
- * @sof_timestamp_value  : SOF timestamp value
- * @prev_sof_timestamp   : Previous SOF timestamp value
  */
 struct cam_req_mgr_core_link {
 	int32_t                              link_hdl;
@@ -366,9 +359,6 @@ struct cam_req_mgr_core_link {
 	bool                                 in_msync_mode;
 	int64_t                              initial_sync_req;
 	uint32_t                             retry_cnt;
-	bool                                 is_shutdown;
-	uint64_t                             sof_timestamp;
-	uint64_t                             prev_sof_timestamp;
 };
 
 /**
@@ -421,13 +411,11 @@ int cam_req_mgr_create_session(struct cam_req_mgr_session_info *ses_info);
  * cam_req_mgr_destroy_session()
  * @brief    : destroy session
  * @ses_info : session handle info, input param
- * @is_shutdown: To indicate if devices on link need to be disconnected.
  *
  * Called as part of session destroy
  * return success/failure
  */
-int cam_req_mgr_destroy_session(struct cam_req_mgr_session_info *ses_info,
-	bool is_shutdown);
+int cam_req_mgr_destroy_session(struct cam_req_mgr_session_info *ses_info);
 
 /**
  * cam_req_mgr_link()

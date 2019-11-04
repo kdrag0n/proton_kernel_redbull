@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _CAM_HFI_SESSION_DEFS_H
@@ -272,20 +272,10 @@ enum hfi_ipe_io_images {
 	IPE_OUTPUT_IMAGE_DS4_REF,
 	IPE_OUTPUT_IMAGE_DS16_REF,
 	IPE_OUTPUT_IMAGE_DS64_REF,
-	IPE_INPUT2_IMAGE_FULL,
-	IPE_INPUT2_IMAGE_DSX,
-	IPE_INPUT_OUTPUT_SCRATCHBUFFER,
 	IPE_INPUT_IMAGE_FIRST = IPE_INPUT_IMAGE_FULL,
 	IPE_INPUT_IMAGE_LAST = IPE_INPUT_IMAGE_DS64_REF,
-	IPE_INPUT_IMAGE_REF_FIRST = IPE_INPUT_IMAGE_FULL_REF,
-	IPE_INPUT_IMAGE_REF_LAST = IPE_INPUT_IMAGE_DS64_REF,
 	IPE_OUTPUT_IMAGE_FIRST = IPE_OUTPUT_IMAGE_DISPLAY,
 	IPE_OUTPUT_IMAGE_LAST = IPE_OUTPUT_IMAGE_DS64_REF,
-	IPE_OUTPUT_IMAGE_REF_FIRST = IPE_OUTPUT_IMAGE_FULL_REF,
-	IPE_OUTPUT_IMAGE_REF_LAST = IPE_OUTPUT_IMAGE_DS64_REF,
-	IPE_INPUT2_IMAGE_FIRST = IPE_INPUT2_IMAGE_FULL,
-	IPE_INPUT2_IMAGE_LAST = IPE_INPUT2_IMAGE_DSX,
-	IPE_INPUT_OUTPUT_IMAGE_LAST = IPE_INPUT_OUTPUT_SCRATCHBUFFER,
 	IPE_IO_IMAGES_MAX
 };
 
@@ -310,6 +300,7 @@ struct frame_buffer {
 } __packed;
 
 struct bps_frame_process_data {
+	struct frame_buffer buffers[BPS_IO_IMAGES_MAX];
 	uint32_t max_num_cores;
 	uint32_t target_time;
 	uint32_t ubwc_stats_buffer_addr;
@@ -320,7 +311,6 @@ struct bps_frame_process_data {
 	uint32_t strip_lib_out_addr;
 	uint32_t cdm_prog_addr;
 	uint32_t request_id;
-	struct frame_buffer buffers[BPS_IO_IMAGES_MAX];
 };
 
 enum hfi_ipe_image_format {
@@ -475,6 +465,7 @@ struct ica_stab_params {
 
 struct frame_set {
 	struct frame_buffer buffers[IPE_IO_IMAGES_MAX];
+	struct ica_stab_params ica_params;
 	uint32_t cdm_ica1_addr;
 	uint32_t cdm_ica2_addr;
 } __packed;
@@ -501,11 +492,6 @@ struct ipe_frame_process_data {
 	uint32_t cdm_tf_ds4;
 	uint32_t cdm_tf_ds16;
 	uint32_t cdm_tf_ds64;
-	uint32_t cdm_dsx_dc4;
-	uint32_t cdm_dsx_dc16;
-	uint32_t cdm_dsz_dc64;
-	uint32_t cdm_mfhdr_full_pass;
-	uint32_t cdm_mfhdr_dcx;
 	uint32_t request_id;
 	uint32_t frames_in_batch;
 	struct frame_set framesets[MAX_HFR_GROUP];

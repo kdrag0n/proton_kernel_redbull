@@ -1943,20 +1943,10 @@ static int cam_icp_mgr_handle_frame_process(uint32_t *msg_ptr, int flag)
 	}
 	idx = i;
 
-	if (flag == ICP_FRAME_PROCESS_FAILURE) {
-		if (ioconfig_ack->err_type == CAMERAICP_EABORTED)
-			CAM_WARN(CAM_ICP,
-				"ctx_id %d req %llu dev %d has been aborted[flushed]",
-				ctx_data->ctx_id, request_id,
-				ctx_data->icp_dev_acquire_info->dev_type);
-		else
-			CAM_ERR(CAM_ICP,
-				"Done with error: %u on ctx_id %d dev %d for req %llu",
-				ioconfig_ack->err_type,
-				ctx_data->ctx_id,
-				ctx_data->icp_dev_acquire_info->dev_type,
-				request_id);
-	}
+	if (flag == ICP_FRAME_PROCESS_FAILURE)
+		CAM_ERR(CAM_ICP, "Done with error: ctx_id %d req %llu dev %d",
+			ctx_data->ctx_id, request_id,
+			ctx_data->icp_dev_acquire_info->dev_type);
 
 	buf_data.request_id = hfi_frame_process->request_id[idx];
 	ctx_data->ctxt_event_cb(ctx_data->context_priv, flag, &buf_data);
@@ -1985,7 +1975,9 @@ static int cam_icp_mgr_process_msg_frame_process(uint32_t *msg_ptr)
 	}
 
 	ioconfig_ack = (struct hfi_msg_ipebps_async_ack *)msg_ptr;
-	if (ioconfig_ack->err_type != CAMERAICP_SUCCESS) {
+	if (ioconfig_ack->err_type != HFI_ERR_SYS_NONE) {
+		CAM_ERR(CAM_ICP, "failed with error : %u",
+			ioconfig_ack->err_type);
 		cam_icp_mgr_handle_frame_process(msg_ptr,
 			ICP_FRAME_PROCESS_FAILURE);
 		return -EIO;
@@ -3853,9 +3845,6 @@ static int cam_icp_mgr_process_cmd_desc(struct cam_icp_hw_mgr *hw_mgr,
 
 	cmd_desc = (struct cam_cmd_buf_desc *)
 		((uint32_t *) &packet->payload + packet->cmd_buf_offset/4);
-	rc = cam_packet_util_validate_cmd_desc(cmd_desc);
-	if (rc)
-		return rc;
 
 	*fw_cmd_buf_iova_addr = 0;
 	for (i = 0; i < packet->num_cmd_buf; i++, num_cmd_buf++) {
@@ -3871,17 +3860,6 @@ static int cam_icp_mgr_process_cmd_desc(struct cam_icp_hw_mgr *hw_mgr,
 				return rc;
 			}
 			*fw_cmd_buf_iova_addr = addr;
-
-			if ((cmd_desc[i].offset >= len) ||
-				((len - cmd_desc[i].offset) <
-				cmd_desc[i].size)){
-				CAM_ERR(CAM_ICP,
-					"Invalid offset, i: %d offset: %u len: %zu size: %zu",
-					i, cmd_desc[i].offset,
-					len, cmd_desc[i].size);
-				return -EINVAL;
-			}
-
 			*fw_cmd_buf_iova_addr =
 				(*fw_cmd_buf_iova_addr + cmd_desc[i].offset);
 			rc = cam_mem_get_cpu_buf(cmd_desc[i].mem_handle,
@@ -5061,9 +5039,6 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 		goto acquire_info_failed;
 
 	icp_dev_acquire_info = ctx_data->icp_dev_acquire_info;
-	dev_type = icp_dev_acquire_info->dev_type;
-	icp_dev_acquire_info->dev_type =
-		cam_icp_unify_dev_type(dev_type);
 
 	CAM_DBG(CAM_ICP, "acquire io buf handle %d",
 		icp_dev_acquire_info->io_config_cmd_handle);
@@ -5112,7 +5087,7 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 	}
 	CAM_DBG(CAM_ICP, "ping ack received");
 
-	rc = cam_icp_mgr_create_handle(dev_type,
+	rc = cam_icp_mgr_create_handle(icp_dev_acquire_info->dev_type,
 		ctx_data);
 	if (rc) {
 		CAM_ERR(CAM_ICP, "create handle failed");
@@ -5121,7 +5096,7 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 
 	CAM_DBG(CAM_ICP,
 		"created stream handle for dev_type %u",
-		dev_type);
+		icp_dev_acquire_info->dev_type);
 
 	cmd_mem_region.num_regions = 1;
 	cmd_mem_region.map_info_array[0].mem_handle =
@@ -5182,11 +5157,13 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 	/* Start context timer*/
 	cam_icp_ctx_timer_start(ctx_data);
 	hw_mgr->ctxt_cnt++;
+	dev_type = cam_icp_unify_dev_type(icp_dev_acquire_info->dev_type);
+	icp_dev_acquire_info->dev_type = dev_type;
 	mutex_unlock(&hw_mgr->hw_mgr_mutex);
 
 	CAM_DBG(CAM_ICP, "Acquire Done for ctx_id %u dev type %d",
 		ctx_data->ctx_id,
-		ctx_data->icp_dev_acquire_info->dev_type);
+		icp_dev_acquire_info->dev_type);
 
 	return 0;
 

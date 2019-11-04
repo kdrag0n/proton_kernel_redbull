@@ -122,16 +122,6 @@ err:
 	return rc;
 }
 
-static void __cam_node_handle_acquired_hw_dump(
-	struct cam_node *node)
-{
-	int i;
-
-	for (i = 0; i < node->ctx_size; i++)
-		cam_context_handle_info_dump(&(node->ctx_list[i]),
-			CAM_CTX_DUMP_ACQ_INFO);
-}
-
 static int __cam_node_handle_acquire_hw_v1(struct cam_node *node,
 	struct cam_acquire_hw_cmd_v1 *acquire)
 {
@@ -168,7 +158,6 @@ static int __cam_node_handle_acquire_hw_v1(struct cam_node *node,
 	if (rc) {
 		CAM_ERR(CAM_CORE, "Acquire device failed for node %s",
 			node->name);
-		__cam_node_handle_acquired_hw_dump(node);
 		return rc;
 	}
 
@@ -208,7 +197,6 @@ static int __cam_node_handle_acquire_hw_v2(struct cam_node *node,
 	if (rc) {
 		CAM_ERR(CAM_CORE, "Acquire device failed for node %s",
 			node->name);
-		__cam_node_handle_acquired_hw_dump(node);
 		return rc;
 	}
 
@@ -746,6 +734,7 @@ int cam_node_handle_ioctl(struct cam_node *node, struct cam_control *cmd)
 					"acquire device failed(rc = %d)", rc);
 				goto acquire_kfree;
 			}
+			CAM_INFO(CAM_CORE, "Acquire HW successful");
 		} else if (api_version == 2) {
 			rc = __cam_node_handle_acquire_hw_v2(node, acquire_ptr);
 			if (rc) {
@@ -753,6 +742,7 @@ int cam_node_handle_ioctl(struct cam_node *node, struct cam_control *cmd)
 					"acquire device failed(rc = %d)", rc);
 				goto acquire_kfree;
 			}
+			CAM_INFO(CAM_CORE, "Acquire HW successful");
 		}
 
 		if (copy_to_user((void __user *)cmd->handle, acquire_ptr,
@@ -858,6 +848,8 @@ acquire_kfree:
 				CAM_ERR(CAM_CORE,
 					"release device failed(rc = %d)", rc);
 		}
+
+		CAM_INFO(CAM_CORE, "Release HW done(rc = %d)", rc);
 
 release_kfree:
 		kfree(release_ptr);
