@@ -503,10 +503,11 @@ static int cam_cci_assign_fops(void)
 	return 0;
 }
 
-static int __init cam_cci_late_init(void)
+int cam_cci_late_init(void)
 {
 	return cam_cci_assign_fops();
 }
+EXPORT_SYMBOL_GPL(cam_cci_late_init);
 
 static int __init cam_cci_init_module(void)
 {
@@ -519,7 +520,9 @@ static void __exit cam_cci_exit_module(void)
 }
 
 module_init(cam_cci_init_module);
+#if !defined(CONFIG_SPECTRA_CAMERA_MODULE)
 late_initcall(cam_cci_late_init);
+#endif
 module_exit(cam_cci_exit_module);
 MODULE_DESCRIPTION("MSM CCI driver");
 MODULE_LICENSE("GPL v2");
