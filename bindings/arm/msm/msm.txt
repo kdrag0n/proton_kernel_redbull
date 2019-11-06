@@ -103,6 +103,9 @@ Generic board variants:
 - QRD device:
   compatible = "qcom,qrd"
 
+- HDK device:
+  compatible = "qcom,hdk"
+
 - ADP device:
   compatible = "qcom,adp"
 
@@ -165,12 +168,14 @@ compatible = "qcom,kona-rumi"
 compatible = "qcom,kona-mtp"
 compatible = "qcom,kona-cdp"
 compatible = "qcom,kona-qrd"
+compatible = "qcom,kona-hdk"
 compatible = "qcom,lito-rumi"
 compatible = "qcom,lito-mtp"
 compatible = "qcom,lito-cdp"
 compatible = "qcom,lito-atp"
 compatible = "qcom,lito-qrd"
 compatible = "qcom,bengal-rumi"
+compatible = "qcom,bengal-qrd"
 compatible = "qcom,sdmshrike-rumi"
 compatible = "qcom,sdmshrike-mtp"
 compatible = "qcom,sdmshrike-cdp"
