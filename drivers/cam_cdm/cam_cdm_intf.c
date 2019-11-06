@@ -557,17 +557,19 @@ static struct platform_driver cam_cdm_intf_driver = {
 	},
 };
 
-static int __init cam_cdm_intf_init_module(void)
+int __init cam_cdm_intf_init_module(void)
 {
 	return platform_driver_register(&cam_cdm_intf_driver);
 }
 
-static void __exit cam_cdm_intf_exit_module(void)
+void cam_cdm_intf_exit_module(void)
 {
 	platform_driver_unregister(&cam_cdm_intf_driver);
 }
 
+#if !defined(CONFIG_SPECTRA_CAMERA_MODULE)
 module_init(cam_cdm_intf_init_module);
 module_exit(cam_cdm_intf_exit_module);
+#endif
 MODULE_DESCRIPTION("MSM Camera CDM Intf driver");
 MODULE_LICENSE("GPL v2");
