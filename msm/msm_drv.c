@@ -2191,13 +2191,13 @@ static void msm_pdev_shutdown(struct platform_device *pdev)
 	priv->shutdown_in_progress = true;
 }
 
-static const struct of_device_id dt_match[] = {
+static const struct of_device_id dt_match_msm_drv[] = {
 	{ .compatible = "qcom,mdp4", .data = (void *)KMS_MDP4 },
 	{ .compatible = "qcom,mdss", .data = (void *)KMS_MDP5 },
 	{ .compatible = "qcom,sde-kms", .data = (void *)KMS_SDE },
 	{},
 };
-MODULE_DEVICE_TABLE(of, dt_match);
+MODULE_DEVICE_TABLE(of, dt_match_msm_drv);
 
 static struct platform_driver msm_platform_driver = {
 	.probe      = msm_pdev_probe,
@@ -2205,7 +2205,7 @@ static struct platform_driver msm_platform_driver = {
 	.shutdown   = msm_pdev_shutdown,
 	.driver     = {
 		.name   = "msm_drm",
-		.of_match_table = dt_match,
+		.of_match_table = dt_match_msm_drv,
 		.pm     = &msm_pm_ops,
 		.suppress_bind_attrs = true,
 	},
