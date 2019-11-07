@@ -7,4 +7,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_sync
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_utils
 ccflags-y += -I$(src)
 
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_context.o cam_context_utils.o cam_node.o cam_subdev.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam-context.o
+cam-context-objs += cam_context.o cam_context_utils.o cam_node.o cam_subdev.o
