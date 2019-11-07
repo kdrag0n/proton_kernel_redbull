@@ -7167,6 +7167,11 @@ int dsi_display_post_enable(struct dsi_display *display)
 		if (err)
 			DSI_ERR("[%s] failed to get SN, err=%d\n",
 						display->name, err);
+
+		err = dsi_panel_get_vendor_extinfo(display->panel);
+		if (err)
+			DSI_ERR("[%s] failed to get extinfo, err=%d\n",
+			       display->name, err);
 	}
 
 	/* remove the clk vote for CMD mode panels */
