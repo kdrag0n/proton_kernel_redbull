@@ -273,3 +273,4 @@ module_init(cam_icp_init_module);
 module_exit(cam_icp_exit_module);
 MODULE_DESCRIPTION("MSM ICP driver");
 MODULE_LICENSE("GPL v2");
+MODULE_SOFTDEP("pre: cam_a5 cam_ipe cam_bps");
