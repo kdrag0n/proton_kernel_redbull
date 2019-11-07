@@ -41,4 +41,8 @@ int cam_req_mgr_notify_message(struct cam_req_mgr_message *msg,
 	uint32_t id,
 	uint32_t type);
 
+#ifdef CONFIG_SPECTRA_CAMERA_MODULE
+extern int cam_req_mgr_late_init(void);
+#endif
+
 #endif /* _CAM_REQ_MGR_DEV_H_ */
