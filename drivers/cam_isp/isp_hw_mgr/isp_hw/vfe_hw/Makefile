@@ -12,5 +12,25 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_bus/include
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_top/include
 
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_vfe_soc.o cam_vfe_dev.o cam_vfe_core.o
-obj-$(CONFIG_SPECTRA_CAMERA) += vfe_bus/ vfe_top/ vfe17x/
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_vfe.o
+cam_vfe-objs += cam_vfe_soc.o cam_vfe_dev.o cam_vfe_core.o
+
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cdm/
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/
+
+# vfe_bus
+cam_vfe-objs += vfe_bus/cam_vfe_bus.o vfe_bus/cam_vfe_bus_ver2.o
+cam_vfe-objs += vfe_bus/cam_vfe_bus_rd_ver1.o vfe_bus/cam_vfe_bus_ver3.o
+
+# vfe_top
+cam_vfe-objs += vfe_top/cam_vfe_camif_lite_ver2.o vfe_top/cam_vfe_top.o
+cam_vfe-objs += vfe_top/cam_vfe_top_common.o vfe_top/cam_vfe_top_ver3.o
+cam_vfe-objs += vfe_top/cam_vfe_top_ver2.o vfe_top/cam_vfe_camif_ver2.o
+cam_vfe-objs += vfe_top/cam_vfe_camif_ver3.o vfe_top/cam_vfe_rdi.o
+cam_vfe-objs += vfe_top/cam_vfe_fe_ver1.o vfe_top/cam_vfe_camif_lite_ver3.o
+
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_top
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_bus
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw
+
+cam_vfe-objs += vfe17x/cam_vfe.o
