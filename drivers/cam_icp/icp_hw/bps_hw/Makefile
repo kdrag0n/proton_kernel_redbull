@@ -11,4 +11,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/icp_hw/bps_hw
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/fw_inc
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include
 
-obj-$(CONFIG_SPECTRA_CAMERA) += bps_dev.o bps_core.o bps_soc.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_bps.o
+cam_bps-objs += bps_dev.o bps_core.o bps_soc.o
