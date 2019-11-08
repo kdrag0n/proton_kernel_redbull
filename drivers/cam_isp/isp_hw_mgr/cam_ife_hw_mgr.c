@@ -689,16 +689,19 @@ static void cam_ife_hw_mgr_dump_acq_data(
 	struct cam_ife_hw_mgr_res    *hw_mgr_res_temp = NULL;
 	struct cam_isp_resource_node *hw_res = NULL;
 	struct timespec64            *ts = NULL;
-	uint64_t ms, tmp;
+	uint64_t ms, tmp, hrs, min, sec;
 	int i = 0, j = 0;
 
 	ts = &hwr_mgr_ctx->ts;
 	tmp = ts->tv_sec;
 	ms = (ts->tv_nsec) / 1000000;
+	sec = do_div(tmp, 60);
+	min = do_div(tmp, 60);
+	hrs = do_div(tmp, 24);
 
 	CAM_INFO(CAM_ISP,
 		"**** %llu:%llu:%llu.%llu ctx_idx: %u rdi_only: %s is_dual: %s acquired ****",
-		(tmp / 3600) % 24, (tmp / 60) % 60, tmp % 60, ms,
+		hrs, min, sec, ms,
 		hwr_mgr_ctx->ctx_index,
 		(hwr_mgr_ctx->is_rdi_only_context ? "true" : "false"),
 		(hwr_mgr_ctx->is_dual ? "true" : "false"));
@@ -2406,8 +2409,8 @@ static int cam_ife_mgr_acquire_hw_for_ctx(
 		goto err;
 	}
 
-	*num_pix_port += ipp_count + ppp_count + ife_rd_count + lcr_count;
-	*num_rdi_port += rdi_count;
+	*num_pix_port = ipp_count + ppp_count + ife_rd_count + lcr_count;
+	*num_rdi_port = rdi_count;
 
 	return 0;
 err:
@@ -3236,7 +3239,7 @@ static int cam_isp_blob_bw_update_v2(
 					sizeof(
 					struct cam_vfe_bw_update_args_v2));
 				if (rc)
-					CAM_ERR(CAM_ISP,
+					CAM_ERR(CAM_PERF,
 						"BW Update failed rc: %d", rc);
 			} else {
 				CAM_WARN(CAM_ISP, "NULL hw_intf!");
@@ -3335,7 +3338,7 @@ static int cam_isp_blob_bw_update(
 					&bw_upd_args,
 					sizeof(struct cam_vfe_bw_update_args));
 				if (rc)
-					CAM_ERR(CAM_ISP, "BW Update failed");
+					CAM_ERR(CAM_PERF, "BW Update failed");
 			} else
 				CAM_WARN(CAM_ISP, "NULL hw_intf!");
 		}
@@ -3384,7 +3387,7 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 	for (i = 0; i < CAM_IFE_HW_NUM_MAX; i++) {
 		if (hw_update_data->bw_config_valid[i] == true) {
 
-			CAM_DBG(CAM_ISP, "idx=%d, bw_config_version=%d",
+			CAM_DBG(CAM_PERF, "idx=%d, bw_config_version=%d",
 				ctx, ctx->ctx_index, i,
 				hw_update_data->bw_config_version);
 
@@ -3394,7 +3397,7 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 					(struct cam_isp_bw_config *)
 					&hw_update_data->bw_config[i], ctx);
 				if (rc)
-					CAM_ERR(CAM_ISP,
+					CAM_ERR(CAM_PERF,
 					"Bandwidth Update Failed rc: %d", rc);
 			} else if (hw_update_data->bw_config_version ==
 				CAM_ISP_BW_CONFIG_V2) {
@@ -3402,11 +3405,11 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 					(struct cam_isp_bw_config_v2 *)
 					&hw_update_data->bw_config_v2[i], ctx);
 				if (rc)
-					CAM_ERR(CAM_ISP,
+					CAM_ERR(CAM_PERF,
 					"Bandwidth Update Failed rc: %d", rc);
 
 			} else {
-				CAM_ERR(CAM_ISP,
+				CAM_ERR(CAM_PERF,
 					"Invalid bw config version: %d",
 					hw_update_data->bw_config_version);
 			}
@@ -4873,7 +4876,7 @@ static int cam_isp_blob_clock_update(
 			if (hw_intf && hw_intf->hw_ops.process_cmd) {
 				clock_upd_args.node_res =
 					hw_mgr_res->hw_res[i];
-				CAM_DBG(CAM_ISP,
+				CAM_DBG(CAM_PERF,
 				"res_id=%u i= %d clk=%llu\n",
 				hw_mgr_res->res_id, i, clk_rate);
 
@@ -4886,7 +4889,8 @@ static int cam_isp_blob_clock_update(
 					sizeof(
 					struct cam_vfe_clock_update_args));
 				if (rc)
-					CAM_ERR(CAM_ISP, "Clock Update failed");
+					CAM_ERR(CAM_PERF,
+						"Clock Update failed");
 			} else
 				CAM_WARN(CAM_ISP, "NULL hw_intf!");
 		}
@@ -5112,14 +5116,14 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 		rc = cam_isp_blob_clock_update(blob_type, blob_info,
 			clock_config, prepare);
 		if (rc)
-			CAM_ERR(CAM_ISP, "Clock Update Failed");
+			CAM_ERR(CAM_PERF, "Clock Update Failed, rc=%d", rc);
 	}
 		break;
 	case CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG: {
 		struct cam_isp_bw_config    *bw_config;
 		struct cam_isp_prepare_hw_update_data   *prepare_hw_data;
 
-		CAM_WARN_RATE_LIMIT_CUSTOM(CAM_ISP, 300, 1,
+		CAM_WARN_RATE_LIMIT_CUSTOM(CAM_PERF, 300, 1,
 			"Deprecated Blob TYPE_BW_CONFIG");
 		if (blob_size < sizeof(struct cam_isp_bw_config)) {
 			CAM_ERR(CAM_ISP, "Invalid blob size %u", blob_size);
@@ -5688,7 +5692,7 @@ static void cam_ife_mgr_print_io_bufs(struct cam_packet *packet,
 	int32_t iommu_hdl, int32_t sec_mmu_hdl, uint32_t pf_buf_info,
 	bool *mem_found)
 {
-	uint64_t   iova_addr;
+	dma_addr_t   iova_addr;
 	size_t     src_buf_size;
 	int        i;
 	int        j;
