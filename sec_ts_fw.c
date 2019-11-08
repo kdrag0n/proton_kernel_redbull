@@ -962,7 +962,7 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 	int ii = 0;
 	int ret = 0;
 
-	if (ts->plat_data->bringup == 1) {
+	if (ts->plat_data->bringup == 1 && ts->is_fw_corrupted == false) {
 		input_err(true, &ts->client->dev, "%s: bringup. do not update\n", __func__);
 		return 0;
 	}
@@ -989,7 +989,7 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 
 	result = sec_ts_check_firmware_version(ts, fw_entry->data);
 
-	if (ts->plat_data->bringup == 2) {
+	if (ts->plat_data->bringup == 2 && ts->is_fw_corrupted == false) {
 		input_err(true, &ts->client->dev, "%s: bringup. do not update\n", __func__);
 		result = 0;
 		goto err_request_fw;
