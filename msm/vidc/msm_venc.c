@@ -1161,7 +1161,7 @@ int msm_venc_inst_init(struct msm_vidc_inst *inst)
 	strlcpy(inst->fmts[INPUT_PORT].description, fmt_desc->description,
 		sizeof(inst->fmts[INPUT_PORT].description));
 	inst->prop.bframe_changed = false;
-	inst->prop.extradata_ctrls = EXTRADATA_DEFAULT;
+	inst->prop.extradata_ctrls = EXTRADATA_NONE;
 	inst->buffer_mode_set[INPUT_PORT] = HAL_BUFFER_MODE_DYNAMIC;
 	inst->buffer_mode_set[OUTPUT_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->clk_data.frame_rate = (DEFAULT_FPS << 16);
@@ -1382,6 +1382,14 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			(f->fmt.pix_mp.pixelformat ==
 			V4L2_PIX_FMT_SDE_Y_CBCR_H2V2_P010_VENUS)) {
 			inst->bit_depth = MSM_VIDC_BIT_DEPTH_10;
+		}
+
+		rc = msm_vidc_calculate_buffer_counts(inst);
+		if (rc) {
+			s_vpr_e(inst->sid,
+				"%s failed to calculate buffer count\n",
+				__func__);
+			return rc;
 		}
 
 		rc = msm_vidc_check_session_supported(inst);
@@ -1628,6 +1636,10 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		inst->flags &= ~VIDC_SECURE;
 		if (ctrl->val)
 			inst->flags |= VIDC_SECURE;
+		f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+		f->fmt.pix_mp.num_planes = 1;
+		s_vpr_h(sid, "%s: num planes %d for secure sessions\n",
+					__func__, f->fmt.pix_mp.num_planes);
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_USELTRFRAME:
 		if (inst->state == MSM_VIDC_START_DONE) {
@@ -1932,11 +1944,11 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDEO_VBV_DELAY:
 	case V4L2_CID_MPEG_VIDC_VENC_BITRATE_SAVINGS:
 	case V4L2_CID_MPEG_VIDC_SUPERFRAME:
-		s_vpr_h(sid, "Control set: ID : %x Val : %d\n",
+		s_vpr_h(sid, "Control set: ID : 0x%x Val : %d\n",
 			ctrl->id, ctrl->val);
 		break;
 	default:
-		s_vpr_e(sid, "Unsupported index: %x\n", ctrl->id);
+		s_vpr_e(sid, "Unsupported index: 0x%x\n", ctrl->id);
 		rc = -ENOTSUPP;
 		break;
 	}
@@ -2622,15 +2634,13 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 set_vbv_delay:
 	inst->clk_data.is_legacy_cbr = is_legacy_cbr;
 	hrd_buf_size.vbv_hrd_buf_size = buf_size;
-	s_vpr_h(inst->sid,
-		"Set hrd_buf_size %d", hrd_buf_size.vbv_hrd_buf_size);
+	s_vpr_h(inst->sid, "%s: %d\n", __func__, hrd_buf_size.vbv_hrd_buf_size);
 	rc = call_hfi_op(hdev, session_set_property,
 		(void *)inst->session,
 		HFI_PROPERTY_CONFIG_VENC_VBV_HRD_BUF_SIZE,
 		(void *)&hrd_buf_size, sizeof(hrd_buf_size));
 	if (rc) {
-		s_vpr_e(inst->sid, "%s: set HRD_BUF_SIZE %u failed\n",
-				__func__, hrd_buf_size.vbv_hrd_buf_size);
+		s_vpr_e(inst->sid, "%s: set property failed\n", __func__);
 	}
 	return rc;
 }
