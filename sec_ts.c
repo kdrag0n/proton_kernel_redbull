@@ -893,20 +893,23 @@ int sec_ts_wait_for_ready_with_count(struct sec_ts_data *ts, unsigned int ack,
 int sec_ts_read_calibration_report(struct sec_ts_data *ts)
 {
 	int ret;
-	u8 buf[5] = { 0 };
 
-	buf[0] = SEC_TS_READ_CALIBRATION_REPORT;
-
-	ret = sec_ts_read(ts, buf[0], &buf[1], 4);
+	memset(ts->cali_report, 0, sizeof(ts->cali_report));
+	ret = sec_ts_read(ts, SEC_TS_READ_CALIBRATION_REPORT,
+		ts->cali_report, sizeof(ts->cali_report));
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed to read, %d\n", __func__, ret);
 		return ret;
 	}
 
-	input_info(true, &ts->client->dev, "%s: count:%d, pass count:%d, fail count:%d, status:0x%X\n",
-				__func__, buf[1], buf[2], buf[3], buf[4]);
+	input_info(true, &ts->client->dev,
+		"%s: count:%d, pass count:%d, fail count:%d, status:%X, param version:%X %X %X %X\n",
+		__func__, ts->cali_report_try_cnt, ts->cali_report_pass_cnt,
+		ts->cali_report_fail_cnt, ts->cali_report_status,
+		ts->cali_report_param_ver[0], ts->cali_report_param_ver[1],
+		ts->cali_report_param_ver[2], ts->cali_report_param_ver[3]);
 
-	return buf[4];
+	return ts->cali_report_status;
 }
 
 static void sec_ts_reinit(struct sec_ts_data *ts)
