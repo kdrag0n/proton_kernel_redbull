@@ -995,6 +995,7 @@
 			<480000000 0 0>,
 			<600000000 0 0>;
 		status = "ok";
+		qcom,msm-bus,name = "fd_core";
 	};
 
 	qcom,cam-lrme {
