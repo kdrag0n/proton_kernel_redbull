@@ -242,7 +242,7 @@ static int panel_pre_kickoff(struct dsi_panel *panel)
 	return 0;
 }
 
-static int panel_pre_disable(struct dsi_panel *panel)
+static int panel_flush_switch_queue(struct dsi_panel *panel)
 {
 	struct panel_switch_data *pdata = panel->private_data;
 
@@ -313,8 +313,9 @@ static const struct file_operations panel_switch_fops = {
 
 static const struct dsi_panel_funcs panel_funcs = {
 	.mode_switch = panel_switch,
-	.pre_disable = panel_pre_disable,
+	.pre_disable = panel_flush_switch_queue,
 	.pre_kickoff = panel_pre_kickoff,
+	.pre_lp1     = panel_flush_switch_queue,
 };
 
 static int panel_switch_data_init(struct dsi_panel *panel,
