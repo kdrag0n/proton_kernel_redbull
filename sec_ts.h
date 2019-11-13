@@ -861,6 +861,16 @@ struct sec_ts_data {
 	int fs_postcal_mean;
 
 	bool is_fw_corrupted;
+	union {
+		u8 cali_report[8];
+		struct {
+		u8 cali_report_try_cnt;
+		u8 cali_report_pass_cnt;
+		u8 cali_report_fail_cnt;
+		u8 cali_report_status;
+		u8 cali_report_param_ver[4];
+		};
+	};
 
 #ifdef CONFIG_TOUCHSCREEN_TBN
 	struct tbn_context *tbn;

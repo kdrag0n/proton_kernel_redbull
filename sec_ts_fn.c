@@ -677,8 +677,10 @@ static ssize_t fw_version_show(struct device *dev,
 {
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	int written = 0;
+	int ret, written = 0;
+	u8 data[3];
 
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
 	/* If there is no FW file avaiable,
 	 * sec_ts_save_version_of_ic() and sec_ts_save_version_of_bin() will
 	 * no be called. Need to get through SEC_TS_READ_IMG_VERSION cmd.
@@ -686,17 +688,13 @@ static ssize_t fw_version_show(struct device *dev,
 	if (ts->plat_data->panel_revision == 0 &&
 		ts->plat_data->img_version_of_bin[2] == 0 &&
 		ts->plat_data->img_version_of_bin[3] == 0 ) {
-		int ret;
 		u8 fw_ver[4];
 
-		sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
 		ret = ts->sec_ts_read(ts, SEC_TS_READ_IMG_VERSION, fw_ver, 4);
-		sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
-
 		if (ret < 0) {
 			input_err(true, &ts->client->dev,
 				"%s: firmware version read error\n", __func__);
-			return -EIO;
+			goto out;
 		}
 		written += scnprintf(buf + written, PAGE_SIZE - written,
 			"SE-V%02X.%02X.%02X\n",
@@ -717,7 +715,23 @@ static ssize_t fw_version_show(struct device *dev,
 	}
 
 	written += scnprintf(buf + written, PAGE_SIZE - written,
-		"Cal: %#X\n", ts->cal_status);
+		"Cal: %02X %02X %02X %02X %02X %02X %02X %02X \n",
+		ts->cali_report[0], ts->cali_report[1], ts->cali_report[2],
+		ts->cali_report[3], ts->cali_report[4], ts->cali_report[5],
+		ts->cali_report[6], ts->cali_report[7]);
+
+	ret = ts->sec_ts_read(ts, SEC_TS_READ_ID, data, sizeof(data));
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+					"%s: failed to read device id(%d)\n",
+					__func__, ret);
+		goto out;
+	}
+	written += scnprintf(buf + written, PAGE_SIZE - written,
+		"ID: %02X %02X %02X\n",
+		data[0], data[1], data[2]);
+out:
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
 
 	return written;
 }
@@ -4827,6 +4841,8 @@ static void get_force_calibration(void *device_data)
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = {0};
+	int buff_len = sizeof(buff);
+	int written = 0;
 	int rc;
 
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
@@ -4835,7 +4851,8 @@ static void get_force_calibration(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		written += scnprintf(buff + written, buff_len - written,
+			"%s", "TSP turned off");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 
@@ -4845,16 +4862,28 @@ static void get_force_calibration(void *device_data)
 
 	rc = sec_ts_read_calibration_report(ts);
 	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "FAIL");
+		written += scnprintf(buff + written, buff_len - written,
+			"%s\n", "FAIL");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	} else if (rc == SEC_TS_STATUS_CALIBRATION_SDC) {
+		written += scnprintf(buff + written, buff_len - written,
+			"%s\n", "OK(MODULE)");
+		sec->cmd_state = SEC_CMD_STATUS_OK;
 	} else if (rc == SEC_TS_STATUS_CALIBRATION_SEC) {
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		written += scnprintf(buff + written, buff_len - written,
+			"%s\n", "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	} else {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		written += scnprintf(buff + written, buff_len - written,
+			"%s\n", "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	}
 
+	written += scnprintf(buff + written, buff_len - written,
+		"%02X, %02X, %02X, %02X, %02X, %02X, %02X, %02X\n",
+		ts->cali_report[0], ts->cali_report[1], ts->cali_report[2],
+		ts->cali_report[3], ts->cali_report[4], ts->cali_report[5],
+		ts->cali_report[6], ts->cali_report[7]);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
