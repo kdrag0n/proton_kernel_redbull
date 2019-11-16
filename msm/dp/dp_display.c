@@ -2941,7 +2941,7 @@ static struct platform_driver dp_display_driver = {
 	},
 };
 
-static int __init dp_display_init(void)
+int __init dp_display_init(void)
 {
 	int ret;
 
@@ -2953,10 +2953,14 @@ static int __init dp_display_init(void)
 
 	return ret;
 }
-late_initcall(dp_display_init);
 
-static void __exit dp_display_cleanup(void)
+
+void __exit dp_display_cleanup(void)
 {
 	platform_driver_unregister(&dp_display_driver);
 }
+
+#ifndef CONFIG_DRM_MSM_MODULE
+late_initcall(dp_display_init);
 module_exit(dp_display_cleanup);
+#endif
