@@ -1491,13 +1491,6 @@ static void handle_session_init_done(enum hal_command_response cmd, void *data)
 		goto error;
 	}
 
-	if (inst->session_type == MSM_VIDC_CVP) {
-		s_vpr_h(inst->sid, "%s: cvp session\n", __func__);
-		signal_session_msg_receipt(cmd, inst);
-		put_inst(inst);
-		return;
-	}
-
 	s_vpr_l(inst->sid, "handled: SESSION_INIT_DONE\n");
 	signal_session_msg_receipt(cmd, inst);
 	put_inst(inst);
@@ -1522,6 +1515,11 @@ static int msm_comm_update_capabilities(struct msm_vidc_inst *inst)
 	if (!inst || !inst->core) {
 		d_vpr_e("%s: invalid parameters\n", __func__);
 		return -EINVAL;
+	}
+
+	if (inst->session_type == MSM_VIDC_CVP) {
+		s_vpr_h(inst->sid, "%s: cvp session\n", __func__);
+		return 0;
 	}
 
 	core = inst->core;
@@ -5566,7 +5564,7 @@ static int msm_vidc_check_mbpf_supported(struct msm_vidc_inst *inst)
 		if (is_thumbnail_session(temp))
 			continue;
 		/* ignore HEIF sessions */
-		if (is_image_session(temp))
+		if (is_image_session(temp) || is_grid_session(temp))
 			continue;
 		mbpf += NUM_MBS_PER_FRAME(
 			temp->fmts[INPUT_PORT].v4l2_fmt.fmt.pix_mp.height,
@@ -5834,7 +5832,8 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 		/* Image size max capability has equal width and height,
 		 * hence, don't check mbpf for image sessions.
 		 */
-		if (!rc && !is_image_session(inst) &&
+		if (!rc && !(is_image_session(inst) ||
+			is_grid_session(inst)) &&
 			NUM_MBS_PER_FRAME(input_width, input_height) >
 			mbpf_max) {
 			s_vpr_e(sid, "Unsupported mbpf %d, max %d\n",
