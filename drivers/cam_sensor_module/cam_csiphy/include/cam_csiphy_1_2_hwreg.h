@@ -334,7 +334,7 @@ csiphy_reg_t csiphy_3ph_v1_2_reg[MAX_LANES][MAX_SETTINGS_PER_LANE] = {
 		{0x03CC, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0364, 0x33, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x03DC, 0x50, 0x00, CSIPHY_DEFAULT_PARAMS},
-		{0x0AB0, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
+		{0x0AB0, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0800, 0x0E, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0A84, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0AB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
@@ -369,24 +369,21 @@ csiphy_reg_t csiphy_3ph_v1_2_reg[MAX_LANES][MAX_SETTINGS_PER_LANE] = {
 		{0x05CC, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0564, 0x33, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x05DC, 0x50, 0x00, CSIPHY_DEFAULT_PARAMS},
-		{0x0BB0, 0x05, 0x00, CSIPHY_DEFAULT_PARAMS},
+		{0x0BB0, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0800, 0x0E, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0B84, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
 		{0x0BB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
 	},
 };
 
-struct data_rate_settings_t data_rate_delta_table = {
+struct data_rate_settings_t data_rate_delta_table_1_2 = {
 	.num_data_rate_settings = 3,
 	.data_rate_settings = {
 		{
 			/* (2.5 * 10**3 * 2.28) rounded value*/
 			.bandwidth = 5700000000,
-			.data_rate_reg_array_size = 9,
+			.data_rate_reg_array_size = 6,
 			.csiphy_data_rate_regs = {
-				{0x9B4, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xAB4, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xBB4, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x144, 0x22, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x344, 0x22, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x544, 0x22, 0x00, CSIPHY_DEFAULT_PARAMS},
@@ -398,11 +395,8 @@ struct data_rate_settings_t data_rate_delta_table = {
 		{
 			/* (3.5 * 10**3 * 2.28) rounded value */
 			.bandwidth = 7980000000,
-			.data_rate_reg_array_size = 18,
+			.data_rate_reg_array_size = 15,
 			.csiphy_data_rate_regs = {
-				{0x9B4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xAB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xBB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x144, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x344, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x544, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
@@ -418,17 +412,13 @@ struct data_rate_settings_t data_rate_delta_table = {
 				{0x10C, 0x08, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x30C, 0x08, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x50C, 0x08, 0x00, CSIPHY_DEFAULT_PARAMS},
-
 			},
 		},
 		{
 			/* (4.5 * 10**3 * 2.28) rounded value */
 			.bandwidth = 10260000000,
-			.data_rate_reg_array_size = 18,
+			.data_rate_reg_array_size = 15,
 			.csiphy_data_rate_regs = {
-				{0x9B4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xAB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
-				{0xBB4, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x144, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x344, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
 				{0x544, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
