@@ -3461,15 +3461,6 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		.get = msm_dai_q6_afe_enc_cfg_get,
 		.put = msm_dai_q6_afe_enc_cfg_put,
 	},
-	{
-		.access = (SNDRV_CTL_ELEM_ACCESS_READWRITE |
-			   SNDRV_CTL_ELEM_ACCESS_INACTIVE),
-		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
-		.name = "SLIM_7_RX APTX_AD Enc Cfg",
-		.info = msm_dai_q6_afe_enc_cfg_info,
-		.get = msm_dai_q6_afe_enc_cfg_get,
-		.put = msm_dai_q6_afe_enc_cfg_put,
-	},
 	SOC_ENUM_EXT("AFE Input Channels", afe_chs_enum[0],
 		     msm_dai_q6_afe_input_channel_get,
 		     msm_dai_q6_afe_input_channel_put),
@@ -3482,7 +3473,16 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		       msm_dai_q6_afe_scrambler_mode_put),
 	SOC_ENUM_EXT("TWS Channel Mode", tws_chs_mode_enum[0],
 		       msm_dai_q6_tws_channel_mode_get,
-		       msm_dai_q6_tws_channel_mode_put)
+		       msm_dai_q6_tws_channel_mode_put),
+	{
+		.access = (SNDRV_CTL_ELEM_ACCESS_READWRITE |
+			   SNDRV_CTL_ELEM_ACCESS_INACTIVE),
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name = "SLIM_7_RX APTX_AD Enc Cfg",
+		.info = msm_dai_q6_afe_enc_cfg_info,
+		.get = msm_dai_q6_afe_enc_cfg_get,
+		.put = msm_dai_q6_afe_enc_cfg_put,
+	}
 };
 
 static int  msm_dai_q6_afe_dec_cfg_info(struct snd_kcontrol *kcontrol,
@@ -3895,7 +3895,7 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 				 dai));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				 snd_ctl_new1(&afe_enc_config_controls[5],
-				 dai));
+				 dai_data));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(&avd_drift_config_controls[2],
 					dai));
@@ -5014,6 +5014,9 @@ static const struct snd_kcontrol_new mi2s_config_controls[] = {
 	SOC_ENUM_EXT("QUIN MI2S RX Format", mi2s_config_enum[0],
 		     msm_dai_q6_mi2s_format_get,
 		     msm_dai_q6_mi2s_format_put),
+	SOC_ENUM_EXT("SENARY MI2S RX Format", mi2s_config_enum[0],
+		     msm_dai_q6_mi2s_format_get,
+		     msm_dai_q6_mi2s_format_put),
 	SOC_ENUM_EXT("PRI MI2S TX Format", mi2s_config_enum[0],
 		     msm_dai_q6_mi2s_format_get,
 		     msm_dai_q6_mi2s_format_put),
@@ -5068,6 +5071,8 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 			ctrl = &mi2s_config_controls[3];
 		if (dai->id == MSM_QUIN_MI2S)
 			ctrl = &mi2s_config_controls[4];
+		if (dai->id == MSM_SENARY_MI2S)
+			ctrl = &mi2s_config_controls[5];
 	}
 
 	if (ctrl) {
@@ -5084,19 +5089,19 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 	ctrl = NULL;
 	if (mi2s_dai_data->tx_dai.mi2s_dai_data.port_config.i2s.channel_mode) {
 		if (dai->id == MSM_PRIM_MI2S)
-			ctrl = &mi2s_config_controls[5];
-		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[6];
-		if (dai->id == MSM_TERT_MI2S)
+		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[7];
-		if (dai->id == MSM_QUAT_MI2S)
+		if (dai->id == MSM_TERT_MI2S)
 			ctrl = &mi2s_config_controls[8];
-		if (dai->id == MSM_QUIN_MI2S)
+		if (dai->id == MSM_QUAT_MI2S)
 			ctrl = &mi2s_config_controls[9];
-		if (dai->id == MSM_SENARY_MI2S)
+		if (dai->id == MSM_QUIN_MI2S)
 			ctrl = &mi2s_config_controls[10];
-		if (dai->id == MSM_INT5_MI2S)
+		if (dai->id == MSM_SENARY_MI2S)
 			ctrl = &mi2s_config_controls[11];
+		if (dai->id == MSM_INT5_MI2S)
+			ctrl = &mi2s_config_controls[12];
 	}
 
 	if (ctrl) {
@@ -5509,6 +5514,10 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->port_config.i2s.bit_width = 24;
 		dai_data->bitwidth = 24;
+		break;
+	case SNDRV_PCM_FORMAT_S32_LE:
+		dai_data->port_config.i2s.bit_width = 32;
+		dai_data->bitwidth = 32;
 		break;
 	default:
 		pr_err("%s: format %d\n",

@@ -447,6 +447,7 @@ struct rx_macro_priv {
 			[RX_MACRO_CHILD_DEVICES_MAX];
 	int child_count;
 	int is_softclip_on;
+	int is_aux_hpf_on;
 	int softclip_clk_users;
 	struct rx_macro_bcl_pmic_params bcl_pmic_params;
 	u16 clk_id;
@@ -1349,10 +1350,8 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 			goto done;
 		reg = BOLERO_CDC_RX_COMPANDER0_CTL0 +
 				(rx_idx * RX_MACRO_COMP_OFFSET);
-		snd_soc_component_update_bits(component, reg,
-				0x20, 0x20);
-		snd_soc_component_update_bits(component, reg,
-				0x20, 0x00);
+		snd_soc_component_write(component, reg,
+				snd_soc_component_read32(component, reg));
 		break;
 	case BOLERO_MACRO_EVT_IMPED_TRUE:
 		rx_macro_wcd_clsh_imped_config(component, data, true);
@@ -1797,6 +1796,30 @@ static int rx_macro_config_softclip(struct snd_soc_component *component,
 	return 0;
 }
 
+static int rx_macro_config_aux_hpf(struct snd_soc_component *component,
+				struct rx_macro_priv *rx_priv,
+				int event)
+{
+	dev_dbg(component->dev, "%s: event %d, enabled %d\n",
+		__func__, event, rx_priv->is_aux_hpf_on);
+
+	if (SND_SOC_DAPM_EVENT_ON(event)) {
+		/* Update Aux HPF control */
+		if (!rx_priv->is_aux_hpf_on)
+			snd_soc_component_update_bits(component,
+				BOLERO_CDC_RX_RX2_RX_PATH_CFG1, 0x04, 0x00);
+	}
+
+	if (SND_SOC_DAPM_EVENT_OFF(event)) {
+		/* Reset to default (HPF=ON) */
+		snd_soc_component_update_bits(component,
+			BOLERO_CDC_RX_RX2_RX_PATH_CFG1, 0x04, 0x04);
+	}
+
+	return 0;
+}
+
+
 static inline void
 rx_macro_enable_clsh_block(struct rx_macro_priv *rx_priv, bool enable)
 {
@@ -2231,6 +2254,45 @@ static int rx_macro_soft_clip_enable_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rx_macro_aux_hpf_mode_get(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+			snd_soc_kcontrol_component(kcontrol);
+	struct device *rx_dev = NULL;
+	struct rx_macro_priv *rx_priv = NULL;
+
+	if (!rx_macro_get_data(component, &rx_dev, &rx_priv, __func__))
+		return -EINVAL;
+
+	ucontrol->value.integer.value[0] = rx_priv->is_aux_hpf_on;
+
+	dev_dbg(component->dev, "%s: ucontrol->value.integer.value[0] = %ld\n",
+		__func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int rx_macro_aux_hpf_mode_put(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+			snd_soc_kcontrol_component(kcontrol);
+	struct device *rx_dev = NULL;
+	struct rx_macro_priv *rx_priv = NULL;
+
+	if (!rx_macro_get_data(component, &rx_dev, &rx_priv, __func__))
+		return -EINVAL;
+
+	rx_priv->is_aux_hpf_on = ucontrol->value.integer.value[0];
+
+	dev_dbg(component->dev, "%s: aux hpf enable = %d\n", __func__,
+		rx_priv->is_aux_hpf_on);
+
+	return 0;
+}
+
+
 static int rx_macro_enable_vbat(struct snd_soc_dapm_widget *w,
 				 struct snd_kcontrol *kcontrol,
 				 int event)
@@ -2478,9 +2540,12 @@ static int rx_macro_enable_interp_clk(struct snd_soc_component *component,
 						    interp_idx, event);
 			rx_macro_config_compander(component, rx_priv,
 						interp_idx, event);
-			if (interp_idx ==  INTERP_AUX)
+			if (interp_idx == INTERP_AUX) {
 				rx_macro_config_softclip(component, rx_priv,
 							event);
+				rx_macro_config_aux_hpf(component, rx_priv,
+							event);
+			}
 			rx_macro_config_classh(component, rx_priv,
 						interp_idx, event);
 		}
@@ -2513,9 +2578,12 @@ static int rx_macro_enable_interp_clk(struct snd_soc_component *component,
 						interp_idx, event);
 			rx_macro_config_compander(component, rx_priv,
 						interp_idx, event);
-			if (interp_idx ==  INTERP_AUX)
+			if (interp_idx ==  INTERP_AUX) {
 				rx_macro_config_softclip(component, rx_priv,
 							event);
+				rx_macro_config_aux_hpf(component, rx_priv,
+				event);
+			}
 			rx_macro_hphdelay_lutbypass(component, rx_priv,
 						interp_idx, event);
 			if (rx_priv->hph_hd2_mode)
@@ -2907,6 +2975,9 @@ static const struct snd_kcontrol_new rx_macro_snd_controls[] = {
 	SOC_SINGLE_EXT("RX_Softclip Enable", SND_SOC_NOPM, 0, 1, 0,
 		     rx_macro_soft_clip_enable_get,
 		     rx_macro_soft_clip_enable_put),
+	SOC_SINGLE_EXT("AUX_HPF Enable", SND_SOC_NOPM, 0, 1, 0,
+			rx_macro_aux_hpf_mode_get,
+			rx_macro_aux_hpf_mode_put),
 
 	SOC_SINGLE_SX_TLV("IIR0 INP0 Volume",
 		BOLERO_CDC_RX_SIDETONE_IIR0_IIR_GAIN_B1_CTL, 0, -84, 40,
@@ -3907,7 +3978,8 @@ static int rx_macro_probe(struct platform_device *pdev)
 			__func__);
 		return -EINVAL;
 	}
-	if (msm_cdc_pinctrl_get_state(rx_priv->rx_swr_gpio_p) < 0) {
+	if (msm_cdc_pinctrl_get_state(rx_priv->rx_swr_gpio_p) < 0 &&
+		is_used_rx_swr_gpio) {
 		dev_err(&pdev->dev, "%s: failed to get swr pin state\n",
 			__func__);
 		return -EPROBE_DEFER;
@@ -3954,6 +4026,8 @@ static int rx_macro_probe(struct platform_device *pdev)
 	ops.clk_id_req = rx_priv->clk_id;
 	ops.default_clk_id = default_clk_id;
 
+	rx_priv->is_aux_hpf_on = 1;
+
 	dev_set_drvdata(&pdev->dev, rx_priv);
 	mutex_init(&rx_priv->mclk_lock);
 	mutex_init(&rx_priv->swr_clk_lock);
@@ -3969,6 +4043,7 @@ static int rx_macro_probe(struct platform_device *pdev)
 	pm_runtime_set_autosuspend_delay(&pdev->dev, AUTO_SUSPEND_DELAY);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_set_suspended(&pdev->dev);
+	pm_suspend_ignore_children(&pdev->dev, true);
 	pm_runtime_enable(&pdev->dev);
 
 	return 0;

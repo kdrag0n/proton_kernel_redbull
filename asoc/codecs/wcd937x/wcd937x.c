@@ -88,6 +88,7 @@ static struct regmap_irq_chip wcd937x_regmap_irq_chip = {
 	.mask_base = WCD937X_DIGITAL_INTR_MASK_0,
 	.ack_base = WCD937X_DIGITAL_INTR_CLEAR_0,
 	.use_ack = 1,
+	.clear_ack = 1,
 	.type_base = WCD937X_DIGITAL_INTR_LEVEL_0,
 	.runtime_pm = false,
 	.handle_post_irq = wcd937x_handle_post_irq,
@@ -1309,7 +1310,7 @@ static int wcd937x_codec_enable_adc(struct snd_soc_dapm_widget *w,
 		/* Enable BCS for Headset mic */
 		if (w->shift == 1 && !(snd_soc_component_read32(component,
 				WCD937X_TX_NEW_TX_CH2_SEL) & 0x80)) {
-			wcd937x_tx_connect_port(codec, MBHC, true);
+			wcd937x_tx_connect_port(component, MBHC, true);
 			set_bit(AMIC2_BCS_ENABLE, &wcd937x->status_mask);
 		}
 		wcd937x_tx_connect_port(component, ADC1 + (w->shift), true);
@@ -1318,7 +1319,7 @@ static int wcd937x_codec_enable_adc(struct snd_soc_dapm_widget *w,
 		wcd937x_tx_connect_port(component, ADC1 + (w->shift), false);
 		if (w->shift == 1 &&
 			test_bit(AMIC2_BCS_ENABLE, &wcd937x->status_mask)) {
-			wcd937x_tx_connect_port(codec, MBHC, false);
+			wcd937x_tx_connect_port(component, MBHC, false);
 			clear_bit(AMIC2_BCS_ENABLE, &wcd937x->status_mask);
 		}
 		snd_soc_component_update_bits(component,
