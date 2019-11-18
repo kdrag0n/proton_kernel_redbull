@@ -1056,6 +1056,8 @@ int sde_rsc_register(void);
 void sde_rsc_unregister(void);
 int sde_wb_register(void);
 void sde_wb_unregister(void);
+int mdss_pll_driver_init(void);
+void mdss_pll_driver_deinit(void);
 #endif
 
 #endif /* __MSM_DRV_H__ */

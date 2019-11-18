@@ -2245,6 +2245,12 @@ static int __init msm_drm_module_init(void)
 		return ret;
 	}
 
+	ret = mdss_pll_driver_init();
+	if (ret) {
+		pr_err("mdss_pll_driver_init failed, error %d\n", ret);
+		return ret;
+	}
+
 	ret = sde_wb_register();
 	if (ret) {
 		pr_err("sde_wb register fails, error:%d\n", ret);
@@ -2283,6 +2289,7 @@ static void __exit msm_drm_module_cleanup(void)
 	dsi_display_unregister();
 	sde_rsc_unregister();
 	sde_wb_unregister();
+	mdss_pll_driver_deinit();
 }
 module_init(msm_drm_module_init);
 module_exit(msm_drm_module_cleanup);
