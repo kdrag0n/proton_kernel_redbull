@@ -84,6 +84,11 @@
 	/delete-node/ rpm-regulator-ldoa24;
 };
 
+&thermal_zones {
+	/delete-node/ mapss-lowf;
+	/delete-node/ camera-lowf;
+};
+
  #include "bengal-stub-regulator.dtsi"
 
 &sdhc_1 {
@@ -145,4 +150,9 @@
 	clock-output-names = "rpmcc_clocks";
 	#clock-cells = <1>;
 	#reset-cells = <1>;
+};
+
+&debugcc {
+	compatible = "qcom,dummycc";
+	clock-output-names = "debugcc_clocks";
 };
