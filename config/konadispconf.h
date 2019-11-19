@@ -3,7 +3,7 @@
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  */
 
-#define CONFIG_DRM_MSM 1
+#define CONFIG_DRM_MSM_MODULE 1
 #define CONFIG_DRM_MSM_SDE 1
 #define CONFIG_SYNC_FILE 1
 #define CONFIG_DRM_MSM_DSI 1
