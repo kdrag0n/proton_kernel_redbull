@@ -4,5 +4,5 @@
  */
 
 
-#define CONFIG_SPECTRA_CAMERA_MODULE 1
+#define CONFIG_SPECTRA_CAMERA 1
 
