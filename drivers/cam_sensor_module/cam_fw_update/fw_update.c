@@ -384,3 +384,6 @@ int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl)
 	return rc;
 }
 EXPORT_SYMBOL_GPL(getFWVersion);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Fw Update");
