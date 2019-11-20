@@ -422,15 +422,26 @@ struct s6e3hc2_switch_data {
 	struct kthread_work gamma_work;
 };
 
+#define S6E3HC2_GAMMA_BAND_LEN 45
+
+/**
+ * s6e3hc2_gamma_info - Information used to access gamma data on s6e3hc2.
+ * @cmd: Command to use when writing/reading gamma from the DDIC.
+ * @len: Total number of bytes to write/read from DDIC, including prefix_len.
+ * @prefix_len: Number of bytes that precede gamma data when writing/reading
+ *     from the DDIC. This is a subset of len.
+ * @flash_offset: Address offset to use when reading from flash.
+ */
 const struct s6e3hc2_gamma_info {
 	u8 cmd;
 	u32 len;
+	u32 prefix_len;
 	u32 flash_offset;
-	u8 par_offset;
 } s6e3hc2_gamma_tables[] = {
-	{ 0xC8, 135, 0x0000 },
-	{ 0xC9, 180, 0x0087 },
-	{ 0xB3,  45, 0x013B, 0x02 },
+	/* order of commands matter due to use of cmds grouping */
+	{ 0xC8, S6E3HC2_GAMMA_BAND_LEN * 3, 0, 0x0000 },
+	{ 0xC9, S6E3HC2_GAMMA_BAND_LEN * 4, 0, 0x0087 },
+	{ 0xB3, 2 + S6E3HC2_GAMMA_BAND_LEN, 2, 0x013B },
 };
 
 #define S6E3HC2_NUM_GAMMA_TABLES ARRAY_SIZE(s6e3hc2_gamma_tables)
@@ -479,17 +490,9 @@ static int s6e3hc2_gamma_read_otp(struct panel_switch_data *pdata,
 	dsi = &pdata->panel->mipi_device;
 
 	for (i = 0; i < S6E3HC2_NUM_GAMMA_TABLES; i++) {
-		const struct s6e3hc2_gamma_info *info;
-		u8 gpar_cmd[2] = { 0xB0 };
+		const struct s6e3hc2_gamma_info *info =
+			&s6e3hc2_gamma_tables[i];
 		u8 *buf = priv_data->gamma_data[i];
-
-		info = &s6e3hc2_gamma_tables[i];
-
-		if (info->par_offset) {
-			gpar_cmd[1] = info->par_offset;
-			if (DSI_WRITE_CMD_BUF(dsi, gpar_cmd))
-				goto error;
-		}
 
 		/* store cmd on first byte to send payload as is */
 		*buf = info->cmd;
@@ -503,12 +506,6 @@ static int s6e3hc2_gamma_read_otp(struct panel_switch_data *pdata,
 	SDE_ATRACE_END(__func__);
 
 	return 0;
-
-error:
-	SDE_ATRACE_END(__func__);
-
-	pr_err("Failed to read gamma from OTP\n");
-	return -EFAULT;
 }
 
 static int s6e3hc2_gamma_read_flash(struct panel_switch_data *pdata,
@@ -565,7 +562,7 @@ static int s6e3hc2_gamma_read_flash(struct panel_switch_data *pdata,
 		*buf = info->cmd;
 		buf++;
 
-		for (j = 0; j < info->len; j++, offset++) {
+		for (j = info->prefix_len; j < info->len; j++, offset++) {
 			u8 tmp[2];
 
 			flash_rd[9] = (offset >> 8) & 0xFF;
@@ -673,6 +670,92 @@ static int s6e3hc2_gamma_read_mode(struct panel_switch_data *pdata,
 	return rc;
 }
 
+static int find_gamma_data_for_refresh_rate(struct dsi_panel *panel,
+	u32 refresh_rate, u8 ***gamma_data)
+{
+	struct dsi_display_mode *mode;
+	int i;
+
+	if (!gamma_data)
+		return -EINVAL;
+
+	for_each_display_mode(i, mode, panel)
+		if (mode->timing.refresh_rate == refresh_rate) {
+			struct s6e3hc2_panel_data *priv_data =
+				mode->priv_info->switch_data;
+
+			if (unlikely(!priv_data))
+				return -ENODATA;
+
+			*gamma_data = priv_data->gamma_data;
+			return 0;
+		}
+
+	return -ENODATA;
+}
+
+/*
+ * For some modes, gamma curves are located in registers addresses that require
+ * an offset to read/write. Because we cannot access a register offset directly,
+ * we must read the portion of the data that precedes the gamma curve data
+ * itself ("prefix") as well. In such cases, we read the prefix + gamma curve
+ * data from DDIC registers, and only gamma curve data from flash.
+ *
+ * This function looks for such gamma curves, and adjusts gamma data read from
+ * flash to include the prefix read from registers. The result is that, for all
+ * modes, wherever the gamma curves were read from (registers or flash), when
+ * that gamma data is written back to registers the write includes the original
+ * prefix.
+ * In other words, when we write gamma data to registers, we do not modify
+ * prefix data; we only modify gamma data.
+ */
+static int s6e3hc2_gamma_set_prefixes(struct panel_switch_data *pdata)
+{
+	int i;
+	int rc = 0;
+	u8 **gamma_data_otp;
+	u8 **gamma_data_flash;
+
+	/*
+	 * For s6e3hc2, 60Hz gamma curves are read from OTP and 90Hz
+	 * gamma curves are read from flash.
+	 */
+	rc = find_gamma_data_for_refresh_rate(pdata->panel, 60,
+		&gamma_data_otp);
+	if (rc) {
+		pr_err("Error setting gamma prefix: no matching OTP mode, err %d\n",
+			rc);
+		return rc;
+	}
+
+	rc = find_gamma_data_for_refresh_rate(pdata->panel, 90,
+		&gamma_data_flash);
+	if (rc) {
+		pr_err("Error setting gamma prefix: no matching flash mode, err %d\n",
+			rc);
+		return rc;
+	}
+
+	for (i = 0; i < S6E3HC2_NUM_GAMMA_TABLES; i++) {
+		const struct s6e3hc2_gamma_info *gamma_info =
+			&s6e3hc2_gamma_tables[i];
+		u8 *gamma_curve_otp = gamma_data_otp[i];
+		u8 *gamma_curve_flash = gamma_data_flash[i];
+
+		if (!gamma_info->prefix_len)
+			continue;
+
+		/* skip command byte */
+		gamma_curve_otp++;
+		gamma_curve_flash++;
+
+		memcpy(gamma_curve_flash, gamma_curve_otp,
+			gamma_info->prefix_len);
+	}
+
+	return rc;
+}
+
 static int s6e3hc2_gamma_read_tables(struct panel_switch_data *pdata)
 {
 	struct s6e3hc2_switch_data *sdata;
@@ -699,6 +782,12 @@ static int s6e3hc2_gamma_read_tables(struct panel_switch_data *pdata)
 			pr_err("Unable to read gamma for mode #%d\n", i);
 			goto abort;
 		}
+	}
+
+	rc = s6e3hc2_gamma_set_prefixes(pdata);
+	if (rc) {
+		pr_err("Unable to set gamma prefix\n");
+		goto abort;
 	}
 
 	sdata->gamma_ready = true;
@@ -817,10 +906,38 @@ static const struct file_operations s6e3hc2_read_gamma_fops = {
 	.release = single_release,
 };
 
+static int s6e3hc2_check_gamma_infos(const struct s6e3hc2_gamma_info *infos,
+		size_t num_infos)
+{
+	int i;
+
+	if (!infos) {
+		pr_err("Null gamma infos\n");
+		return -EINVAL;
+	}
+
+	for (i = 0; i < num_infos; i++) {
+		const struct s6e3hc2_gamma_info *info = &infos[i];
+
+		if (unlikely(info->prefix_len >= info->len)) {
+			pr_err("Gamma prefix length (%u) >= total length length (%u)\n",
+				info->prefix_len, info->len);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static struct panel_switch_data *s6e3hc2_switch_create(struct dsi_panel *panel)
 {
 	struct s6e3hc2_switch_data *sdata;
 	int rc;
+
+	rc = s6e3hc2_check_gamma_infos(s6e3hc2_gamma_tables,
+		S6E3HC2_NUM_GAMMA_TABLES);
+	if (rc)
+		return ERR_PTR(rc);
 
 	sdata = devm_kzalloc(panel->parent, sizeof(*sdata), GFP_KERNEL);
 	if (!sdata)
