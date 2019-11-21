@@ -21,6 +21,8 @@
 			"mmss_noc-base", "system_noc-base",
 			"ipa_virt-base", "compute_noc-base", "npu_noc-base";
 
+		clocks = <&clock_gcc GCC_AGGRE_USB3_PRIM_AXI_CLK>;
+
 		/*RSCs*/
 		rsc_apps: rsc-apps {
 			cell-id = <MSM_BUS_RSC_APPS>;
