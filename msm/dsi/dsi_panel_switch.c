@@ -27,6 +27,7 @@
 #include "sde_connector.h"
 
 #define DSI_PANEL_GAMMA_NAME "google,dsi_s6e3hc2_gamma"
+#define DSI_PANEL_SWITCH_NAME "google,dsi_panel_switch"
 
 #define TE_TIMEOUT_MS	50
 
@@ -1031,20 +1032,27 @@ static const struct of_device_id panel_switch_dt_match[] = {
 		.compatible = DSI_PANEL_GAMMA_NAME,
 		.data = &s6e3hc2_switch_funcs,
 	},
+	{
+		.compatible = DSI_PANEL_SWITCH_NAME,
+		.data = &panel_switch_default_funcs,
+	},
 	{},
 };
 
 int dsi_panel_switch_init(struct dsi_panel *panel)
 {
 	struct panel_switch_data *pdata = NULL;
-	const struct panel_switch_funcs *funcs;
+	const struct panel_switch_funcs *funcs = NULL;
 	const struct of_device_id *match;
 
 	match = of_match_node(panel_switch_dt_match, panel->panel_of_node);
 	if (match && match->data)
 		funcs = match->data;
-	else
-		funcs = &panel_switch_default_funcs;
+
+	if (!funcs) {
+		pr_info("Panel switch is not supported\n");
+		return 0;
+	}
 
 	if (funcs->create)
 		pdata = funcs->create(panel);
