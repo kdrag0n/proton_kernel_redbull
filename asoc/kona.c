@@ -181,6 +181,7 @@ struct msm_asoc_mach_data {
 	struct device_node *fsa_handle;
 	struct gpio_desc *ldo1_gpio;
 	struct gpio_desc *ldo2_gpio;
+	int hac_amp_gpio;
 };
 
 struct tdm_port {
@@ -3967,6 +3968,46 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			aux_pcm_tx_sample_rate_put),
 };
 
+static int hac_amp_en_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(component->card);
+
+	if (gpio_is_valid(pdata->hac_amp_gpio)) {
+		if (ucontrol->value.integer.value[0])
+			gpio_set_value(pdata->hac_amp_gpio, 1);
+		else
+			gpio_set_value(pdata->hac_amp_gpio, 0);
+	}
+
+	return 0;
+}
+
+static int hac_amp_en_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(component->card);
+
+	if (gpio_is_valid(pdata->hac_amp_gpio))
+		ucontrol->value.integer.value[0] = gpio_get_value(pdata->hac_amp_gpio);
+	else
+		ucontrol->value.integer.value[0] = 0;
+
+	return 0;
+}
+
+static const struct snd_kcontrol_new hac_amp_controls[] = {
+	SOC_SINGLE_EXT("HAC AMP EN", SND_SOC_NOPM, 0, 1, 0,
+			hac_amp_en_get,
+			hac_amp_en_put),
+};
+
 static int msm_pri_tdm_ch_put(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
 {
@@ -5393,6 +5434,14 @@ static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 				ARRAY_SIZE(msm_common_snd_controls));
 	if (ret < 0) {
 		pr_err("%s: add common snd controls failed: %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	ret = snd_soc_add_component_controls(component, hac_amp_controls,
+				ARRAY_SIZE(hac_amp_controls));
+	if (ret < 0) {
+		pr_err("%s: add hac snd controls failed: %d\n",
 			__func__, ret);
 		return ret;
 	}
@@ -8486,6 +8535,13 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 							GPIOD_OUT_LOW);
 	if (IS_ERR_OR_NULL(pdata->ldo2_gpio))
 		dev_warn(&pdev->dev, "Request mic2 GPIO failed\n");
+
+	pdata->hac_amp_gpio = of_get_named_gpio(pdev->dev.of_node,
+							"audio_hac-amp-gpios", 0);
+	if (!gpio_is_valid(pdata->hac_amp_gpio))
+		dev_warn(&pdev->dev, "audio_hac-amp-gpios is not valid\n");
+	else
+		gpio_direction_output(pdata->hac_amp_gpio, 0);
 
 	ret = msm_audio_ssr_register(&pdev->dev);
 	if (ret)
