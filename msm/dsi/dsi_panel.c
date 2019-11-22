@@ -26,6 +26,7 @@
 #define DSI_PANEL_DEFAULT_LABEL  "Default dsi panel"
 #define DSI_PANEL_VENDOR_DEFAULT_LABEL "Undefined vendor"
 
+#define HBM_SV_MAX_MS (10 * 60 * 1000) /* 10 min */
 #define DEFAULT_PANEL_JITTER_NUMERATOR		2
 #define DEFAULT_PANEL_JITTER_DENOMINATOR	1
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
@@ -3293,6 +3294,16 @@ end:
 	utils->node = panel->panel_of_node;
 }
 
+static void dsi_panel_hbmsv_hanghandler_work(struct work_struct *work)
+{
+	struct dsi_panel *panel =
+		    container_of(work, struct dsi_panel, hanghandler_work.work);
+
+	pr_warn("hbmsv hang handler\n");
+	panel->hbm_sv_enabled = false;
+	dsi_panel_update_hbm(panel, HBM_MODE_OFF);
+}
+
 struct dsi_panel *dsi_panel_get(struct device *parent,
 				struct device_node *of_node,
 				struct device_node *parser_node,
@@ -3423,6 +3434,10 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (rc)
 		DSI_ERR("failed to create buffer for SN, rc=%d\n", rc);
 
+	panel->hbm_sv_enabled = true;
+	INIT_DELAYED_WORK(&panel->hanghandler_work,
+			dsi_panel_hbmsv_hanghandler_work);
+
 	return panel;
 error:
 	kfree(panel);
@@ -3431,6 +3446,8 @@ error:
 
 void dsi_panel_put(struct dsi_panel *panel)
 {
+	cancel_delayed_work_sync(&panel->hanghandler_work);
+
 	dsi_panel_release_sn_buf(panel);
 
 	dsi_panel_release_vendor_extinfo(panel);
@@ -4543,11 +4560,22 @@ static int dsi_panel_update_hbm_locked(struct dsi_panel *panel,
 	if (hbm_mode == panel->hbm_mode)
 		return 0;
 
+	if (hbm_mode == HBM_MODE_SV && !panel->hbm_sv_enabled) {
+		pr_warn("hbmsv is disabled\n");
+		return -EINVAL;
+	}
+
 	if (dsi_backlight_get_dpms(bl) != SDE_MODE_DPMS_ON) {
 		DSI_ERR("[%s] Backlight in incompatible state, HBM changes not allowed\n",
 			panel->name);
 		return -EINVAL;
 	}
+
+	if (hbm_mode == HBM_MODE_SV)
+		mod_delayed_work(system_wq, &panel->hanghandler_work,
+				      msecs_to_jiffies(HBM_SV_MAX_MS));
+	else
+		cancel_delayed_work(&panel->hanghandler_work);
 
 	panel->hbm_pending_irc_on =
 		(panel->hbm_mode == HBM_MODE_SV && hbm_mode == HBM_MODE_OFF);

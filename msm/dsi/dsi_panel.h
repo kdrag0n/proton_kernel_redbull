@@ -332,6 +332,9 @@ struct dsi_panel {
 	/* the following set of members are guarded by panel_lock */
 	enum hbm_mode_type hbm_mode;
 	bool hbm_pending_irc_on;
+	bool hbm_sv_enabled;
+	/* Work used to handle hbmsv hang */
+	struct delayed_work hanghandler_work;
 };
 
 /**
