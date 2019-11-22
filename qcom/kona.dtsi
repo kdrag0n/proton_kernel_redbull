@@ -2496,6 +2496,7 @@
 		reg-names = "cc_base";
 		vdd_cx-supply = <&VDD_CX_LEVEL>;
 		vdd_mx-supply = <&VDD_MX_LEVEL>;
+		gdsc_cx-supply = <&gpu_cx_gdsc>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
 	};
@@ -2755,6 +2756,8 @@
 		qcom,clk-dis-wait-val = <8>;
 		qcom,gds-timeout = <500>;
 		qcom,retain-regs;
+		proxy-supply = <&gpu_cx_gdsc>;
+		qcom,proxy-consumer-enable;
 	};
 
 	gpu_gx_domain_addr: syscon@3d91508 {
