@@ -1517,6 +1517,21 @@ int wcd937x_micbias_control(struct snd_soc_component *component,
 }
 EXPORT_SYMBOL(wcd937x_micbias_control);
 
+void wcd937x_disable_bcs_before_slow_insert(struct snd_soc_component *component,
+					    bool bcs_disable)
+{
+	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
+
+	if (wcd937x->update_wcd_event) {
+		if (bcs_disable)
+			wcd937x->update_wcd_event(wcd937x->handle,
+						WCD_BOLERO_EVT_BCS_CLK_OFF, 0);
+		else
+			wcd937x->update_wcd_event(wcd937x->handle,
+						WCD_BOLERO_EVT_BCS_CLK_OFF, 1);
+	}
+}
+
 static int wcd937x_get_logical_addr(struct swr_device *swr_dev)
 {
 	int ret = 0;
@@ -1640,6 +1655,51 @@ static int wcd937x_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 					int event)
 {
 	return __wcd937x_codec_enable_micbias(w, event);
+}
+
+static int __wcd937x_codec_enable_micbias_pullup(struct snd_soc_dapm_widget *w,
+						 int event)
+{
+	struct snd_soc_component *component =
+			snd_soc_dapm_to_component(w->dapm);
+	int micb_num;
+
+	dev_dbg(component->dev, "%s: wname: %s, event: %d\n",
+		__func__, w->name, event);
+
+	if (strnstr(w->name, "VA MIC BIAS1", sizeof("VA MIC BIAS1")))
+		micb_num = MIC_BIAS_1;
+	else if (strnstr(w->name, "VA MIC BIAS2", sizeof("VA MIC BIAS2")))
+		micb_num = MIC_BIAS_2;
+	else if (strnstr(w->name, "VA MIC BIAS3", sizeof("VA MIC BIAS3")))
+		micb_num = MIC_BIAS_3;
+	else
+		return -EINVAL;
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		wcd937x_micbias_control(component, micb_num,
+					MICB_PULLUP_ENABLE, true);
+		break;
+	case SND_SOC_DAPM_POST_PMU:
+		/* 1 msec delay as per HW requirement */
+		usleep_range(1000, 1100);
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		wcd937x_micbias_control(component, micb_num,
+					MICB_PULLUP_DISABLE, true);
+		break;
+	};
+
+	return 0;
+
+}
+
+static int wcd937x_codec_enable_micbias_pullup(struct snd_soc_dapm_widget *w,
+					       struct snd_kcontrol *kcontrol,
+					       int event)
+{
+	return __wcd937x_codec_enable_micbias_pullup(w, event);
 }
 
 static int wcd937x_rx_hph_mode_get(struct snd_kcontrol *kcontrol,
@@ -2051,6 +2111,20 @@ static const struct snd_soc_dapm_widget wcd937x_dapm_widgets[] = {
 	SND_SOC_DAPM_OUTPUT("AUX"),
 	SND_SOC_DAPM_OUTPUT("HPHL"),
 	SND_SOC_DAPM_OUTPUT("HPHR"),
+
+	/* micbias pull up widgets*/
+	SND_SOC_DAPM_MICBIAS_E("VA MIC BIAS1", SND_SOC_NOPM, 0, 0,
+				wcd937x_codec_enable_micbias_pullup,
+				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+				SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_MICBIAS_E("VA MIC BIAS2", SND_SOC_NOPM, 0, 0,
+				wcd937x_codec_enable_micbias_pullup,
+				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+				SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_MICBIAS_E("VA MIC BIAS3", SND_SOC_NOPM, 0, 0,
+				wcd937x_codec_enable_micbias_pullup,
+				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+				SND_SOC_DAPM_POST_PMD),
 
 };
 
