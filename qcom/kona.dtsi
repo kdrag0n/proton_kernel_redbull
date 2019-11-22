@@ -2440,6 +2440,7 @@
 		vdd_cx-supply = <&VDD_CX_LEVEL>;
 		vdd_cx_ao-supply = <&VDD_CX_LEVEL_AO>;
 		vdd_mm-supply = <&VDD_MMCX_LEVEL>;
+		ufs-supply = <&ufs_phy_gdsc>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
 	};
@@ -2566,6 +2567,8 @@
 		reg = <0x177004 0x4>;
 		regulator-name = "ufs_phy_gdsc";
 		qcom,retain-regs;
+		proxy-supply = <&ufs_phy_gdsc>;
+		qcom,proxy-consumer-enable;
 	};
 
 	usb30_prim_gdsc: qcom,gdsc@10f004 {
