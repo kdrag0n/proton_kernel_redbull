@@ -1,20 +1,26 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 # auto-detect subdirs
-ifeq ($(CONFIG_ARCH_KONA), y)
-include $(srctree)/techpack/display/config/konadisp.conf
+ifeq ($(CONFIG_DRM_MSM:M=m), m)
+SUFFIX_DRM_MSM:=-gki
+else
+SUFFIX_DRM_MSM:=
 endif
 
 ifeq ($(CONFIG_ARCH_KONA), y)
-LINUXINCLUDE    += -include $(srctree)/techpack/display/config/konadispconf.h
+include $(srctree)/techpack/display/config/konadisp$(SUFFIX_DRM_MSM).conf
+endif
+
+ifeq ($(CONFIG_ARCH_KONA), y)
+LINUXINCLUDE    += -include $(srctree)/techpack/display/config/konadispconf$(SUFFIX_DRM_MSM).h
 endif
 
 ifeq ($(CONFIG_ARCH_LITO), y)
-include $(srctree)/techpack/display/config/saipdisp.conf
+include $(srctree)/techpack/display/config/saipdisp$(SUFFIX_DRM_MSM).conf
 endif
 
 ifeq ($(CONFIG_ARCH_LITO), y)
-LINUXINCLUDE    += -include $(srctree)/techpack/display/config/saipdispconf.h
+LINUXINCLUDE    += -include $(srctree)/techpack/display/config/saipdispconf$(SUFFIX_DRM_MSM).h
 endif
 
 ifeq ($(CONFIG_ARCH_BENGAL), y)
