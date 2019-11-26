@@ -94,9 +94,6 @@ static ssize_t sec_ts_regread_show(struct device *dev, struct device_attribute *
 {
 	struct sec_ts_data *ts = dev_get_drvdata(dev);
 	int ret;
-	int length;
-	int remain;
-	int offset;
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Power off state\n", __func__);
@@ -111,29 +108,12 @@ static ssize_t sec_ts_regread_show(struct device *dev, struct device_attribute *
 	if (!read_lv1_buff)
 		goto malloc_err;
 
-	remain = lv1_readsize;
-	offset = 0;
-	do {
-		if (remain >= ts->io_burstmax)
-			length = ts->io_burstmax;
-		else
-			length = remain;
-
-		if (offset == 0)
-			ret = ts->sec_ts_read_heap(ts, lv1cmd,
-					&read_lv1_buff[offset], length);
-		else
-			ret = ts->sec_ts_read_bulk_heap(ts,
-					&read_lv1_buff[offset], length);
-
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: read %x command, remain =%d\n", __func__, lv1cmd, remain);
-			goto i2c_err;
-		}
-
-		remain -= length;
-		offset += length;
-	} while (remain > 0);
+	ret = ts->sec_ts_read_heap(ts, lv1cmd, read_lv1_buff, lv1_readsize);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: read %x command fail\n",
+			__func__, lv1cmd);
+		goto i2c_err;
+	}
 
 	input_info(true, &ts->client->dev, "%s: lv1_readsize = %d\n", __func__, lv1_readsize);
 	memcpy(buf, read_lv1_buff + lv1_readoffset, lv1_readsize);
