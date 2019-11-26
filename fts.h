@@ -39,6 +39,7 @@
 #include <linux/input/heatmap.h>
 #endif
 #include <linux/pm_qos.h>
+#include <linux/input/touch_offload.h>
 #include <drm/drm_panel.h>
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
@@ -416,6 +417,11 @@ struct fts_ts_info {
 #ifdef TOUCHSCREEN_HEATMAP
 	struct v4l2_heatmap v4l2;
 #endif
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	struct touch_offload_context offload;
+#endif
+
 	struct delayed_work fwu_work;	/* Work for fw update */
 	struct workqueue_struct *fwu_workqueue;	/* Fw update work queue */
 	event_dispatch_handler_t *event_dispatch_table;	/* Dispatch table */
