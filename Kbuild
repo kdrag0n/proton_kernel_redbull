@@ -1798,6 +1798,12 @@ cppflags-$(CONFIG_MULTI_IF_LOG) += -DMULTI_IF_LOG
 #Set SLUB_MEM_OPTIMIZE
 cppflags-$(CONFIG_SLUB_MEM_OPTIMIZE) += -DSLUB_MEM_OPTIMIZE
 
+#Set DFS_PRI_MULTIPLIER
+cppflags-$(CONFIG_DFS_PRI_MULTIPLIER) += -DDFS_PRI_MULTIPLIER
+
+#Set DFS_OVERRIDE_RF_THRESHOLD
+cppflags-$(CONFIG_DFS_OVERRIDE_RF_THRESHOLD) += -DDFS_OVERRIDE_RF_THRESHOLD
+
 #Enable OL debug and wmi unified functions
 cppflags-$(CONFIG_ATH_PERF_PWR_OFFLOAD) += -DATH_PERF_PWR_OFFLOAD
 
@@ -2046,6 +2052,7 @@ cppflags-$(CONFIG_WLAN_FEATURE_11AX) += -DWLAN_FEATURE_11AX_BSS_COLOR
 cppflags-y += -DDP_PRINT_ENABLE=0
 cppflags-y += -DATH_SUPPORT_WRAP=0
 cppflags-y += -DQCA_HOST2FW_RXBUF_RING
+cppflags-y += -DHIF_CE_HISTORY_MAX=8192
 #endof dummy flags
 
 # Enable lock of serialization component to avoid race condition issues
