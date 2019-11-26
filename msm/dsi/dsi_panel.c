@@ -3557,6 +3557,7 @@ static const struct file_operations panel_reg_fops = {
 
 struct debugfs_cmdset_entry {
 	struct dsi_panel *panel;
+	struct dsi_panel_cmd_set *set;
 	enum dsi_cmd_set_type type;
 };
 
@@ -3608,6 +3609,22 @@ done:
 	return rc;
 }
 
+static struct dsi_panel_cmd_set *
+get_cmdset_locked(struct debugfs_cmdset_entry *entry)
+{
+	struct dsi_panel *panel = entry->panel;
+
+	if (entry->set)
+		return entry->set;
+
+	if (!panel->cur_mode || !panel->cur_mode->priv_info) {
+		pr_err("Invalid mode for panel [%s]\n", panel->name);
+		return NULL;
+	}
+
+	return &panel->cur_mode->priv_info->cmd_sets[entry->type];
+}
+
 ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 				       const char __user *user_buf,
 				       size_t count, loff_t *ppos)
@@ -3617,17 +3634,16 @@ ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 	struct dsi_panel *panel = entry->panel;
 	struct dsi_panel_cmd_set tmp_set;
 	struct dsi_panel_cmd_set *set;
-	char *buf;
+	char *buf = NULL;
 	int rc = 0;
 
 	mutex_lock(&panel->panel_lock);
-	if (!panel->cur_mode || !panel->cur_mode->priv_info) {
-		pr_err("Invalid mode for panel [%s]\n", panel->name);
+	set = get_cmdset_locked(entry);
+	if (set == NULL) {
 		mutex_unlock(&panel->panel_lock);
 		return -EINVAL;
 	}
 
-	set = &panel->cur_mode->priv_info->cmd_sets[entry->type];
 	tmp_set = *set;
 
 	buf = kmalloc(count + 1, GFP_KERNEL);
@@ -3665,12 +3681,11 @@ int dsi_panel_debugfs_read_cmdset(struct seq_file *seq, void *data)
 	int i, j;
 
 	mutex_lock(&panel->panel_lock);
-	if (!panel->cur_mode || !panel->cur_mode->priv_info) {
-		pr_err("Invalid mode for panel [%s]\n", panel->name);
+	set = get_cmdset_locked(entry);
+	if (set == NULL) {
 		mutex_unlock(&panel->panel_lock);
 		return -EINVAL;
 	}
-	set = &panel->cur_mode->priv_info->cmd_sets[entry->type];
 
 	for (i = 0; i < set->count; i++) {
 		struct dsi_cmd_desc *cmd = set->cmds + i;
@@ -3705,36 +3720,85 @@ static const struct file_operations panel_cmdset_fops = {
 	.release =	single_release,
 };
 
-static void dsi_panel_debugfs_create_cmdsets(struct dentry *parent,
-					     struct dsi_panel *panel)
+int dsi_panel_debugfs_create_cmdset_files(struct dentry *parent,
+					  struct debugfs_cmdset_entry *entry,
+					  struct dsi_panel *panel,
+					  struct dsi_panel_cmd_set *set,
+					  const char *label,
+					  const size_t size)
+{
+	struct dentry *file;
+	const char *name;
+	int i;
+
+	for (i = 0; i < size; i++, entry++) {
+		if (set) {
+			name = label;
+			entry->set = set;
+		} else {
+			name = cmdset_list[i].label;
+			entry->type = cmdset_list[i].type;
+		}
+		entry->panel = panel;
+
+		file = debugfs_create_file(name, 0600, parent,
+					   entry, &panel_cmdset_fops);
+		if (IS_ERR_OR_NULL(file)) {
+			DSI_ERR("debugfs create %s file failed\n", name);
+			return PTR_ERR(file);
+		}
+	}
+
+	return 0;
+}
+
+int dsi_panel_debugfs_create_cmdset(struct dentry *parent,
+				    const char *label,
+				    struct dsi_panel *panel,
+				    struct dsi_panel_cmd_set *set)
+{
+	struct device *dev = panel->parent;
+	struct debugfs_cmdset_entry *entry;
+
+	entry = devm_kzalloc(dev, sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+
+	return dsi_panel_debugfs_create_cmdset_files(parent, entry, panel,
+						     set, label, 1);
+}
+
+static void dsi_panel_debugfs_create_cmdsets_from_list(struct dentry *parent,
+						       struct dsi_panel *panel)
 {
 	struct device *dev = panel->parent;
 	struct debugfs_cmdset_entry *entry;
 	const size_t cmds_size = ARRAY_SIZE(cmdset_list);
 	struct dentry *r;
-	int i;
 
 	r = debugfs_create_dir("cmd_sets", parent);
-	if (IS_ERR(r))
+	if (IS_ERR(r)) {
+		DSI_ERR("debugfs create cmd_sets failed\n");
 		return;
+	}
 
 	entry = devm_kzalloc(dev, cmds_size * sizeof(*entry), GFP_KERNEL);
 	if (!entry)
-		return;
+		goto error;
 
-	for (i = 0; i < cmds_size; i++, entry++) {
-		const char *name = cmdset_list[i].label;
+	if (dsi_panel_debugfs_create_cmdset_files(r, entry, panel,
+						  NULL, NULL, cmds_size))
+		goto error;
 
-		entry->type = cmdset_list[i].type;
-		entry->panel = panel;
+	return;
 
-		debugfs_create_file(name, 0600, r, entry, &panel_cmdset_fops);
-	}
+error:
+	debugfs_remove_recursive(r);
 }
 
 void dsi_panel_debugfs_init(struct dsi_panel *panel, struct dentry *dir)
 {
-	struct dentry *r;
+	struct dentry *r, *file;
 	struct dsi_panel_debug *pdbg = &panel->debug;
 
 	r = debugfs_create_dir("panel_reg", dir);
@@ -3744,11 +3808,31 @@ void dsi_panel_debugfs_init(struct dsi_panel *panel, struct dentry *dir)
 	/* default read of 2 bytes */
 	pdbg->reg_read_len = 2;
 
-	debugfs_create_u8("addr", 0600, r, &pdbg->reg_read_cmd);
-	debugfs_create_size_t("len", 0600, r, &pdbg->reg_read_len);
-	debugfs_create_file("payload", 0600, r, panel, &panel_reg_fops);
+	file = debugfs_create_u8("addr", 0600, r, &pdbg->reg_read_cmd);
+	if (IS_ERR_OR_NULL(file)) {
+		DSI_ERR("debugfs create addr file failed\n");
+		goto error;
+	}
 
-	dsi_panel_debugfs_create_cmdsets(dir, panel);
+	file = debugfs_create_size_t("len", 0600, r, &pdbg->reg_read_len);
+	if (IS_ERR_OR_NULL(file)) {
+		DSI_ERR("debugfs create len file failed\n");
+		goto error;
+	}
+
+	file = debugfs_create_file("payload", 0600, r, panel, &panel_reg_fops);
+	if (IS_ERR_OR_NULL(file)) {
+		DSI_ERR("debugfs create payload file failed\n");
+		goto error;
+	}
+
+	dsi_panel_debugfs_create_cmdsets_from_list(dir, panel);
+	dsi_panel_bl_debugfs_init(dir, panel);
+
+	return;
+
+error:
+	debugfs_remove_recursive(r);
 }
 
 int dsi_panel_drv_init(struct dsi_panel *panel,
