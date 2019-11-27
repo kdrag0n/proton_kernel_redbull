@@ -39,6 +39,7 @@ static void run_reference_read_all(void *device_data);
 static void get_reference(void *device_data);
 static void run_rawcap_read(void *device_data);
 static void run_rawcap_read_all(void *device_data);
+static void run_rawcap_high_freq_read_all(void *device_data);
 static void get_rawcap(void *device_data);
 static void run_rawcap_gap_read_all(void *device_data);
 static void run_delta_read(void *device_data);
@@ -146,6 +147,8 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("run_self_rawcap_read_all", run_self_rawcap_read_all),},
 	{SEC_CMD("run_self_rawcap_gap_read_all",
 		 run_self_rawcap_gap_read_all),},
+	{SEC_CMD("run_rawcap_high_freq_read_all",
+		 run_rawcap_high_freq_read_all),},
 	{SEC_CMD("run_self_delta_read", run_self_delta_read),},
 	{SEC_CMD("run_self_delta_read_all", run_self_delta_read_all),},
 	{SEC_CMD("run_force_calibration", run_force_calibration),},
@@ -1295,6 +1298,7 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 	int j = 0;
 	short dTmp = 0;
 	short *temp = NULL;
+	u8 w_type;
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
@@ -1306,7 +1310,13 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 		return -ENOMEM;
 
 	/* set OPCODE and data type */
-	ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &type, 1);
+	if (type == TYPE_OFFSET_DATA_SDC_CM2)
+		w_type = TYPE_OFFSET_DATA_SDC;
+	else if (type == TYPE_OFFSET_DATA_SDC_NOT_SAVE)
+		w_type = TYPE_OFFSET_DATA_SDC;
+	else
+		w_type = type;
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &w_type, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Set rawdata type failed\n", __func__);
 		goto ErrorExit;
@@ -1314,13 +1324,24 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 
 	sec_ts_delay(50);
 
-	if (type == TYPE_OFFSET_DATA_SDC) {
+	if (type == TYPE_OFFSET_DATA_SDC || type == TYPE_OFFSET_DATA_SDC_CM2
+		|| type == TYPE_OFFSET_DATA_SDC_NOT_SAVE) {
 		/* excute selftest for real cap offset data, because real cap data is not memory data in normal touch. */
 		char para = TO_TOUCH_MODE;
 
 		disable_irq(ts->client->irq);
 
-		execute_selftest(ts, true);
+		if (type == TYPE_OFFSET_DATA_SDC)
+			execute_selftest(ts,
+				TEST_OPEN | TEST_NODE_VARIANCE);
+		else if (type ==
+			TYPE_OFFSET_DATA_SDC_CM2)
+			execute_selftest(ts,
+				TEST_OPEN | TEST_NOT_SAVE | TEST_HIGH_FREQ);
+		else if (type ==
+			TYPE_OFFSET_DATA_SDC_NOT_SAVE)
+			execute_selftest(ts,
+				TEST_OPEN | TEST_NODE_VARIANCE | TEST_NOT_SAVE);
 
 		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 		if (ret < 0) {
@@ -1543,21 +1564,28 @@ static int sec_ts_read_channel(struct sec_ts_data *ts, u8 type, short *min,
 		return -ENOMEM;
 
 	/* set OPCODE and data type */
-	w_data = type;
-
+	if (type == TYPE_OFFSET_DATA_SDC_NOT_SAVE)
+		w_data = TYPE_OFFSET_DATA_SDC;
+	else
+		w_data = type;
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SELF_RAW_TYPE, &w_data, 1);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Set rawdata type failed\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: Set rawdata type failed\n", __func__);
 		goto out_read_channel;
 	}
 
 	sec_ts_delay(50);
 
-	if (type == TYPE_OFFSET_DATA_SDC) {
+	if (type == TYPE_OFFSET_DATA_SDC ||
+		type == TYPE_OFFSET_DATA_SDC_NOT_SAVE) {
 		/* excute selftest for real cap offset data, because real cap data is not memory data in normal touch. */
 		char para = TO_TOUCH_MODE;
 		disable_irq(ts->client->irq);
-		execute_selftest(ts, true);
+		if (type == TYPE_OFFSET_DATA_SDC)
+			execute_selftest(ts, TEST_SELF_NODE);
+		else if (type == TYPE_OFFSET_DATA_SDC_NOT_SAVE)
+			execute_selftest(ts, TEST_SELF_NODE | TEST_NOT_SAVE);
 		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: set rawdata type failed!\n", __func__);
@@ -2602,6 +2630,27 @@ ErrorAlloc:
 	kfree(buff);
 	kfree(gap_y);
 	kfree(gap_x);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void run_rawcap_high_freq_read_all(void *device_data)
+{
+	struct sec_cmd_data *sec =
+		(struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts =
+		container_of(sec, struct sec_ts_data, sec);
+	struct sec_ts_test_mode mode;
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+
+	sec_cmd_set_default_result(sec);
+
+	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
+	mode.type = TYPE_OFFSET_DATA_SDC_CM2;
+	mode.allnode = TEST_MODE_ALL_NODE;
+
+	sec_ts_read_raw_data(ts, sec, &mode);
 
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
 }
@@ -3931,16 +3980,17 @@ err_exit:
 }
 
 /* execute_selftest options
+ * bit[8] : Enable/disable the panel crack test
  * bit[7] : Do NOT save
  * bit[6] : Load self-test configuration only
  * bit[5] : Get Self capacitance
- * bit[4] : Enable/Disable Force test
+ * bit[4] : Reserved
  * bit[3] : Reserved
  * bit[2] : Enable/disable the short test
  * bit[1] : Enable/disable the node variance test
  * bit[0] : Enable/disable the open test
  */
-int execute_selftest(struct sec_ts_data *ts, bool save_result)
+int execute_selftest(struct sec_ts_data *ts, u32 option)
 {
 	int rc;
 	/* Selftest setting
@@ -3949,16 +3999,10 @@ int execute_selftest(struct sec_ts_data *ts, bool save_result)
 	 * Enable/disable the node variance test
 	 * Enable/disable the open test
 	 */
-	u8 tpara[2] = {0x27, 0x40};
+	u8 tpara[2] = {(u8)(option & 0xff), (u8)((option & 0xff00) >> 8)};
 	u8 *rBuff;
 	int i;
 	int result_size = SEC_TS_SELFTEST_REPORT_SIZE + ts->tx_count * ts->rx_count * 2;
-
-	/* don't save selftest result in flash */
-	if (!save_result) {
-		tpara[0] = 0xA7;
-		tpara[1] = 0x00;
-	}
 
 	rBuff = kzalloc(result_size, GFP_KERNEL);
 	if (!rBuff)
@@ -4590,7 +4634,7 @@ static void run_trx_short_test(void *device_data)
 
 	disable_irq(ts->client->irq);
 
-	rc = execute_selftest(ts, true);
+	rc = execute_selftest(ts, TEST_SHORT | TEST_OPEN | TEST_NODE_VARIANCE);
 	if (rc > 0) {
 		ts->sec_ts_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 		enable_irq(ts->client->irq);
