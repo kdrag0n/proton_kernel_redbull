@@ -828,18 +828,30 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data, size_t
 			input_err(true, &ts->client->dev, "%s: DO NOT CALIBRATION(0x%02X)\n", __func__, ts->cal_count);
 		}
 #else
-		/* always calibration after fw update */
-		input_err(true, &ts->client->dev, "%s: RUN OFFSET CALIBRATION\n", __func__);
+		/* auto-calibration if restore_cal = 0 */
+		if (!restore_cal) {
+			input_err(true, &ts->client->dev,
+					"%s: RUN OFFSET CALIBRATION\n",
+					__func__);
 
-		ret = sec_ts_execute_force_calibration(ts, OFFSET_CAL_SEC);
-		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: fail to write OFFSET CAL SEC!\n", __func__);
+			ret = sec_ts_execute_force_calibration(ts,
+					OFFSET_CAL_SEC);
+			if (ret < 0)
+				input_err(true, &ts->client->dev,
+						"%s: fail to write OFFSET CAL SEC!\n",
+						__func__);
 
 #ifdef USE_PRESSURE_SENSOR
-		ret = sec_ts_execute_force_calibration(ts, PRESSURE_CAL);
-		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: fail to write PRESSURE CAL!\n", __func__);
+			ret = sec_ts_execute_force_calibration(ts,
+					PRESSURE_CAL);
+			if (ret < 0)
+				input_err(true, &ts->client->dev,
+						"%s: fail to write PRESSURE CAL!\n",
+						__func__);
 #endif
+		} else
+			input_info(true, &ts->client->dev, "%s: No calibration: restore_cal = %d\n",
+					__func__, restore_cal);
 #endif
 
 		/* Sense_on */
@@ -1043,6 +1055,20 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 		goto err_request_fw;
 	}
 #endif
+	input_info(true, &ts->client->dev, "%s: IC config %x %x, Bin config %x %x\n",
+			__func__, ts->plat_data->config_version_of_ic[2],
+			ts->plat_data->config_version_of_ic[3],
+			ts->plat_data->config_version_of_bin[2],
+			ts->plat_data->config_version_of_bin[3]);
+
+	/*judge auto-k by comparing config version*/
+	if (ts->plat_data->config_version_of_ic[2] !=
+		ts->plat_data->config_version_of_bin[2] ||
+		ts->plat_data->config_version_of_ic[3] !=
+		ts->plat_data->config_version_of_bin[3])
+		restore_cal = 0;
+	else
+		restore_cal = 1;
 
 	for (ii = 0; ii < 3; ii++) {
 		ret = sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 0, restore_cal, ii);
@@ -1187,7 +1213,7 @@ static int sec_ts_load_fw_from_ffu(struct sec_ts_data *ts)
 {
 	const struct firmware *fw_entry;
 	const char *fw_path = SEC_TS_DEFAULT_FFU_FW;
-	int result = -1;
+	int result = -1, restore_cal = 0;
 
 	disable_irq(ts->client->irq);
 
@@ -1202,7 +1228,22 @@ static int sec_ts_load_fw_from_ffu(struct sec_ts_data *ts)
 
 	sec_ts_check_firmware_version(ts, fw_entry->data);
 
-	if (sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 0, 0, 0) < 0)
+	input_info(true, &ts->client->dev, "%s: IC config %x %x, Bin config %x %x\n",
+			__func__, ts->plat_data->config_version_of_ic[2],
+			ts->plat_data->config_version_of_ic[3],
+			ts->plat_data->config_version_of_bin[2],
+			ts->plat_data->config_version_of_bin[3]);
+
+	if (ts->plat_data->config_version_of_ic[2] !=
+		ts->plat_data->config_version_of_bin[2] ||
+		ts->plat_data->config_version_of_ic[3] !=
+		ts->plat_data->config_version_of_bin[3])
+		restore_cal = 0;
+	else
+		restore_cal = 1;
+
+	if (sec_ts_firmware_update(ts, fw_entry->data,
+			fw_entry->size, 0, restore_cal, 0) < 0)
 		result = -1;
 	else
 		result = 0;

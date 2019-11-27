@@ -170,10 +170,9 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 	struct spi_message msg;
 	struct spi_transfer transfer[1] = { { 0 } };
 	unsigned int i;
-	unsigned int spi_len = 0;
-	unsigned char checksum = 0x0;
+	unsigned int spi_write_len = 0, spi_read_len = 0;
+	unsigned char write_checksum = 0x0, read_checksum = 0x0;
 	int copy_size = 0, copy_cur = 0;
-	int retry_msg = 0;
 #endif
 	int remain = len;
 
@@ -207,7 +206,6 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 	else
 		msg[1].buf = data;
 #else
-	spi_message_init(&msg);
 
 	buf[0] = SEC_TS_SPI_SYNC_CODE;
 	buf[1] = 0x00;
@@ -216,23 +214,16 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 	buf[4] = len & 0xFF;
 	buf[5] = reg;
 
-	spi_len = SEC_TS_SPI_HEADER_SIZE + 1;
-	//spi_len = header size(5) + register size(1)
-	for(i = 0; i < spi_len; i++)
-		checksum += buf[i];
-	buf[spi_len] = checksum;
-	spi_len += SEC_TS_SPI_CHECKSUM_SIZE;
+	spi_write_len = SEC_TS_SPI_HEADER_SIZE + 1;
+	for (i = 0; i < spi_write_len; i++)
+		write_checksum += buf[i];
+	buf[spi_write_len] = write_checksum;
+	spi_write_len += SEC_TS_SPI_CHECKSUM_SIZE;
+	spi_write_len = (spi_write_len + 3) & ~3;
 
-	transfer[0].len = (spi_len + 3) & ~3; // spi transfer size should be multiple of 4
-	transfer[0].tx_buf = buf;
-	transfer[0].rx_buf = NULL;
-	spi_message_add_tail(&transfer[0], &msg);
-
-#ifdef SEC_TS_DEBUG_IO
-	input_info(true, &ts->client->dev, "%s: spi write buf %X %X %X %X %X %X %X\n",
-				__func__, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
-#endif
-
+	spi_read_len = len +
+		SEC_TS_SPI_READ_HEADER_SIZE + SEC_TS_SPI_CHECKSUM_SIZE;
+	spi_read_len = (spi_read_len + 3 + 20) & ~3;
 #endif
 	if (len <= ts->io_burstmax) {
 #ifdef I2C_INTERFACE
@@ -257,100 +248,110 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 			memcpy(data, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE], len);
 #else
 		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			spi_message_init(&msg);
+			// spi transfer size should be multiple of 4
+			transfer[0].len = spi_write_len;
+			transfer[0].tx_buf = buf;
+			transfer[0].rx_buf = NULL;
+			spi_message_add_tail(&transfer[0], &msg);
+
 			ret = spi_sync(ts->client, &msg);
-			if (ret == 0)
-				break;
+#ifdef SEC_TS_DEBUG_IO
+			input_info(true, &ts->client->dev,
+				"%s: spi write buf %X %X %X %X %X %X %X\n",
+				__func__, buf[0], buf[1], buf[2],
+				buf[3], buf[4], buf[5], buf[6]);
+#endif
+			// write fail
+			if (ret != 0) {
+				ret = -EIO;
 
-			usleep_range(1 * 1000, 1 * 1000);
-			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-				mutex_unlock(&ts->io_mutex);
-				goto err;
-			}
-
-			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					"%s: spi write retry %d\n",
+					__func__, retry + 1);
 				ts->comm_err_count++;
+
+				usleep_range(1 * 1000, 1 * 1000);
+				if (ts->power_status ==
+					SEC_TS_STATE_POWER_OFF) {
+					input_err(true, &ts->client->dev,
+						"%s: POWER_STATUS : OFF, retry:%d\n",
+						__func__, retry);
+					mutex_unlock(&ts->io_mutex);
+					goto err;
+				}
+
+				if (retry == SEC_TS_I2C_RETRY_CNT - 1) {
+					input_err(true, &ts->client->dev,
+						"%s: write reg retry over retry limit, skip read\n",
+						__func__);
+					goto skip_spi_read;
+				}
+
+				continue;
 			}
-		}
 
-		if (retry == SEC_TS_I2C_RETRY_CNT) {
-			input_err(true, &ts->client->dev, "%s: write reg retry over retry limit, skip read\n", __func__);
-			goto skip_spi_read;
-		}
-		usleep_range(sec_ts_spi_delay(reg), sec_ts_spi_delay(reg));
+			usleep_range(sec_ts_spi_delay(reg),
+					sec_ts_spi_delay(reg));
 
-                spi_message_init(&msg);
-		spi_len = ((len + SEC_TS_SPI_READ_HEADER_SIZE + SEC_TS_SPI_CHECKSUM_SIZE) + 3) & ~3;
-		//read size = data(len) + spi read header(7) + checksum(1)
-		// & spi transfer size should be multiple of 4
-
-		transfer[0].len = spi_len + 20;	//TODO: for test, increase read size by 20bytes
-		transfer[0].tx_buf = NULL;
-		transfer[0].rx_buf = ts->io_read_buf;
-
-		spi_message_add_tail(&transfer[0], &msg);
-
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			// read sequence start
+			spi_message_init(&msg);
+			//TODO: for test, increase read size by 20bytes
+			transfer[0].len = spi_read_len;
+			transfer[0].tx_buf = NULL;
+			transfer[0].rx_buf = ts->io_read_buf;
+			spi_message_add_tail(&transfer[0], &msg);
 			ret = spi_sync(ts->client, &msg);
 
-			for (i = 0, checksum = 0; i < (SEC_TS_SPI_READ_HEADER_SIZE + len); i++)
-				checksum += ts->io_read_buf[i];
+			for (i = 0, read_checksum = 0x0;
+				i < (SEC_TS_SPI_READ_HEADER_SIZE + len);
+				i++)
+				read_checksum += ts->io_read_buf[i];
 
 #ifdef SEC_TS_DEBUG_IO
 			input_info(true, &ts->client->dev, "%s: ", __func__);
-//			for (i = 0; i < spi_len; i++)
+//			for (i = 0; i < spi_read_len; i++)
 			for (i = 0; i < 8; i++)
-				input_info(true, &ts->client->dev, "%X ", ts->io_read_buf[i]);
-			input_info(true, &ts->client->dev, "\n%s: checksum = %X", __func__, checksum);
+				input_info(true, &ts->client->dev,
+					"%X ",
+					ts->io_read_buf[i]);
+			input_info(true, &ts->client->dev,
+				"\n%s: checksum = %X",
+				__func__, read_checksum);
 #endif
+			// read fail
+			if (ret != 0 ||
+				ts->io_read_buf[0] != SEC_TS_SPI_SYNC_CODE ||
+				reg != ts->io_read_buf[5] ||
+				// ts->io_read_buf[6] != SEC_TS_SPI_CMD_OK ||
+				read_checksum !=
+					ts->io_read_buf[
+						SEC_TS_SPI_READ_HEADER_SIZE +
+					len]) {
 
-			if (ret == 0 && ts->io_read_buf[0] == SEC_TS_SPI_SYNC_CODE &&
-				reg == ts->io_read_buf[5] &&// ts->io_read_buf[6] == SEC_TS_SPI_CMD_OK &&
-				checksum == ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
-				break;
-#if 0
-                        else if (ts->io_read_buf[6] == SEC_TS_SPI_CMD_UNKNOWN || ts->io_read_buf[6] == SEC_TS_SPI_CMD_BAD_PARAM) {
-				input_info(true, &ts->client->dev, "%s: CMD_NG cmd(M) = %X, cmd(S) = %X, cmd_result = %X\n",
-						__func__, reg, ts->io_read_buf[5], ts->io_read_buf[6]);
 				ret = -EIO;
-				break;
-			}
-#endif
-			else {
-#if 0
-                          /*for debug*/
-                          if (1) {
-                          //if (reg == SEC_TS_READ_ONE_EVENT || reg == SEC_TS_READ_ALL_EVENT) {
-                            input_info(true, &ts->client->dev, "%s: spi fail, buf:%X %X %X %X %X %X %X %X, sy:0x%X, chks(M):%X, chks(s):%X, reg(M):%X, reg(s):%X, result:%X\n",
-                                       __func__, ts->io_read_buf[7], ts->io_read_buf[8], ts->io_read_buf[9], ts->io_read_buf[10],
-                                       ts->io_read_buf[11], ts->io_read_buf[12], ts->io_read_buf[13], ts->io_read_buf[14], ts->io_read_buf[0], checksum,
-                                       ts->io_read_buf[15], reg, ts->io_read_buf[5], ts->io_read_buf[6]);
-                          }
-                          else {
-				input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(M) %X, reg(S) %X, cmdresult %X, chksum(M) %X, chksum(S) %X\n",
-						__func__, ret, ts->io_read_buf[0], reg, ts->io_read_buf[5], ts->io_read_buf[6],
-						checksum, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
-                          }
-#endif
-				ret = -EIO;
-			}
 
-			usleep_range(1 * 1000, 1 * 1000);
-			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-				mutex_unlock(&ts->io_mutex);
-				goto err;
-			}
-
-			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					"%s: retry %d\n",
+					__func__, retry + 1);
 				ts->comm_err_count++;
-			}
+
+				usleep_range(1 * 1000, 1 * 1000);
+				if (ts->power_status ==
+					SEC_TS_STATE_POWER_OFF) {
+					input_err(true, &ts->client->dev,
+						"%s: POWER_STATUS : OFF, retry:%d\n",
+						__func__, retry);
+					mutex_unlock(&ts->io_mutex);
+					goto err;
+				}
+				continue;
+			} else
+				break;
 		}
 		if (ret == 0)
 			memcpy(data, ts->io_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
-#endif
+#endif //I2C_INTERFACE
 	} else {
 		/*
 		 * read buffer is 256 byte. do not support long buffer over than 256.
@@ -364,13 +365,17 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 
 			usleep_range(1 * 1000, 1 * 1000);
 			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				input_err(true, &ts->client->dev,
+					"%s: POWER_STATUS : OFF, retry:%d\n",
+					__func__, retry);
 				mutex_unlock(&ts->io_mutex);
 				goto err;
 			}
 
 			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					"%s: retry %d\n",
+					__func__, retry + 1);
 				ts->comm_err_count++;
 			}
 		}
@@ -389,13 +394,17 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 					break;
 				usleep_range(1 * 1000, 1 * 1000);
 				if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-					input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+					input_err(true, &ts->client->dev,
+						"%s: POWER_STATUS : OFF, retry:%d\n",
+						__func__, retry);
 					mutex_unlock(&ts->io_mutex);
 					goto err;
 				}
 
 				if (retry > 1) {
-					input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+					input_err(true, &ts->client->dev,
+						"%s: retry %d\n",
+						__func__, retry + 1);
 					ts->comm_err_count++;
 				}
 			}
@@ -408,85 +417,148 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 			memcpy(data, ts->io_read_buf, len);
 #else
 		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-			ret = spi_sync(ts->client, &msg);//send read cmd first
-			if (ret == 0)
-				break;
-			usleep_range(1 * 1000, 1 * 1000);
-			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-				mutex_unlock(&ts->io_mutex);
-				goto err;
-			}
-
-			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
-				ts->comm_err_count++;
-			}
-		}
-		if (retry == SEC_TS_I2C_RETRY_CNT) {
-			input_err(true, &ts->client->dev, "%s: write reg retry over retry limit, skip read\n", __func__);
-			goto skip_spi_read;
-		}
-
-		usleep_range(sec_ts_spi_delay(reg), sec_ts_spi_delay(reg));
-retry_message:
-		copy_size = 0;
-		remain = spi_len = (SEC_TS_SPI_READ_HEADER_SIZE + len + SEC_TS_SPI_CHECKSUM_SIZE + 3) & ~3;
-		do {
-			if (remain > ts->io_burstmax)
-				copy_cur = ts->io_burstmax;
-			else
-				copy_cur = remain;
-
 			spi_message_init(&msg);
-
-			transfer[0].len = copy_cur;;
-			transfer[0].tx_buf = NULL;
-			transfer[0].rx_buf = &ts->io_read_buf[copy_size];
-			transfer[0].cs_change = (remain > ts->io_burstmax) ? 1 : 0;; // CS needs to stay low until read seq. is done
-
+			// spi transfer size should be multiple of 4
+			transfer[0].len = spi_write_len;
+			transfer[0].tx_buf = buf;
+			transfer[0].rx_buf = NULL;
 			spi_message_add_tail(&transfer[0], &msg);
 
-			copy_size += copy_cur;
-			remain -= copy_cur;
+			ret = spi_sync(ts->client, &msg);
 
-			for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-				ret = spi_sync(ts->client, &msg);
-				if (ret == 0)
-					break;
+			// write fail
+			if (ret != 0) {
+				ret = -EIO;
+
+				input_err(true, &ts->client->dev,
+					"%s: spi write retry %d\n",
+					__func__, retry + 1);
+				ts->comm_err_count++;
 
 				usleep_range(1 * 1000, 1 * 1000);
-				if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-					input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+
+				if (ts->power_status ==
+					SEC_TS_STATE_POWER_OFF) {
+					input_err(true, &ts->client->dev,
+						"%s: POWER_STATUS : OFF, retry:%d\n",
+						__func__, retry);
 					mutex_unlock(&ts->io_mutex);
 					goto err;
 				}
 
-				if (retry > 1) {
-					input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
-					ts->comm_err_count++;
+				if (retry == SEC_TS_I2C_RETRY_CNT - 1) {
+					input_err(true, &ts->client->dev,
+						"%s: write reg retry over retry limit, skip read\n",
+						__func__);
+					goto skip_spi_read;
 				}
+
+				continue;
 			}
-		} while (remain > 0);
 
-		for (i = 0, checksum = 0; i < SEC_TS_SPI_READ_HEADER_SIZE + len; i++)
-			checksum += ts->io_read_buf[i];
+			usleep_range(sec_ts_spi_delay(reg),
+					sec_ts_spi_delay(reg));
 
-		if (ret == 0 && ts->io_read_buf[0] == SEC_TS_SPI_SYNC_CODE && ts->io_read_buf[6] == SEC_TS_SPI_CMD_OK &&
-			reg == ts->io_read_buf[5] && checksum == ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
-			memcpy(data, ts->io_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
-		else if (ts->io_read_buf[6] == SEC_TS_SPI_CMD_UNKNOWN || ts->io_read_buf[6] == SEC_TS_SPI_CMD_BAD_PARAM) {
-			input_info(true, &ts->client->dev, "%s: CMD_NG cmd(M) = %X, cmd(S) = %X, cmd_result = %X\n",
-						__func__, reg, ts->io_read_buf[5], ts->io_read_buf[6]);
-			ret = -EIO;
+			copy_size = 0;
+			remain = spi_read_len;
+			do {
+				if (remain > ts->io_burstmax)
+					copy_cur = ts->io_burstmax;
+				else
+					copy_cur = remain;
+
+				spi_message_init(&msg);
+
+				transfer[0].len = copy_cur;
+				transfer[0].tx_buf = NULL;
+				transfer[0].rx_buf =
+					&ts->io_read_buf[copy_size];
+				// CS needs to stay low until read seq. is done
+				transfer[0].cs_change =
+					(remain > ts->io_burstmax) ? 1 : 0;
+
+				spi_message_add_tail(&transfer[0], &msg);
+
+				copy_size += copy_cur;
+				remain -= copy_cur;
+
+				ret = spi_sync(ts->client, &msg);
+#ifdef SEC_TS_DEBUG_IO
+				input_info(true, &ts->client->dev,
+					"%s: ", __func__);
+				for (i = 0; i < 8; i++)
+					input_info(true,
+						   &ts->client->dev, "%X ",
+						   ts->io_read_buf[i]);
+				input_info(true, &ts->client->dev,
+					"\n%s: checksum = %X",
+					__func__, read_checksum);
+#endif
+
+				if (ret != 0) {
+					ret = -EIO;
+
+					input_err(true, &ts->client->dev,
+						"%s: retry %d\n",
+						__func__, retry + 1);
+					ts->comm_err_count++;
+
+					usleep_range(1 * 1000, 1 * 1000);
+					if (ts->power_status
+						== SEC_TS_STATE_POWER_OFF) {
+						input_err(true,
+							&ts->client->dev,
+							"%s: POWER_STATUS : OFF, retry:%d\n",
+							__func__, retry);
+						mutex_unlock(&ts->io_mutex);
+						goto err;
+					}
+					break;
+				}
+			} while (remain > 0);
+			if (ret != 0) { // read fail, retry
+				ret = -EIO;
+				continue;
+			}
+
+			for (i = 0, read_checksum = 0x0;
+				i < SEC_TS_SPI_READ_HEADER_SIZE + len; i++)
+				read_checksum += ts->io_read_buf[i];
+			//read success
+			if (ts->io_read_buf[0] == SEC_TS_SPI_SYNC_CODE &&
+				// ts->io_read_buf[6] == SEC_TS_SPI_CMD_OK &&
+				reg == ts->io_read_buf[5] &&
+				read_checksum ==
+				ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE +
+				len])
+				break;
+			//read data fail
+			else if (ts->io_read_buf[6]
+				 == SEC_TS_SPI_CMD_UNKNOWN ||
+				 ts->io_read_buf[6]
+				 == SEC_TS_SPI_CMD_BAD_PARAM) {
+				input_info(true, &ts->client->dev,
+					"%s: CMD_NG cmd(M) = %X, cmd(S) = %X, cmd_result = %X\n",
+					__func__, reg, ts->io_read_buf[5],
+					ts->io_read_buf[6]);
+				ret = -EIO;
+				continue;
+			} else {
+				input_info(true, &ts->client->dev,
+					"%s: spi fail, ret %d, sync code %X, reg(M) %X, reg(S) %X, cmd_result %X, chksum(M) %X, chksum(S) %X\n",
+					__func__, ret, ts->io_read_buf[0],
+					reg, ts->io_read_buf[5],
+					ts->io_read_buf[6], read_checksum,
+					ts->io_read_buf[
+						SEC_TS_SPI_READ_HEADER_SIZE +
+					len]);
+				ret = -EIO;
+				continue;
+			}
 		}
-		else {
-			input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(M) %X, reg(S) %X, cmd_result %X, chksum(M) %X, chksum(S) %X\n",
-				__func__, ret, ts->io_read_buf[0], reg, ts->io_read_buf[5], ts->io_read_buf[6],
-				checksum, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
-			if (retry_msg++ < SEC_TS_I2C_RETRY_CNT)
-				goto retry_message;
-		}
+		if (ret == 0)
+			memcpy(data, ts->io_read_buf +
+				SEC_TS_SPI_READ_HEADER_SIZE, len);
 #endif
 	}
 skip_spi_read:
