@@ -2654,6 +2654,12 @@ static int dsi_display_broadcast_cmd(struct dsi_display *display,
 		flags |= DSI_CTRL_CMD_LAST_COMMAND;
 		m_flags |= DSI_CTRL_CMD_LAST_COMMAND;
 	}
+
+	if (display->queue_cmd_waits) {
+		flags |= DSI_CTRL_CMD_ASYNC_WAIT;
+		m_flags |= DSI_CTRL_CMD_ASYNC_WAIT;
+	}
+
 	/*
 	 * 1. Setup commands in FIFO
 	 * 2. Trigger commands
@@ -2811,6 +2817,9 @@ static ssize_t dsi_host_transfer(struct mipi_dsi_host *host,
 
 		if (msg->rx_buf)
 			flags |= DSI_CTRL_CMD_READ;
+
+		if (display->queue_cmd_waits)
+			flags |= DSI_CTRL_CMD_ASYNC_WAIT;
 
 		rc = dsi_ctrl_cmd_transfer(display->ctrl[ctrl_idx].ctrl, msg,
 					   flags);
@@ -3108,6 +3117,22 @@ int dsi_pre_clkoff_cb(void *priv,
 	struct dsi_display *display = priv;
 	struct dsi_display_ctrl *ctrl;
 
+
+	/*
+	 * If Idle Power Collapse occurs immediately after a CMD
+	 * transfer with an asynchronous wait for DMA done, ensure
+	 * that the work queued is scheduled and completed before turning
+	 * off the clocks and disabling interrupts to validate the command
+	 * transfer.
+	 */
+	display_for_each_ctrl(i, display) {
+		ctrl = &display->ctrl[i];
+		if (!ctrl->ctrl || !ctrl->ctrl->dma_wait_queued)
+			continue;
+		flush_workqueue(display->dma_cmd_workq);
+		cancel_work_sync(&ctrl->ctrl->dma_cmd_wait);
+		ctrl->ctrl->dma_wait_queued = false;
+	}
 	if ((clk & DSI_LINK_CLK) && (new_state == DSI_CLK_OFF) &&
 		(l_type & DSI_LINK_LP_CLK)) {
 		/*
@@ -4352,7 +4377,7 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 	int i;
 	struct dsi_display_ctrl *ctrl;
 	struct dsi_display_mode_priv_info *priv_info;
-	u64 cur_bit_clk_rate_hz;
+	bool commit_phy_timing = false;
 
 	priv_info = mode->priv_info;
 	if (!priv_info) {
@@ -4361,6 +4386,7 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 		return -EINVAL;
 	}
 
+	SDE_EVT32(mode->dsi_mode_flags);
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_POMS) {
 		display->config.panel_mode = mode->panel_mode;
 		display->panel->panel_mode = mode->panel_mode;
@@ -4373,8 +4399,6 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 		       display->name, rc);
 		goto error;
 	}
-
-	cur_bit_clk_rate_hz = display->config.bit_clk_rate_hz;
 
 	memcpy(&display->config.lane_map, &display->lane_map,
 	       sizeof(display->lane_map));
@@ -4422,16 +4446,23 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 	}
 
 	if ((mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) &&
-			(cur_bit_clk_rate_hz != priv_info->clk_rate_hz) &&
-			(display->panel->panel_mode == DSI_OP_CMD_MODE))
-		atomic_set(&display->clkrate_change_pending, 1);
+			(display->panel->panel_mode == DSI_OP_CMD_MODE)) {
+		u64 cur_bitclk = display->panel->cur_mode->timing.clk_rate_hz;
+		u64 to_bitclk = mode->timing.clk_rate_hz;
+		commit_phy_timing = true;
+
+		/* No need to set clkrate pending flag if clocks are same */
+		if ((!cur_bitclk && !to_bitclk) || (cur_bitclk != to_bitclk))
+			atomic_set(&display->clkrate_change_pending, 1);
+	}
 
 	if (priv_info->phy_timing_len) {
 		display_for_each_ctrl(i, display) {
 			ctrl = &display->ctrl[i];
 			 rc = dsi_phy_set_timing_params(ctrl->phy,
 				priv_info->phy_timing_val,
-				priv_info->phy_timing_len);
+				priv_info->phy_timing_len,
+				commit_phy_timing);
 			if (rc)
 				DSI_ERR("failed to add DSI PHY timing params\n");
 		}
@@ -4758,6 +4789,7 @@ static int dsi_display_bind(struct device *dev,
 			goto error_ctrl_deinit;
 		}
 
+		display_ctrl->ctrl->dma_cmd_workq = display->dma_cmd_workq;
 		memcpy(&info.c_clks[i],
 				(&display_ctrl->ctrl->clk_info.core_clks),
 				sizeof(struct dsi_core_clk_info));
@@ -4937,6 +4969,7 @@ static void dsi_display_unbind(struct device *dev,
 			DSI_ERR("[%s] failed to deinit phy%d driver, rc=%d\n",
 			       display->name, i, rc);
 
+		display->ctrl->ctrl->dma_cmd_workq = NULL;
 		rc = dsi_ctrl_drv_deinit(display_ctrl->ctrl);
 		if (rc)
 			DSI_ERR("[%s] failed to deinit ctrl%d driver, rc=%d\n",
@@ -5025,6 +5058,14 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 		goto end;
 	}
 
+	display->dma_cmd_workq = create_singlethread_workqueue(
+			"dsi_dma_cmd_workq");
+	if (!display->dma_cmd_workq)  {
+		DSI_ERR("failed to create work queue\n");
+		rc =  -EINVAL;
+		goto end;
+	}
+
 	display->display_type = of_get_property(pdev->dev.of_node,
 				"label", NULL);
 	if (!display->display_type)
@@ -5088,8 +5129,9 @@ end:
 
 int dsi_display_dev_remove(struct platform_device *pdev)
 {
-	int rc = 0;
+	int rc = 0i, i = 0;
 	struct dsi_display *display;
+	struct dsi_display_ctrl *ctrl;
 
 	if (!pdev) {
 		DSI_ERR("Invalid device\n");
@@ -5100,6 +5142,18 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 
 	/* decrement ref count */
 	of_node_put(display->panel_node);
+
+	if (display->dma_cmd_workq) {
+		flush_workqueue(display->dma_cmd_workq);
+		destroy_workqueue(display->dma_cmd_workq);
+		display->dma_cmd_workq = NULL;
+		display_for_each_ctrl(i, display) {
+			ctrl = &display->ctrl[i];
+			if (!ctrl->ctrl)
+				continue;
+			ctrl->ctrl->dma_cmd_workq = NULL;
+		}
+	}
 
 	(void)_dsi_display_dev_deinit(display);
 
@@ -5890,9 +5944,7 @@ int dsi_display_get_modes(struct dsi_display *display,
 				display_mode.timing.min_dsi_clk_hz;
 
 			display_mode.priv_info->mdp_transfer_time_us =
-				display_mode.priv_info->dsi_transfer_time_us;
-			display_mode.timing.mdp_transfer_time_us =
-				display_mode.timing.dsi_transfer_time_us;
+				display_mode.timing.mdp_transfer_time_us;
 		}
 
 		is_split_link = host->split_link.split_link_enabled;
@@ -6245,6 +6297,15 @@ int dsi_display_set_mode(struct dsi_display *display,
 	timing = adj_mode.timing;
 	adjust_timing_by_ctrl_count(display, &adj_mode);
 
+	if (!display->panel->cur_mode) {
+		display->panel->cur_mode =
+			kzalloc(sizeof(struct dsi_display_mode), GFP_KERNEL);
+		if (!display->panel->cur_mode) {
+			rc = -ENOMEM;
+			goto error;
+		}
+	}
+
 	/*For dynamic DSI setting, use specified clock rate */
 	if (display->cached_clk_rate > 0)
 		adj_mode.priv_info->clk_rate_hz = display->cached_clk_rate;
@@ -6259,15 +6320,6 @@ int dsi_display_set_mode(struct dsi_display *display,
 	if (rc) {
 		DSI_ERR("[%s] failed to set mode\n", display->name);
 		goto error;
-	}
-
-	if (!display->panel->cur_mode) {
-		display->panel->cur_mode =
-			kzalloc(sizeof(struct dsi_display_mode), GFP_KERNEL);
-		if (!display->panel->cur_mode) {
-			rc = -ENOMEM;
-			goto error;
-		}
 	}
 
 	DSI_INFO("mdp_transfer_time_us=%d us\n",
@@ -6942,7 +6994,7 @@ static int dsi_display_set_roi(struct dsi_display *display,
 		}
 
 		/* re-program the ctrl with the timing based on the new roi */
-		rc = dsi_ctrl_setup(ctrl->ctrl);
+		rc = dsi_ctrl_timing_setup(ctrl->ctrl);
 		if (rc) {
 			DSI_ERR("dsi_ctrl_setup failed rc %d\n", rc);
 			return rc;
@@ -6958,20 +7010,10 @@ int dsi_display_pre_kickoff(struct drm_connector *connector,
 {
 	int rc = 0;
 	int i;
-	bool enable;
 
 	/* check and setup MISR */
 	if (display->misr_enable)
 		_dsi_display_setup_misr(display);
-
-	if (params->qsync_update) {
-		enable = (params->qsync_mode > 0) ? true : false;
-		rc = dsi_display_qsync(display, enable);
-		if (rc)
-			DSI_ERR("%s failed to send qsync commands\n",
-				__func__);
-		SDE_EVT32(params->qsync_mode, rc);
-	}
 
 	rc = dsi_display_set_roi(display, params->rois);
 
@@ -7056,6 +7098,29 @@ error_out:
 	return rc;
 }
 
+int dsi_display_pre_commit(void *display,
+		struct msm_display_conn_params *params)
+{
+	bool enable = false;
+	int rc = 0;
+
+	if (!display || !params) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+
+	if (params->qsync_update) {
+		enable = (params->qsync_mode > 0) ? true : false;
+		rc = dsi_display_qsync(display, enable);
+		if (rc)
+			pr_err("%s failed to send qsync commands\n",
+				__func__);
+		SDE_EVT32(params->qsync_mode, rc);
+	}
+
+	return rc;
+}
+
 int dsi_display_enable(struct dsi_display *display)
 {
 	int rc = 0;
@@ -7112,9 +7177,9 @@ int dsi_display_enable(struct dsi_display *display)
 		}
 	}
 
-	/* only update PPS if something other than refresh rate is changing */
+	/* Block sending pps command if modeset is due to fps difference */
 	if (mode->priv_info->dsc_enabled &&
-	    !(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS_FPS)) {
+			!(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS_FPS)) {
 		mode->priv_info->dsc.pic_width *= display->ctrl_count;
 		rc = dsi_panel_update_pps(display->panel);
 		if (rc) {

@@ -96,6 +96,7 @@ enum dsi_op_mode {
  * @DSI_MODE_FLAG_POMS:
  *         Seamless transition is dynamic panel operating mode switch
  * @DSI_MODE_FLAG_DYN_CLK: Seamless transition is dynamic clock change
+ * @DSI_MODE_FLAG_DMS_FPS: Seamless fps only transition in Dynamic Mode Switch
  */
 enum dsi_mode_flags {
 	DSI_MODE_FLAG_SEAMLESS			= BIT(0),
