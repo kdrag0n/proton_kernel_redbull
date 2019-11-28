@@ -187,14 +187,11 @@ struct msm_asoc_mach_data {
 	struct device_node *hph_en0_gpio_p; /* used by pinctrl API */
 	bool is_afe_config_done;
 	struct device_node *fsa_handle;
-<<<<<<< HEAD
 	struct gpio_desc *ldo1_gpio;
 	struct gpio_desc *ldo2_gpio;
 	int hac_amp_gpio;
-=======
 	struct clk *lpass_audio_hw_vote;
 	int core_audio_vote_count;
->>>>>>> fix_conflict
 };
 
 struct tdm_port {
@@ -8632,7 +8629,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	for (index = PRIM_MI2S; index < MI2S_MAX; index++)
 		atomic_set(&(pdata->mi2s_gpio_ref_count[index]), 0);
 
-<<<<<<< HEAD
 	pdata->ldo1_gpio = devm_gpiod_get_optional(&pdev->dev, "audio_ldo1",
 							GPIOD_OUT_LOW);
 	if (IS_ERR_OR_NULL(pdata->ldo1_gpio))
@@ -8649,7 +8645,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "audio_hac-amp-gpios is not valid\n");
 	else
 		gpio_direction_output(pdata->hac_amp_gpio, 0);
-=======
 	/* Register LPASS audio hw vote */
 	lpass_audio_hw_vote = devm_clk_get(&pdev->dev, "lpass_audio_hw_vote");
 	if (IS_ERR(lpass_audio_hw_vote)) {
@@ -8661,7 +8656,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	}
 	pdata->lpass_audio_hw_vote = lpass_audio_hw_vote;
 	pdata->core_audio_vote_count = 0;
->>>>>>> fix_conflict
 
 	ret = msm_audio_ssr_register(&pdev->dev);
 	if (ret)
