@@ -651,6 +651,19 @@ int msm_vdec_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		mplane->plane_fmt[0].sizeimage =
 			msm_vidc_calculate_dec_input_frame_size(inst);
 
+		/* Driver can recalculate buffer count only for
+		 * only for bitstream port. Decoder YUV port reconfig
+		 * should not overwrite the FW calculated buffer
+		 * count.
+		 */
+		rc = msm_vidc_calculate_buffer_counts(inst);
+		if (rc) {
+			s_vpr_e(inst->sid,
+				"%s failed to calculate buffer count\n",
+				__func__);
+			return rc;
+		}
+
 		rc = msm_vidc_check_session_supported(inst);
 		if (rc) {
 			s_vpr_e(inst->sid,
@@ -890,6 +903,16 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_FRAME_RATE:
 		inst->clk_data.frame_rate = ctrl->val;
+		if (inst->state >= MSM_VIDC_LOAD_RESOURCES)
+			break;
+		/* Only recalculate buffer counts before buffers allocated */
+		rc = msm_vidc_calculate_buffer_counts(inst);
+		if (rc) {
+			s_vpr_e(inst->sid,
+				"%s failed to calculate buffer count after set fps\n",
+				__func__);
+			return rc;
+		}
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_EXTRADATA:
 		if (ctrl->val == EXTRADATA_NONE)
