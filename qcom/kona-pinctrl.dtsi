@@ -662,22 +662,6 @@
 			};
 		};
 
-		ap2mdm_pon_reset {
-			ap2mdm_pon_reset_default: ap2mdm_pon_reset_default {
-				mux {
-					/* MDM PON conrol*/
-					pins = "gpio145";
-					function = "gpio";
-				};
-
-				config {
-					pins = "gpio145";
-					drive-strength = <16>;
-					bias-disable;
-				};
-			};
-		};
-
 		pcie0 {
 			pcie0_perst_default: pcie0_perst_default {
 				mux {
@@ -2852,6 +2836,19 @@
 					drive-strength = <2>;
 					bias-no-pull;
 				};
+			};
+		};
+
+		lt9611_pins: lt9611_pins {
+			mux {
+				pins = "gpio2", "gpio1";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio2", "gpio1";
+				drive-strength = <8>;
+				bias-disable = <0>;
 			};
 		};
 

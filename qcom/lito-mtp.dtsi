@@ -77,7 +77,8 @@
 
 	qcom,vddp-ref-clk-supply = <&pm8150_l9>;
 	qcom,vddp-ref-clk-max-microamp = <100>;
-
+	qcom,vddp-ref-clk-min-uV = <1152000>;
+	qcom,vddp-ref-clk-max-uV = <1200000>;
 	status = "ok";
 };
 
@@ -203,6 +204,8 @@
 	qcom,smb-temp-max = <800>;
 	qcom,suspend-input-on-debug-batt;
 	qcom,fcc-stepping-enable;
+	qcom,fcc-step-delay-ms = <100>;
+	qcom,fcc-step-size-ua = <100000>;
 };
 
 &pm7250b_qg {

@@ -1,2 +1,127 @@
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
+#include <dt-bindings/input/input.h>
+#include "bengal-thermal-overlay.dtsi"
+#include "bengal-audio-overlay.dtsi"
 &soc {
+	qrd_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "qg-batterydata-atl466271_3300mAh.dtsi"
+	};
+};
+
+&pmi632_qg {
+	qcom,battery-data = <&qrd_batterydata>;
+	qcom,qg-iterm-ma = <100>;
+	qcom,hold-soc-while-full;
+	qcom,linearize-soc;
+	qcom,qg-use-s7-ocv;
+};
+
+&pmi632_charger {
+	qcom,battery-data = <&qrd_batterydata>;
+	qcom,suspend-input-on-debug-batt;
+	qcom,sw-jeita-enable;
+	qcom,step-charging-enable;
+	/* SMB1355 only */
+	qcom,sec-charger-config = <2>;
+	dpdm-supply = <&qusb_phy0>;
+	qcom,charger-temp-max = <800>;
+	qcom,smb-temp-max = <800>;
+	qcom,auto-recharge-soc = <98>;
+	qcom,flash-disable-soc = <10>;
+	qcom,hw-die-temp-mitigation;
+	qcom,hw-connector-mitigation;
+	qcom,connector-internal-pull-kohm = <100>;
+	qcom,float-option = <1>;
+	qcom,thermal-mitigation = <4200000 3500000 3000000
+			2500000 2000000 1500000 1000000 500000>;
+};
+
+&pm6125_gpios {
+	key_vol_up {
+		key_vol_up_default: key_vol_up_default {
+			pins = "gpio5";
+			function = "normal";
+			input-enable;
+			bias-pull-up;
+			power-source = <0>;
+		};
+	};
+};
+
+&soc {
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_vol_up_default>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm6125_gpios 5 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			linux,can-disable;
+			debounce-interval = <15>;
+			gpio-key,wakeup;
+		};
+	};
+};
+
+&bengal_snd {
+	qcom,model = "bengal-qrd-snd-card";
+	qcom,msm-mi2s-master = <1>, <1>, <1>, <1>;
+	qcom,wcn-btfm = <0>;
+	qcom,ext-disp-audio-rx = <0>;
+	qcom,audio-routing =
+		"AMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Analog Mic1",
+		"AMIC2", "MIC BIAS2",
+		"MIC BIAS2", "Analog Mic2",
+		"AMIC3", "MIC BIAS3",
+		"MIC BIAS3", "Analog Mic3",
+		"AMIC4", "MIC BIAS3",
+		"MIC BIAS3", "Analog Mic4",
+		"IN1_HPHL", "HPHL_OUT",
+		"IN2_HPHR", "HPHR_OUT",
+		"IN3_AUX", "AUX_OUT",
+		"SpkrMono WSA_IN", "AUX",
+		"TX SWR_MIC0", "ADC1_OUTPUT",
+		"TX SWR_MIC4", "ADC2_OUTPUT",
+		"TX SWR_MIC5", "ADC3_OUTPUT",
+		"TX SWR_MIC0", "VA_TX_SWR_CLK",
+		"TX SWR_MIC1", "VA_TX_SWR_CLK",
+		"TX SWR_MIC2", "VA_TX_SWR_CLK",
+		"TX SWR_MIC3", "VA_TX_SWR_CLK",
+		"TX SWR_MIC4", "VA_TX_SWR_CLK",
+		"TX SWR_MIC5", "VA_TX_SWR_CLK",
+		"TX SWR_MIC6", "VA_TX_SWR_CLK",
+		"TX SWR_MIC7", "VA_TX_SWR_CLK",
+		"TX SWR_MIC8", "VA_TX_SWR_CLK",
+		"TX SWR_MIC9", "VA_TX_SWR_CLK",
+		"TX SWR_MIC10", "VA_TX_SWR_CLK",
+		"TX SWR_MIC11", "VA_TX_SWR_CLK",
+		"RX_TX DEC0_INP", "TX DEC0 MUX",
+		"RX_TX DEC1_INP", "TX DEC1 MUX",
+		"RX_TX DEC2_INP", "TX DEC2 MUX",
+		"RX_TX DEC3_INP", "TX DEC3 MUX",
+		"TX_AIF1 CAP", "VA_TX_SWR_CLK",
+		"TX_AIF2 CAP", "VA_TX_SWR_CLK",
+		"TX_AIF3 CAP", "VA_TX_SWR_CLK",
+		"VA SWR_MIC0", "ADC1_OUTPUT",
+		"VA SWR_MIC4", "ADC2_OUTPUT",
+		"VA SWR_MIC5", "ADC3_OUTPUT";
+	qcom,msm-mbhc-hphl-swh = <1>;
+	qcom,msm-mbhc-gnd-swh = <1>;
+	asoc-codec  = <&stub_codec>, <&bolero>;
+	asoc-codec-names = "msm-stub-codec.1", "bolero_codec";
+	qcom,wsa-max-devs = <1>;
+	qcom,wsa-devs = <&wsa881x_i2c_e>;
+	qcom,wsa-aux-dev-prefix = "SpkrMono";
+	qcom,codec-max-aux-devs = <1>;
+	qcom,codec-aux-devs = <&wcd937x_codec>;
+	qcom,msm_audio_ssr_devs = <&audio_apr>, <&q6core>, <&bolero>,
+				<&lpi_tlmm>;
 };
