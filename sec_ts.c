@@ -3010,7 +3010,9 @@ static void sec_ts_read_info_work(struct work_struct *work)
 #ifndef CONFIG_SEC_FACTORY
 	/* run self-test */
 	disable_irq(ts->client->irq);
-	execute_selftest(ts, false);
+	execute_selftest(ts,
+		TEST_OPEN | TEST_NODE_VARIANCE |
+		TEST_SHORT | TEST_SELF_NODE | TEST_NOT_SAVE);
 	enable_irq(ts->client->irq);
 
 	input_info(true, &ts->client->dev, "%s: %02X %02X %02X %02X\n",

@@ -473,6 +473,15 @@ typedef enum {
 	TOUCH_MODE_STATE_WAKEUP		= 10
 } TOUCH_MODE_STATE;
 
+enum {
+	TEST_OPEN			= (0x1 << 0),
+	TEST_NODE_VARIANCE		= (0x1 << 1),
+	TEST_SHORT			= (0x1 << 2),
+	TEST_SELF_NODE			= (0x1 << 5),
+	TEST_NOT_SAVE			= (0x1 << 7),
+	TEST_HIGH_FREQ			= (0x1 << 8),
+};
+
 enum switch_system_mode {
 	TO_TOUCH_MODE			= 0,
 	TO_LOWPOWER_MODE		= 1,
@@ -493,6 +502,8 @@ enum {
 	TYPE_OFFSET_DATA_SDC	= 29,	/* Cap Offset in SDC Manufacturing Line */
 	TYPE_NOI_P2P_MIN		= 30,	/* Peak-to-peak noise Min */
 	TYPE_NOI_P2P_MAX		= 31,	/* Peak-to-peak noise Max */
+	TYPE_OFFSET_DATA_SDC_CM2	= 129,
+	TYPE_OFFSET_DATA_SDC_NOT_SAVE	= 229,
 	TYPE_INVALID_DATA		= 0xFF,	/* Invalid data type for release factory mode */
 };
 
@@ -983,7 +994,7 @@ int sec_ts_read_information(struct sec_ts_data *ts);
 void set_pat_magic_number(struct sec_ts_data *ts);
 #endif
 void sec_ts_run_rawdata_all(struct sec_ts_data *ts, bool full_read);
-int execute_selftest(struct sec_ts_data *ts, bool save_result);
+int execute_selftest(struct sec_ts_data *ts, u32 option);
 int execute_p2ptest(struct sec_ts_data *ts);
 int sec_ts_read_raw_data(struct sec_ts_data *ts,
 		struct sec_cmd_data *sec, struct sec_ts_test_mode *mode);
