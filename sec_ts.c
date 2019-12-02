@@ -840,7 +840,7 @@ int sec_ts_spi_delay(u8 reg)
 	case SEC_TS_CMD_FLASH_READ_DATA:
 		return 1800;
 	case SEC_TS_READ_FIRMWARE_INTEGRITY:
-		return 11500;
+		return 20*1000;
 	case SEC_TS_READ_SELFTEST_RESULT:
 		return 3500;
 	default: return 100;
