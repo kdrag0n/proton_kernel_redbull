@@ -553,20 +553,6 @@ error:
 	return rc;
 }
 
-static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
-				enum dsi_cmd_set_type type)
-{
-	struct dsi_display_mode *mode;
-
-	if (!panel || !panel->cur_mode)
-		return -EINVAL;
-
-	mode = panel->cur_mode;
-
-	return dsi_panel_cmd_set_transfer(panel,
-					  &mode->priv_info->cmd_sets[type]);
-}
-
 static int dsi_panel_pinctrl_deinit(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -1869,6 +1855,24 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
 };
+
+static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type)
+{
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode)
+		return -EINVAL;
+
+	mode = panel->cur_mode;
+
+	if ((mode->priv_info->cmd_sets[type].count) &&
+			(type >= 0) && (type < DSI_CMD_SET_MAX))
+		pr_debug("send cmdset %s\n", cmd_set_prop_map[type]);
+
+	return dsi_panel_cmd_set_transfer(panel,
+					  &mode->priv_info->cmd_sets[type]);
+}
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
 {
