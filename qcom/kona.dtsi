@@ -2460,6 +2460,8 @@
 		vdd_cx-supply = <&VDD_CX_LEVEL>;
 		vdd_cx_ao-supply = <&VDD_CX_LEVEL_AO>;
 		vdd_mm-supply = <&VDD_MMCX_LEVEL>;
+		ufs-supply = <&ufs_phy_gdsc>;
+		usb30-supply = <&usb30_prim_gdsc>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
 	};
@@ -2516,6 +2518,7 @@
 		reg-names = "cc_base";
 		vdd_cx-supply = <&VDD_CX_LEVEL>;
 		vdd_mx-supply = <&VDD_MX_LEVEL>;
+		gdsc_cx-supply = <&gpu_cx_gdsc>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
 	};
@@ -2585,6 +2588,8 @@
 		reg = <0x177004 0x4>;
 		regulator-name = "ufs_phy_gdsc";
 		qcom,retain-regs;
+		proxy-supply = <&ufs_phy_gdsc>;
+		qcom,proxy-consumer-enable;
 	};
 
 	usb30_prim_gdsc: qcom,gdsc@10f004 {
@@ -2592,6 +2597,8 @@
 		reg = <0x10f004 0x4>;
 		regulator-name = "usb30_prim_gdsc";
 		qcom,retain-regs;
+		proxy-supply = <&usb30_prim_gdsc>;
+		qcom,proxy-consumer-enable;
 	};
 
 	usb30_sec_gdsc: qcom,gdsc@110004 {
@@ -2775,6 +2782,8 @@
 		qcom,clk-dis-wait-val = <8>;
 		qcom,gds-timeout = <500>;
 		qcom,retain-regs;
+		proxy-supply = <&gpu_cx_gdsc>;
+		qcom,proxy-consumer-enable;
 	};
 
 	gpu_gx_domain_addr: syscon@3d91508 {

@@ -313,6 +313,8 @@
 
 		vdda-1p2-supply = <&pm8150_l9>;
 		vdda-0p9-supply = <&pm8150_l18>;
+		vddio-supply = <&pm8150_l14>;
+		vdd-supply = <&pm8150a_l11>;
 
 		reg =   <0xae90000 0x0dc>,
 			<0xae90200 0x0c0>,
