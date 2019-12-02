@@ -16,11 +16,21 @@ ifeq ($(CONFIG_QCA_WIFI_SDIO), y)
 	CONFIG_ROME_IF = sdio
 endif
 
-ifdef CONFIG_ICNSS
+ifeq ($(CONFIG_ICNSS), m)
+	CONFIG_ICNSS_MODULE := y
+endif
+ifeq ($(CONFIG_CNSS), m)
+	CONFIG_CNSS_MODULE := y
+endif
+ifeq ($(CONFIG_CNSS2), m)
+	CONFIG_CNSS2_MODULE := y
+endif
+
+ifeq (y,$(findstring y,$(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 	CONFIG_ROME_IF = snoc
 endif
 
-ifeq (y,$(findstring y,$(CONFIG_CNSS) $(CONFIG_CNSS2)))
+ifeq (y,$(findstring y,$(CONFIG_CNSS) $(CONFIG_CNSS_MODULE) $(CONFIG_CNSS2) $(CONFIG_CNSS2_MODULE)))
 ifndef CONFIG_ROME_IF
 	#use pci as default interface
 	CONFIG_ROME_IF = pci
@@ -30,7 +40,7 @@ endif
 # Make WLAN as open-source driver by default
 WLAN_OPEN_SOURCE := y
 
-ifeq ($(CONFIG_ICNSS), y)
+ifeq (y,$(findstring y,$(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 	CONFIG_HELIUMPLUS := y
 	CONFIG_64BIT_PADDR := y
 	CONFIG_FEATURE_TSO := y
@@ -152,7 +162,8 @@ CONFIG_WLAN_FEATURE_ACTION_OUI := y
 #Flag to enable FILS Feature (11ai)
 CONFIG_WLAN_FEATURE_FILS := y
 ifneq ($(CONFIG_QCA_CLD_WLAN),)
-	ifeq (y,$(findstring y,$(CONFIG_CNSS) $(CONFIG_CNSS2) $(CONFIG_ICNSS)))
+	ifeq (y,$(findstring y,$(CONFIG_CNSS) $(CONFIG_CNSS_MODULE) $(CONFIG_CNSS2) \
+			$(CONFIG_CNSS2_MODULE) $(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 	#Flag to enable Protected Management Frames (11w) feature
 	CONFIG_WLAN_FEATURE_11W := y
 	#Flag to enable LTE CoEx feature
@@ -271,7 +282,7 @@ endif
 #Whether have QMI support
 CONFIG_QMI_SUPPORT := y
 
-ifeq ($(CONFIG_ICNSS), y)
+ifeq (y,$(findstring y,$(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 CONFIG_WIFI_3_0_ADRASTEA := y
 CONFIG_ADRASTEA_RRI_ON_DDR := y
 # Enable athdiag procfs debug support for adrastea
@@ -649,7 +660,7 @@ endif
 endif
 
 #Enable Channel Matrix restriction for all Rome only targets
-ifneq ($(CONFIG_ICNSS), y)
+ifneq (y,$(findstring y,$(CONFIG_ICNSS) $(CONFIG_ICNSS_MODULE)))
 CONFIG_CHNL_MATRIX_RESTRICTION := y
 endif
 

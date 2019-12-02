@@ -1811,7 +1811,7 @@ void ol_txrx_vdev_flush(struct cdp_vdev *data_vdev)
 #endif
 
 #ifdef QCA_LL_TX_FLOW_CONTROL_V2
-#ifndef CONFIG_ICNSS
+#if !IS_ENABLED(CONFIG_ICNSS)
 
 /**
  * ol_txrx_map_to_netif_reason_type() - map to netif_reason_type
