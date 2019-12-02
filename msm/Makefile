@@ -3,6 +3,16 @@ ccflags-y := -I$(srctree)/include/drm -I$(srctree)/techpack/display/msm -I$(srct
 ccflags-y += -I$(srctree)/techpack/display/msm/sde
 ccflags-y += -I$(srctree)/techpack/display/rotator
 
+ccflags-y += -I$(srctree)/techpack/display/pll
+ccflags-y += -I$(srctree)/drivers/clk/qcom/
+
+msm_drm-$(CONFIG_QCOM_MDSS_PLL) += $(patsubst %,../pll/%,pll_util.o pll_drv.o dsi_pll_10nm.o \
+	dsi_pll_7nm.o dsi_pll_28lpm.o dsi_pll_28nm_util.o dsi_pll_14nm.o dsi_pll_14nm_util.o \
+	hdmi_pll_28lpm.o)
+
+msm_drm-$(CONFIG_QCOM_MDSS_DP_PLL) += $(patsubst %,../pll/%,dp_pll_7nm.o dp_pll_7nm_util.o \
+	dp_pll_10nm.o dp_pll_10nm_util.o dp_pll_14nm.o)
+
 msm_drm-$(CONFIG_DRM_MSM_DP) += dp/dp_usbpd.o \
 	dp/dp_parser.o \
 	dp/dp_power.o \

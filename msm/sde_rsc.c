@@ -1669,21 +1669,23 @@ static struct platform_driver sde_rsc_rpmh_driver = {
 	},
 };
 
-static int __init sde_rsc_register(void)
+int __init sde_rsc_register(void)
 {
 	return platform_driver_register(&sde_rsc_platform_driver);
 }
 
-static void __exit sde_rsc_unregister(void)
+void __exit sde_rsc_unregister(void)
 {
 	platform_driver_unregister(&sde_rsc_platform_driver);
 }
 
-static int __init sde_rsc_rpmh_register(void)
+int __init sde_rsc_rpmh_register(void)
 {
 	return platform_driver_register(&sde_rsc_rpmh_driver);
 }
 
+#ifndef CONFIG_DRM_MSM_MODULE
 subsys_initcall(sde_rsc_rpmh_register);
 module_init(sde_rsc_register);
 module_exit(sde_rsc_unregister);
+#endif

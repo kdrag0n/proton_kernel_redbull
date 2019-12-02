@@ -1052,4 +1052,18 @@ int msm_get_mixer_count(struct msm_drm_private *priv,
 		const struct drm_display_mode *mode,
 		const struct msm_resource_caps_info *res, u32 *num_lm);
 
+#ifdef CONFIG_DRM_MSM_MODULE
+int dsi_display_register(void);
+void dsi_display_unregister(void);
+int dp_display_init(void);
+void dp_display_cleanup(void);
+int sde_rsc_rpmh_register(void);
+int sde_rsc_register(void);
+void sde_rsc_unregister(void);
+int sde_wb_register(void);
+void sde_wb_unregister(void);
+int mdss_pll_driver_init(void);
+void mdss_pll_driver_deinit(void);
+#endif
+
 #endif /* __MSM_DRV_H__ */

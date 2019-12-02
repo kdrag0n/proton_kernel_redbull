@@ -2191,13 +2191,13 @@ static void msm_pdev_shutdown(struct platform_device *pdev)
 	priv->shutdown_in_progress = true;
 }
 
-static const struct of_device_id dt_match[] = {
+static const struct of_device_id dt_match_msm_drv[] = {
 	{ .compatible = "qcom,mdp4", .data = (void *)KMS_MDP4 },
 	{ .compatible = "qcom,mdss", .data = (void *)KMS_MDP5 },
 	{ .compatible = "qcom,sde-kms", .data = (void *)KMS_SDE },
 	{},
 };
-MODULE_DEVICE_TABLE(of, dt_match);
+MODULE_DEVICE_TABLE(of, dt_match_msm_drv);
 
 static struct platform_driver msm_platform_driver = {
 	.probe      = msm_pdev_probe,
@@ -2205,7 +2205,7 @@ static struct platform_driver msm_platform_driver = {
 	.shutdown   = msm_pdev_shutdown,
 	.driver     = {
 		.name   = "msm_drm",
-		.of_match_table = dt_match,
+		.of_match_table = dt_match_msm_drv,
 		.pm     = &msm_pm_ops,
 		.suppress_bind_attrs = true,
 	},
@@ -2234,8 +2234,69 @@ static void __exit msm_drm_unregister(void)
 	msm_smmu_driver_cleanup();
 }
 
+#ifdef CONFIG_DRM_MSM_MODULE
+static int __init msm_drm_module_init(void)
+{
+	int ret;
+
+	ret = sde_rsc_rpmh_register();
+	if (ret) {
+		pr_err("sde_rsc_rpmh register fails, error:%d\n", ret);
+		return ret;
+	}
+
+	ret = mdss_pll_driver_init();
+	if (ret) {
+		pr_err("mdss_pll_driver_init failed, error %d\n", ret);
+		return ret;
+	}
+
+	ret = sde_wb_register();
+	if (ret) {
+		pr_err("sde_wb register fails, error:%d\n", ret);
+		return ret;
+	}
+
+	ret = sde_rsc_register();
+	if (ret) {
+		pr_err("sde_rsc register fails, error: %d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_register();
+	if (ret) {
+		pr_err("dsi_display register fails, error: %d\n", ret);
+		return ret;
+	}
+
+	ret = msm_drm_register();
+	if (ret) {
+		pr_err("msm_drm register fails, error: %d\n", ret);
+		return ret;
+	}
+
+	ret = dp_display_init();
+	if (ret)
+		pr_err("dp_display init fails, error: %d\n", ret);
+
+	return ret;
+}
+
+static void __exit msm_drm_module_cleanup(void)
+{
+	dp_display_cleanup();
+	msm_drm_unregister();
+	dsi_display_unregister();
+	sde_rsc_unregister();
+	sde_wb_unregister();
+	mdss_pll_driver_deinit();
+}
+module_init(msm_drm_module_init);
+module_exit(msm_drm_module_cleanup);
+#else
 module_init(msm_drm_register);
 module_exit(msm_drm_unregister);
+#endif
 
 MODULE_AUTHOR("Rob Clark <robdclark@gmail.com");
 MODULE_DESCRIPTION("MSM DRM Driver");
