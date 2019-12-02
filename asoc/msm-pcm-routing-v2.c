@@ -27419,7 +27419,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM5 Mixer", "VA_CDC_DMA_TX_2", "VA_CDC_DMA_TX_2"},
 	{"LSM5 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM5 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM5 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
+	{"LSM5 Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
 	{"LSM5_UL_HL", NULL, "LSM5 Mixer"},
 
 	{"LSM6 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
