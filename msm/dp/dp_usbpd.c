@@ -235,7 +235,8 @@ static void dp_usbpd_send_event(struct dp_usbpd_private *pd,
 	}
 }
 
-static void dp_usbpd_connect_cb(struct usbpd_svid_handler *hdlr)
+static void dp_usbpd_connect_cb(struct usbpd_svid_handler *hdlr,
+				bool supports_usb_comm)
 {
 	struct dp_usbpd_private *pd;
 
