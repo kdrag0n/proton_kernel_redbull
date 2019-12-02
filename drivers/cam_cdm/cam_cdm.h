@@ -250,4 +250,9 @@ int cam_cdm_intf_deregister_hw_cdm(struct cam_hw_intf *hw,
 	struct cam_cdm_private_dt_data *data, enum cam_cdm_type type,
 	uint32_t index);
 
+#if defined(CONFIG_SPECTRA_CAMERA_MODULE)
+extern int __init cam_cdm_intf_init_module(void);
+extern void cam_cdm_intf_exit_module(void);
+#endif
+
 #endif /* _CAM_CDM_H_ */

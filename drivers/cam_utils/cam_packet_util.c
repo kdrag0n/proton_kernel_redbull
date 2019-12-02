@@ -29,6 +29,7 @@ int cam_packet_util_get_cmd_mem_addr(int handle, uint32_t **buf_addr,
 	}
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_get_cmd_mem_addr);
 
 int cam_packet_util_validate_cmd_desc(struct cam_cmd_buf_desc *cmd_desc)
 {
@@ -42,6 +43,7 @@ int cam_packet_util_validate_cmd_desc(struct cam_cmd_buf_desc *cmd_desc)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_validate_cmd_desc);
 
 int cam_packet_util_validate_packet(struct cam_packet *packet,
 	size_t remain_len)
@@ -86,6 +88,7 @@ int cam_packet_util_validate_packet(struct cam_packet *packet,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_validate_packet);
 
 int cam_packet_util_get_kmd_buffer(struct cam_packet *packet,
 	struct cam_kmd_buf_info *kmd_buf)
@@ -153,6 +156,7 @@ int cam_packet_util_get_kmd_buffer(struct cam_packet *packet,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_get_kmd_buffer);
 
 int cam_packet_util_process_patches(struct cam_packet *packet,
 	int32_t iommu_hdl, int32_t sec_mmu_hdl)
@@ -229,6 +233,7 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_process_patches);
 
 int cam_packet_util_process_generic_cmd_buffer(
 	struct cam_cmd_buf_desc *cmd_buf,
@@ -324,3 +329,4 @@ int cam_packet_util_process_generic_cmd_buffer(
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_packet_util_process_generic_cmd_buffer);

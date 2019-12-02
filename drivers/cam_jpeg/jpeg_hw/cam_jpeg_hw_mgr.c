@@ -1600,3 +1600,7 @@ smmu_get_failed:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_jpeg_hw_mgr_init);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Jpeg Hardware Manager");

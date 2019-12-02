@@ -156,6 +156,7 @@ int cam_cpas_get_cpas_hw_version(uint32_t *hw_version)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_cpas_get_cpas_hw_version);
 
 int cam_cpas_get_hw_info(uint32_t *camera_family,
 	struct cam_hw_version *camera_version,

@@ -15,6 +15,7 @@ void crm_timer_reset(struct cam_req_mgr_timer *crm_timer)
 	mod_timer(&crm_timer->sys_timer,
 		(jiffies + msecs_to_jiffies(crm_timer->expires)));
 }
+EXPORT_SYMBOL_GPL(crm_timer_reset);
 
 void crm_timer_callback(struct timer_list *timer_data)
 {
@@ -78,6 +79,7 @@ int crm_timer_init(struct cam_req_mgr_timer **timer,
 end:
 	return ret;
 }
+EXPORT_SYMBOL_GPL(crm_timer_init);
 void crm_timer_exit(struct cam_req_mgr_timer **crm_timer)
 {
 	CAM_DBG(CAM_CRM, "destroy timer %pK @ %pK", *crm_timer, crm_timer);
@@ -88,3 +90,4 @@ void crm_timer_exit(struct cam_req_mgr_timer **crm_timer)
 		*crm_timer = NULL;
 	}
 }
+EXPORT_SYMBOL_GPL(crm_timer_exit);

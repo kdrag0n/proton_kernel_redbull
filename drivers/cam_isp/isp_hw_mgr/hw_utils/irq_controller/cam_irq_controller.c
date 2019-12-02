@@ -6,6 +6,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/ratelimit.h>
 
 #include "cam_io_util.h"
@@ -127,6 +128,7 @@ int cam_irq_controller_deinit(void **irq_controller)
 	*irq_controller = NULL;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_deinit);
 
 int cam_irq_controller_init(const char       *name,
 	void __iomem                         *mem_base,
@@ -230,6 +232,7 @@ reg_alloc_error:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_init);
 
 int cam_irq_controller_subscribe_irq(void *irq_controller,
 	enum cam_irq_priority_level        priority,
@@ -356,6 +359,7 @@ free_evt_handler:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_subscribe_irq);
 
 int cam_irq_controller_enable_irq(void *irq_controller, uint32_t handle)
 {
@@ -483,6 +487,7 @@ int cam_irq_controller_disable_irq(void *irq_controller, uint32_t handle)
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_disable_irq);
 
 int cam_irq_controller_unsubscribe_irq(void *irq_controller,
 	uint32_t handle)
@@ -549,6 +554,7 @@ int cam_irq_controller_unsubscribe_irq(void *irq_controller,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_unsubscribe_irq);
 
 /**
  * cam_irq_controller_match_bit_mask()
@@ -683,6 +689,7 @@ irqreturn_t cam_irq_controller_clear_and_mask(int irq_num, void *priv)
 
 	return IRQ_HANDLED;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_clear_and_mask);
 
 irqreturn_t cam_irq_controller_handle_irq(int irq_num, void *priv)
 {
@@ -748,3 +755,7 @@ irqreturn_t cam_irq_controller_handle_irq(int irq_num, void *priv)
 
 	return IRQ_HANDLED;
 }
+EXPORT_SYMBOL_GPL(cam_irq_controller_handle_irq);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam IRQ Controller");

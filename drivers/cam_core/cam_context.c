@@ -3,6 +3,7 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/refcount.h>
@@ -247,6 +248,7 @@ int cam_context_dump_pf_info(struct cam_context *ctx, unsigned long iova,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_context_dump_pf_info);
 
 int cam_context_handle_acquire_dev(struct cam_context *ctx,
 	struct cam_acquire_dev_cmd *cmd)
@@ -545,6 +547,7 @@ int cam_context_init(struct cam_context *ctx,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_init);
 
 int cam_context_deinit(struct cam_context *ctx)
 {
@@ -563,6 +566,7 @@ int cam_context_deinit(struct cam_context *ctx)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_context_deinit);
 
 void cam_context_putref(struct cam_context *ctx)
 {
@@ -584,3 +588,6 @@ void cam_context_getref(struct cam_context *ctx)
 		ctx->dev_hdl, refcount_read(&(ctx->refcount.refcount)),
 		ctx->dev_name);
 }
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Context");

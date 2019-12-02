@@ -143,6 +143,7 @@ int cam_mem_mgr_init(void)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_mem_mgr_init);
 
 static int32_t cam_mem_get_slot(void)
 {
@@ -686,6 +687,7 @@ slot_fail:
 	dma_buf_put(dmabuf);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_mem_mgr_alloc_and_map);
 
 int cam_mem_mgr_map(struct cam_mem_mgr_map_cmd *cmd)
 {
@@ -783,6 +785,7 @@ map_fail:
 	dma_buf_put(dmabuf);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_mem_mgr_map);
 
 static int cam_mem_util_unmap_hw_va(int32_t idx,
 	enum cam_smmu_region_id region,
@@ -916,6 +919,7 @@ void cam_mem_mgr_deinit(void)
 	mutex_unlock(&tbl.m_lock);
 	mutex_destroy(&tbl.m_lock);
 }
+EXPORT_SYMBOL_GPL(cam_mem_mgr_deinit);
 
 static int cam_mem_util_unmap(int32_t idx,
 	enum cam_smmu_mapping_client client)
@@ -1038,6 +1042,7 @@ int cam_mem_mgr_release(struct cam_mem_mgr_release_cmd *cmd)
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_mem_mgr_release);
 
 int cam_mem_mgr_request_mem(struct cam_mem_mgr_request_desc *inp,
 	struct cam_mem_mgr_memory_desc *out)
@@ -1394,3 +1399,6 @@ int cam_mem_mgr_free_memory_region(struct cam_mem_mgr_memory_desc *inp)
 	return rc;
 }
 EXPORT_SYMBOL(cam_mem_mgr_free_memory_region);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Memory Manager");

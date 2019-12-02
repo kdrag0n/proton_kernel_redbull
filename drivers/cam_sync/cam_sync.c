@@ -121,6 +121,7 @@ int cam_sync_register_callback(sync_callback cb_func,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sync_register_callback);
 
 int cam_sync_deregister_callback(sync_callback cb_func,
 	void *userdata, int32_t sync_obj)
@@ -157,6 +158,7 @@ int cam_sync_deregister_callback(sync_callback cb_func,
 	spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
 	return found ? 0 : -ENOENT;
 }
+EXPORT_SYMBOL_GPL(cam_sync_deregister_callback);
 
 int cam_sync_signal(int32_t sync_obj, uint32_t status)
 {
@@ -257,6 +259,7 @@ int cam_sync_signal(int32_t sync_obj, uint32_t status)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sync_signal);
 
 int cam_sync_merge(int32_t *sync_obj, uint32_t num_objs, int32_t *merged_obj)
 {
@@ -304,6 +307,7 @@ int cam_sync_merge(int32_t *sync_obj, uint32_t num_objs, int32_t *merged_obj)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sync_merge);
 
 int cam_sync_get_obj_ref(int32_t sync_obj)
 {
@@ -330,6 +334,7 @@ int cam_sync_get_obj_ref(int32_t sync_obj)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sync_get_obj_ref);
 
 int cam_sync_put_obj_ref(int32_t sync_obj)
 {
@@ -344,12 +349,14 @@ int cam_sync_put_obj_ref(int32_t sync_obj)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sync_put_obj_ref);
 
 int cam_sync_destroy(int32_t sync_obj)
 {
 	CAM_DBG(CAM_SYNC, "sync_obj: %i", sync_obj);
 	return cam_sync_deinit_object(sync_dev->sync_table, sync_obj);
 }
+EXPORT_SYMBOL_GPL(cam_sync_destroy);
 
 int cam_sync_wait(int32_t sync_obj, uint64_t timeout_ms)
 {

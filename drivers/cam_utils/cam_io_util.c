@@ -20,6 +20,7 @@ int cam_io_w(uint32_t data, void __iomem *addr)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_io_w);
 
 int cam_io_w_mb(uint32_t data, void __iomem *addr)
 {
@@ -35,6 +36,7 @@ int cam_io_w_mb(uint32_t data, void __iomem *addr)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_io_w_mb);
 
 uint32_t cam_io_r(void __iomem *addr)
 {
@@ -50,6 +52,7 @@ uint32_t cam_io_r(void __iomem *addr)
 
 	return data;
 }
+EXPORT_SYMBOL_GPL(cam_io_r);
 
 uint32_t cam_io_r_mb(void __iomem *addr)
 {
@@ -69,6 +72,7 @@ uint32_t cam_io_r_mb(void __iomem *addr)
 
 	return data;
 }
+EXPORT_SYMBOL_GPL(cam_io_r_mb);
 
 int cam_io_memcpy(void __iomem *dest_addr,
 	void __iomem *src_addr, uint32_t len)
@@ -89,6 +93,7 @@ int cam_io_memcpy(void __iomem *dest_addr,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_io_memcpy);
 
 int  cam_io_memcpy_mb(void __iomem *dest_addr,
 	void __iomem *src_addr, uint32_t len)
@@ -165,6 +170,7 @@ int cam_io_poll_value_wmask(void __iomem *addr, uint32_t wait_data,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_io_poll_value_wmask);
 
 int cam_io_w_same_offset_block(const uint32_t *data, void __iomem *addr,
 	uint32_t len)
@@ -278,3 +284,4 @@ int cam_io_dump(void __iomem *base_addr, uint32_t start_offset, int size)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_io_dump);

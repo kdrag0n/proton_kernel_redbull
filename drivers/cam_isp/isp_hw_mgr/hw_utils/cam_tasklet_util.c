@@ -7,6 +7,7 @@
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/ratelimit.h>
 #include "cam_tasklet_util.h"
 #include "cam_irq_controller.h"
@@ -70,6 +71,7 @@ struct cam_irq_bh_api tasklet_bh_api = {
 	.get_bh_payload_func = cam_tasklet_get_cmd,
 	.put_bh_payload_func = cam_tasklet_put_cmd,
 };
+EXPORT_SYMBOL_GPL(tasklet_bh_api);
 
 int cam_tasklet_get_cmd(
 	void                         *bottom_half,
@@ -248,6 +250,7 @@ int cam_tasklet_init(
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_tasklet_init);
 
 void cam_tasklet_deinit(void    **tasklet_info)
 {
@@ -261,6 +264,7 @@ void cam_tasklet_deinit(void    **tasklet_info)
 	kfree(tasklet);
 	*tasklet_info = NULL;
 }
+EXPORT_SYMBOL_GPL(cam_tasklet_deinit);
 
 static inline void cam_tasklet_flush(struct cam_tasklet_info *tasklet_info)
 {
@@ -291,6 +295,7 @@ int cam_tasklet_start(void  *tasklet_info)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_tasklet_start);
 
 void cam_tasklet_stop(void  *tasklet_info)
 {
@@ -301,6 +306,7 @@ void cam_tasklet_stop(void  *tasklet_info)
 	tasklet_disable(&tasklet->tasklet);
 	cam_tasklet_flush(tasklet);
 }
+EXPORT_SYMBOL_GPL(cam_tasklet_stop);
 
 /*
  * cam_tasklet_action()
@@ -325,3 +331,6 @@ static void cam_tasklet_action(unsigned long data)
 		cam_tasklet_put_cmd(tasklet_info, (void **)(&tasklet_cmd));
 	}
 }
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Tasklet Util");

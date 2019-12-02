@@ -9,6 +9,11 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_utils
 ccflags-y += -I$(srctree)
 
-obj-$(CONFIG_SPECTRA_CAMERA) += cpas_top/
-obj-$(CONFIG_SPECTRA_CAMERA) += camss_top/
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_cpas_soc.o cam_cpas_intf.o cam_cpas_hw.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_cpas.o
+cam_cpas-objs += cam_cpas_soc.o cam_cpas_intf.o cam_cpas_hw.o
+
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas
+
+cam_cpas-objs += cpas_top/cam_cpastop_hw.o
+
+cam_cpas-objs += camss_top/cam_camsstop_hw.o

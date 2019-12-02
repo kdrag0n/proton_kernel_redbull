@@ -11,4 +11,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_jpeg/jpeg_hw/include
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include/
 
 obj-$(CONFIG_SPECTRA_CAMERA) += jpeg_hw/
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_jpeg_dev.o cam_jpeg_context.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_jpeg.o
+cam_jpeg-objs += cam_jpeg_dev.o cam_jpeg_context.o

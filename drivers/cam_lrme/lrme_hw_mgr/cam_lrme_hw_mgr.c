@@ -1080,6 +1080,7 @@ destroy_workqueue:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_lrme_mgr_register_device);
 
 int cam_lrme_mgr_deregister_device(int device_index)
 {
@@ -1092,6 +1093,7 @@ int cam_lrme_mgr_deregister_device(int device_index)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_lrme_mgr_deregister_device);
 
 int cam_lrme_hw_mgr_deinit(void)
 {
@@ -1100,6 +1102,7 @@ int cam_lrme_hw_mgr_deinit(void)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_lrme_hw_mgr_deinit);
 
 int cam_lrme_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf,
 	cam_hw_event_cb_func cam_lrme_dev_buf_done_cb)
@@ -1153,3 +1156,7 @@ int cam_lrme_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf,
 	CAM_DBG(CAM_LRME, "Hw mgr init done");
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_lrme_hw_mgr_init);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Lrme Hardware Manager");

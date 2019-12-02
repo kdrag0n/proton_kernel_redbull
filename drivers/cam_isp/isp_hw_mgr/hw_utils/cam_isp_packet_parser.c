@@ -82,6 +82,7 @@ int cam_isp_add_change_base(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_isp_add_change_base);
 
 static int cam_isp_update_dual_config(
 	struct cam_hw_prepare_update_args  *prepare,
@@ -236,6 +237,7 @@ int cam_isp_add_cmd_buf_update(
 	CAM_DBG(CAM_ISP, "total_used_bytes %u", total_used_bytes);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_isp_add_cmd_buf_update);
 
 int cam_isp_add_command_buffers(
 	struct cam_hw_prepare_update_args  *prepare,
@@ -450,6 +452,7 @@ int cam_isp_add_command_buffers(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_isp_add_command_buffers);
 
 int cam_isp_add_io_buffers(
 	int                                   iommu_hdl,
@@ -837,7 +840,7 @@ int cam_isp_add_io_buffers(
 
 	return rc;
 }
-
+EXPORT_SYMBOL_GPL(cam_isp_add_io_buffers);
 
 int cam_isp_add_reg_update(
 	struct cam_hw_prepare_update_args    *prepare,
@@ -934,3 +937,7 @@ int cam_isp_add_reg_update(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_isp_add_reg_update);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Isp Packet Parser");

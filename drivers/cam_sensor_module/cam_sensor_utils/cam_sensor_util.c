@@ -61,6 +61,7 @@ int32_t delete_request(struct i2c_settings_array *i2c_array)
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(delete_request);
 
 int32_t cam_sensor_handle_delay(
 	uint32_t **cmd_buf,
@@ -506,6 +507,7 @@ int cam_sensor_i2c_command_parser(
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_i2c_command_parser);
 
 int cam_sensor_util_i2c_apply_setting(
 	struct camera_io_master *io_master_info,
@@ -575,6 +577,7 @@ int cam_sensor_util_i2c_apply_setting(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_util_i2c_apply_setting);
 
 int32_t msm_camera_fill_vreg_params(
 	struct cam_hw_soc_info *soc_info,
@@ -762,6 +765,7 @@ int32_t msm_camera_fill_vreg_params(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(msm_camera_fill_vreg_params);
 
 int cam_sensor_util_request_gpio_table(
 		struct cam_hw_soc_info *soc_info, int gpio_en)
@@ -1068,6 +1072,7 @@ free_power_settings:
 	power_info->power_setting_size = 0;
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_update_power_settings);
 
 int cam_get_dt_power_setting_data(struct device_node *of_node,
 	struct cam_hw_soc_info *soc_info,
@@ -1175,6 +1180,7 @@ ERROR1:
 	kfree(ps);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_get_dt_power_setting_data);
 
 int cam_sensor_util_init_gpio_pin_tbl(
 	struct cam_hw_soc_info *soc_info,
@@ -1391,6 +1397,7 @@ free_gpio_info:
 	gpio_num_info = NULL;
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_util_init_gpio_pin_tbl);
 
 int msm_camera_pinctrl_init(
 	struct msm_pinctrl_info *sensor_pctrl, struct device *dev)
@@ -1438,6 +1445,7 @@ int cam_sensor_bob_pwm_mode_switch(struct cam_hw_soc_info *soc_info,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_bob_pwm_mode_switch);
 
 int msm_cam_sensor_handle_reg_gpio(int seq_type,
 	struct msm_camera_gpio_num_info *gpio_num_info, int val)
@@ -1872,6 +1880,7 @@ power_up_failed:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_core_power_up);
 
 static struct cam_sensor_power_setting*
 msm_camera_get_power_settings(struct cam_sensor_power_ctrl_t *ctrl,
@@ -2055,3 +2064,7 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_sensor_util_power_down);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Sensor Util");

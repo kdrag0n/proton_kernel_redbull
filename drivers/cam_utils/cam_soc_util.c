@@ -53,6 +53,7 @@ int cam_soc_util_get_clk_level(struct cam_hw_soc_info *soc_info,
 	*clk_lvl = -1;
 	return -EINVAL;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_get_clk_level);
 
 /**
  * cam_soc_util_get_string_from_level()
@@ -273,6 +274,7 @@ int cam_soc_util_get_level_from_string(const char *string,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_get_level_from_string);
 
 /**
  * cam_soc_util_get_clk_level_to_apply()
@@ -355,6 +357,7 @@ int cam_soc_util_irq_disable(struct cam_hw_soc_info *soc_info)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_irq_disable);
 
 long cam_soc_util_get_clk_round_rate(struct cam_hw_soc_info *soc_info,
 	uint32_t clk_index, unsigned long clk_rate)
@@ -379,6 +382,7 @@ int cam_soc_util_set_clk_flags(struct cam_hw_soc_info *soc_info,
 
 	return clk_set_flags(soc_info->clk[clk_index], flags);
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_set_clk_flags);
 
 /**
  * cam_soc_util_set_clk_rate()
@@ -512,6 +516,7 @@ int cam_soc_util_set_src_clk_rate(struct cam_hw_soc_info *soc_info,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_set_src_clk_rate);
 
 int cam_soc_util_clk_put(struct clk **clk)
 {
@@ -525,6 +530,7 @@ int cam_soc_util_clk_put(struct clk **clk)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_clk_put);
 
 static struct clk *cam_soc_util_option_clk_get(struct device_node *np,
 	int index)
@@ -605,6 +611,7 @@ int cam_soc_util_get_option_clk_by_name(struct cam_hw_soc_info *soc_info,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_get_option_clk_by_name);
 
 int cam_soc_util_clk_enable(struct clk *clk, const char *clk_name,
 	int32_t clk_rate)
@@ -626,6 +633,7 @@ int cam_soc_util_clk_enable(struct clk *clk, const char *clk_name,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_clk_enable);
 
 int cam_soc_util_clk_disable(struct clk *clk, const char *clk_name)
 {
@@ -637,6 +645,7 @@ int cam_soc_util_clk_disable(struct clk *clk, const char *clk_name)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_clk_disable);
 
 /**
  * cam_soc_util_clk_enable_default()
@@ -698,6 +707,7 @@ clk_disable:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_clk_enable_default);
 
 /**
  * cam_soc_util_clk_disable_default()
@@ -722,6 +732,7 @@ void cam_soc_util_clk_disable_default(struct cam_hw_soc_info *soc_info)
 		cam_soc_util_clk_disable(soc_info->clk[i],
 			soc_info->clk_name[i]);
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_clk_disable_default);
 
 /**
  * cam_soc_util_get_dt_clk_info()
@@ -966,7 +977,8 @@ int cam_soc_util_set_clk_rate_level(struct cam_hw_soc_info *soc_info,
 	}
 
 	return rc;
-};
+}
+EXPORT_SYMBOL_GPL(cam_soc_util_set_clk_rate_level);
 
 static int cam_soc_util_get_dt_gpio_req_tbl(struct device_node *of_node,
 	struct cam_soc_gpio_data *gconf, uint16_t *gpio_array,
@@ -1343,6 +1355,7 @@ int cam_soc_util_get_dt_properties(struct cam_hw_soc_info *soc_info)
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_get_dt_properties);
 
 /**
  * cam_soc_util_get_regulator()
@@ -1400,7 +1413,7 @@ int cam_soc_util_regulator_disable(struct regulator *rgltr,
 
 	return rc;
 }
-
+EXPORT_SYMBOL_GPL(cam_soc_util_regulator_disable);
 
 int cam_soc_util_regulator_enable(struct regulator *rgltr,
 	const char *rgltr_name,
@@ -1447,6 +1460,7 @@ int cam_soc_util_regulator_enable(struct regulator *rgltr,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_regulator_enable);
 
 static int cam_soc_util_request_pinctrl(
 	struct cam_hw_soc_info *soc_info)
@@ -1681,6 +1695,7 @@ unmap_base:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_request_platform_resource);
 
 int cam_soc_util_release_platform_resource(struct cam_hw_soc_info *soc_info)
 {
@@ -1727,6 +1742,7 @@ int cam_soc_util_release_platform_resource(struct cam_hw_soc_info *soc_info)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_release_platform_resource);
 
 int cam_soc_util_enable_platform_resource(struct cam_hw_soc_info *soc_info,
 	bool enable_clocks, enum cam_vote_level clk_level, bool enable_irq)
@@ -1779,6 +1795,7 @@ disable_regulator:
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_enable_platform_resource);
 
 int cam_soc_util_disable_platform_resource(struct cam_hw_soc_info *soc_info,
 	bool disable_clocks, bool disable_irq)
@@ -1803,6 +1820,7 @@ int cam_soc_util_disable_platform_resource(struct cam_hw_soc_info *soc_info,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_disable_platform_resource);
 
 int cam_soc_util_reg_dump(struct cam_hw_soc_info *soc_info,
 	uint32_t base_index, uint32_t offset, int size)
@@ -2100,3 +2118,4 @@ int cam_soc_util_reg_dump_to_cmd_buf(void *ctx,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_soc_util_reg_dump_to_cmd_buf);

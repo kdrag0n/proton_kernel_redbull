@@ -36,8 +36,13 @@ struct cam_req_mgr_device {
 #define CAM_REQ_MGR_GET_PAYLOAD_PTR(ev, type)        \
 	(type *)((char *)ev.u.data)
 
+struct cam_req_mgr_message;
 int cam_req_mgr_notify_message(struct cam_req_mgr_message *msg,
 	uint32_t id,
 	uint32_t type);
+
+#ifdef CONFIG_SPECTRA_CAMERA_MODULE
+extern int cam_req_mgr_late_init(void);
+#endif
 
 #endif /* _CAM_REQ_MGR_DEV_H_ */

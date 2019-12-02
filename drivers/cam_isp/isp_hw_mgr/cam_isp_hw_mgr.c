@@ -3,6 +3,8 @@
  * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/module.h>
+
 #include "cam_isp_hw_mgr_intf.h"
 #include "cam_ife_hw_mgr.h"
 #include "cam_debug_util.h"
@@ -26,3 +28,7 @@ int cam_isp_hw_mgr_init(struct device_node *of_node,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_isp_hw_mgr_init);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Isp Hardware Manager");

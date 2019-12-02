@@ -6489,3 +6489,7 @@ secure_fail:
 	g_ife_hw_mgr.mgr_common.img_iommu_hdl = -1;
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_ife_hw_mgr_init);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Ife Hardware Manager");

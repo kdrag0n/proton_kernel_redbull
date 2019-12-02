@@ -5,6 +5,7 @@
 
 #include <linux/io.h>
 #include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/random.h>
 #include <asm/errno.h>
@@ -85,6 +86,7 @@ void cam_hfi_queue_dump(void)
 	for (i = 0; i < ICP_MSG_Q_SIZE_IN_BYTES >> BYTE_WORD_SHIFT; i++)
 		CAM_DBG(CAM_HFI, "Word: %d Data: 0x%08x ", i, read_ptr[i]);
 }
+EXPORT_SYMBOL_GPL(cam_hfi_queue_dump);
 
 int hfi_write_cmd(void *cmd_ptr)
 {
@@ -170,6 +172,7 @@ err:
 	mutex_unlock(&hfi_cmd_q_mutex);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(hfi_write_cmd);
 
 int hfi_read_message(uint32_t *pmsg, uint8_t q_id,
 	uint32_t *words_read)
@@ -270,6 +273,7 @@ err:
 	mutex_unlock(&hfi_msg_q_mutex);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(hfi_read_message);
 
 int hfi_cmd_ubwc_config(uint32_t *ubwc_cfg)
 {
@@ -301,6 +305,7 @@ int hfi_cmd_ubwc_config(uint32_t *ubwc_cfg)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hfi_cmd_ubwc_config);
 
 int hfi_cmd_ubwc_config_ext(uint32_t *ubwc_ipe_cfg,
 	uint32_t *ubwc_bps_cfg)
@@ -336,7 +341,7 @@ int hfi_cmd_ubwc_config_ext(uint32_t *ubwc_ipe_cfg,
 
 	return 0;
 }
-
+EXPORT_SYMBOL_GPL(hfi_cmd_ubwc_config_ext);
 
 int hfi_enable_ipe_bps_pc(bool enable, uint32_t core_info)
 {
@@ -364,6 +369,7 @@ int hfi_enable_ipe_bps_pc(bool enable, uint32_t core_info)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hfi_enable_ipe_bps_pc);
 
 int hfi_set_debug_level(u64 a5_dbg_type, uint32_t lvl)
 {
@@ -403,6 +409,7 @@ int hfi_set_debug_level(u64 a5_dbg_type, uint32_t lvl)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hfi_set_debug_level);
 
 int hfi_set_fw_dump_level(uint32_t lvl)
 {
@@ -439,6 +446,7 @@ int hfi_set_fw_dump_level(uint32_t lvl)
 	kfree(prop);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hfi_set_fw_dump_level);
 
 void hfi_send_system_cmd(uint32_t type, uint64_t data, uint32_t size)
 {
@@ -510,7 +518,7 @@ void hfi_send_system_cmd(uint32_t type, uint64_t data, uint32_t size)
 		break;
 	}
 }
-
+EXPORT_SYMBOL_GPL(hfi_send_system_cmd);
 
 int hfi_get_hw_caps(void *query_buf)
 {
@@ -542,6 +550,7 @@ int hfi_get_hw_caps(void *query_buf)
 	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hfi_get_hw_caps);
 
 void cam_hfi_disable_cpu(void __iomem *icp_base)
 {
@@ -576,6 +585,7 @@ void cam_hfi_disable_cpu(void __iomem *icp_base)
 	cam_io_w_mb((uint32_t)INTR_DISABLE,
 		icp_base + HFI_REG_A5_CSR_A2HOSTINTEN);
 }
+EXPORT_SYMBOL_GPL(cam_hfi_disable_cpu);
 
 void cam_hfi_enable_cpu(void __iomem *icp_base)
 {
@@ -583,6 +593,7 @@ void cam_hfi_enable_cpu(void __iomem *icp_base)
 			icp_base + HFI_REG_A5_CSR_A5_CONTROL);
 	cam_io_w_mb((uint32_t)0x10, icp_base + HFI_REG_A5_CSR_NSEC_RESET);
 }
+EXPORT_SYMBOL_GPL(cam_hfi_enable_cpu);
 
 int cam_hfi_resume(struct hfi_mem_info *hfi_mem,
 	void __iomem *icp_base, bool debug)
@@ -673,6 +684,7 @@ int cam_hfi_resume(struct hfi_mem_info *hfi_mem,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_hfi_resume);
 
 int cam_hfi_init(uint8_t event_driven_mode, struct hfi_mem_info *hfi_mem,
 		void __iomem *icp_base, bool debug)
@@ -919,6 +931,7 @@ alloc_fail:
 	mutex_unlock(&hfi_msg_q_mutex);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_hfi_init);
 
 void cam_hfi_deinit(void __iomem *icp_base)
 {
@@ -940,3 +953,7 @@ err:
 	mutex_unlock(&hfi_cmd_q_mutex);
 	mutex_unlock(&hfi_msg_q_mutex);
 }
+EXPORT_SYMBOL_GPL(cam_hfi_deinit);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam hfi Utilities");

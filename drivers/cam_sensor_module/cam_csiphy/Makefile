@@ -10,4 +10,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_req_mgr
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_smmu/
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_core
 
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_csiphy_soc.o cam_csiphy_dev.o cam_csiphy_core.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_csiphy.o
+cam_csiphy-objs += cam_csiphy_soc.o cam_csiphy_dev.o cam_csiphy_core.o

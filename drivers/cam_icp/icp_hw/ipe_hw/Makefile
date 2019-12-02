@@ -11,4 +11,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/icp_hw/ipe_hw
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/fw_inc
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include
 
-obj-$(CONFIG_SPECTRA_CAMERA) += ipe_dev.o ipe_core.o ipe_soc.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_ipe.o
+cam_ipe-objs += ipe_dev.o ipe_core.o ipe_soc.o

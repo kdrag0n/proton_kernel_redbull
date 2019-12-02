@@ -11,4 +11,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/icp_hw/a5_hw
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_icp/fw_inc
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include
 
-obj-$(CONFIG_SPECTRA_CAMERA) += a5_dev.o a5_core.o a5_soc.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_a5.o
+cam_a5-objs += a5_dev.o a5_core.o a5_soc.o

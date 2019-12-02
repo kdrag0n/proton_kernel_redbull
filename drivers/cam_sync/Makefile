@@ -5,4 +5,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_utils
 ccflags-$(CONFIG_MSM_GLOBAL_SYNX) += -I$(srctree)/drivers/media/platform/msm/synx
 ccflags-y += -I$(src)
 
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_sync.o cam_sync_util.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam-sync.o
+cam-sync-objs += cam_sync.o cam_sync_util.o

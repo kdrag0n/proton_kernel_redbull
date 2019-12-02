@@ -13,4 +13,5 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_lrme/lrme_hw_mgr/lrme_hw
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_cpas/include/
 
 obj-$(CONFIG_SPECTRA_CAMERA) += lrme_hw_mgr/
-obj-$(CONFIG_SPECTRA_CAMERA) += cam_lrme_dev.o cam_lrme_context.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cam_lrme.o
+cam_lrme-objs += cam_lrme_dev.o cam_lrme_context.o

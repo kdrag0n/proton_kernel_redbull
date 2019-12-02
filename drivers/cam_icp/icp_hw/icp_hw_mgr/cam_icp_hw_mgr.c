@@ -5286,8 +5286,10 @@ static int cam_icp_mgr_alloc_devs(struct device_node *of_node)
 	return 0;
 num_bps_failed:
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_IPE]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_IPE] = NULL;
 num_ipe_failed:
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_A5]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_A5] = NULL;
 num_a5_failed:
 	return rc;
 }
@@ -5365,8 +5367,11 @@ static int cam_icp_mgr_init_devs(struct device_node *of_node)
 	return 0;
 compat_hw_name_failed:
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_BPS]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_BPS] = NULL;
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_IPE]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_IPE] = NULL;
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_A5]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_A5] = NULL;
 	return rc;
 }
 
@@ -5434,10 +5439,13 @@ static int cam_icp_mgr_create_wq(void)
 
 debugfs_create_failed:
 	kfree(icp_hw_mgr.timer_work_data);
+	icp_hw_mgr.timer_work_data = NULL;
 timer_work_data_failed:
 	kfree(icp_hw_mgr.msg_work_data);
+	icp_hw_mgr.msg_work_data = NULL;
 msg_work_data_failed:
 	kfree(icp_hw_mgr.cmd_work_data);
+	icp_hw_mgr.cmd_work_data = NULL;
 cmd_work_data_failed:
 	cam_req_mgr_workq_destroy(&icp_hw_mgr.timer_work);
 timer_work_failed:
@@ -5563,8 +5571,11 @@ secure_hdl_failed:
 	icp_hw_mgr.iommu_hdl = -1;
 icp_get_hdl_failed:
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_BPS]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_BPS] = NULL;
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_IPE]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_IPE] = NULL;
 	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_A5]);
+	icp_hw_mgr.devices[CAM_ICP_DEV_A5] = NULL;
 dev_init_failed:
 	mutex_destroy(&icp_hw_mgr.hw_mgr_mutex);
 	for (i = 0; i < CAM_ICP_CTX_MAX; i++)

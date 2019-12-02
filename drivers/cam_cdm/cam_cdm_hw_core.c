@@ -1121,12 +1121,27 @@ static struct platform_driver cam_hw_cdm_driver = {
 
 static int __init cam_hw_cdm_init_module(void)
 {
+#if defined(CONFIG_SPECTRA_CAMERA_MODULE)
+	int ret;
+
+	ret = cam_cdm_intf_init_module();
+	if (ret)
+		return ret;
+	ret = platform_driver_register(&cam_hw_cdm_driver);
+	if (ret)
+		cam_cdm_intf_exit_module();
+	return ret;
+#else
 	return platform_driver_register(&cam_hw_cdm_driver);
+#endif
 }
 
 static void __exit cam_hw_cdm_exit_module(void)
 {
 	platform_driver_unregister(&cam_hw_cdm_driver);
+#if defined(CONFIG_SPECTRA_CAMERA_MODULE)
+	cam_cdm_intf_exit_module();
+#endif
 }
 
 module_init(cam_hw_cdm_init_module);

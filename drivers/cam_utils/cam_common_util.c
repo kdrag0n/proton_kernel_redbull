@@ -3,6 +3,7 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/module.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/slab.h>
@@ -26,6 +27,7 @@ int cam_common_util_get_string_index(const char **strings,
 
 	return -EINVAL;
 }
+EXPORT_SYMBOL_GPL(cam_common_util_get_string_index);
 
 uint32_t cam_common_util_remove_duplicate_arr(int32_t *arr, uint32_t num)
 {
@@ -48,3 +50,7 @@ uint32_t cam_common_util_remove_duplicate_arr(int32_t *arr, uint32_t num)
 
 	return wr_idx;
 }
+EXPORT_SYMBOL_GPL(cam_common_util_remove_duplicate_arr);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Utilities");
