@@ -321,11 +321,16 @@ static void cam_smmu_print_table(void)
 {
 	int i;
 
+	CAM_ERR(CAM_SMMU, "cb_init_count=%d, cb_num=%d",
+		   iommu_cb_set.cb_init_count,
+		   iommu_cb_set.cb_num);
 	for (i = 0; i < iommu_cb_set.cb_num; i++) {
-		CAM_ERR(CAM_SMMU, "i= %d, handle= %d, name_addr=%pK", i,
+		CAM_ERR(CAM_SMMU, "i=%d, handle=%d, name_addr=%pK", i,
 			   (int)iommu_cb_set.cb_info[i].handle,
 			   (void *)iommu_cb_set.cb_info[i].name);
-		CAM_ERR(CAM_SMMU, "dev = %pK", iommu_cb_set.cb_info[i].dev);
+		CAM_ERR(CAM_SMMU, "name=\"%s\", dev=%pK",
+			   iommu_cb_set.cb_info[i].name ?: "<null>",
+			   iommu_cb_set.cb_info[i].dev);
 	}
 }
 
@@ -512,7 +517,8 @@ static int cam_smmu_iommu_fault_handler(struct iommu_domain *domain,
 	cb_name = (char *)token;
 	/* Check whether it is in the table */
 	for (idx = 0; idx < iommu_cb_set.cb_num; idx++) {
-		if (!strcmp(iommu_cb_set.cb_info[idx].name, cb_name))
+		if (likely(iommu_cb_set.cb_info[idx].name) &&
+		    !strcmp(iommu_cb_set.cb_info[idx].name, cb_name))
 			break;
 	}
 
@@ -669,9 +675,14 @@ static int cam_smmu_create_add_handle_in_table(char *name,
 	int i;
 	int handle;
 
+	if (unlikely(!name)) {
+		CAM_ERR(CAM_SMMU, "Error: Cannot find NULL name");
+		return -EINVAL;
+	}
 	/* create handle and add in the iommu hardware table */
 	for (i = 0; i < iommu_cb_set.cb_num; i++) {
-		if (!strcmp(iommu_cb_set.cb_info[i].name, name)) {
+		if (iommu_cb_set.cb_info[i].name &&
+		    !strcmp(iommu_cb_set.cb_info[i].name, name)) {
 			mutex_lock(&iommu_cb_set.cb_info[i].lock);
 			if (iommu_cb_set.cb_info[i].handle != HANDLE_INIT) {
 				if (iommu_cb_set.cb_info[i].is_secure)
