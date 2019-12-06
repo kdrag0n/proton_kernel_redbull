@@ -23,7 +23,8 @@
 #include <linux/i2c.h>
 #include <linux/spi/spi.h>
 #include <linux/input.h>
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 #include <linux/input/heatmap.h>
 #endif
 #include <linux/input/mt.h>
@@ -221,7 +222,8 @@
 #define SEC_TS_CMD_ERASE_FLASH			0x45
 #define SEC_TS_CMD_RESET_BASELINE		0x47
 #define SEC_TS_CMD_WRITE_NORM_TABLE		0x49
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 #define SEC_TS_CMD_HEATMAP_READ			0x4A
 #define SEC_TS_CMD_HEATMAP_ENABLE		0x4B
 #endif
@@ -595,7 +597,8 @@ enum {
 	HEATMAP_FULL	= 2
 };
 
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 /* Local heatmap */
 #define LOCAL_HEATMAP_WIDTH 7
 #define LOCAL_HEATMAP_HEIGHT 7
@@ -792,7 +795,8 @@ struct sec_ts_data {
 	struct pm_qos_request pm_qos_req;
 
 	int heatmap_mode;
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	struct v4l2_heatmap v4l2;
 #endif
 

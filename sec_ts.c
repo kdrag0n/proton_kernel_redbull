@@ -1131,8 +1131,9 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 	return;
 }
 
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
-static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 {
 	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
 
@@ -1150,6 +1151,9 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
 	int max_y = v4l2->format.height;
 
 	struct heatmap_report report = {0};
+
+	if (!ts->heatmap_mode)
+		return false;
 
 	result = sec_ts_read(ts, SEC_TS_CMD_HEATMAP_READ,
 		(uint8_t *) &report, sizeof(report));
@@ -1169,7 +1173,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
 	}
 
 	/* set all to zero, will only write to non-zero locations in the loop */
-	memset(data, 0, max_x * max_y * sizeof(data[0]));
+	memset(v4l2->frame, 0, v4l2->format.sizeimage);
 	/* populate the data buffer, rearranging into final locations */
 	for (local_i = 0; local_i < num_elements; local_i++) {
 		/* enforce big-endian order */
@@ -1195,7 +1199,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
 				return false;
 		}
 		frame_i = heatmap_y * max_x + heatmap_x;
-		data[frame_i] = heatmap_value;
+		v4l2->frame[frame_i] = heatmap_value;
 	};
 	return true;
 }
@@ -1215,6 +1219,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	struct sec_ts_event_status *p_event_status;
 	int curr_pos;
 	int remain_event_count = 0;
+	bool processed_pointer_event = false;
 
 	if (ts->power_status == SEC_TS_STATE_LPM) {
 
@@ -1397,6 +1402,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 			break;
 
 		case SEC_TS_COORDINATE_EVENT:
+			processed_pointer_event = true;
 			if (ts->input_closed) {
 				input_err(true, &ts->client->dev, "%s: device is closed\n", __func__);
 				break;
@@ -1614,8 +1620,10 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	} while (remain_event_count >= 0);
 
 	input_sync(ts->input_dev);
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
-	heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+	if (processed_pointer_event)
+		heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
 #endif
 }
 
@@ -2719,7 +2727,8 @@ static int sec_ts_probe(struct spi_device *client)
 	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	/*
 	 * Heatmap_probe must be called before irq routine is registered,
 	 * because heatmap_read is called from the irq context.
@@ -2804,7 +2813,8 @@ static int sec_ts_probe(struct spi_device *client)
 err_register_drm_client:
 	free_irq(client->irq, ts);
 err_heatmap:
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	heatmap_remove(&ts->v4l2);
 err_irq:
 #endif
@@ -3290,7 +3300,8 @@ static int sec_ts_remove(struct spi_device *client)
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
-#ifdef CONFIG_TOUCHSCREEN_HEATMAP
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	heatmap_remove(&ts->v4l2);
 #endif
 
