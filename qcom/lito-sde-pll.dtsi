@@ -16,6 +16,7 @@
 		memory-region = <&dfps_data_memory>;
 		qcom,dsi-pll-ssc-en;
 		qcom,dsi-pll-ssc-mode = "down-spread";
+		qcom,msm-bus,name = "dsi_pll_7nm_v4_1_0";
 		qcom,platform-supply-entries {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -46,6 +47,7 @@
 		clock-rate = <0>;
 		qcom,dsi-pll-ssc-en;
 		qcom,dsi-pll-ssc-mode = "down-spread";
+		qcom,msm-bus,name = "dsi_pll_7nm_v4_1_1";
 		qcom,platform-supply-entries {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -86,6 +88,7 @@
 		clock-names = "iface_clk", "ref_clk_src",
 			"gcc_iface", "pipe_clk";
 		clock-rate = <0>;
+		qcom,msm-bus,name = "dp_pll_7nm";
 	};
 
 };
