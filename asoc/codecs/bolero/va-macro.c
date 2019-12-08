@@ -119,7 +119,6 @@ struct va_macro_swr_ctrl_platform_data {
 	int (*read)(void *handle, int reg);
 	int (*write)(void *handle, int reg, int val);
 	int (*bulk_write)(void *handle, u32 *reg, u32 *val, size_t len);
-	int (*core_vote)(void *handle, bool enable);
 	int (*clk)(void *handle, bool enable);
 	int (*core_vote)(void *handle, bool enable);
 	int (*handle_irq)(void *handle,
