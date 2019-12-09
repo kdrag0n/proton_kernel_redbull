@@ -8,6 +8,10 @@
 #include "cam_sensor_soc.h"
 #include "cam_sensor_core.h"
 
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+#include "../cam_gyro/cam_gyro_core.h"
+#endif
+
 static long cam_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
@@ -225,6 +229,9 @@ static int cam_sensor_platform_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
 	devm_kfree(&pdev->dev, s_ctrl);
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+	release_cam_gyro();
+#endif
 
 	return 0;
 }

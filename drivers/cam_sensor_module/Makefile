@@ -11,4 +11,5 @@ obj-$(CONFIG_SPECTRA_CAMERA) += cam_eeprom/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_ois/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_flash/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_sensor_vsync/
+obj-$(CONFIG_CAMERA_GYRO) += cam_gyro/
 obj-$(CONFIG_CAMERA_FW_UPDATE) += cam_fw_update/

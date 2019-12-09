@@ -53,6 +53,10 @@ static struct attribute *sensor_fw_dev_attrs[] = {
 ATTRIBUTE_GROUPS(sensor_fw_dev);
 #endif
 
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+#include "../cam_gyro/cam_gyro_core.h"
+#endif
+
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
 	struct cam_packet *csl_packet)
@@ -828,6 +832,18 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->slave_info.sensor_slave_addr,
 			s_ctrl->sensordata->slave_info.sensor_id);
 
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+			rc = init_cam_gyro();
+			if (rc < 0)
+				CAM_ERR(CAM_SENSOR,
+					"Initialize cam gyro failure");
+			else
+				CAM_INFO(CAM_SENSOR,
+					"Initialize cam gyro success");
+		}
+#endif
+
 #if IS_ENABLED(CONFIG_CAMERA_FW_UPDATE)
 		if (s_ctrl->fw_update_flag) {
 			CAM_INFO(CAM_SENSOR, "[OISFW]Check OIS FW update");
@@ -916,6 +932,18 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto release_mutex;
 		}
 
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+			rc = enable_cam_gyro();
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR, "CAM_GYRO_ENABLE failure");
+				cam_sensor_power_down(s_ctrl);
+				goto release_mutex;
+			} else
+				CAM_INFO(CAM_SENSOR, "CAM_GYRO_ENABLE success");
+		}
+#endif
+
 		s_ctrl->sensor_state = CAM_SENSOR_ACQUIRE;
 		s_ctrl->last_flush_req = 0;
 		CAM_INFO(CAM_SENSOR,
@@ -942,6 +970,19 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			rc = -EAGAIN;
 			goto release_mutex;
 		}
+
+#if IS_ENABLED(CONFIG_CAMERA_GYRO)
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+			rc = disable_cam_gyro();
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR,
+					"CAM_GYRO_DISABLE failure");
+				goto release_mutex;
+			} else
+				CAM_INFO(CAM_SENSOR,
+					"CAM_GYRO_DISABLE success");
+		}
+#endif
 
 		rc = cam_sensor_power_down(s_ctrl);
 		if (rc < 0) {
