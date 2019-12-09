@@ -3605,4 +3605,4 @@ module_init(cam_smmu_init_module);
 module_exit(cam_smmu_exit_module);
 MODULE_DESCRIPTION("MSM Camera SMMU driver");
 MODULE_LICENSE("GPL v2");
-MODULE_SOFTDEP("pre: camcc_kona camcc_lito");
+MODULE_SOFTDEP("pre: camcc_kona camcc_lito arm_smmu");
