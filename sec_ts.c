@@ -3209,6 +3209,9 @@ static int sec_ts_remove(struct spi_device *client)
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
+	if (ts_dup == NULL || ts->probe_done == false)
+		return 0;
+
 	/* Force the bus active throughout removal of the client */
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_FORCE_ACTIVE, true);
 
