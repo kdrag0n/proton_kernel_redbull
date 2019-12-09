@@ -36,7 +36,8 @@ struct msm_vidc_core_ops core_ops_ar50lt = {
 	.calc_freq = msm_vidc_calc_freq_ar50,
 	.decide_work_route = NULL,
 	.decide_work_mode = msm_vidc_decide_work_mode_ar50,
-	.decide_core_and_power_mode = NULL,
+	.decide_core_and_power_mode =
+		msm_vidc_decide_core_and_power_mode_ar50lt,
 	.calc_bw = calc_bw_ar50lt,
 };
 
@@ -974,11 +975,8 @@ int msm_comm_scale_clocks(struct msm_vidc_inst *inst)
 		if (temp->vvb.vb2_buf.type == INPUT_MPLANE) {
 			filled_len = max(filled_len,
 				temp->vvb.vb2_buf.planes[0].bytesused);
-			if (inst->session_type == MSM_VIDC_ENCODER &&
-				(temp->vvb.flags &
-				 V4L2_BUF_FLAG_PERF_MODE)) {
+			if (temp->vvb.flags & V4L2_BUF_FLAG_PERF_MODE)
 				is_turbo = true;
-			}
 			device_addr = temp->smem[0].device_addr;
 		}
 	}
@@ -989,7 +987,8 @@ int msm_comm_scale_clocks(struct msm_vidc_inst *inst)
 		return 0;
 	}
 
-	if (inst->clk_data.buffer_counter < DCVS_FTB_WINDOW || is_turbo) {
+	if (inst->clk_data.buffer_counter < DCVS_FTB_WINDOW || is_turbo ||
+		is_turbo_session(inst)) {
 		inst->clk_data.min_freq =
 				msm_vidc_max_freq(inst->core, inst->sid);
 		inst->clk_data.dcvs_flags = 0;
@@ -1612,6 +1611,12 @@ static u32 get_core_load(struct msm_vidc_core *core,
 	mutex_unlock(&core->lock);
 
 	return load;
+}
+
+int msm_vidc_decide_core_and_power_mode_ar50lt(struct msm_vidc_inst *inst)
+{
+	inst->clk_data.core_id = VIDC_CORE_ID_1;
+	return 0;
 }
 
 int msm_vidc_decide_core_and_power_mode_iris1(struct msm_vidc_inst *inst)
