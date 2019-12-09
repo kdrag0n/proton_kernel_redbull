@@ -80,6 +80,41 @@ struct dsi_display *dsi_panel_to_display(const struct dsi_panel *panel)
 	return dev_get_drvdata(panel->parent);
 }
 
+ssize_t panel_dsi_write_buf(struct dsi_panel *panel,
+			    const void *data, size_t len, bool send_last)
+{
+	const struct mipi_dsi_device *dsi = &panel->mipi_device;
+	const struct mipi_dsi_host_ops *ops = panel->host->ops;
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.tx_buf = data,
+		.tx_len = len,
+		.flags = 0,
+	};
+
+	switch (len) {
+	case 0:
+		return -EINVAL;
+
+	case 1:
+		msg.type = MIPI_DSI_DCS_SHORT_WRITE;
+		break;
+
+	case 2:
+		msg.type = MIPI_DSI_DCS_SHORT_WRITE_PARAM;
+		break;
+
+	default:
+		msg.type = MIPI_DSI_DCS_LONG_WRITE;
+		break;
+	}
+
+	if (send_last)
+		msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+
+	return ops->transfer(panel->host, &msg);
+}
+
 static void panel_handle_te(struct dsi_display_te_listener *tl)
 {
 	struct panel_switch_data *pdata;
@@ -96,6 +131,57 @@ static void panel_handle_te(struct dsi_display_te_listener *tl)
 		sde_atrace('C', pdata->thread, "TE_VSYNC",
 			   atomic_inc_return(&pdata->te_counter) & 1);
 	}
+}
+
+enum s6e3hc2_wrctrld_flags {
+	S6E3HC2_WRCTRLD_DIMMING_BIT	= BIT(3),
+	S6E3HC2_WRCTRLD_FRAME_RATE_BIT	= BIT(4),
+	S6E3HC2_WRCTRLD_BCTRL_BIT	= BIT(5),
+	S6E3HC2_WRCTRLD_HBM_BIT		= BIT(7) | BIT(6),
+};
+
+struct s6e3hc2_wrctrl_data {
+	bool hbm_enable;
+	bool dimming_active;
+	u32 refresh_rate;
+};
+
+static int s6e3hc2_write_ctrld_reg(struct dsi_panel *panel,
+				   const struct s6e3hc2_wrctrl_data *data,
+				   bool send_last)
+{
+	u8 wrctrl_reg = S6E3HC2_WRCTRLD_BCTRL_BIT;
+	u8 payload[2] = { MIPI_DCS_WRITE_CONTROL_DISPLAY, 0 };
+
+	if (data->hbm_enable)
+		wrctrl_reg |= S6E3HC2_WRCTRLD_HBM_BIT;
+
+	if (data->dimming_active)
+		wrctrl_reg |= S6E3HC2_WRCTRLD_DIMMING_BIT;
+
+	if (data->refresh_rate == 90)
+		wrctrl_reg |= S6E3HC2_WRCTRLD_FRAME_RATE_BIT;
+
+	pr_debug("hbm_enable: %d dimming_active: %d refresh_rate: %d hz\n",
+		data->hbm_enable, data->dimming_active, data->refresh_rate);
+
+	payload[1] = wrctrl_reg;
+
+	return panel_dsi_write_buf(panel, &payload, sizeof(payload), send_last);
+}
+
+static int s6e3hc2_switch_mode_update(struct dsi_panel *panel,
+				      const struct dsi_display_mode *mode,
+				      bool send_last)
+{
+	struct s6e3hc2_wrctrl_data data = {0};
+
+	if (unlikely(!mode))
+		return -EINVAL;
+
+	data.refresh_rate = mode->timing.refresh_rate;
+
+	return s6e3hc2_write_ctrld_reg(panel, &data, send_last);
 }
 
 static void panel_switch_cmd_set_transfer(struct panel_switch_data *pdata,
@@ -452,17 +538,21 @@ struct s6e3hc2_switch_data {
  * @prefix_len: Number of bytes that precede gamma data when writing/reading
  *     from the DDIC. This is a subset of len.
  * @flash_offset: Address offset to use when reading from flash.
+ * @cmd_group_with_next: Allow sending gamma tables in groups by setting this
+ *     flag the gamma set will be sent together with the next set on the list.
+ *     Order of commands matter when using this flag.
  */
 const struct s6e3hc2_gamma_info {
 	u8 cmd;
 	u32 len;
 	u32 prefix_len;
 	u32 flash_offset;
+	bool cmd_group_with_next;
 } s6e3hc2_gamma_tables[] = {
 	/* order of commands matter due to use of cmds grouping */
-	{ 0xC8, S6E3HC2_GAMMA_BAND_LEN * 3, 0, 0x0000 },
-	{ 0xC9, S6E3HC2_GAMMA_BAND_LEN * 4, 0, 0x0087 },
-	{ 0xB3, 2 + S6E3HC2_GAMMA_BAND_LEN, 2, 0x013B },
+	{ 0xC8, S6E3HC2_GAMMA_BAND_LEN * 3, 0, 0x0000, false },
+	{ 0xC9, S6E3HC2_GAMMA_BAND_LEN * 4, 0, 0x0087, true },
+	{ 0xB3, 2 + S6E3HC2_GAMMA_BAND_LEN, 2, 0x013B, false },
 };
 
 #define S6E3HC2_NUM_GAMMA_TABLES ARRAY_SIZE(s6e3hc2_gamma_tables)
@@ -478,7 +568,6 @@ struct s6e3hc2_panel_data {
 static void s6e3hc2_gamma_update(struct panel_switch_data *pdata,
 				 const struct dsi_display_mode *mode)
 {
-	struct mipi_dsi_device *dsi = &pdata->panel->mipi_device;
 	struct s6e3hc2_panel_data *priv_data;
 	int i;
 
@@ -490,14 +579,19 @@ static void s6e3hc2_gamma_update(struct panel_switch_data *pdata,
 		return;
 
 	for (i = 0; i < S6E3HC2_NUM_GAMMA_TABLES; i++) {
+		const struct s6e3hc2_gamma_info *info =
+				&s6e3hc2_gamma_tables[i];
 		/* extra byte for the dsi command */
-		const size_t len = s6e3hc2_gamma_tables[i].len + 1;
+		const size_t len = info->len + 1;
 		const void *data = priv_data->gamma_data[i];
+		const bool send_last =
+				!info->cmd_group_with_next;
 
 		if (WARN(!data, "Gamma table #%d not read\n", i))
 			continue;
 
-		if (IS_ERR_VALUE(mipi_dsi_dcs_write_buffer(dsi, data, len)))
+		if (IS_ERR_VALUE(panel_dsi_write_buf(pdata->panel, data, len,
+					send_last)))
 			pr_warn("failed sending gamma cmd 0x%02x\n",
 				s6e3hc2_gamma_tables[i].cmd);
 	}
@@ -1005,7 +1099,8 @@ static void s6e3hc2_switch_data_destroy(struct panel_switch_data *pdata)
 static void s6e3hc2_perform_switch(struct panel_switch_data *pdata,
 				   const struct dsi_display_mode *mode)
 {
-	struct mipi_dsi_device *dsi = &pdata->panel->mipi_device;
+	struct dsi_panel *panel = pdata->panel;
+	struct mipi_dsi_device *dsi = &panel->mipi_device;
 
 	if (!mode)
 		return;
@@ -1013,7 +1108,7 @@ static void s6e3hc2_perform_switch(struct panel_switch_data *pdata,
 	if (DSI_WRITE_CMD_BUF(dsi, unlock_cmd))
 		return;
 
-	panel_switch_cmd_set_transfer(pdata, mode);
+	s6e3hc2_switch_mode_update(panel, mode, false);
 	s6e3hc2_gamma_update(pdata, mode);
 
 	DSI_WRITE_CMD_BUF(dsi, lock_cmd);
