@@ -693,6 +693,7 @@ static ssize_t heatmap_mode_store(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	int result;
 	int val;
+	u8 config;
 
 	result = kstrtoint(buf, 10, &val);
 	if (result < 0 || val < HEATMAP_OFF || val > HEATMAP_FULL) {
@@ -702,6 +703,23 @@ static ssize_t heatmap_mode_store(struct device *dev,
 	}
 
 	ts->heatmap_mode = val;
+
+	/* reset all heatmap settings when any change */
+	config = 0;
+	result = ts->sec_ts_write(ts,
+			SEC_TS_CMD_HEATMAP_ENABLE, &config, 1);
+	if (result < 0)
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_HEATMAP_ENABLE, result);
+	config = TYPE_INVALID_DATA;
+	result = ts->sec_ts_write(ts,
+			SEC_TS_CMD_MUTU_RAW_TYPE, &config, 1);
+	if (result < 0)
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_MUTU_RAW_TYPE, result);
+
 	return count;
 #else
 	return 0;
@@ -1367,11 +1385,30 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 		w_type = TYPE_OFFSET_DATA_SDC;
 	else
 		w_type = type;
+
+	/* Set raw type to TYPE_INVALID_DATA if change before */
+	ret = ts->sec_ts_read(ts,
+		SEC_TS_CMD_MUTU_RAW_TYPE, &ts->frame_type, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			"%s: read rawdata type failed\n",
+			__func__);
+		goto ErrorExit;
+	}
+
+	if (ts->frame_type != TYPE_INVALID_DATA) {
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &mode, 1);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s: recover rawdata type failed\n", __func__);
+	}
+
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &w_type, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Set rawdata type failed\n", __func__);
 		goto ErrorExit;
 	}
+	ts->frame_type = w_type;
 
 	sec_ts_delay(50);
 
@@ -1520,6 +1557,8 @@ ErrorRelease:
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &mode, 1);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: Set rawdata type failed\n", __func__);
+	else
+		ts->frame_type = mode;
 
 ErrorExit:
 	kfree(pRead);

@@ -1136,71 +1136,185 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 {
 	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
-
-	unsigned int num_elements;
-	/* index for looping through the heatmap buffer read over the bus */
-	unsigned int local_i;
-
 	int result;
-
-	strength_t heatmap_value;
-	/* final position of the heatmap value in the full heatmap frame */
-	unsigned int frame_i;
-	int heatmap_x, heatmap_y;
 	int max_x = v4l2->format.width;
 	int max_y = v4l2->format.height;
 
-	struct heatmap_report report = {0};
-
-	if (!ts->heatmap_mode)
-		return false;
-
-	result = sec_ts_read(ts, SEC_TS_CMD_HEATMAP_READ,
-		(uint8_t *) &report, sizeof(report));
-	if (result < 0) {
-		input_err(true, &ts->client->dev,
-			 "%s: read failed, returned %i\n",
-			__func__, result);
+	if (ts->tsp_dump_lock == 1) {
+		input_info(true, &ts->client->dev,
+			"%s: drop this because raw data reading by others\n",
+			__func__);
 		return false;
 	}
 
-	num_elements = report.size_x * report.size_y;
-	if (num_elements > LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT) {
-		input_err(true, &ts->client->dev,
-			"Unexpected heatmap size: %i x %i",
-			report.size_x, report.size_y);
+	if (ts->heatmap_mode == HEATMAP_PARTIAL) {
+		strength_t heatmap_value;
+		int heatmap_x, heatmap_y;
+		/* index for through the heatmap buffer read over the bus */
+		unsigned int local_i;
+		/* final position of the heatmap value in the full frame */
+		unsigned int frame_i;
+		unsigned int num_elements;
+		u8 enable;
+		struct heatmap_report report = {0};
+
+		result = sec_ts_read(ts,
+			SEC_TS_CMD_HEATMAP_ENABLE, &enable, 1);
+		if (result < 0) {
+			input_err(true, &ts->client->dev,
+				 "%s: read reg %#x failed, returned %i\n",
+				__func__, SEC_TS_CMD_HEATMAP_ENABLE, result);
 			return false;
-	}
-
-	/* set all to zero, will only write to non-zero locations in the loop */
-	memset(v4l2->frame, 0, v4l2->format.sizeimage);
-	/* populate the data buffer, rearranging into final locations */
-	for (local_i = 0; local_i < num_elements; local_i++) {
-		/* enforce big-endian order */
-		be16_to_cpus(&report.data[local_i]);
-		heatmap_value = report.data[local_i];
-
-		if (heatmap_value == 0) {
-			/*
-			 * Already initialized to zero. More importantly,
-			 * samples around edges may go out of bounds.
-			 * If their value is zero, this is ok.
-			 */
-			continue;
 		}
-		heatmap_x = report.offset_x + (local_i % report.size_x);
-		heatmap_y = report.offset_y + (local_i / report.size_x);
 
-		if (heatmap_x < 0 || heatmap_x >= max_x ||
-			heatmap_y < 0 || heatmap_y >= max_y) {
+		if (!enable) {
+			enable = 1;
+			result = sec_ts_write(ts,
+				SEC_TS_CMD_HEATMAP_ENABLE, &enable, 1);
+			if (result < 0)
 				input_err(true, &ts->client->dev,
-					"Invalid x or y: (%i, %i), value=%i, ending loop\n",
-					heatmap_x, heatmap_y, heatmap_value);
+					"%s: enable local heatmap failed, returned %i\n",
+					__func__, result);
+			/*
+			 * After local heatmap enabled, it takes `1/SCAN_RATE`
+			 * time to make data ready. But, we don't want to wait
+			 * here to cause overhead. Just drop this and wait for
+			 * next reading.
+			 */
+			return false;
+		}
+
+		result = sec_ts_read(ts, SEC_TS_CMD_HEATMAP_READ,
+			(uint8_t *) &report, sizeof(report));
+		if (result < 0) {
+			input_err(true, &ts->client->dev,
+				 "%s: read failed, returned %i\n",
+				__func__, result);
+			return false;
+		}
+
+		num_elements = report.size_x * report.size_y;
+		if (num_elements > LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT) {
+			input_err(true, &ts->client->dev,
+				"Unexpected heatmap size: %i x %i",
+				report.size_x, report.size_y);
 				return false;
 		}
-		frame_i = heatmap_y * max_x + heatmap_x;
-		v4l2->frame[frame_i] = heatmap_value;
-	};
+
+		/*
+		 * Set all to zero, will only write to non-zero locations
+		 * in the loop.
+		 */
+		memset(v4l2->frame, 0, v4l2->format.sizeimage);
+		/* populate the data buffer, rearranging into final locations */
+		for (local_i = 0; local_i < num_elements; local_i++) {
+			/* enforce big-endian order */
+			be16_to_cpus(&report.data[local_i]);
+			heatmap_value = report.data[local_i];
+
+			if (heatmap_value == 0) {
+				/*
+				 * Already initialized to zero. More
+				 * importantly, samples around edges may go out
+				 * of bounds.
+				 * If their value is zero, this is ok.
+				 */
+				continue;
+			}
+			heatmap_x = report.offset_x + (local_i % report.size_x);
+			heatmap_y = report.offset_y + (local_i / report.size_x);
+
+			if (heatmap_x < 0 || heatmap_x >= max_x ||
+				heatmap_y < 0 || heatmap_y >= max_y) {
+				input_err(true, &ts->client->dev,
+					"Invalid x or y: (%i, %i), value=%i, ending loop\n",
+					heatmap_x, heatmap_y,
+					heatmap_value);
+					return false;
+			}
+			frame_i = heatmap_y * max_x + heatmap_x;
+			v4l2->frame[frame_i] = heatmap_value;
+		}
+	} else if (ts->heatmap_mode == HEATMAP_FULL) {
+		int i, j, index = 0;
+		int ret = 0;
+		u8 type;
+
+		if (!ts->heatmap_buff) {
+			ts->heatmap_buff = kmalloc(
+				sizeof(strength_t) * max_x * max_y, GFP_KERNEL);
+			if (!ts->heatmap_buff) {
+				input_err(true, &ts->client->dev,
+				"%s: alloc heatmap_buff failed\n", __func__);
+				return false;
+			}
+		}
+
+		ret = sec_ts_read(ts,
+			SEC_TS_CMD_MUTU_RAW_TYPE, &ts->frame_type, 1);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+				"%s: read rawdata type failed\n",
+				__func__);
+			return false;
+		}
+
+		/* Check raw type is TYPE_SIGNAL_DATA */
+		if (ts->frame_type != TYPE_SIGNAL_DATA) {
+			input_info(true, &ts->client->dev,
+				"%s: frame_type change from %#x\n",
+				__func__, ts->frame_type);
+
+			/* Check raw type is TYPE_INVALID_DATA */
+			if (ts->frame_type != TYPE_INVALID_DATA) {
+				type = TYPE_INVALID_DATA;
+				ret = sec_ts_write(ts,
+					SEC_TS_CMD_MUTU_RAW_TYPE, &type, 1);
+				if (ret < 0) {
+					input_err(true, &ts->client->dev,
+						"%s: recover rawdata type failed\n",
+						__func__);
+					return false;
+				}
+				ts->frame_type = type;
+			}
+
+			/* Set raw type to TYPE_SIGNAL_DATA */
+			type = TYPE_SIGNAL_DATA;
+			ret = sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE,
+				&type, 1);
+			if (ret < 0) {
+				input_err(true, &ts->client->dev,
+					"%s: Set rawdata type failed\n",
+					__func__);
+				return false;
+			}
+			ts->frame_type = type;
+
+			/*
+			 * If raw type change, need to wait 50 ms to read data
+			 * back. But, we don't wanto to wait here to cause
+			 * overhead. Just drop this and wait for next reading.
+			 */
+			return false;
+		}
+
+		ret = sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_RAWDATA,
+			(u8 *)ts->heatmap_buff,
+			sizeof(strength_t) * max_x * max_y);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+				"%s: Read delta frame failed\n", __func__);
+			return false;
+		}
+
+		for (i = max_y - 1; i >= 0; i--)
+			for (j = max_x - 1; j >= 0 ; j--)
+				v4l2->frame[index++] =
+					ts->heatmap_buff[(j * max_y) + i];
+	} else
+		return false;
+
 	return true;
 }
 #endif
@@ -3360,6 +3474,10 @@ static int sec_ts_remove(struct spi_device *client)
 	class_destroy(sec_class);
 #endif
 
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+	kfree(ts->heatmap_buff);
+#endif
 	kfree(ts->gainTable);
 	kfree(ts->pFrame);
 	kfree(ts);
