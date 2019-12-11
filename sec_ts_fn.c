@@ -675,6 +675,54 @@ static ssize_t get_force_recal_count(struct device *dev,
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", recal_count);
 }
 
+
+/* sysfs file node to store heatmap mode
+ * "echo cmd > heatmap_mode" to change
+ * Possible commands:
+ * 0 = HEATMAP_OFF
+ * 1 = HEATMAP_PARTIAL
+ * 2 = HEATMAP_FULL
+ */
+static ssize_t heatmap_mode_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	int result;
+	int val;
+
+	result = kstrtoint(buf, 10, &val);
+	if (result < 0 || val < HEATMAP_OFF || val > HEATMAP_FULL) {
+		input_err(true, &ts->client->dev,
+			"%s: Invalid input.\n", __func__);
+		return -EINVAL;
+	}
+
+	ts->heatmap_mode = val;
+	return count;
+#else
+	return 0;
+#endif
+}
+
+static ssize_t heatmap_mode_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			 ts->heatmap_mode);
+#else
+	return scnprintf(buf, PAGE_SIZE, "N/A\n");
+#endif
+}
+
 static ssize_t fw_version_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -804,8 +852,10 @@ static DEVICE_ATTR(vendor, S_IRUGO, read_vendor_show, NULL);
 static DEVICE_ATTR(pressure_enable, S_IRUGO | S_IWUSR | S_IWGRP, pressure_enable_show, pressure_enable_strore);
 static DEVICE_ATTR(get_lp_dump, S_IRUGO, get_lp_dump, NULL);
 static DEVICE_ATTR(force_recal_count, S_IRUGO, get_force_recal_count, NULL);
+static DEVICE_ATTR_RW(heatmap_mode);
 static DEVICE_ATTR(fw_version, 0444, fw_version_show, NULL);
 static DEVICE_ATTR(status, 0444, status_show, NULL);
+
 
 static struct attribute *cmd_attributes[] = {
 	&dev_attr_scrub_pos.attr,
@@ -823,6 +873,7 @@ static struct attribute *cmd_attributes[] = {
 	&dev_attr_pressure_enable.attr,
 	&dev_attr_get_lp_dump.attr,
 	&dev_attr_force_recal_count.attr,
+	&dev_attr_heatmap_mode.attr,
 	&dev_attr_fw_version.attr,
 	&dev_attr_status.attr,
 	NULL,

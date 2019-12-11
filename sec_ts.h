@@ -589,6 +589,12 @@ enum tsp_hw_parameter {
 	TSP_MODULE_ID		= 6,
 };
 
+enum {
+	HEATMAP_OFF	= 0,
+	HEATMAP_PARTIAL	= 1,
+	HEATMAP_FULL	= 2
+};
+
 #ifdef CONFIG_TOUCHSCREEN_HEATMAP
 /* Local heatmap */
 #define LOCAL_HEATMAP_WIDTH 7
@@ -785,6 +791,7 @@ struct sec_ts_data {
 
 	struct pm_qos_request pm_qos_req;
 
+	int heatmap_mode;
 #ifdef CONFIG_TOUCHSCREEN_HEATMAP
 	struct v4l2_heatmap v4l2;
 #endif
