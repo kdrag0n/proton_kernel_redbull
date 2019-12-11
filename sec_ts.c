@@ -59,15 +59,27 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	unsigned char checksum = 0x0;
 #endif
 
-	if (len + 1 > sizeof(ts->io_write_buf)) {
-		input_err(true, &ts->client->dev, "%s: len is larger than buffer size\n", __func__);
-		return -EINVAL;
-	}
-
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: POWER_STATUS : OFF\n", __func__);
 		goto err;
 	}
+
+#ifdef I2C_INTERFACE
+	if (len + 1 > sizeof(ts->io_write_buf)) {
+		input_err(true, &ts->client->dev,
+			"%s: len is larger than buffer size\n", __func__);
+		return -EINVAL;
+	}
+#else
+	/* add 3 zero stuffing tx bytes at last */
+	if (SEC_TS_SPI_HEADER_SIZE + 1 + len + SEC_TS_SPI_CHECKSUM_SIZE + 3 >
+		sizeof(ts->io_write_buf)) {
+		input_err(true, &ts->client->dev,
+			"%s: len is larger than buffer size\n", __func__);
+		return -EINVAL;
+	}
+#endif
 
 	mutex_lock(&ts->io_mutex);
 
@@ -81,6 +93,7 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	msg.len = len + 1;
 	msg.buf = buf;
 #else
+
 	buf[0] = SEC_TS_SPI_SYNC_CODE;
 	buf[1] = ((len + 1) >> 8) & 0xFF;
 	buf[2] = (len + 1) & 0xFF;
@@ -98,6 +111,8 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 
 	spi_message_init(&msg);
 
+	/* add 3 zero stuffing tx bytes at last */
+	memset(ts->io_write_buf + spi_len, 0x00, 3);
 	spi_len = (spi_len + 3) & ~3; //spi transfer size should be multiple of 4
 	transfer[0].len = spi_len;
 	transfer[0].tx_buf = buf;
@@ -177,12 +192,24 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 	int remain = len;
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: POWER_STATUS : OFF\n", __func__);
 		goto err;
 	}
 
+#ifndef I2C_INTERFACE
+	/* add 3 zero stuffing tx bytes at last */
+	if (SEC_TS_SPI_HEADER_SIZE + 1 + SEC_TS_SPI_CHECKSUM_SIZE + 3 >
+		sizeof(ts->io_write_buf)) {
+		input_err(true, &ts->client->dev,
+			"%s: len is larger than buffer size\n", __func__);
+		return -EINVAL;
+	}
+#endif
+
 	if (len > sizeof(ts->io_read_buf) && dma_safe == false) {
-		input_err(true, &ts->client->dev, "%s: len %d over pre-allocated size %d\n",
+		input_err(true, &ts->client->dev,
+			"%s: len %d over pre-allocated size %d\n",
 			__func__, len, IO_PREALLOC_READ_BUF_SZ);
 		return -ENOSPC;
 	}
@@ -219,6 +246,8 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		write_checksum += buf[i];
 	buf[spi_write_len] = write_checksum;
 	spi_write_len += SEC_TS_SPI_CHECKSUM_SIZE;
+	/* add 3 zero stuffing tx bytes at last */
+	memset(ts->io_write_buf + spi_write_len, 0x00, 3);
 	spi_write_len = (spi_write_len + 3) & ~3;
 
 	spi_read_len = len +
@@ -594,11 +623,22 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 	unsigned char checksum = 0x0;
 #endif
 
+#ifdef I2C_INTERFACE
 	if (len > sizeof(ts->io_write_buf) && dma_safe == false) {
-		input_err(true, &ts->client->dev, "%s: len %d over pre-allocated size %d\n",
+		input_err(true, &ts->client->dev,
+			"%s: len %d over pre-allocated size %d\n",
 			__func__, len, sizeof(ts->io_write_buf));
 		return -ENOSPC;
 	}
+#else
+	/* add 3 zero stuffing tx bytes at last */
+	if (SEC_TS_SPI_HEADER_SIZE + len + SEC_TS_SPI_CHECKSUM_SIZE + 3 >
+		sizeof(ts->io_write_buf)) {
+		input_err(true, &ts->client->dev,
+			"%s: len is larger than buffer size\n", __func__);
+		return -EINVAL;
+	}
+#endif
 
 	mutex_lock(&ts->io_mutex);
 #ifdef I2C_INTERFACE
@@ -607,6 +647,7 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 		data = ts->io_write_buf;
 	}
 #else
+
 	ts->io_write_buf[0] = SEC_TS_SPI_SYNC_CODE;
 	ts->io_write_buf[1] = (len >> 8) & 0xFF;
 	ts->io_write_buf[2] = len & 0xFF;
@@ -625,6 +666,8 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 
 	spi_message_init(&msg);
 
+	/* add 3 zero stuffing tx bytes at last */
+	memset(ts->io_write_buf + spi_len, 0x00, 3);
 	spi_len = (spi_len + 3) & ~3;
 	transfer[0].len = spi_len;
 	transfer[0].tx_buf = ts->io_write_buf;
@@ -1392,20 +1435,11 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				     SEC_TS_TOUCHTYPE_GLOVE)) {
 
 					if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_RELEASE) {
-						u8 rbuf[2] = {0, };
 
 						do_gettimeofday(&ts->time_released[t_id]);
 
 						if (ts->time_longest < (ts->time_released[t_id].tv_sec - ts->time_pressed[t_id].tv_sec))
 							ts->time_longest = (ts->time_released[t_id].tv_sec - ts->time_pressed[t_id].tv_sec);
-
-						ret = sec_ts_read(ts, SEC_TS_READ_FORCE_SIG_MAX_VAL, rbuf, 2);
-						if (ret < 0)
-							input_err(true, &ts->client->dev,
-									"%s: fail to read max_pressure data\n",
-									__func__);
-						else
-							max_force_p = (rbuf[0] & 0xFF) << 8 | (rbuf[1] & 0xFF);
 
 						input_mt_slot(ts->input_dev, t_id);
 						if (ts->plat_data->support_mt_pressure)
