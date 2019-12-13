@@ -6,8 +6,6 @@
 	rpmh-regulator-mxlvl {
 		compatible = "qcom,rpmh-arc-regulator";
 		qcom,resource-name = "mx.lvl";
-		pm8150a_s3_mmcx_sup_level-parent-supply =
-						<&VDD_CX_MMCX_SUPPLY_LEVEL>;
 
 		VDD_MX_LEVEL: S3C_LEVEL:
 		pm8150a_s3_level: regulator-pm8150a-s3-level {
@@ -35,6 +33,8 @@
 
 		VDD_MX_MMCX_SUPPLY_LEVEL: regulator-pm8150a-s3-mmcx-sup-level {
 			regulator-name = "pm8150a_s3_mmcx_sup_level";
+			pm8150a_s3_mmcx_sup_level-parent-supply =
+							<&VDD_CX_MMCX_SUPPLY_LEVEL>;
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
 			regulator-min-microvolt =
 				<RPMH_REGULATOR_LEVEL_RETENTION>;
