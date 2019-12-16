@@ -1064,6 +1064,8 @@ int sde_wb_register(void);
 void sde_wb_unregister(void);
 int mdss_pll_driver_init(void);
 void mdss_pll_driver_deinit(void);
+int msm_notifier_register(void);
+void msm_notifier_unregister(void);
 #endif
 
 #endif /* __MSM_DRV_H__ */

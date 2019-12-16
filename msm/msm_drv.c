@@ -2275,6 +2275,12 @@ static int __init msm_drm_module_init(void)
 		return ret;
 	}
 
+	ret = msm_notifier_register();
+	if (ret) {
+		pr_err("msm_notifier register fails, error: %d\n", ret);
+		return ret;
+	}
+
 	ret = dp_display_init();
 	if (ret)
 		pr_err("dp_display init fails, error: %d\n", ret);
@@ -2285,6 +2291,7 @@ static int __init msm_drm_module_init(void)
 static void __exit msm_drm_module_cleanup(void)
 {
 	dp_display_cleanup();
+	msm_notifier_unregister();
 	msm_drm_unregister();
 	dsi_display_unregister();
 	sde_rsc_unregister();

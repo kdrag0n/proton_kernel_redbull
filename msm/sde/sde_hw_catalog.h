@@ -53,6 +53,7 @@
 #define SDE_HW_VER_540	SDE_HW_VER(5, 4, 0) /* sdmtrinket v1.0 */
 #define SDE_HW_VER_600	SDE_HW_VER(6, 0, 0) /* kona */
 #define SDE_HW_VER_610	SDE_HW_VER(6, 1, 0) /* sm7250 */
+#define SDE_HW_VER_630	SDE_HW_VER(6, 3, 0) /* bengal */
 
 #define IS_MSM8996_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_170)
 #define IS_MSM8998_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_300)
@@ -65,6 +66,7 @@
 #define IS_SDMTRINKET_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_540)
 #define IS_KONA_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_600)
 #define IS_SAIPAN_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_610)
+#define IS_BENGAL_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_630)
 
 #define SDE_HW_BLK_NAME_LEN	16
 
@@ -1271,6 +1273,8 @@ struct sde_limit_cfg {
  * @has_3d_merge_reset Supports 3D merge reset
  * @has_decimation     Supports decimation
  * @has_qos_fl_nocalc  flag to indicate QoS fill level needs no calculation
+ * @update_tcsr_disp_glitch  flag to enable HW workaround to avoid spurious
+ *                            transactions during suspend
  * @sc_cfg: system cache configuration
  * @uidle_cfg		Settings for uidle feature
  * @sui_misr_supported  indicate if secure-ui-misr is supported
@@ -1331,6 +1335,7 @@ struct sde_mdss_cfg {
 	bool has_3d_merge_reset;
 	bool has_decimation;
 	bool has_qos_fl_nocalc;
+	bool update_tcsr_disp_glitch;
 
 	struct sde_sc_cfg sc_cfg;
 
