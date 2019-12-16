@@ -32,6 +32,15 @@ struct msm_vidc_core_ops core_ops_ar50 = {
 	.calc_bw = NULL,
 };
 
+struct msm_vidc_core_ops core_ops_ar50lt = {
+	.calc_freq = msm_vidc_calc_freq_ar50,
+	.decide_work_route = NULL,
+	.decide_work_mode = msm_vidc_decide_work_mode_ar50,
+	.decide_core_and_power_mode =
+		msm_vidc_decide_core_and_power_mode_ar50lt,
+	.calc_bw = calc_bw_ar50lt,
+};
+
 struct msm_vidc_core_ops core_ops_iris1 = {
 	.calc_freq = msm_vidc_calc_freq_iris1,
 	.decide_work_route = msm_vidc_decide_work_route_iris1,
@@ -602,7 +611,7 @@ static unsigned long msm_vidc_calc_freq_ar50(struct msm_vidc_inst *inst,
 
 		vsp_cycles = mbs_per_second * inst->clk_data.entry->vsp_cycles;
 		/* 10 / 7 is overhead factor */
-		vsp_cycles += ((fps * filled_len * 8) * 10) / 7;
+		vsp_cycles += div_u64((fps * filled_len * 8 * 10), 7);
 
 	} else {
 		s_vpr_e(inst->sid, "%s: Unknown session type\n", __func__);
@@ -679,8 +688,8 @@ static unsigned long msm_vidc_calc_freq_iris1(struct msm_vidc_inst *inst,
 			vsp_factor_num *= operating_rate;
 			vsp_factor_den *= inst->clk_data.frame_rate >> 16;
 		}
-		vsp_cycles += ((u64)inst->clk_data.bitrate * vsp_factor_num) /
-				vsp_factor_den;
+		vsp_cycles += div_u64(((u64)inst->clk_data.bitrate *
+					vsp_factor_num), vsp_factor_den);
 
 	} else if (inst->session_type == MSM_VIDC_DECODER) {
 		vpp_cycles = mbs_per_second * inst->clk_data.entry->vpp_cycles /
@@ -691,7 +700,7 @@ static unsigned long msm_vidc_calc_freq_iris1(struct msm_vidc_inst *inst,
 		vsp_cycles = mbs_per_second * inst->clk_data.entry->vsp_cycles;
 
 		/* vsp perf is about 0.5 bits/cycle */
-		vsp_cycles += ((fps * filled_len * 8) * 10) / 5;
+		vsp_cycles += div_u64((fps * filled_len * 8 * 10), 5);
 
 	} else {
 		s_vpr_e(inst->sid, "%s: Unknown session type\n", __func__);
@@ -729,6 +738,7 @@ static unsigned long msm_vidc_calc_freq_iris2(struct msm_vidc_inst *inst,
 	struct clock_data *dcvs = NULL;
 	u32 operating_rate, vsp_factor_num = 1, vsp_factor_den = 1;
 	u32 base_cycles = 0;
+	u32 codec = 0;
 
 	core = inst->core;
 	dcvs = &inst->clk_data;
@@ -758,17 +768,17 @@ static unsigned long msm_vidc_calc_freq_iris2(struct msm_vidc_inst *inst,
 		if (msm_comm_g_ctrl_for_id(inst, V4L2_CID_MPEG_VIDEO_B_FRAMES))
 			vpp_cycles += vpp_cycles / 4;
 		/* 21 / 20 is minimum overhead factor */
-		vpp_cycles += max(vpp_cycles / 20, fw_vpp_cycles);
+		vpp_cycles += max(div_u64(vpp_cycles, 20), fw_vpp_cycles);
 		/* 1.01 is multi-pipe overhead */
 		if (inst->clk_data.work_route > 1)
-			vpp_cycles += vpp_cycles / 100;
+			vpp_cycles += div_u64(vpp_cycles, 100);
 		/*
 		 * 1080p@480fps usecase needs exactly 338MHz
 		 * without any margin left. Hence, adding 2 percent
 		 * extra to bump it to next level (366MHz).
 		 */
 		if (fps == 480)
-			vpp_cycles += vpp_cycles * 2 / 100;
+			vpp_cycles += div_u64(vpp_cycles * 2, 100);
 
 		/* VSP */
 		/* bitrate is based on fps, scale it using operating rate */
@@ -778,17 +788,20 @@ static unsigned long msm_vidc_calc_freq_iris2(struct msm_vidc_inst *inst,
 			vsp_factor_num = operating_rate;
 			vsp_factor_den = inst->clk_data.frame_rate >> 16;
 		}
-		vsp_cycles = ((u64)inst->clk_data.bitrate * vsp_factor_num) /
-				vsp_factor_den;
+		vsp_cycles = div_u64(((u64)inst->clk_data.bitrate *
+					vsp_factor_num), vsp_factor_den);
 
+		codec = get_v4l2_codec(inst);
 		base_cycles = inst->clk_data.entry->vsp_cycles;
-		if (inst->entropy_mode == HFI_H264_ENTROPY_CABAC) {
-			vsp_cycles = (vsp_cycles * 135) / 100;
+		if (codec == V4L2_PIX_FMT_VP8 || codec == V4L2_PIX_FMT_VP9) {
+			vsp_cycles = div_u64(vsp_cycles * 170, 100);
+		} else if (inst->entropy_mode == HFI_H264_ENTROPY_CABAC) {
+			vsp_cycles = div_u64(vsp_cycles * 135, 100);
 		} else {
 			base_cycles = 0;
-			vsp_cycles = vsp_cycles / 2;
+			vsp_cycles = div_u64(vsp_cycles, 2);
 			/* VSP FW Overhead 1.05 */
-			vsp_cycles = (vsp_cycles * 21) / 20;
+			vsp_cycles = div_u64(vsp_cycles * 21, 20);
 		}
 
 		if (inst->clk_data.work_mode == HFI_WORKMODE_1)
@@ -804,18 +817,22 @@ static unsigned long msm_vidc_calc_freq_iris2(struct msm_vidc_inst *inst,
 		vpp_cycles += max(vpp_cycles / 20, fw_vpp_cycles);
 		/* 1.059 is multi-pipe overhead */
 		if (inst->clk_data.work_route > 1)
-			vpp_cycles += vpp_cycles * 59 / 1000;
+			vpp_cycles += div_u64(vpp_cycles * 59, 1000);
 
 		/* VSP */
+		codec = get_v4l2_codec(inst);
 		base_cycles = inst->clk_data.entry->vsp_cycles;
 		vsp_cycles = fps * filled_len * 8;
-		if (inst->entropy_mode == HFI_H264_ENTROPY_CABAC) {
-			vsp_cycles = (vsp_cycles * 135) / 100;
+
+		if (codec == V4L2_PIX_FMT_VP8 || codec == V4L2_PIX_FMT_VP9) {
+			vsp_cycles = div_u64(vsp_cycles * 170, 100);
+		} else if (inst->entropy_mode == HFI_H264_ENTROPY_CABAC) {
+			vsp_cycles = div_u64(vsp_cycles * 135, 100);
 		} else {
 			base_cycles = 0;
-			vsp_cycles = vsp_cycles / 2;
+			vsp_cycles = div_u64(vsp_cycles, 2);
 			/* VSP FW Overhead 1.05 */
-			vsp_cycles = vsp_cycles * 21 / 20;
+			vsp_cycles = div_u64(vsp_cycles * 21, 20);
 		}
 
 		if (inst->clk_data.work_mode == HFI_WORKMODE_1)
@@ -958,11 +975,8 @@ int msm_comm_scale_clocks(struct msm_vidc_inst *inst)
 		if (temp->vvb.vb2_buf.type == INPUT_MPLANE) {
 			filled_len = max(filled_len,
 				temp->vvb.vb2_buf.planes[0].bytesused);
-			if (inst->session_type == MSM_VIDC_ENCODER &&
-				(temp->vvb.flags &
-				 V4L2_BUF_FLAG_PERF_MODE)) {
+			if (temp->vvb.flags & V4L2_BUF_FLAG_PERF_MODE)
 				is_turbo = true;
-			}
 			device_addr = temp->smem[0].device_addr;
 		}
 	}
@@ -973,7 +987,8 @@ int msm_comm_scale_clocks(struct msm_vidc_inst *inst)
 		return 0;
 	}
 
-	if (inst->clk_data.buffer_counter < DCVS_FTB_WINDOW || is_turbo) {
+	if (inst->clk_data.buffer_counter < DCVS_FTB_WINDOW || is_turbo ||
+		is_turbo_session(inst)) {
 		inst->clk_data.min_freq =
 				msm_vidc_max_freq(inst->core, inst->sid);
 		inst->clk_data.dcvs_flags = 0;
@@ -1311,9 +1326,13 @@ static int msm_vidc_decide_work_mode_ar50(struct msm_vidc_inst *inst)
 				pdata.video_work_mode = HFI_WORKMODE_1;
 			break;
 		}
-	} else if (inst->session_type == MSM_VIDC_ENCODER)
+	} else if (inst->session_type == MSM_VIDC_ENCODER) {
 		pdata.video_work_mode = HFI_WORKMODE_1;
-	else {
+		if (inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR ||
+		    inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_MBR ||
+		    inst->rc_type == V4L2_MPEG_VIDEO_BITRATE_MODE_MBR_VFR)
+			pdata.video_work_mode = HFI_WORKMODE_2;
+	} else {
 		return -EINVAL;
 	}
 
@@ -1594,6 +1613,12 @@ static u32 get_core_load(struct msm_vidc_core *core,
 	return load;
 }
 
+int msm_vidc_decide_core_and_power_mode_ar50lt(struct msm_vidc_inst *inst)
+{
+	inst->clk_data.core_id = VIDC_CORE_ID_1;
+	return 0;
+}
+
 int msm_vidc_decide_core_and_power_mode_iris1(struct msm_vidc_inst *inst)
 {
 	bool enable = false;
@@ -1701,8 +1726,10 @@ void msm_vidc_init_core_clk_ops(struct msm_vidc_core *core)
 
 	vpu = core->platform_data->vpu_ver;
 
-	if (vpu == VPU_VERSION_AR50 || vpu == VPU_VERSION_AR50_LITE)
+	if (vpu == VPU_VERSION_AR50)
 		core->core_ops = &core_ops_ar50;
+	else if (vpu == VPU_VERSION_AR50_LITE)
+		core->core_ops = &core_ops_ar50lt;
 	else if (vpu == VPU_VERSION_IRIS1)
 		core->core_ops = &core_ops_iris1;
 	else

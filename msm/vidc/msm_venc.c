@@ -74,6 +74,12 @@ static const char *const mpeg_video_stream_format[] = {
 	NULL
 };
 
+static const char *const roi_map_type[] = {
+	"None",
+	"2-bit",
+	"2-bit",
+};
+
 static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 	{
 		.id = V4L2_CID_MPEG_VIDEO_UNKNOWN,
@@ -974,6 +980,20 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.default_value = (DEFAULT_FPS << 16),
 		.step = 1,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE,
+		.name = "ROI Type",
+		.type = V4L2_CTRL_TYPE_MENU,
+		.minimum = V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_NONE,
+		.maximum = V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_2BYTE,
+		.default_value = V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_NONE,
+		.menu_skip_mask = ~(
+		(1 << V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_NONE) |
+		(1 << V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_2BIT) |
+		(1 << V4L2_CID_MPEG_VIDC_VIDEO_ROI_TYPE_2BYTE)
+		),
+		.qmenu = roi_map_type,
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(msm_venc_ctrls)
@@ -1118,6 +1138,7 @@ int msm_venc_inst_init(struct msm_vidc_inst *inst)
 		return -EINVAL;
 	}
 	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
+	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	f->fmt.pix_mp.height = DEFAULT_HEIGHT;
 	f->fmt.pix_mp.width = DEFAULT_WIDTH;
 	f->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
@@ -1137,6 +1158,7 @@ int msm_venc_inst_init(struct msm_vidc_inst *inst)
 	strlcpy(inst->fmts[OUTPUT_PORT].description, fmt_desc->description,
 		sizeof(inst->fmts[OUTPUT_PORT].description));
 	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	f->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 	f->fmt.pix_mp.height = DEFAULT_HEIGHT;
 	f->fmt.pix_mp.width = DEFAULT_WIDTH;
 	f->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12_UBWC;
@@ -1659,6 +1681,12 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE:
 		inst->clk_data.operating_rate = ctrl->val;
+		/* For HEIC image encode, set operating rate to 1 */
+		if (is_grid_session(inst)) {
+			s_vpr_h(sid, "%s: set operating rate to 1 for HEIC\n",
+					__func__);
+			inst->clk_data.operating_rate = 1 << 16;
+		}
 		inst->flags &= ~VIDC_TURBO;
 		if (ctrl->val == INT_MAX)
 			inst->flags |= VIDC_TURBO;
@@ -1898,6 +1926,9 @@ int msm_venc_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			s_vpr_h(sid, "%s: set fps to 1 for HEIC\n",
 					__func__);
 			inst->clk_data.frame_rate = 1 << 16;
+			s_vpr_h(sid, "%s: set operating rate to 1 for HEIC\n",
+					__func__);
+			inst->clk_data.operating_rate = 1 << 16;
 		}
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_FULL_RANGE:
@@ -2180,7 +2211,6 @@ int msm_venc_set_operating_rate(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct hfi_device *hdev;
-	struct v4l2_ctrl *ctrl;
 	struct hfi_operating_rate op_rate;
 
 	if (!inst || !inst->core) {
@@ -2191,9 +2221,7 @@ int msm_venc_set_operating_rate(struct msm_vidc_inst *inst)
 		return 0;
 
 	hdev = inst->core->device;
-
-	ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE);
-	op_rate.operating_rate = ctrl->val;
+	op_rate.operating_rate = inst->clk_data.operating_rate;
 
 	s_vpr_h(inst->sid, "%s: %d\n", __func__, op_rate.operating_rate >> 16);
 	rc = call_hfi_op(hdev, session_set_property, inst->session,
@@ -2587,7 +2615,7 @@ int msm_venc_set_vbv_delay(struct msm_vidc_inst *inst)
 	}
 
 	hdev = inst->core->device;
-	f = &inst->fmts[INPUT_PORT].v4l2_fmt;
+	f = &inst->fmts[OUTPUT_PORT].v4l2_fmt;
 	codec = get_v4l2_codec(inst);
 	height = f->fmt.pix_mp.height;
 	width = f->fmt.pix_mp.width;
@@ -4329,11 +4357,25 @@ int msm_venc_set_extradata(struct msm_vidc_inst *inst)
 		}
 	}
 
-	if(!msm_vidc_cvp_usage)
-		inst->prop.extradata_ctrls &= ~EXTRADATA_ENC_INPUT_CVP;
+	if (inst->prop.extradata_ctrls & EXTRADATA_ENC_INPUT_CVP) {
+		struct v4l2_ctrl *max_layers = NULL;
+		u32 value = 0x1;
 
-	/* CVP extradata is common between user space and external CVP kernel to kernel.
-	   Hence, skipping here and will be set after msm_vidc_prepare_preprocess in start_streaming*/
+		max_layers = get_ctrl(inst,
+			V4L2_CID_MPEG_VIDC_VIDEO_HEVC_MAX_HIER_CODING_LAYER);
+		if (!msm_vidc_cvp_usage || max_layers->val > 1) {
+			inst->prop.extradata_ctrls &= ~EXTRADATA_ENC_INPUT_CVP;
+			value = 0x0;
+		}
+		s_vpr_h(inst->sid, "%s: CVP extradata %d\n", __func__, value);
+		rc = msm_comm_set_extradata(inst,
+			HFI_PROPERTY_PARAM_VENC_CVP_METADATA_EXTRADATA, value);
+		if (rc)
+			s_vpr_h(inst->sid,
+				"%s: set CVP extradata failed\n", __func__);
+	} else {
+		s_vpr_h(inst->sid, "%s: CVP extradata not enabled\n", __func__);
+	}
 
 	return rc;
 }
@@ -4371,7 +4413,8 @@ int msm_venc_set_cvp_skipratio(struct msm_vidc_inst *inst)
 		d_vpr_e("%s: invalid params %pK\n", __func__, inst);
 		return -EINVAL;
 	}
-	if (!msm_vidc_cvp_usage || !inst->core->resources.cvp_external)
+	if (!msm_vidc_cvp_usage ||
+		!(inst->prop.extradata_ctrls & EXTRADATA_ENC_INPUT_CVP))
 		return 0;
 
 	capture_rate_ctrl = get_ctrl(inst, V4L2_CID_MPEG_VIDC_CAPTURE_FRAME_RATE);
@@ -4642,6 +4685,9 @@ int msm_venc_set_properties(struct msm_vidc_inst *inst)
 	if (rc)
 		goto exit;
 	rc = msm_venc_set_extradata(inst);
+	if (rc)
+		goto exit;
+	rc = msm_venc_set_cvp_skipratio(inst);
 	if (rc)
 		goto exit;
 	rc = msm_venc_set_operating_rate(inst);
