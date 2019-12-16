@@ -2361,6 +2361,10 @@ static int cam_icp_mgr_process_fatal_error(
 
 	if (event_notify->event_id == HFI_EVENT_SYS_ERROR) {
 		CAM_INFO(CAM_ICP, "received HFI_EVENT_SYS_ERROR");
+		if (event_notify->event_data1 == HFI_ERR_SYS_FATAL) {
+			CAM_ERR(CAM_ICP, "received HFI_ERR_SYS_FATAL");
+			BUG();
+		}
 		rc = cam_icp_mgr_trigger_recovery(hw_mgr);
 		cam_icp_mgr_process_dbg_buf(icp_hw_mgr.a5_dbg_lvl);
 	}
@@ -4491,7 +4495,7 @@ static void cam_icp_mgr_print_io_bufs(struct cam_packet *packet,
 					"get src buf address fail rc %d", rc);
 				continue;
 			}
-			if (iova_addr >> 32) {
+			if ((iova_addr & 0xFFFFFFFF) != iova_addr) {
 				CAM_ERR(CAM_ICP, "Invalid mapped address");
 				rc = -EINVAL;
 				continue;

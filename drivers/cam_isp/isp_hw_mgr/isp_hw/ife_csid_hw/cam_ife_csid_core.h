@@ -40,6 +40,7 @@
 #define CSID_CSI2_RX_ERROR_TG_FIFO_OVERFLOW       BIT(26)
 #define CSID_CSI2_RX_INFO_RST_DONE                BIT(27)
 
+#define CSID_TOP_IRQ_DONE                         BIT(0)
 #define CSID_PATH_INFO_RST_DONE                   BIT(1)
 #define CSID_PATH_ERROR_FIFO_OVERFLOW             BIT(2)
 #define CSID_PATH_INFO_SUBSAMPLED_EOF             BIT(3)
@@ -550,6 +551,8 @@ struct cam_ife_csid_path_cfg {
  * @binning_enable            Flag is set if hardware supports QCFA binning
  * @binning_supported         Flag is set if sensor supports QCFA binning
  *
+ * @first_sof_ts              first bootime stamp at the start
+ * @prev_qtimer_ts            stores csid timestamp
  */
 struct cam_ife_csid_hw {
 	struct cam_hw_intf              *hw_intf;
@@ -581,6 +584,8 @@ struct cam_ife_csid_hw {
 	spinlock_t                       lock_state;
 	uint32_t                         binning_enable;
 	uint32_t                         binning_supported;
+	uint64_t                         prev_boot_timestamp;
+	uint64_t                         prev_qtimer_ts;
 };
 
 int cam_ife_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,
