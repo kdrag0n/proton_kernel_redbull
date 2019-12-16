@@ -102,7 +102,7 @@ static void dp_ctrl_video_ready(struct dp_ctrl_private *ctrl)
 	complete(&ctrl->video_comp);
 }
 
-static void dp_ctrl_abort(struct dp_ctrl *dp_ctrl)
+static void dp_ctrl_abort(struct dp_ctrl *dp_ctrl, bool abort)
 {
 	struct dp_ctrl_private *ctrl;
 
@@ -113,7 +113,7 @@ static void dp_ctrl_abort(struct dp_ctrl *dp_ctrl)
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
 
-	atomic_set(&ctrl->aborted, 1);
+	atomic_set(&ctrl->aborted, abort);
 }
 
 static void dp_ctrl_state_ctrl(struct dp_ctrl_private *ctrl, u32 state)
@@ -1280,10 +1280,13 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl, bool mst_mode,
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
 
-	atomic_set(&ctrl->aborted, 0);
-
 	if (ctrl->power_on)
 		goto end;
+
+	if (atomic_read(&ctrl->aborted)) {
+		rc = -EPERM;
+		goto end;
+	}
 
 	ctrl->mst_mode = mst_mode;
 	if (fec_mode) {
