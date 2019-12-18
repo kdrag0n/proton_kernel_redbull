@@ -8,11 +8,8 @@
 
 #define OIS_CUR_FW_VERSION           0x0B
 #define OIS_REARWIDE_I2C_ADDR_WRITE  0x76
-#define OIS_REARTELE_I2C_ADDR_WRITE  0x78
-#define MV_SHARP                     0x04170000
 #define MV_LGIT                      0x09170000
 #define MA_WIDE                      0x00000400
-#define MA_TELE                      0x00000500
 
 static struct camera_io_master *g_io_master_info;
 
@@ -138,15 +135,11 @@ int doFWupdate(UINT_16 CAL_ID, UINT_32 MODULE_MAKER)
 	UINT_32 module_vendor = MODULE_MAKER & 0xFFFF0000;
 	UINT_32 module_angle = MODULE_MAKER & 0x0000FF00;
 
-	if (module_vendor == MV_SHARP)
-		code_vendor = 4;
-	else if (module_vendor == MV_LGIT)
+	if (module_vendor == MV_LGIT)
 		code_vendor = 9;
 
 	if (module_angle == MA_WIDE && CAL_ID == 0x3)
 		code_header = 0x01;
-	else if (module_angle == MA_TELE && CAL_ID == 0x3)
-		code_header = 0x81;
 
 	if (code_vendor != 0 && code_header != 0) {
 		BootMode();
@@ -227,8 +220,7 @@ int checkOISFWUpdate(struct cam_sensor_ctrl_t *s_ctrl)
 	UINT_16 cal_id;
 	UINT_32 module_maker;
 
-	if (s_ctrl->sensordata->slave_info.sensor_id != 0x363 &&
-		s_ctrl->sensordata->slave_info.sensor_id != 0x481) {
+	if (s_ctrl->sensordata->slave_info.sensor_id != 0x363) {
 		CAM_INFO(CAM_SENSOR,
 			"[OISFW]%s: SensorId:0x%x no need update.\n",
 			__func__, s_ctrl->sensordata->slave_info.sensor_id);
@@ -242,9 +234,6 @@ int checkOISFWUpdate(struct cam_sensor_ctrl_t *s_ctrl)
 	if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
 		s_ctrl->io_master_info.cci_client->sid =
 			OIS_REARWIDE_I2C_ADDR_WRITE >> 1;
-	} else {
-		s_ctrl->io_master_info.cci_client->sid =
-			OIS_REARTELE_I2C_ADDR_WRITE >> 1;
 	}
 
 	g_io_master_info = &(s_ctrl->io_master_info);
@@ -344,8 +333,7 @@ int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl)
 	uint32_t  RamAddr, UlReadVal;
 	unsigned short cci_client_sid_backup;
 
-	if (s_ctrl->sensordata->slave_info.sensor_id != 0x363 &&
-		s_ctrl->sensordata->slave_info.sensor_id != 0x481) {
+	if (s_ctrl->sensordata->slave_info.sensor_id != 0x363) {
 		return -EINVAL;
 	}
 
@@ -356,10 +344,6 @@ int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl)
 	if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
 		s_ctrl->io_master_info.cci_client->sid =
 			OIS_REARWIDE_I2C_ADDR_WRITE >> 1;
-	} else {
-		// s_ctrl->sensordata->slave_info.sensor_id == 0x481
-		s_ctrl->io_master_info.cci_client->sid =
-			OIS_REARTELE_I2C_ADDR_WRITE >> 1;
 	}
 
 	/* read FW version */
