@@ -47,6 +47,12 @@ static const struct of_device_id dsi_display_dt_match[] = {
 	{}
 };
 
+static inline bool is_lp_mode(int power_mode)
+{
+	return power_mode == SDE_MODE_DPMS_LP1 ||
+			power_mode == SDE_MODE_DPMS_LP2;
+}
+
 static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display,
 			u32 mask, bool enable)
 {
@@ -1034,8 +1040,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 		rc = dsi_panel_set_lp2(display->panel);
 		break;
 	case SDE_MODE_DPMS_ON:
-		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
-			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
+		if (is_lp_mode(display->panel->power_mode))
 			rc = dsi_panel_set_nolp(display->panel);
 		break;
 	case SDE_MODE_DPMS_OFF:
@@ -6209,6 +6214,23 @@ int dsi_display_get_default_lms(void *dsi_display, u32 *num_lm)
 	mutex_unlock(&display->display_lock);
 
 	return rc;
+}
+
+void dsi_display_set_idle_hint(void *dsi_display, bool is_idle)
+{
+	const struct dsi_display *display = dsi_display;
+
+	if (unlikely(!display || !display->panel))
+		return;
+
+	if (!dsi_panel_initialized(display->panel) ||
+	    is_lp_mode(display->panel->power_mode))
+		return;
+
+	if (is_idle)
+		dsi_panel_idle(display->panel);
+	else
+		dsi_panel_wakeup(display->panel);
 }
 
 int dsi_display_find_mode(struct dsi_display *display,

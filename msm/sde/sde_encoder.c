@@ -2314,6 +2314,20 @@ static void _sde_encoder_rc_cancel_delayed(struct sde_encoder_virt *sde_enc,
 				sw_event);
 }
 
+static void sde_encoder_idle_hint(const struct drm_encoder *drm_enc,
+				  bool is_idle)
+{
+	const struct sde_encoder_virt *sde_enc = to_sde_encoder_virt(drm_enc);
+
+	SDE_ATRACE_BEGIN(__func__);
+	if (sde_enc->cur_master) {
+		struct drm_connector *conn = sde_enc->cur_master->connector;
+
+		sde_connector_set_idle_hint(conn, is_idle);
+	}
+	SDE_ATRACE_END(__func__);
+}
+
 static int _sde_encoder_rc_kickoff(struct drm_encoder *drm_enc,
 	u32 sw_event, struct sde_encoder_virt *sde_enc, bool is_vid_mode)
 {
@@ -2357,6 +2371,9 @@ static int _sde_encoder_rc_kickoff(struct drm_encoder *drm_enc,
 					SDE_EVTLOG_ERROR);
 			goto end;
 		}
+
+		sde_encoder_idle_hint(drm_enc, false);
+
 		_sde_encoder_update_rsc_client(drm_enc, true);
 	}
 	SDE_EVT32(DRMID(drm_enc), sw_event, sde_enc->rc_state,
@@ -2652,6 +2669,8 @@ static int _sde_encoder_rc_idle(struct drm_encoder *drm_enc,
 	if (is_vid_mode) {
 		_sde_encoder_irq_control(drm_enc, false);
 	} else {
+		sde_encoder_idle_hint(drm_enc, true);
+
 		/* disable all the clks and resources */
 		_sde_encoder_update_rsc_client(drm_enc, false);
 		_sde_encoder_resource_control_helper(drm_enc, false);
@@ -2718,6 +2737,8 @@ static int _sde_encoder_rc_early_wakeup(struct drm_encoder *drm_enc,
 					SDE_EVTLOG_ERROR);
 			goto end;
 		}
+
+		sde_encoder_idle_hint(drm_enc, false);
 
 		_sde_encoder_update_rsc_client(drm_enc, true);
 

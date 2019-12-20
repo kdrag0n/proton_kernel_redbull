@@ -5081,3 +5081,25 @@ error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
+
+int dsi_panel_idle(struct dsi_panel *panel)
+{
+	if (unlikely(!panel))
+		return -EINVAL;
+
+	if (panel->funcs && panel->funcs->idle)
+		return panel->funcs->idle(panel);
+
+	return 0;
+}
+
+int dsi_panel_wakeup(struct dsi_panel *panel)
+{
+	if (unlikely(!panel))
+		return -EINVAL;
+
+	if (panel->funcs && panel->funcs->wakeup)
+		return panel->funcs->wakeup(panel);
+
+	return 0;
+}
