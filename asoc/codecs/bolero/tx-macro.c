@@ -158,10 +158,6 @@ struct tx_macro_priv {
 	struct work_struct tx_macro_add_child_devices_work;
 	struct hpf_work tx_hpf_work[NUM_DECIMATORS];
 	struct tx_mute_work tx_mute_dwork[NUM_DECIMATORS];
-	s32 dmic_0_1_clk_cnt;
-	s32 dmic_2_3_clk_cnt;
-	s32 dmic_4_5_clk_cnt;
-	s32 dmic_6_7_clk_cnt;
 	u16 dmic_clk_div;
 	u32 version;
 	u32 is_used_tx_swr_gpio;
@@ -280,6 +276,18 @@ static int tx_macro_mclk_enable(struct tx_macro_priv *tx_priv,
 exit:
 	mutex_unlock(&tx_priv->mclk_lock);
 	return ret;
+}
+
+static int __tx_macro_mclk_enable(struct snd_soc_component *component,
+				  bool enable)
+{
+	struct device *tx_dev = NULL;
+	struct tx_macro_priv *tx_priv = NULL;
+
+	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
+		return -EINVAL;
+
+	return tx_macro_mclk_enable(tx_priv, enable);
 }
 
 static int tx_macro_va_swr_clk_event(struct snd_soc_dapm_widget *w,
@@ -780,17 +788,9 @@ static int tx_macro_enable_dmic(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *component =
 				snd_soc_dapm_to_component(w->dapm);
-	u8  dmic_clk_en = 0x01;
-	u16 dmic_clk_reg = 0;
-	s32 *dmic_clk_cnt = NULL;
 	unsigned int dmic = 0;
 	int ret = 0;
 	char *wname = NULL;
-	struct device *tx_dev = NULL;
-	struct tx_macro_priv *tx_priv = NULL;
-
-	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
-		return -EINVAL;
 
 	wname = strpbrk(w->name, "01234567");
 	if (!wname) {
@@ -805,54 +805,15 @@ static int tx_macro_enable_dmic(struct snd_soc_dapm_widget *w,
 		return -EINVAL;
 	}
 
-	switch (dmic) {
-	case 0:
-	case 1:
-		dmic_clk_cnt = &(tx_priv->dmic_0_1_clk_cnt);
-		dmic_clk_reg = BOLERO_CDC_VA_TOP_CSR_DMIC0_CTL;
-		break;
-	case 2:
-	case 3:
-		dmic_clk_cnt = &(tx_priv->dmic_2_3_clk_cnt);
-		dmic_clk_reg = BOLERO_CDC_VA_TOP_CSR_DMIC1_CTL;
-		break;
-	case 4:
-	case 5:
-		dmic_clk_cnt = &(tx_priv->dmic_4_5_clk_cnt);
-		dmic_clk_reg = BOLERO_CDC_VA_TOP_CSR_DMIC2_CTL;
-		break;
-	case 6:
-	case 7:
-		dmic_clk_cnt = &(tx_priv->dmic_6_7_clk_cnt);
-		dmic_clk_reg = BOLERO_CDC_VA_TOP_CSR_DMIC3_CTL;
-		break;
-	default:
-		dev_err(component->dev, "%s: Invalid DMIC Selection\n",
-			__func__);
-		return -EINVAL;
-	}
-	dev_dbg(component->dev, "%s: event %d DMIC%d dmic_clk_cnt %d\n",
-			__func__, event,  dmic, *dmic_clk_cnt);
+	dev_dbg(component->dev, "%s: event %d DMIC%d\n",
+			__func__, event,  dmic);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		(*dmic_clk_cnt)++;
-		if (*dmic_clk_cnt == 1) {
-			snd_soc_component_update_bits(component,
-					BOLERO_CDC_VA_TOP_CSR_DMIC_CFG,
-					0x80, 0x00);
-
-			snd_soc_component_update_bits(component, dmic_clk_reg,
-					0x0E, tx_priv->dmic_clk_div << 0x1);
-			snd_soc_component_update_bits(component, dmic_clk_reg,
-					dmic_clk_en, dmic_clk_en);
-		}
+		bolero_dmic_clk_enable(component, dmic, DMIC_TX, true);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		(*dmic_clk_cnt)--;
-		if (*dmic_clk_cnt  == 0)
-			snd_soc_component_update_bits(component, dmic_clk_reg,
-					dmic_clk_en, 0);
+		bolero_dmic_clk_enable(component, dmic, DMIC_TX, false);
 		break;
 	}
 
@@ -2345,7 +2306,7 @@ static int tx_macro_register_event_listener(struct snd_soc_component *component,
 			"%s: priv is null for macro!\n", __func__);
 		return -EINVAL;
 	}
-	if (tx_priv->swr_ctrl_data) {
+	if (tx_priv->swr_ctrl_data && !tx_priv->tx_swr_clk_cnt) {
 		if (enable) {
 			ret = swrm_wcd_notify(
 				tx_priv->swr_ctrl_data[0].tx_swr_pdev,
@@ -2521,7 +2482,18 @@ exit:
 	return ret;
 }
 
-static int tx_macro_clk_switch(struct snd_soc_component *component)
+static int tx_macro_clk_div_get(struct snd_soc_component *component)
+{
+	struct device *tx_dev = NULL;
+	struct tx_macro_priv *tx_priv = NULL;
+
+	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
+		return -EINVAL;
+
+	return tx_priv->dmic_clk_div;
+}
+
+static int tx_macro_clk_switch(struct snd_soc_component *component, int clk_src)
 {
 	struct device *tx_dev = NULL;
 	struct tx_macro_priv *tx_priv = NULL;
@@ -2545,7 +2517,7 @@ static int tx_macro_clk_switch(struct snd_soc_component *component)
 	if (tx_priv->swr_ctrl_data) {
 		ret = swrm_wcd_notify(
 			tx_priv->swr_ctrl_data[0].tx_swr_pdev,
-			SWR_REQ_CLK_SWITCH, NULL);
+			SWR_REQ_CLK_SWITCH, &clk_src);
 	}
 
 	return ret;
@@ -3042,8 +3014,10 @@ static void tx_macro_init_ops(struct macro_ops *ops,
 	ops->event_handler = tx_macro_event_handler;
 	ops->reg_wake_irq = tx_macro_reg_wake_irq;
 	ops->set_port_map = tx_macro_set_port_map;
+	ops->clk_div_get = tx_macro_clk_div_get;
 	ops->clk_switch = tx_macro_clk_switch;
 	ops->reg_evt_listener = tx_macro_register_event_listener;
+	ops->clk_enable = __tx_macro_mclk_enable;
 }
 
 static int tx_macro_probe(struct platform_device *pdev)
