@@ -1328,6 +1328,16 @@ int s6e3hc2_send_nolp_cmds(struct dsi_panel *panel)
 	return rc;
 }
 
+static inline bool s6e3hc2_need_update_gamma(
+			const struct panel_switch_data *pdata,
+			const struct dsi_display_mode *mode)
+{
+	return mode && pdata && pdata->panel &&
+		(mode->timing.refresh_rate != S6E3HC2_DEFAULT_FPS) &&
+		!(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) &&
+		(pdata->panel->power_mode == SDE_MODE_DPMS_ON);
+}
+
 static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 {
 	struct s6e3hc2_switch_data *sdata;
@@ -1340,10 +1350,12 @@ static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 	mode = pdata->panel->cur_mode;
 
 	kthread_flush_work(&sdata->gamma_work);
-	if (!sdata->gamma_ready)
+	if (!sdata->gamma_ready) {
 		kthread_queue_work(&pdata->worker, &sdata->gamma_work);
-	else if (mode && mode->timing.refresh_rate != S6E3HC2_DEFAULT_FPS)
+	} else if (s6e3hc2_need_update_gamma(pdata, mode)) {
 		s6e3hc2_gamma_update_reg_locked(pdata, mode);
+		pr_debug("Updated gamma for %dhz\n", mode->timing.refresh_rate);
+	}
 
 	return 0;
 }

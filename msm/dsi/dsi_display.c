@@ -7308,6 +7308,7 @@ int dsi_display_enable(struct dsi_display *display)
 		}
 
 		display->panel->panel_initialized = true;
+		display->panel->power_mode = SDE_MODE_DPMS_ON;
 		DSI_DEBUG("cont splash enabled, display enable not required\n");
 		return 0;
 	}

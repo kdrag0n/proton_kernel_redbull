@@ -4922,11 +4922,14 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
-	if (rc)
+	if (rc) {
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
 		       panel->name, rc);
-	else
+	} else {
 		panel->panel_initialized = true;
+		panel->power_mode = SDE_MODE_DPMS_ON;
+	}
+
 	mutex_unlock(&panel->panel_lock);
 
 	if (!rc)
