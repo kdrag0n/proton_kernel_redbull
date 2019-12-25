@@ -298,7 +298,12 @@ static int _sde_kms_scm_call(struct sde_kms *sde_kms, int vmid)
 
 		sec_sid = (uint32_t *) shm.vaddr;
 		desc.args[1] = shm.paddr;
-		desc.args[2] = shm.size;
+		/**
+		 * SMMUSecureModeSwitch requires the size to be number of SID's
+		 * but shm allocates size in pages. Modify the args as per
+		 * client requirement.
+		 */
+		desc.args[2] = sizeof(uint32_t) * num_sids;
 	} else {
 		sec_sid = kcalloc(num_sids, sizeof(uint32_t), GFP_KERNEL);
 		if (!sec_sid)
@@ -968,7 +973,12 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 			if (encoder->crtc != crtc)
 				continue;
 
-			sde_encoder_prepare_commit(encoder);
+			if (sde_encoder_prepare_commit(encoder) == -ETIMEDOUT) {
+				SDE_ERROR("crtc:%d, initiating hw reset\n",
+						DRMID(crtc));
+				sde_encoder_needs_hw_reset(encoder);
+				sde_crtc_set_needs_hw_reset(crtc);
+			}
 		}
 	}
 
