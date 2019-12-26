@@ -1,5 +1,4 @@
 # FTM5 support
-CFLAGS_ftm5.o := -DI2C_INTERFACE
 obj-$(CONFIG_TOUCHSCREEN_FTS)	+= ftm5.o
 ftm5-objs = fts.o fts_proc.o
 ftm5-objs += \
