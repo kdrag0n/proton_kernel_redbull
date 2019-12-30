@@ -33,6 +33,7 @@
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <drm/drm_panel.h>
 #include <linux/msm_drm_notify.h>
 #include <linux/notifier.h>
 #include <linux/of_gpio.h>
@@ -955,6 +956,9 @@ struct sec_ts_plat_data {
 	bool support_mt_pressure;
 	bool support_dex;
 	bool support_sidegesture;
+
+	struct drm_panel *panel;
+	u32 initial_panel_index;
 };
 
 int sec_ts_stop_device(struct sec_ts_data *ts);

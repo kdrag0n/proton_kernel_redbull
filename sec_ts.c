@@ -1922,6 +1922,28 @@ static int sec_ts_parse_dt(struct spi_device *client)
 #if defined(CONFIG_EXYNOS_DECON_FB)
 	int connected;
 #endif
+	int index;
+	struct of_phandle_args panelmap;
+	struct drm_panel *panel = NULL;
+
+	if (of_property_read_bool(np, "sec,panel_map")) {
+		for (index = 0 ;; index++) {
+			ret = of_parse_phandle_with_fixed_args(np,
+					"sec,panel_map",
+					1,
+					index,
+					&panelmap);
+			if (ret)
+				return -EPROBE_DEFER;
+			panel = of_drm_find_panel(panelmap.np);
+			of_node_put(panelmap.np);
+			if (panel) {
+				pdata->panel = panel;
+				pdata->initial_panel_index = panelmap.args[0];
+				break;
+			}
+		}
+	}
 
 	pdata->tsp_icid = of_get_named_gpio(np, "sec,tsp-icid_gpio", 0);
 	if (gpio_is_valid(pdata->tsp_icid)) {
@@ -2835,7 +2857,8 @@ error_allocate_mem:
 error_allocate_pdata:
 	if (ret == -ECONNREFUSED)
 		sec_ts_delay(100);
-	ret = -ENODEV;
+	if (ret != -EPROBE_DEFER)
+		ret = -ENODEV;
 #ifdef CONFIG_TOUCHSCREEN_DUMP_MODE
 	p_ghost_check = NULL;
 #endif
