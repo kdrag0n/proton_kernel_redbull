@@ -54,9 +54,6 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 
-#include <linux/notifier.h>
-#include <linux/msm_drm_notify.h>
-
 #ifdef KERNEL_ABOVE_2_6_38
 #include <linux/input/mt.h>
 #endif
@@ -4596,9 +4593,10 @@ static int fts_init_sensing(struct fts_ts_info *info)
 	int error = 0;
 
 #ifdef CONFIG_DRM
-	error |= msm_drm_register_client(&info->notifier);/* register the
-							   * suspend/resume
-							   * function */
+	error |= drm_panel_notifier_register(info->board->panel,
+		&info->notifier); /* register the
+				   * suspend/resume
+				   * function */
 #endif
 	error |= fts_interrupt_install(info);	/* register event handler */
 	error |= fts_mode_handler(info, 0);	/* enable the features and
@@ -4979,10 +4977,10 @@ static int fts_screen_state_chg_callback(struct notifier_block *nb,
 {
 	struct fts_ts_info *info = container_of(nb, struct fts_ts_info,
 						notifier);
-	struct msm_drm_notifier *evdata = data;
+	struct drm_panel_notifier *evdata = data;
 	unsigned int blank;
 
-	if (val != MSM_DRM_EVENT_BLANK && val != MSM_DRM_EARLY_EVENT_BLANK)
+	if (val != DRM_PANEL_EVENT_BLANK && val != DRM_PANEL_EARLY_EVENT_BLANK)
 		return NOTIFY_DONE;
 
 	if (!info || !evdata || !evdata->data) {
@@ -4994,15 +4992,15 @@ static int fts_screen_state_chg_callback(struct notifier_block *nb,
 
 	blank = *(int *) (evdata->data);
 	switch (blank) {
-	case MSM_DRM_BLANK_POWERDOWN:
-	case MSM_DRM_BLANK_LP:
-		if (val == MSM_DRM_EARLY_EVENT_BLANK) {
+	case DRM_PANEL_BLANK_POWERDOWN:
+	case DRM_PANEL_BLANK_LP:
+		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
 			pr_debug("%s: BLANK\n", __func__);
 			fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, false);
 		}
 		break;
-	case MSM_DRM_BLANK_UNBLANK:
-		if (val == MSM_DRM_EVENT_BLANK) {
+	case DRM_PANEL_BLANK_UNBLANK:
+		if (val == DRM_PANEL_EVENT_BLANK) {
 			pr_debug("%s: UNBLANK\n", __func__);
 			fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, true);
 		}
@@ -5710,7 +5708,7 @@ ProbeErrorExit_7:
 		destroy_workqueue(info->touchsim.wq);
 
 #ifdef CONFIG_DRM
-	msm_drm_unregister_client(&info->notifier);
+	drm_panel_notifier_unregister(info->board->panel, &info->notifier);
 #endif
 
 #ifdef TOUCHSCREEN_HEATMAP
@@ -5786,7 +5784,7 @@ static int fts_remove(struct spi_device *client)
 	pm_qos_remove_request(&info->pm_qos_req);
 
 #ifdef CONFIG_DRM
-	msm_drm_unregister_client(&info->notifier);
+	drm_panel_notifier_unregister(info->board->panel, &info->notifier);
 #endif
 
 	/* unregister the device */
