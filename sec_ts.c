@@ -2754,10 +2754,10 @@ static int sec_ts_probe(struct spi_device *client)
 	}
 
 	ts->notifier = sec_ts_screen_nb;
-	ret = msm_drm_register_client(&ts->notifier);
+	ret = drm_panel_notifier_register(pdata->panel, &ts->notifier);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-			  "%s: msm_drm_register_client failed. ret = 0x%08X\n",
+			  "%s: drm_panel_notifier_register failed. ret = 0x%08X\n",
 			  __func__, ret);
 		goto err_register_drm_client;
 	}
@@ -3263,6 +3263,7 @@ static int sec_ts_remove(struct spi_device *client)
 #else
 	struct sec_ts_data *ts = spi_get_drvdata(client);
 #endif
+	const struct sec_ts_plat_data *pdata = ts->plat_data;
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
@@ -3272,7 +3273,7 @@ static int sec_ts_remove(struct spi_device *client)
 	/* Force the bus active throughout removal of the client */
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_FORCE_ACTIVE, true);
 
-	msm_drm_unregister_client(&ts->notifier);
+	drm_panel_notifier_unregister(pdata->panel, &ts->notifier);
 
 	cancel_work_sync(&ts->suspend_work);
 	cancel_work_sync(&ts->resume_work);
@@ -3774,12 +3775,12 @@ static int sec_ts_screen_state_chg_callback(struct notifier_block *nb,
 {
 	struct sec_ts_data *ts = container_of(nb, struct sec_ts_data,
 					      notifier);
-	struct msm_drm_notifier *evdata = (struct msm_drm_notifier *)data;
+	struct drm_panel_notifier *evdata = (struct drm_panel_notifier *)data;
 	unsigned int blank;
 
 	input_dbg(true, &ts->client->dev, "%s: enter.\n", __func__);
 
-	if (val != MSM_DRM_EVENT_BLANK && val != MSM_DRM_EARLY_EVENT_BLANK)
+	if (val != DRM_PANEL_EVENT_BLANK && val != DRM_PANEL_EARLY_EVENT_BLANK)
 		return NOTIFY_DONE;
 
 	if (!ts || !evdata || !evdata->data) {
@@ -3794,18 +3795,18 @@ static int sec_ts_screen_state_chg_callback(struct notifier_block *nb,
 
 	blank = *((unsigned int *)evdata->data);
 	switch (blank) {
-	case MSM_DRM_BLANK_POWERDOWN:
-	case MSM_DRM_BLANK_LP:
-		if (val == MSM_DRM_EARLY_EVENT_BLANK) {
+	case DRM_PANEL_BLANK_POWERDOWN:
+	case DRM_PANEL_BLANK_LP:
+		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
 			input_dbg(true, &ts->client->dev,
-				  "%s: MSM_DRM_BLANK_POWERDOWN.\n", __func__);
+				  "%s: DRM_PANEL_BLANK_POWERDOWN.\n", __func__);
 			sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SCREEN_ON, false);
 		}
 		break;
-	case MSM_DRM_BLANK_UNBLANK:
-		if (val == MSM_DRM_EVENT_BLANK) {
+	case DRM_PANEL_BLANK_UNBLANK:
+		if (val == DRM_PANEL_EVENT_BLANK) {
 			input_dbg(true, &ts->client->dev,
-				  "%s: MSM_DRM_BLANK_UNBLANK.\n", __func__);
+				  "%s: DRM_PANEL_BLANK_UNBLANK.\n", __func__);
 			sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SCREEN_ON, true);
 		}
 		break;
