@@ -623,7 +623,6 @@ static int wcd937x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
 
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		wcd937x_rx_clk_disable(component);
 		snd_soc_component_update_bits(component,
 				WCD937X_DIGITAL_CDC_ANA_CLK_CTL,
 				0x04, 0x00);
@@ -2462,6 +2461,7 @@ static int wcd937x_soc_codec_probe(struct snd_soc_component *component)
 		return -EINVAL;
 
 	wcd937x->component = component;
+	snd_soc_component_init_regmap(component, wcd937x->regmap);
 	variant = (snd_soc_component_read32(
 			component, WCD937X_DIGITAL_EFUSE_REG_0) & 0x1E) >> 1;
 	wcd937x->variant = variant;
