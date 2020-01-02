@@ -37,6 +37,10 @@
 #include "codecs/bolero/wsa-macro.h"
 #include "kona-port-config.h"
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC_DETECT)
+#include <linux/codec-misc.h>
+#endif
+
 #define DRV_NAME "kona-asoc-snd"
 #define __CHIPSET__ "KONA "
 #define MSM_DAILINK_NAME(name) (__CHIPSET__#name)
@@ -8662,6 +8666,13 @@ static int msm_audio_ssr_register(struct device *dev)
 	return ret;
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC_DETECT)
+int codec_state(void)
+{
+	return CODEC_STATE_ONLINE;
+}
+#endif
+
 static int msm_asoc_machine_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = NULL;
@@ -8862,6 +8873,10 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 			__func__, ret);
 
 	is_initial_boot = true;
+
+#if IS_ENABLED(CONFIG_SND_SOC_CODEC_DETECT)
+	codec_detect_hs_state_callback(codec_state);
+#endif
 
 	return 0;
 err:
