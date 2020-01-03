@@ -3938,14 +3938,6 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	fts_set_bus_ref(info, FTS_BUS_REF_IRQ, false);
 	return IRQ_HANDLED;
 }
-/** @}*/
-
-/*Remove this function after bring up stage*/
-int dsi_panel_read_vendor_extinfo(struct drm_panel *panel, char *buffer,
-				  size_t len)
-{
-	return 0;
-}
 
 /*
  * Read the display panel's extinfo from the display driver.
