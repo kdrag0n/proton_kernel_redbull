@@ -45,7 +45,7 @@
 #define ERR_AUTO_SUSPEND_TIMER_VAL 0x1
 
 #define SWRM_INTERRUPT_STATUS_MASK 0x1FDFD
-#define SWRM_LINK_STATUS_RETRY_CNT 0x5
+#define SWRM_LINK_STATUS_RETRY_CNT 100
 
 #define SWRM_ROW_48    48
 #define SWRM_ROW_50    50
@@ -416,7 +416,8 @@ static int swrm_clk_request(struct swr_mstr_ctrl *swrm, bool enable)
 		}
 		swrm->clk_ref_count++;
 		if (swrm->clk_ref_count == 1) {
-			trace_printk("%s: clock enable count %d", __func__, swrm->clk_ref_count);
+			trace_printk("%s: clock enable count %d",
+				__func__, swrm->clk_ref_count);
 			ret = swrm->clk(swrm->handle, true);
 			if (ret) {
 				dev_err_ratelimited(swrm->dev,
@@ -426,7 +427,8 @@ static int swrm_clk_request(struct swr_mstr_ctrl *swrm, bool enable)
 			}
 		}
 	} else if (--swrm->clk_ref_count == 0) {
-		trace_printk("%s: clock disable count %d", __func__, swrm->clk_ref_count);
+		trace_printk("%s: clock disable count %d",
+			__func__, swrm->clk_ref_count);
 		swrm->clk(swrm->handle, false);
 		complete(&swrm->clk_off_complete);
 	}
@@ -1815,7 +1817,6 @@ handle_irq:
 					continue;
 				if (swr_dev->slave_irq) {
 					do {
-						swr_dev->slave_irq_pending = 0;
 						handle_nested_irq(
 							irq_find_mapping(
 							swr_dev->slave_irq, 0));
@@ -2600,7 +2601,7 @@ static int swrm_probe(struct platform_device *pdev)
 			"%s: Error in master Initialization , err %d\n",
 			__func__, ret);
 		mutex_unlock(&swrm->mlock);
-		goto err_mstr_fail;
+		goto err_mstr_init_fail;
 	}
 
 	mutex_unlock(&swrm->mlock);
@@ -2645,6 +2646,8 @@ static int swrm_probe(struct platform_device *pdev)
 	return 0;
 err_irq_wakeup_fail:
 	device_init_wakeup(swrm->dev, false);
+err_mstr_init_fail:
+	swr_unregister_master(&swrm->master);
 err_mstr_fail:
 	if (swrm->reg_irq)
 		swrm->reg_irq(swrm->handle, swr_mstr_interrupt,
