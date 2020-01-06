@@ -5250,7 +5250,7 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 				return -EPROBE_DEFER;
 			panel = of_drm_find_panel(panelmap.np);
 			of_node_put(panelmap.np);
-			if (panel) {
+			if (!IS_ERR_OR_NULL(panel)) {
 				bdata->panel = panel;
 				bdata->initial_panel_index = panelmap.args[0];
 				break;
