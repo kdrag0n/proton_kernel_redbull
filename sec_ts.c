@@ -1937,7 +1937,7 @@ static int sec_ts_parse_dt(struct spi_device *client)
 				return -EPROBE_DEFER;
 			panel = of_drm_find_panel(panelmap.np);
 			of_node_put(panelmap.np);
-			if (panel) {
+			if (!IS_ERR_OR_NULL(panel)) {
 				pdata->panel = panel;
 				pdata->initial_panel_index = panelmap.args[0];
 				break;
