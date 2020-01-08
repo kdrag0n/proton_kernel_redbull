@@ -6838,6 +6838,7 @@ static void set_touch_mode(void *device_data)
 	int ret = 0;
 	u8 para[4] = { 0 };
 
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
 	sec_cmd_set_default_result(sec);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
@@ -6947,6 +6948,7 @@ static void set_touch_mode(void *device_data)
 	snprintf(buff, sizeof(buff), "%s", "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
 
 	return;
 
@@ -6954,6 +6956,7 @@ err_out:
 	snprintf(buff, sizeof(buff), "%s", "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
 }
 
 int sec_ts_fn_init(struct sec_ts_data *ts)
