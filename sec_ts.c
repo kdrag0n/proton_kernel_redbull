@@ -3705,11 +3705,12 @@ static void sec_ts_suspend_work(struct work_struct *work)
 
 	pm_stay_awake(&ts->client->dev);
 
-	/* Sense_off */
-	ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_OFF, NULL, 0);
+	/* Stop T-IC */
+	sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_SLEEP, TOUCH_MODE_STATE_STOP);
+	ret = sec_ts_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
-			  "%s: failed to write Sense_off.\n", __func__);
+			"%s: write clear event failed\n", __func__);
 
 	disable_irq_nosync(ts->client->irq);
 	sec_ts_locked_release_all_finger(ts);

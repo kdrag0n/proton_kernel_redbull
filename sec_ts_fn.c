@@ -6889,7 +6889,8 @@ static void set_touch_mode(void *device_data)
 		input_info(true, &ts->client->dev,
 			"%s: param = %d, Sense Off\n",
 			__func__, sec->cmd_param[0]);
-		sec_ts_fix_tmode(ts, 0x6, 0x1);
+		sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_SLEEP,
+			TOUCH_MODE_STATE_STOP);
 		break;
 	case 7:
 		input_info(true, &ts->client->dev,
