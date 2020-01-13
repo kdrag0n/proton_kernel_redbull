@@ -2381,6 +2381,7 @@ static int cam_ife_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 	}
 
 	/* acquire HW resources */
+	CAM_DBG(CAM_ISP, "num_inputs=%x", acquire_hw_info->num_inputs);
 	for (i = 0; i < acquire_hw_info->num_inputs; i++) {
 		rc = cam_ife_mgr_acquire_get_unified_structure(acquire_hw_info,
 			i, &input_size, &in_port);
