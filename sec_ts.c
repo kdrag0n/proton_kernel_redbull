@@ -880,6 +880,14 @@ int sec_ts_spi_delay(u8 reg)
 	switch (reg) {
 	case SEC_TS_READ_TOUCH_RAWDATA:
 		return 400;
+	case SEC_TS_CMD_HEATMAP_READ:
+		return 500;
+	case SEC_TS_READ_ALL_EVENT:
+		return 500;
+	case SEC_TS_READ_CSRAM_RTDP_DATA:
+		return 500;
+	case SEC_TS_CAAT_READ_STORED_DATA:
+		return 500;
 	case SEC_TS_CMD_FLASH_READ_DATA:
 		return 1800;
 	case SEC_TS_READ_FIRMWARE_INTEGRITY:
