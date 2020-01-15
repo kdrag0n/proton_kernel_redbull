@@ -1009,6 +1009,7 @@ int sec_ts_read_information(struct sec_ts_data *ts);
 #ifdef PAT_CONTROL
 void set_pat_magic_number(struct sec_ts_data *ts);
 #endif
+int sec_ts_run_rawdata_type(struct sec_ts_data *ts, struct sec_cmd_data *sec);
 void sec_ts_run_rawdata_all(struct sec_ts_data *ts, bool full_read);
 int execute_selftest(struct sec_ts_data *ts, u32 option);
 int execute_p2ptest(struct sec_ts_data *ts);
