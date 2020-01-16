@@ -487,6 +487,12 @@ uint32_t wlan_reg_chan_to_freq(struct wlan_objmgr_pdev *pdev,
 	return reg_chan_to_freq(pdev, chan_num);
 }
 
+uint16_t wlan_reg_legacy_chan_to_freq(struct wlan_objmgr_pdev *pdev,
+				      uint8_t chan_num)
+{
+	return reg_legacy_chan_to_freq(pdev, chan_num);
+}
+
 bool wlan_reg_chan_is_49ghz(struct wlan_objmgr_pdev *pdev,
 		uint8_t chan_num)
 {
@@ -707,4 +713,15 @@ enum band_info wlan_reg_chan_to_band(uint32_t chan_num)
 enum channel_enum wlan_reg_get_chan_enum(uint32_t chan_num)
 {
 	return reg_get_chan_enum(chan_num);
+}
+
+bool wlan_reg_is_6ghz_op_class(struct wlan_objmgr_pdev *pdev,
+			       uint8_t op_class)
+{
+	return reg_is_6ghz_op_class(pdev, op_class);
+}
+
+bool wlan_reg_is_6ghz_supported(struct wlan_objmgr_pdev *pdev)
+{
+	return reg_is_6ghz_supported(pdev);
 }

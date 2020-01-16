@@ -317,8 +317,6 @@ static QDF_STATUS target_if_dbr_replenish_ring(struct wlan_objmgr_pdev *pdev,
 	struct direct_buf_rx_ring_cap *dbr_ring_cap;
 	struct direct_buf_rx_buf_info *dbr_buf_pool;
 
-	direct_buf_rx_enter();
-
 	dbr_ring_cfg = mod_param->dbr_ring_cfg;
 	dbr_ring_cap = mod_param->dbr_ring_cap;
 	dbr_buf_pool = mod_param->dbr_buf_pool;
@@ -365,8 +363,6 @@ static QDF_STATUS target_if_dbr_replenish_ring(struct wlan_objmgr_pdev *pdev,
 	WMI_HOST_DBR_RING_ADDR_HI_SET(dw_hi, (uint64_t)paddr >> 32);
 	WMI_HOST_DBR_DATA_ADDR_HI_HOST_DATA_SET(dw_hi, cookie);
 	*ring_entry = (uint64_t)dw_hi << 32 | dw_lo;
-	direct_buf_rx_debug("Valid ring entry, cookie %u, dw_lo %x, dw_hi :%x",
-			    cookie, dw_lo, dw_hi);
 	hal_srng_access_end(hal_soc, srng);
 
 	return QDF_STATUS_SUCCESS;
@@ -376,7 +372,6 @@ static QDF_STATUS target_if_dbr_fill_ring(struct wlan_objmgr_pdev *pdev,
 			  struct direct_buf_rx_module_param *mod_param)
 {
 	uint32_t idx;
-	void *buf, *buf_aligned;
 	struct direct_buf_rx_ring_cfg *dbr_ring_cfg;
 	struct direct_buf_rx_ring_cap *dbr_ring_cap;
 	struct direct_buf_rx_buf_info *dbr_buf_pool;
@@ -389,23 +384,28 @@ static QDF_STATUS target_if_dbr_fill_ring(struct wlan_objmgr_pdev *pdev,
 	dbr_buf_pool = mod_param->dbr_buf_pool;
 
 	for (idx = 0; idx < dbr_ring_cfg->num_ptr - 1; idx++) {
-		buf_aligned = qdf_aligned_malloc(dbr_ring_cap->min_buf_size,
-						 dbr_ring_cap->min_buf_align,
-						 &buf);
-		if (!buf_aligned) {
-			direct_buf_rx_err(
-					"dir buf rx ring buf_aligned alloc failed");
+		void *buf_vaddr_unaligned = NULL, *buf_vaddr_aligned;
+		dma_addr_t buf_paddr_aligned, buf_paddr_unaligned;
+
+		buf_vaddr_aligned = qdf_aligned_malloc(
+			&dbr_ring_cap->min_buf_size, &buf_vaddr_unaligned,
+			&buf_paddr_unaligned, &buf_paddr_aligned,
+			dbr_ring_cap->min_buf_align);
+
+		if (!buf_vaddr_aligned) {
+			direct_buf_rx_err("dir buf rx ring alloc failed");
 			return QDF_STATUS_E_NOMEM;
 		}
-		dbr_buf_pool[idx].vaddr = buf;
-		dbr_buf_pool[idx].offset = buf_aligned - buf;
+		dbr_buf_pool[idx].vaddr = buf_vaddr_unaligned;
+		dbr_buf_pool[idx].offset = buf_vaddr_aligned -
+		    buf_vaddr_unaligned;
 		dbr_buf_pool[idx].cookie = idx;
 		status = target_if_dbr_replenish_ring(pdev, mod_param,
-						      buf_aligned, idx);
+						      buf_vaddr_aligned, idx);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			direct_buf_rx_err("replenish failed with status : %d",
 					  status);
-			qdf_mem_free(buf);
+			qdf_mem_free(buf_vaddr_unaligned);
 			return QDF_STATUS_E_FAILURE;
 		}
 	}
@@ -912,11 +912,11 @@ static QDF_STATUS target_if_get_dbr_data(struct wlan_objmgr_pdev *pdev,
 				  dbr_rsp->dbr_entries[idx].paddr_lo);
 	*cookie = WMI_HOST_DBR_DATA_ADDR_HI_HOST_DATA_GET(
 				dbr_rsp->dbr_entries[idx].paddr_hi);
-	direct_buf_rx_info("Cookie = %d", *cookie);
 	dbr_data->vaddr = target_if_dbr_vaddr_lookup(mod_param, paddr, *cookie);
 	dbr_data->cookie = *cookie;
 	dbr_data->paddr = paddr;
-	direct_buf_rx_info("Vaddr look up = %x", dbr_data->vaddr);
+	direct_buf_rx_debug("Cookie = %d Vaddr look up = %pK",
+			    dbr_data->cookie, dbr_data->vaddr);
 	dbr_data->dbr_len = dbr_rsp->dbr_entries[idx].len;
 	qdf_mem_unmap_nbytes_single(dbr_psoc_obj->osdev, (qdf_dma_addr_t)paddr,
 				    QDF_DMA_FROM_DEVICE,
@@ -1008,8 +1008,8 @@ static int target_if_direct_buf_rx_rsp_event_handler(ol_scn_t scn,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	direct_buf_rx_info("Num buf release entry = %d",
-			   dbr_rsp.num_buf_release_entry);
+	direct_buf_rx_debug("Num buf release entry = %d",
+			    dbr_rsp.num_buf_release_entry);
 
 	pdev = dbr_get_pdev_and_srng_id(psoc, (uint8_t)dbr_rsp.pdev_id,
 					&srng_id);
@@ -1115,8 +1115,6 @@ static QDF_STATUS target_if_dbr_empty_ring(struct wlan_objmgr_pdev *pdev,
 			   dbr_ring_cfg, dbr_ring_cap, dbr_buf_pool);
 
 	for (idx = 0; idx < dbr_ring_cfg->num_ptr - 1; idx++) {
-		direct_buf_rx_debug("dbr buf pool unmap and free for ptr %d",
-				    idx);
 		qdf_mem_unmap_nbytes_single(dbr_psoc_obj->osdev,
 			(qdf_dma_addr_t)dbr_buf_pool[idx].paddr,
 			QDF_DMA_FROM_DEVICE,
@@ -1224,7 +1222,7 @@ QDF_STATUS target_if_direct_buf_rx_register_events(
 			WMI_RX_UMAC_CTX);
 
 	if (ret)
-		direct_buf_rx_info("event handler not supported", ret);
+		direct_buf_rx_info("event handler not supported, ret=%d", ret);
 
 	return QDF_STATUS_SUCCESS;
 }

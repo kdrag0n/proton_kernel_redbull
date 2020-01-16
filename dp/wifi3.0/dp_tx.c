@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -513,8 +513,9 @@ static QDF_STATUS dp_tx_prepare_tso(struct dp_vdev *vdev,
 			tso_info->tso_seg_list = tso_seg;
 			num_seg--;
 		} else {
-			DP_TRACE(ERROR, "%s: Failed to alloc tso seg desc",
-				 __func__);
+			dp_err_rl("Failed to alloc tso seg desc");
+			DP_STATS_INC_PKT(vdev, tx_i.tso.tso_no_mem_dropped, 1,
+					 qdf_nbuf_len(msdu));
 			dp_tx_free_remaining_tso_desc(soc, msdu_info, false);
 
 			return QDF_STATUS_E_NOMEM;
@@ -3063,8 +3064,7 @@ void dp_tx_comp_process_tx_status(struct dp_tx_desc_s *tx_desc,
 	qdf_nbuf_t nbuf = tx_desc->nbuf;
 
 	if (!vdev || !nbuf) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO,
-				"invalid tx descriptor. vdev or nbuf NULL");
+		dp_info_rl("invalid tx descriptor. vdev or nbuf NULL");
 		goto out;
 	}
 
@@ -3364,9 +3364,7 @@ more_data:
 		head_desc = NULL;
 		tail_desc = NULL;
 	if (qdf_unlikely(dp_srng_access_start(int_ctx, soc, hal_srng))) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
-				"%s %d : HAL RING Access Failed -- %pK",
-				__func__, __LINE__, hal_srng);
+		dp_err("HAL RING Access Failed -- %pK", hal_srng);
 		return 0;
 	}
 
@@ -3380,14 +3378,34 @@ more_data:
 		 * Tx completion indication, assert */
 		if ((buffer_src != HAL_TX_COMP_RELEASE_SOURCE_TQM) &&
 				(buffer_src != HAL_TX_COMP_RELEASE_SOURCE_FW)) {
+			uint8_t wbm_internal_error;
 
-			QDF_TRACE(QDF_MODULE_ID_DP,
-				  QDF_TRACE_LEVEL_FATAL,
-				  "Tx comp release_src != TQM | FW but from %d",
-				  buffer_src);
+			dp_err_rl(
+				"Tx comp release_src != TQM | FW but from %d",
+				buffer_src);
 			hal_dump_comp_desc(tx_comp_hal_desc);
 			DP_STATS_INC(soc, tx.invalid_release_source, 1);
-			qdf_assert_always(0);
+
+			/* When WBM sees NULL buffer_addr_info in any of
+			 * ingress rings it sends an error indication,
+			 * with wbm_internal_error=1, to a specific ring.
+			 * The WBM2SW ring used to indicate these errors is
+			 * fixed in HW, and that ring is being used as Tx
+			 * completion ring. These errors are not related to
+			 * Tx completions, and should just be ignored
+			 */
+
+			wbm_internal_error =
+			hal_get_wbm_internal_error(tx_comp_hal_desc);
+
+			if (wbm_internal_error) {
+				dp_err_rl("Tx comp wbm_internal_error!!");
+				DP_STATS_INC(soc, tx.wbm_internal_error, 1);
+			} else {
+				dp_err_rl("Tx comp wbm_internal_error false");
+				DP_STATS_INC(soc, tx.non_wbm_internal_err, 1);
+			}
+			continue;
 		}
 
 		/* Get descriptor id */
@@ -3621,26 +3639,6 @@ dp_is_tx_desc_flush_match(struct dp_pdev *pdev,
 
 #ifdef QCA_LL_TX_FLOW_CONTROL_V2
 /**
- * dp_tx_desc_reset_vdev() - reset vdev to NULL in TX Desc
- *
- * @soc: Handle to DP SoC structure
- * @tx_desc: pointer of one TX desc
- * @desc_pool_id: TX Desc pool id
- */
-static inline void
-dp_tx_desc_reset_vdev(struct dp_soc *soc, struct dp_tx_desc_s *tx_desc,
-		      uint8_t desc_pool_id)
-{
-	struct dp_tx_desc_pool_s *pool = &soc->tx_desc[desc_pool_id];
-
-	qdf_spin_lock_bh(&pool->flow_pool_lock);
-
-	tx_desc->vdev = NULL;
-
-	qdf_spin_unlock_bh(&pool->flow_pool_lock);
-}
-
-/**
  * dp_tx_desc_flush() - release resources associated
  *                      to TX Desc
  *
@@ -3683,6 +3681,17 @@ static void dp_tx_desc_flush(struct dp_pdev *pdev,
 		    !(tx_desc_pool->desc_pages.cacheable_pages))
 			continue;
 
+		/*
+		 * Add flow pool lock protection in case pool is freed
+		 * due to all tx_desc is recycled when handle TX completion.
+		 * this is not necessary when do force flush as:
+		 * a. double lock will happen if dp_tx_desc_release is
+		 *    also trying to acquire it.
+		 * b. dp interrupt has been disabled before do force TX desc
+		 *    flush in dp_pdev_deinit().
+		 */
+		if (!force_free)
+			qdf_spin_lock_bh(&tx_desc_pool->flow_pool_lock);
 		num_desc = tx_desc_pool->pool_size;
 		num_desc_per_page =
 			tx_desc_pool->desc_pages.num_element_per_page;
@@ -3706,15 +3715,22 @@ static void dp_tx_desc_flush(struct dp_pdev *pdev,
 					dp_tx_comp_free_buf(soc, tx_desc);
 					dp_tx_desc_release(tx_desc, i);
 				} else {
-					dp_tx_desc_reset_vdev(soc, tx_desc,
-							      i);
+					tx_desc->vdev = NULL;
 				}
 			}
 		}
+		if (!force_free)
+			qdf_spin_unlock_bh(&tx_desc_pool->flow_pool_lock);
 	}
 }
 #else /* QCA_LL_TX_FLOW_CONTROL_V2! */
-
+/**
+ * dp_tx_desc_reset_vdev() - reset vdev to NULL in TX Desc
+ *
+ * @soc: Handle to DP soc structure
+ * @tx_desc: pointer of one TX desc
+ * @desc_pool_id: TX Desc pool id
+ */
 static inline void
 dp_tx_desc_reset_vdev(struct dp_soc *soc, struct dp_tx_desc_s *tx_desc,
 		      uint8_t desc_pool_id)

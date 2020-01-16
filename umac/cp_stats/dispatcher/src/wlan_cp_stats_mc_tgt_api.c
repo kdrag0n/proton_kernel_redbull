@@ -31,7 +31,8 @@
 #include <wlan_cp_stats_utils_api.h>
 #include "../../core/src/wlan_cp_stats_defs.h"
 
-static bool tgt_mc_cp_stats_is_last_event(struct stats_event *ev)
+static bool tgt_mc_cp_stats_is_last_event(struct stats_event *ev,
+					  enum stats_req_type stats_type)
 {
 	bool is_last_event;
 
@@ -39,8 +40,13 @@ static bool tgt_mc_cp_stats_is_last_event(struct stats_event *ev)
 		is_last_event = IS_LSB_SET(ev->last_event);
 		cp_stats_debug("is_last_event %d", is_last_event);
 	} else {
-		cp_stats_debug("FW does not support last event bit");
-		is_last_event = !!ev->peer_stats;
+		if (stats_type == TYPE_CONNECTION_TX_POWER) {
+			cp_stats_debug("FW does not support last event bit");
+			is_last_event = true;
+		} else {
+			cp_stats_debug("FW does not support last event bit");
+			is_last_event = !!ev->peer_stats;
+		}
 	}
 	return is_last_event;
 }
@@ -113,7 +119,7 @@ static void tgt_mc_cp_stats_extract_tx_power(struct wlan_objmgr_psoc *psoc,
 	if (is_station_stats)
 		goto end;
 
-	if (tgt_mc_cp_stats_is_last_event(ev)) {
+	if (tgt_mc_cp_stats_is_last_event(ev, TYPE_CONNECTION_TX_POWER)) {
 		ucfg_mc_cp_stats_reset_pending_req(psoc,
 						   TYPE_CONNECTION_TX_POWER);
 		if (last_req.u.get_tx_power_cb)
@@ -535,7 +541,7 @@ complete:
 		return;
 
 	tgt_mc_cp_stats_extract_peer_extd_stats(psoc, ev);
-	if (tgt_mc_cp_stats_is_last_event(ev)) {
+	if (tgt_mc_cp_stats_is_last_event(ev, TYPE_PEER_STATS)) {
 		tgt_mc_cp_stats_prepare_raw_peer_rssi(psoc, &last_req);
 		ucfg_mc_cp_stats_reset_pending_req(psoc, TYPE_PEER_STATS);
 	}
@@ -840,11 +846,21 @@ static void tgt_mc_cp_stats_extract_station_stats(
 	 * PEER stats are the last stats sent for get_station statistics.
 	 * reset type_map bit for station stats .
 	 */
-	if (tgt_mc_cp_stats_is_last_event(ev)) {
+	if (tgt_mc_cp_stats_is_last_event(ev, TYPE_STATION_STATS)) {
 		tgt_mc_cp_stats_prepare_n_send_raw_station_stats(psoc,
 								 &last_req);
 		ucfg_mc_cp_stats_reset_pending_req(psoc, TYPE_STATION_STATS);
 	}
+}
+
+static void tgt_mc_cp_send_lost_link_stats(struct wlan_objmgr_psoc *psoc,
+					   struct stats_event *ev)
+{
+	struct psoc_cp_stats *psoc_cp_stats_priv;
+
+	psoc_cp_stats_priv = wlan_cp_stats_get_psoc_stats_obj(psoc);
+	if (psoc_cp_stats_priv && psoc_cp_stats_priv->legacy_stats_cb)
+		psoc_cp_stats_priv->legacy_stats_cb(ev);
 }
 
 QDF_STATUS tgt_mc_cp_stats_process_stats_event(struct wlan_objmgr_psoc *psoc,
@@ -861,6 +877,7 @@ QDF_STATUS tgt_mc_cp_stats_process_stats_event(struct wlan_objmgr_psoc *psoc,
 
 	tgt_mc_cp_stats_extract_cca_stats(psoc, ev);
 
+	tgt_mc_cp_send_lost_link_stats(psoc, ev);
 	return QDF_STATUS_SUCCESS;
 }
 

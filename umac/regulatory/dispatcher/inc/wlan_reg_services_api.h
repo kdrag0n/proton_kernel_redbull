@@ -552,6 +552,15 @@ uint32_t wlan_reg_chan_to_freq(struct wlan_objmgr_pdev *pdev,
 			       uint32_t chan);
 
 /**
+ * wlan_reg_legacy_chan_to_freq () - convert chan to freq, for 2G and 5G
+ * @chan: channel number
+ *
+ * Return: frequency
+ */
+uint16_t wlan_reg_legacy_chan_to_freq(struct wlan_objmgr_pdev *pdev,
+				      uint8_t chan);
+
+/**
  * wlan_reg_is_us() - reg is us country
  * @country: The country information
  *
@@ -692,4 +701,22 @@ void wlan_reg_update_nol_history_ch(struct wlan_objmgr_pdev *pdev,
 				    uint8_t *ch_list,
 				    uint8_t num_ch,
 				    bool nol_history_ch);
+/**
+ * wlan_reg_is_6ghz_op_class() - Whether 6ghz oper class
+ * @pdev: pdev ptr
+ * @op_class: operating class
+ *
+ * Return: bool
+ */
+bool wlan_reg_is_6ghz_op_class(struct wlan_objmgr_pdev *pdev,
+			       uint8_t op_class);
+
+/**
+ * wlan_reg_is_6ghz_supported() - Whether 6ghz is supported
+ * @pdev: pdev ptr
+ *
+ * Return: bool
+ */
+bool wlan_reg_is_6ghz_supported(struct wlan_objmgr_pdev *pdev);
+
 #endif

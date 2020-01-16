@@ -63,6 +63,23 @@ static inline void hal_uniform_desc_hdr_setup(uint32_t *desc, uint32_t owner,
 #endif
 #define HAL_NON_QOS_TID 16
 
+#ifdef HAL_DISABLE_NON_BA_2K_JUMP_ERROR
+static inline uint32_t hal_update_non_ba_win_size(int tid,
+						  uint32_t ba_window_size)
+{
+	return ba_window_size;
+}
+#else
+static inline uint32_t hal_update_non_ba_win_size(int tid,
+						  uint32_t ba_window_size)
+{
+	if ((ba_window_size == 1) && (tid != HAL_NON_QOS_TID))
+		ba_window_size++;
+
+	return ba_window_size;
+}
+#endif
+
 /**
  * hal_reo_qdesc_setup - Setup HW REO queue descriptor
  *
@@ -112,12 +129,13 @@ void hal_reo_qdesc_setup(void *hal_soc, int tid, uint32_t ba_window_size,
 
 	if (ba_window_size < 1)
 		ba_window_size = 1;
+
 	/* WAR to get 2k exception in Non BA case.
 	 * Setting window size to 2 to get 2k jump exception
 	 * when we receive aggregates in Non BA case
 	 */
-	if ((ba_window_size == 1) && (tid != HAL_NON_QOS_TID))
-		ba_window_size++;
+	ba_window_size = hal_update_non_ba_win_size(tid, ba_window_size);
+
 	/* Set RTY bit for non-BA case. Duplicate detection is currently not
 	 * done by HW in non-BA case if RTY bit is not set.
 	 * TODO: This is a temporary War and should be removed once HW fix is
@@ -430,7 +448,14 @@ inline int hal_reo_cmd_queue_stats(void *reo_ring, struct hal_soc *soc,
 	HAL_DESC_SET_FIELD(reo_desc, REO_GET_QUEUE_STATS_2, CLEAR_STATS,
 			      cmd->u.stats_params.clear);
 
-	hal_srng_access_end(soc, reo_ring);
+	if (hif_pm_runtime_get(soc->hif_handle) == 0) {
+		hal_srng_access_end(soc, reo_ring);
+		hif_pm_runtime_put(soc->hif_handle);
+	} else {
+		hal_srng_access_end_reap(soc, reo_ring);
+		hal_srng_set_event(reo_ring, HAL_SRNG_FLUSH_EVENT);
+		hal_srng_inc_flush_cnt(reo_ring);
+	}
 
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER_0, REO_CMD_NUMBER,
@@ -512,8 +537,6 @@ inline int hal_reo_cmd_flush_cache(void *reo_ring, struct hal_soc *soc,
 
 	reo_desc = hal_srng_src_get_next(soc, reo_ring);
 	if (!reo_desc) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
-			"%s: Out of cmd ring entries", __func__);
 		hal_srng_access_end(soc, reo_ring);
 		hal_srng_dump(reo_ring);
 		return -EBUSY;
@@ -557,7 +580,15 @@ inline int hal_reo_cmd_flush_cache(void *reo_ring, struct hal_soc *soc,
 	HAL_DESC_SET_FIELD(reo_desc, REO_FLUSH_CACHE_2, FLUSH_ENTIRE_CACHE,
 		cp->flush_all);
 
-	hal_srng_access_end(soc, reo_ring);
+	if (hif_pm_runtime_get(soc->hif_handle) == 0) {
+		hal_srng_access_end(soc, reo_ring);
+		hif_pm_runtime_put(soc->hif_handle);
+	} else {
+		hal_srng_access_end_reap(soc, reo_ring);
+		hal_srng_set_event(reo_ring, HAL_SRNG_FLUSH_EVENT);
+		hal_srng_inc_flush_cnt(reo_ring);
+	}
+
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER_0, REO_CMD_NUMBER,
 				     val);

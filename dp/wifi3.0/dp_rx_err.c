@@ -484,6 +484,49 @@ dp_rx_chain_msdus(struct dp_soc *soc, qdf_nbuf_t nbuf, uint8_t *rx_tlv_hdr,
 	return mpdu_done;
 }
 
+static
+void dp_rx_wbm_err_handle_bar(struct dp_soc *soc,
+			      struct dp_peer *peer,
+			      qdf_nbuf_t nbuf)
+{
+	uint8_t *rx_tlv_hdr;
+	unsigned char type, subtype;
+	uint16_t start_seq_num;
+	uint32_t tid;
+	struct ieee80211_frame_bar *bar;
+
+	/*
+	 * 1. Is this a BAR frame. If not Discard it.
+	 * 2. If it is, get the peer id, tid, ssn
+	 * 2a Do a tid update
+	 */
+
+	rx_tlv_hdr = qdf_nbuf_data(nbuf);
+	bar = (struct ieee80211_frame_bar *)(rx_tlv_hdr +
+					     sizeof(struct rx_pkt_tlvs));
+
+	type = bar->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
+	subtype = bar->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+
+	if (!(type == IEEE80211_FC0_TYPE_CTL &&
+	      subtype == QDF_IEEE80211_FC0_SUBTYPE_BAR)) {
+		dp_err_rl("Not a BAR frame!");
+		return;
+	}
+
+	tid = hal_rx_mpdu_start_tid_get(soc->hal_soc, rx_tlv_hdr);
+	qdf_assert_always(tid < DP_MAX_TIDS);
+
+	start_seq_num = le16toh(bar->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT;
+
+	dp_info_rl("tid %u window_size %u start_seq_num %u",
+		   tid, peer->rx_tid[tid].ba_win_size, start_seq_num);
+
+	dp_rx_tid_update_wifi3(peer, tid,
+			       peer->rx_tid[tid].ba_win_size,
+			       start_seq_num);
+}
+
 /**
  * dp_2k_jump_handle() - Function to handle 2k jump exception
  *                        on WBM ring
@@ -736,7 +779,7 @@ dp_rx_null_q_desc_handle(struct dp_soc *soc, qdf_nbuf_t nbuf,
 		/* Trigger invalid peer handler wrapper */
 		dp_rx_process_invalid_peer_wrapper(soc,
 						   pdev->invalid_peer_head_msdu,
-						   mpdu_done);
+						   mpdu_done, pool_id);
 
 		if (mpdu_done) {
 			pdev->invalid_peer_head_msdu = NULL;
@@ -859,13 +902,15 @@ drop_nbuf:
  * @rx_tlv_hdr: start of rx tlv header
  * @peer: peer reference
  * @err_code: rxdma err code
+ * @mac_id: mac_id which is one of 3 mac_ids(Assuming mac_id and
+ * pool_id has same mapping)
  *
  * Return: None
  */
 void
 dp_rx_process_rxdma_err(struct dp_soc *soc, qdf_nbuf_t nbuf,
 			uint8_t *rx_tlv_hdr, struct dp_peer *peer,
-			uint8_t err_code)
+			uint8_t err_code, uint8_t mac_id)
 {
 	uint32_t pkt_len, l2_hdr_offset;
 	uint16_t msdu_len;
@@ -904,7 +949,7 @@ dp_rx_process_rxdma_err(struct dp_soc *soc, qdf_nbuf_t nbuf,
 		DP_STATS_INC_PKT(soc, rx.err.rx_invalid_peer, 1,
 				qdf_nbuf_len(nbuf));
 		/* Trigger invalid peer handler wrapper */
-		dp_rx_process_invalid_peer_wrapper(soc, nbuf, true);
+		dp_rx_process_invalid_peer_wrapper(soc, nbuf, true, mac_id);
 		return;
 	}
 
@@ -949,7 +994,6 @@ dp_rx_process_rxdma_err(struct dp_soc *soc, qdf_nbuf_t nbuf,
 	 * rekey frame to stack.
 	 */
 	if (qdf_nbuf_is_ipv4_wapi_pkt(nbuf)) {
-		qdf_nbuf_cb_update_peer_local_id(nbuf, peer->local_id);
 		goto process_rx;
 	}
 	/*
@@ -1155,7 +1199,8 @@ dp_rx_err_process(struct dp_intr *int_ctx, struct dp_soc *soc,
 
 		if (qdf_unlikely((msdu_list.rbm[0] != DP_WBM2SW_RBM) &&
 				(msdu_list.rbm[0] !=
-					HAL_RX_BUF_RBM_WBM_IDLE_DESC_LIST))) {
+					HAL_RX_BUF_RBM_WBM_IDLE_DESC_LIST) &&
+				(msdu_list.rbm[0] != DP_DEFRAG_RBM))) {
 			/* TODO */
 			/* Call appropriate handler */
 			if (!wlan_cfg_get_dp_soc_nss_cfg(soc->wlan_cfg_ctx)) {
@@ -1403,17 +1448,23 @@ done:
 	while (nbuf) {
 		struct dp_peer *peer;
 		uint16_t peer_id;
-
+		uint8_t e_code;
+		uint8_t *tlv_hdr;
 		rx_tlv_hdr = qdf_nbuf_data(nbuf);
-
-		peer_id = hal_rx_mpdu_start_sw_peer_id_get(rx_tlv_hdr);
-		peer = dp_peer_find_by_id(soc, peer_id);
 
 		/*
 		 * retrieve the wbm desc info from nbuf TLV, so we can
 		 * handle error cases appropriately
 		 */
 		hal_rx_wbm_err_info_get_from_tlv(rx_tlv_hdr, &wbm_err_info);
+
+		peer_id = hal_rx_mpdu_start_sw_peer_id_get(rx_tlv_hdr);
+		peer = dp_peer_find_by_id(soc, peer_id);
+
+		if (!peer)
+			dp_err_rl("peer is null! peer_id %u err_src %u err_rsn %u",
+				  peer_id, wbm_err_info.wbm_err_src,
+				  wbm_err_info.reo_psh_rsn);
 
 		/* Set queue_mapping in nbuf to 0 */
 		dp_set_rx_queue(nbuf, 0);
@@ -1461,6 +1512,14 @@ done:
 						dp_peer_unref_del_find_by_id(
 									peer);
 					continue;
+				case HAL_REO_ERR_BAR_FRAME_2K_JUMP:
+				case HAL_REO_ERR_BAR_FRAME_OOR:
+					if (peer)
+						dp_rx_wbm_err_handle_bar(soc,
+									 peer,
+									 nbuf);
+					break;
+
 				default:
 					dp_err_rl("Got pkt with REO ERROR: %d",
 						  wbm_err_info.reo_err_code);
@@ -1479,9 +1538,13 @@ done:
 				case HAL_RXDMA_ERR_UNENCRYPTED:
 
 				case HAL_RXDMA_ERR_WIFI_PARSE:
+					pool_id = wbm_err_info.pool_id;
 					dp_rx_process_rxdma_err(soc, nbuf,
-								rx_tlv_hdr, peer,
-								wbm_err_info.rxdma_err_code);
+								rx_tlv_hdr,
+								peer,
+								wbm_err_info.
+								rxdma_err_code,
+								pool_id);
 					nbuf = next;
 					if (peer)
 						dp_peer_unref_del_find_by_id(peer);
@@ -1500,8 +1563,24 @@ done:
 					continue;
 
 				case HAL_RXDMA_ERR_DECRYPT:
-					if (peer)
-						DP_STATS_INC(peer, rx.err.decrypt_err, 1);
+					pool_id = wbm_err_info.pool_id;
+					e_code = wbm_err_info.rxdma_err_code;
+					tlv_hdr = rx_tlv_hdr;
+					if (peer) {
+						DP_STATS_INC(peer, rx.err.
+							     decrypt_err, 1);
+					} else {
+						dp_rx_process_rxdma_err(soc,
+									nbuf,
+									tlv_hdr,
+									NULL,
+									e_code,
+									pool_id
+									);
+						nbuf = next;
+						continue;
+					}
+
 					QDF_TRACE(QDF_MODULE_ID_DP,
 						QDF_TRACE_LEVEL_DEBUG,
 					"Packet received with Decrypt error");

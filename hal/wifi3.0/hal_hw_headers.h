@@ -110,6 +110,10 @@
 #define HAL_REG_WRITE(_soc, _reg, _value) \
 	hal_write32_mb(_soc, (_reg), (_value))
 
+/* Check register writing result */
+#define HAL_REG_WRITE_CONFIRM(_soc, _reg, _value) \
+	hal_write32_mb_confirm(_soc, (_reg), (_value))
+
 #define HAL_REG_READ(_soc, _offset) \
 	hal_read32_mb(_soc, (_offset))
 

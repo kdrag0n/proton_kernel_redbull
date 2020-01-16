@@ -1393,12 +1393,14 @@ struct ap_ps_params {
  * @num_chan: no of scan channels
  * @nallchans: nall chans
  * @append: append to existing chan list
+ * @max_bw_support_present: max BW support present
  * @ch_param: pointer to channel_paramw
  */
 struct scan_chan_list_params {
 	uint32_t pdev_id;
 	uint16_t nallchans;
 	bool append;
+	bool max_bw_support_present;
 	struct channel_param ch_param[1];
 };
 
@@ -4829,6 +4831,7 @@ typedef enum {
 	wmi_host_dfs_status_check_event_id,
 #endif
 	wmi_twt_enable_complete_event_id,
+	wmi_twt_disable_complete_event_id,
 	wmi_apf_get_vdev_work_memory_resp_event_id,
 	wmi_roam_scan_stats_event_id,
 	wmi_vdev_ocac_complete_event_id,
@@ -4856,6 +4859,7 @@ typedef enum {
 	wmi_roam_auth_offload_event_id,
 	wmi_get_elna_bypass_event_id,
 	wmi_service_ready_ext2_event_id,
+	wmi_oem_data_event_id,
 	wmi_events_max,
 } wmi_conv_event_id;
 
@@ -5343,6 +5347,7 @@ typedef enum {
 	wmi_service_sae_roam_support,
 	wmi_service_owe_roam_support,
 	wmi_service_ext2_msg,
+	wmi_service_6ghz_support,
 	wmi_services_max,
 } wmi_conv_service_ids;
 #define WMI_SERVICE_UNAVAILABLE 0xFFFF

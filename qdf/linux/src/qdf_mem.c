@@ -43,14 +43,14 @@
 #include <net/cnss_prealloc.h>
 #endif
 
-#ifdef MEMORY_DEBUG
-#include "qdf_debug_domain.h"
-#include <qdf_list.h>
-
 /* Preprocessor Definitions and Constants */
 #define QDF_MEM_MAX_MALLOC (4096 * 1024) /* 4 Mega Bytes */
 #define QDF_MEM_WARN_THRESHOLD 300 /* ms */
 #define QDF_DEBUG_STRING_SIZE 512
+
+#ifdef MEMORY_DEBUG
+#include "qdf_debug_domain.h"
+#include <qdf_list.h>
 
 static qdf_list_t qdf_mem_domains[QDF_DEBUG_DOMAIN_COUNT];
 static qdf_spinlock_t qdf_mem_list_lock;
@@ -938,7 +938,8 @@ static void qdf_mem_domain_set_check_for_leaks(qdf_list_t *domains)
 		leak_count += qdf_mem_domain_check_for_leaks(i, domains + i);
 
 	if (leak_count)
-		panic("%u fatal memory leaks detected!", leak_count);
+		QDF_DEBUG_PANIC("%u fatal memory leaks detected!",
+				leak_count);
 }
 
 /**
@@ -1029,7 +1030,8 @@ void qdf_mem_free_debug(void *ptr, const char *func, uint32_t line)
 		return;
 
 	if (qdf_unlikely((qdf_size_t)ptr <= sizeof(*header)))
-		panic("Failed to free invalid memory location %pK", ptr);
+		QDF_DEBUG_PANIC("Failed to free invalid memory location %pK",
+				ptr);
 
 	qdf_talloc_assert_no_children_fl(ptr, func, line);
 
@@ -1064,7 +1066,8 @@ void qdf_mem_check_for_leaks(void)
 	leaks_count += qdf_mem_domain_check_for_leaks(current_domain, dma_list);
 
 	if (leaks_count)
-		panic("%u fatal memory leaks detected!", leaks_count);
+		QDF_DEBUG_PANIC("%u fatal memory leaks detected!",
+				leaks_count);
 }
 
 #else
@@ -1075,6 +1078,12 @@ static void qdf_mem_debug_exit(void) {}
 void *qdf_mem_malloc_fl(size_t size, const char *func, uint32_t line)
 {
 	void *ptr;
+
+	if (!size || size > QDF_MEM_MAX_MALLOC) {
+		qdf_nofl_err("Cannot malloc %zu bytes @ %s:%d", size, func,
+			     line);
+		return NULL;
+	}
 
 	ptr = qdf_mem_prealloc_get(size);
 	if (ptr)
@@ -1138,35 +1147,60 @@ void qdf_mem_free(void *ptr)
 qdf_export_symbol(qdf_mem_free);
 #endif
 
-void *qdf_aligned_malloc_fl(qdf_size_t size, uint32_t ring_base_align,
+void *qdf_aligned_malloc_fl(uint32_t *size,
 			    void **vaddr_unaligned,
+				qdf_dma_addr_t *paddr_unaligned,
+				qdf_dma_addr_t *paddr_aligned,
+				uint32_t align,
 			    const char *func, uint32_t line)
 {
 	void *vaddr_aligned;
+	uint32_t align_alloc_size;
 
-	*vaddr_unaligned = qdf_mem_malloc_fl(size, func, line);
+	*vaddr_unaligned = qdf_mem_malloc_fl((qdf_size_t)*size, func,
+			line);
 	if (!*vaddr_unaligned) {
-		qdf_warn("Failed to alloc %zuB @ %s:%d", size, func, line);
+		qdf_warn("Failed to alloc %uB @ %s:%d", *size, func, line);
 		return NULL;
 	}
 
-	if ((unsigned long)(*vaddr_unaligned) % ring_base_align) {
+	*paddr_unaligned = qdf_mem_virt_to_phys(*vaddr_unaligned);
+
+	/* Re-allocate additional bytes to align base address only if
+	 * above allocation returns unaligned address. Reason for
+	 * trying exact size allocation above is, OS tries to allocate
+	 * blocks of size power-of-2 pages and then free extra pages.
+	 * e.g., of a ring size of 1MB, the allocation below will
+	 * request 1MB plus 7 bytes for alignment, which will cause a
+	 * 2MB block allocation,and that is failing sometimes due to
+	 * memory fragmentation.
+	 */
+	if ((unsigned long)(*paddr_unaligned) & (align - 1)) {
+		align_alloc_size = *size + align - 1;
+
 		qdf_mem_free(*vaddr_unaligned);
-		*vaddr_unaligned = qdf_mem_malloc_fl(size + ring_base_align - 1,
-						  func, line);
+		*vaddr_unaligned = qdf_mem_malloc_fl(
+				(qdf_size_t)align_alloc_size, func, line);
 		if (!*vaddr_unaligned) {
-			qdf_warn("Failed to alloc %zuB @ %s:%d",
-				 size, func, line);
+			qdf_warn("Failed to alloc %uB @ %s:%d",
+				 align_alloc_size, func, line);
 			return NULL;
 		}
+
+		*paddr_unaligned = qdf_mem_virt_to_phys(
+				*vaddr_unaligned);
+		*size = align_alloc_size;
 	}
 
-	vaddr_aligned = (*vaddr_unaligned) +
-		((unsigned long)(*vaddr_unaligned) % ring_base_align);
+	*paddr_aligned = (qdf_dma_addr_t)qdf_align
+		((unsigned long)(*paddr_unaligned), align);
+
+	vaddr_aligned = (void *)((unsigned long)(*vaddr_unaligned) +
+			((unsigned long)(*paddr_aligned) -
+			 (unsigned long)(*paddr_unaligned)));
 
 	return vaddr_aligned;
 }
-qdf_export_symbol(qdf_aligned_malloc_fl);
 
 /**
  * qdf_mem_multi_pages_alloc() - allocate large size of kernel memory
@@ -1699,36 +1733,56 @@ qdf_export_symbol(qdf_mem_free_consistent);
 #endif /* MEMORY_DEBUG */
 
 void *qdf_aligned_mem_alloc_consistent_fl(
-	qdf_device_t osdev, void *dev, qdf_size_t size,
+	qdf_device_t osdev, uint32_t *size,
 	void **vaddr_unaligned, qdf_dma_addr_t *paddr_unaligned,
-	qdf_dma_addr_t *paddr_aligned, uint32_t ring_base_align,
+	qdf_dma_addr_t *paddr_aligned, uint32_t align,
 	const char *func, uint32_t line)
 {
 	void *vaddr_aligned;
+	uint32_t align_alloc_size;
 
-	*vaddr_unaligned = qdf_mem_alloc_consistent(osdev, dev, size,
-						    paddr_unaligned);
+	*vaddr_unaligned = qdf_mem_alloc_consistent(
+			osdev, osdev->dev, (qdf_size_t)*size, paddr_unaligned);
 	if (!*vaddr_unaligned) {
-		qdf_warn("Failed to alloc %zuB @ %s:%d", size, func, line);
+		qdf_warn("Failed to alloc %uB @ %s:%d",
+			 *size, func, line);
 		return NULL;
 	}
 
-	if ((unsigned long)(*vaddr_unaligned) % ring_base_align) {
-		qdf_mem_free_consistent(osdev, dev, size, *vaddr_unaligned,
+	/* Re-allocate additional bytes to align base address only if
+	 * above allocation returns unaligned address. Reason for
+	 * trying exact size allocation above is, OS tries to allocate
+	 * blocks of size power-of-2 pages and then free extra pages.
+	 * e.g., of a ring size of 1MB, the allocation below will
+	 * request 1MB plus 7 bytes for alignment, which will cause a
+	 * 2MB block allocation,and that is failing sometimes due to
+	 * memory fragmentation.
+	 */
+	if ((unsigned long)(*paddr_unaligned) & (align - 1)) {
+		align_alloc_size = *size + align - 1;
+
+		qdf_mem_free_consistent(osdev, osdev->dev, *size,
+					*vaddr_unaligned,
 					*paddr_unaligned, 0);
-		*vaddr_unaligned = qdf_mem_alloc_consistent(osdev, dev,
-				size + ring_base_align - 1, paddr_unaligned);
+
+		*vaddr_unaligned = qdf_mem_alloc_consistent(
+				osdev, osdev->dev, align_alloc_size,
+				paddr_unaligned);
 		if (!*vaddr_unaligned) {
-			qdf_warn("Failed to alloc %zuB @ %s:%d",
-				 size, func, line);
+			qdf_warn("Failed to alloc %uB @ %s:%d",
+				 align_alloc_size, func, line);
 			return NULL;
 		}
+
+		*size = align_alloc_size;
 	}
 
-	vaddr_aligned = *vaddr_unaligned +
-		((unsigned long)(*vaddr_unaligned) % ring_base_align);
-	*paddr_aligned = *paddr_unaligned + ((unsigned long)(vaddr_aligned) -
-		 (unsigned long)(*vaddr_unaligned));
+	*paddr_aligned = (qdf_dma_addr_t)qdf_align(
+			(unsigned long)(*paddr_unaligned), align);
+
+	vaddr_aligned = (void *)((unsigned long)(*vaddr_unaligned) +
+				 ((unsigned long)(*paddr_aligned) -
+				  (unsigned long)(*paddr_unaligned)));
 
 	return vaddr_aligned;
 }

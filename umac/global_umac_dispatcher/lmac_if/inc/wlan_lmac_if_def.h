@@ -627,7 +627,6 @@ struct sta_uapsd_trig_params;
  * @set_offchan_mode: function to set tdls offchannel mode
  * @tdls_reg_ev_handler: function to register for tdls events
  * @tdls_unreg_ev_handler: function to unregister for tdls events
- * @tdls_set_uapsd: function to set upasdt trigger command
  *
  * tdls module uses these functions to avail ol/da lmac services
  */
@@ -642,8 +641,6 @@ struct wlan_lmac_if_tdls_tx_ops {
 					 void *arg);
 	QDF_STATUS (*tdls_unreg_ev_handler) (struct wlan_objmgr_psoc *psoc,
 					    void *arg);
-	QDF_STATUS (*tdls_set_uapsd)(struct wlan_objmgr_psoc *psoc,
-				    struct sta_uapsd_trig_params *params);
 };
 
 /* fwd declarations for tdls rx ops */
@@ -678,6 +675,7 @@ struct wlan_lmac_if_ftm_rx_ops {
  * @unregister_master_handler:  pointer to unregister event handler
  * @register_11d_new_cc_handler: pointer to register 11d cc event handler
  * @unregister_11d_new_cc_handler:  pointer to unregister 11d cc event handler
+ * @send_ctl_info: call-back function to send CTL info to firmware
  */
 struct wlan_lmac_if_reg_tx_ops {
 	QDF_STATUS (*register_master_handler)(struct wlan_objmgr_psoc *psoc,
@@ -706,6 +704,8 @@ struct wlan_lmac_if_reg_tx_ops {
 			struct wlan_objmgr_psoc *psoc, void *arg);
 	QDF_STATUS (*unregister_ch_avoid_event_handler)(
 			struct wlan_objmgr_psoc *psoc, void *arg);
+	QDF_STATUS (*send_ctl_info)(struct wlan_objmgr_psoc *psoc,
+				    struct reg_ctl_params *params);
 };
 
 /**
@@ -964,6 +964,8 @@ struct wlan_lmac_if_reg_rx_ops {
 			bool val);
 	QDF_STATUS (*reg_set_11d_offloaded)(struct wlan_objmgr_psoc *psoc,
 			bool val);
+	QDF_STATUS (*reg_set_6ghz_supported)(struct wlan_objmgr_psoc *psoc,
+					     bool val);
 	QDF_STATUS (*get_dfs_region)(struct wlan_objmgr_pdev *pdev,
 			enum dfs_reg *dfs_reg);
 	QDF_STATUS (*reg_ch_avoid_event_handler)(struct wlan_objmgr_psoc *psoc,
@@ -979,6 +981,7 @@ struct wlan_lmac_if_reg_rx_ops {
 			struct cur_regdmn_info *cur_regdmn);
 	QDF_STATUS (*reg_enable_dfs_channels)(struct wlan_objmgr_pdev *pdev,
 					      bool dfs_enable);
+	bool (*reg_ignore_fw_reg_offload_ind)(struct wlan_objmgr_psoc *psoc);
 };
 
 #ifdef CONVERGED_P2P_ENABLE
@@ -1275,9 +1278,11 @@ struct wlan_lmac_if_dfs_rx_ops {
 			uint32_t r_rs_tstamp,
 			uint64_t r_fulltsf);
 	QDF_STATUS (*dfs_destroy_object)(struct wlan_objmgr_pdev *pdev);
-	QDF_STATUS (*dfs_radar_enable)(struct wlan_objmgr_pdev *pdev,
+	QDF_STATUS (*dfs_radar_enable)(
+			struct wlan_objmgr_pdev *pdev,
 			int no_cac,
-			uint32_t opmode);
+			uint32_t opmode,
+			bool enable);
 	void (*dfs_is_radar_enabled)(struct wlan_objmgr_pdev *pdev,
 				     int *ignore_dfs);
 	QDF_STATUS (*dfs_control)(struct wlan_objmgr_pdev *pdev,

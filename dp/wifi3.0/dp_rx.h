@@ -35,6 +35,8 @@
 #endif /* RXDMA_OPTIMIZATION */
 
 #ifdef QCA_HOST2FW_RXBUF_RING
+/* RBM value used for re-injecting defragmented packets into REO */
+#define DP_DEFRAG_RBM HAL_RX_BUF_RBM_SW3_BM
 #define DP_WBM2SW_RBM HAL_RX_BUF_RBM_SW1_BM
 
 /**
@@ -43,6 +45,7 @@
  */
 #define DP_RX_DESC_ALLOC_MULTIPLIER 1
 #else
+#define DP_DEFRAG_RBM DP_WBM2SW_RBM
 #define DP_WBM2SW_RBM HAL_RX_BUF_RBM_SW3_BM
 
 /**
@@ -459,6 +462,15 @@ QDF_STATUS dp_rx_pdev_attach(struct dp_pdev *pdev);
 void dp_rx_pdev_detach(struct dp_pdev *pdev);
 
 
+/**
+ * dp_rx_vdev_detach() - detach vdev from dp rx
+ * @vdev: virtual device instance
+ *
+ * Return: QDF_STATUS_SUCCESS: success
+ *         QDF_STATUS_E_RESOURCES: Error return
+ */
+QDF_STATUS dp_rx_vdev_detach(struct dp_vdev *vdev);
+
 uint32_t
 dp_rx_process(struct dp_intr *int_ctx, void *hal_ring, uint8_t reo_ring_num,
 	      uint32_t quota);
@@ -588,9 +600,10 @@ void dp_rx_add_to_free_desc_list(union dp_rx_desc_list_elem_t **head,
 
 }
 
-uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t nbuf);
+uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t nbuf,
+				   uint8_t mac_id);
 void dp_rx_process_invalid_peer_wrapper(struct dp_soc *soc,
-		qdf_nbuf_t mpdu, bool mpdu_done);
+		qdf_nbuf_t mpdu, bool mpdu_done, uint8_t mac_id);
 void dp_rx_process_mic_error(struct dp_soc *soc, qdf_nbuf_t nbuf,
 			     uint8_t *rx_tlv_hdr, struct dp_peer *peer);
 void dp_2k_jump_handle(struct dp_soc *soc, qdf_nbuf_t nbuf, uint8_t *rx_tlv_hdr,
@@ -1217,7 +1230,7 @@ static inline void dp_rx_desc_prep(struct dp_rx_desc *rx_desc, qdf_nbuf_t nbuf)
 
 void dp_rx_process_rxdma_err(struct dp_soc *soc, qdf_nbuf_t nbuf,
 			     uint8_t *rx_tlv_hdr, struct dp_peer *peer,
-			     uint8_t err_code);
+			     uint8_t err_code, uint8_t mac_id);
 
 #ifdef PEER_CACHE_RX_PKTS
 /**

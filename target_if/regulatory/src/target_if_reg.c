@@ -52,11 +52,36 @@ static inline uint32_t get_chan_list_cc_event_id(void)
 static bool tgt_if_regulatory_is_regdb_offloaded(struct wlan_objmgr_psoc *psoc)
 {
 	wmi_unified_t wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
+	struct wlan_lmac_if_reg_rx_ops *reg_rx_ops;
+
+	reg_rx_ops = target_if_regulatory_get_rx_ops(psoc);
 
 	if (!wmi_handle)
 		return false;
 
+	if (reg_rx_ops->reg_ignore_fw_reg_offload_ind &&
+	    reg_rx_ops->reg_ignore_fw_reg_offload_ind(psoc)) {
+		target_if_debug("User disabled regulatory offload from ini");
+		return 0;
+	}
+
 	return wmi_service_enabled(wmi_handle, wmi_service_regulatory_db);
+}
+
+/**
+ * tgt_if_regulatory_is_6ghz_supported() - Check if 6ghz is supported
+ * @psoc: Pointer to psoc
+ *
+ * Return: true if regdb if offloaded, else false
+ */
+static bool tgt_if_regulatory_is_6ghz_supported(struct wlan_objmgr_psoc *psoc)
+{
+	wmi_unified_t wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
+
+	if (!wmi_handle)
+		return false;
+
+	return wmi_service_enabled(wmi_handle, wmi_service_6ghz_support);
 }
 
 /**
@@ -107,6 +132,24 @@ QDF_STATUS target_if_reg_set_offloaded_info(struct wlan_objmgr_psoc *psoc)
 	if (reg_rx_ops->reg_set_11d_offloaded)
 		reg_rx_ops->reg_set_11d_offloaded(
 				psoc, tgt_if_regulatory_is_11d_offloaded(psoc));
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS target_if_reg_set_6ghz_info(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_lmac_if_reg_rx_ops *reg_rx_ops;
+
+	reg_rx_ops = target_if_regulatory_get_rx_ops(psoc);
+	if (!reg_rx_ops) {
+		target_if_err("reg_rx_ops is NULL");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (reg_rx_ops->reg_set_6ghz_supported)
+		reg_rx_ops->reg_set_6ghz_supported(
+			psoc,
+			tgt_if_regulatory_is_6ghz_supported(psoc));
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -302,6 +345,39 @@ QDF_STATUS tgt_if_regulatory_modify_freq_range(struct wlan_objmgr_psoc *psoc)
 	return QDF_STATUS_SUCCESS;
 }
 
+#ifdef CONFIG_REG_CLIENT
+/**
+ * tgt_if_regulatory_send_ctl_info() - Send CTL info to firmware
+ * @psoc: Pointer to psoc
+ * @params: Pointer to reg control params
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+tgt_if_regulatory_send_ctl_info(struct wlan_objmgr_psoc *psoc,
+				struct reg_ctl_params *params)
+{
+	wmi_unified_t wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
+
+	if (!wmi_handle)
+		return QDF_STATUS_E_FAILURE;
+
+	return wmi_unified_send_regdomain_info_to_fw_cmd(wmi_handle,
+							 params->regd,
+							 params->regd_2g,
+							 params->regd_5g,
+							 params->ctl_2g,
+							 params->ctl_5g);
+}
+#else
+static QDF_STATUS
+tgt_if_regulatory_send_ctl_info(struct wlan_objmgr_psoc *psoc,
+				struct reg_ctl_params *params)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 QDF_STATUS target_if_register_regulatory_tx_ops(
 		struct wlan_lmac_if_tx_ops *tx_ops)
 {
@@ -340,6 +416,8 @@ QDF_STATUS target_if_register_regulatory_tx_ops(
 
 	reg_ops->unregister_ch_avoid_event_handler =
 		tgt_if_regulatory_unregister_ch_avoid_event_handler;
+
+	reg_ops->send_ctl_info = tgt_if_regulatory_send_ctl_info;
 
 	return QDF_STATUS_SUCCESS;
 }

@@ -34,6 +34,63 @@
 /* Hard coded config parameters until dp_ops_cfg.cfg_attach implemented */
 #define CFG_IPA_UC_TX_BUF_SIZE_DEFAULT            (2048)
 
+/* WAR for IPA_OFFLOAD case. In some cases, its observed that WBM tries to
+ * release a buffer into WBM2SW RELEASE ring for IPA, and the ring is full.
+ * This causes back pressure, resulting in a FW crash.
+ * By leaving some entries with no buffer attached, WBM will be able to write
+ * to the ring, and from dumps we can figure out the buffer which is causing
+ * this issue.
+ */
+#define DP_IPA_WAR_WBM2SW_REL_RING_NO_BUF_ENTRIES 16
+/**
+ *struct dp_ipa_reo_remap_record - history for dp ipa reo remaps
+ * @ix0_reg: reo destination ring IX0 value
+ * @ix2_reg: reo destination ring IX2 value
+ * @ix3_reg: reo destination ring IX3 value
+ */
+struct dp_ipa_reo_remap_record {
+	uint64_t timestamp;
+	uint32_t ix0_reg;
+	uint32_t ix2_reg;
+	uint32_t ix3_reg;
+};
+
+#define REO_REMAP_HISTORY_SIZE 32
+
+struct dp_ipa_reo_remap_record dp_ipa_reo_remap_history[REO_REMAP_HISTORY_SIZE];
+
+static qdf_atomic_t dp_ipa_reo_remap_history_index;
+static int dp_ipa_reo_remap_record_index_next(qdf_atomic_t *index)
+{
+	int next = qdf_atomic_inc_return(index);
+
+	if (next == REO_REMAP_HISTORY_SIZE)
+		qdf_atomic_sub(REO_REMAP_HISTORY_SIZE, index);
+
+	return next % REO_REMAP_HISTORY_SIZE;
+}
+
+/**
+ * dp_ipa_reo_remap_history_add() - Record dp ipa reo remap values
+ * @ix0_val: reo destination ring IX0 value
+ * @ix2_val: reo destination ring IX2 value
+ * @ix3_val: reo destination ring IX3 value
+ *
+ * Return: None
+ */
+static void dp_ipa_reo_remap_history_add(uint32_t ix0_val, uint32_t ix2_val,
+					 uint32_t ix3_val)
+{
+	int idx = dp_ipa_reo_remap_record_index_next(
+				&dp_ipa_reo_remap_history_index);
+	struct dp_ipa_reo_remap_record *record = &dp_ipa_reo_remap_history[idx];
+
+	record->timestamp = qdf_get_log_timestamp();
+	record->ix0_reg = ix0_val;
+	record->ix2_reg = ix2_val;
+	record->ix3_reg = ix3_val;
+}
+
 static QDF_STATUS __dp_ipa_handle_buf_smmu_mapping(struct dp_soc *soc,
 						   qdf_nbuf_t nbuf,
 						   bool create)
@@ -56,7 +113,6 @@ QDF_STATUS dp_ipa_handle_rx_buf_smmu_mapping(struct dp_soc *soc,
 					     qdf_nbuf_t nbuf,
 					     bool create)
 {
-	bool reo_remapped = false;
 	struct dp_pdev *pdev;
 	int i;
 
@@ -70,11 +126,7 @@ QDF_STATUS dp_ipa_handle_rx_buf_smmu_mapping(struct dp_soc *soc,
 	    !qdf_mem_smmu_s1_enabled(soc->osdev))
 		return QDF_STATUS_SUCCESS;
 
-	qdf_spin_lock_bh(&soc->remap_lock);
-	reo_remapped = soc->reo_remapped;
-	qdf_spin_unlock_bh(&soc->remap_lock);
-
-	if (!reo_remapped)
+	if (!qdf_atomic_read(&soc->ipa_pipes_enabled))
 		return QDF_STATUS_SUCCESS;
 
 	return __dp_ipa_handle_buf_smmu_mapping(soc, nbuf, create);
@@ -220,8 +272,6 @@ int dp_ipa_uc_detach(struct dp_soc *soc, struct dp_pdev *pdev)
 	/* RX resource detach */
 	dp_rx_ipa_uc_detach(soc, pdev);
 
-	qdf_spinlock_destroy(&soc->remap_lock);
-
 	return QDF_STATUS_SUCCESS;	/* success */
 }
 
@@ -249,6 +299,7 @@ static int dp_tx_ipa_uc_attach(struct dp_soc *soc, struct dp_pdev *pdev)
 	int num_entries;
 	qdf_nbuf_t nbuf;
 	int retval = QDF_STATUS_SUCCESS;
+	int max_alloc_count = 0;
 
 	/*
 	 * Uncomment when dp_ops_cfg.cfg_attach is implemented
@@ -261,30 +312,35 @@ static int dp_tx_ipa_uc_attach(struct dp_soc *soc, struct dp_pdev *pdev)
 	hal_get_srng_params(soc->hal_soc, (void *)wbm_srng, &srng_params);
 	num_entries = srng_params.num_entries;
 
-	QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO,
-		  "%s: requested %d buffers to be posted to wbm ring",
-		   __func__, num_entries);
+	max_alloc_count =
+		num_entries - DP_IPA_WAR_WBM2SW_REL_RING_NO_BUF_ENTRIES;
+	if (max_alloc_count <= 0) {
+		dp_err("incorrect value for buffer count %u", max_alloc_count);
+		return -EINVAL;
+	}
+
+	dp_info("requested %d buffers to be posted to wbm ring",
+		max_alloc_count);
 
 	soc->ipa_uc_tx_rsc.tx_buf_pool_vaddr_unaligned =
 		qdf_mem_malloc(num_entries *
 		sizeof(*soc->ipa_uc_tx_rsc.tx_buf_pool_vaddr_unaligned));
 	if (!soc->ipa_uc_tx_rsc.tx_buf_pool_vaddr_unaligned) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "%s: IPA WBM Ring Tx buf pool vaddr alloc fail",
-			  __func__);
+		dp_err("IPA WBM Ring Tx buf pool vaddr alloc fail");
 		return -ENOMEM;
 	}
 
 	hal_srng_access_start_unlocked(soc->hal_soc, (void *)wbm_srng);
 
 	/*
-	 * Allocate Tx buffers as many as possible
+	 * Allocate Tx buffers as many as possible.
+	 * Leave DP_IPA_WAR_WBM2SW_REL_RING_NO_BUF_ENTRIES empty
 	 * Populate Tx buffers into WBM2IPA ring
 	 * This initial buffer population will simulate H/W as source ring,
 	 * and update HP
 	 */
 	for (tx_buffer_count = 0;
-		tx_buffer_count < num_entries - 1; tx_buffer_count++) {
+		tx_buffer_count < max_alloc_count - 1; tx_buffer_count++) {
 		nbuf = qdf_nbuf_alloc(soc->osdev, alloc_size, 0, 256, FALSE);
 		if (!nbuf)
 			break;
@@ -322,13 +378,9 @@ static int dp_tx_ipa_uc_attach(struct dp_soc *soc, struct dp_pdev *pdev)
 	soc->ipa_uc_tx_rsc.alloc_tx_buf_cnt = tx_buffer_count;
 
 	if (tx_buffer_count) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO,
-			  "%s: IPA WDI TX buffer: %d allocated",
-			  __func__, tx_buffer_count);
+		dp_info("IPA WDI TX buffer: %d allocated", tx_buffer_count);
 	} else {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "%s: No IPA WDI TX buffer allocated",
-			  __func__);
+		dp_err("No IPA WDI TX buffer allocated!");
 		qdf_mem_free(soc->ipa_uc_tx_rsc.tx_buf_pool_vaddr_unaligned);
 		soc->ipa_uc_tx_rsc.tx_buf_pool_vaddr_unaligned = NULL;
 		retval = -ENOMEM;
@@ -359,8 +411,6 @@ int dp_ipa_uc_attach(struct dp_soc *soc, struct dp_pdev *pdev)
 
 	if (!wlan_cfg_is_ipa_enabled(soc->wlan_cfg_ctx))
 		return QDF_STATUS_SUCCESS;
-
-	qdf_spinlock_create(&soc->remap_lock);
 
 	/* TX resource attach */
 	error = dp_tx_ipa_uc_attach(soc, pdev);
@@ -398,6 +448,7 @@ int dp_ipa_ring_resource_setup(struct dp_soc *soc,
 	struct hal_srng_params srng_params;
 	qdf_dma_addr_t hp_addr;
 	unsigned long addr_offset, dev_base_paddr;
+	uint32_t ix0;
 
 	if (!wlan_cfg_is_ipa_enabled(soc->wlan_cfg_ctx))
 		return QDF_STATUS_SUCCESS;
@@ -499,6 +550,21 @@ int dp_ipa_ring_resource_setup(struct dp_soc *soc,
 		(void *)soc->ipa_uc_rx_rsc.ipa_rx_refill_buf_ring_base_vaddr,
 		srng_params.num_entries,
 		soc->ipa_uc_rx_rsc.ipa_rx_refill_buf_ring_size);
+
+	/*
+	 * Set DEST_RING_MAPPING_4 to SW2 as default value for
+	 * DESTINATION_RING_CTRL_IX_0.
+	 */
+	ix0 = HAL_REO_REMAP_VAL(REO_REMAP_TCL, REO_REMAP_TCL) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_SW1, REO_REMAP_SW1) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_SW2, REO_REMAP_SW2) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_SW3, REO_REMAP_SW3) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_SW4, REO_REMAP_SW2) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_RELEASE, REO_REMAP_RELEASE) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_FW, REO_REMAP_FW) |
+	      HAL_REO_REMAP_VAL(REO_REMAP_UNUSED, REO_REMAP_FW);
+
+	hal_reo_read_write_ctrl_ix(soc->hal_soc, false, &ix0, NULL, NULL, NULL);
 
 	return 0;
 }
@@ -727,7 +793,9 @@ qdf_nbuf_t dp_tx_send_ipa_data_frame(struct cdp_vdev *vdev, qdf_nbuf_t skb)
  *
  * Set all RX packet route to IPA REO ring
  * Program Destination_Ring_Ctrl_IX_0 REO register to point IPA REO ring
- * Return: none
+ *
+ * Return: QDF_STATUS_SUCCESS in case of success
+ *         QDF error code in failure cases
  */
 QDF_STATUS dp_ipa_enable_autonomy(struct cdp_pdev *ppdev)
 {
@@ -739,9 +807,8 @@ QDF_STATUS dp_ipa_enable_autonomy(struct cdp_pdev *ppdev)
 	if (!wlan_cfg_is_ipa_enabled(soc->wlan_cfg_ctx))
 		return QDF_STATUS_SUCCESS;
 
-	qdf_spin_lock_bh(&soc->remap_lock);
-	soc->reo_remapped = true;
-	qdf_spin_unlock_bh(&soc->remap_lock);
+	if (!hif_is_target_ready(HIF_GET_SOFTC(soc->hif_handle)))
+		return QDF_STATUS_E_AGAIN;
 
 	/* Call HAL API to remap REO rings to REO2IPA ring */
 	ix0 = HAL_REO_REMAP_VAL(REO_REMAP_TCL, REO_REMAP_TCL) |
@@ -761,6 +828,11 @@ QDF_STATUS dp_ipa_enable_autonomy(struct cdp_pdev *ppdev)
 
 		hal_reo_read_write_ctrl_ix(soc->hal_soc, false, &ix0, NULL,
 					   &ix2, &ix2);
+		dp_ipa_reo_remap_history_add(ix0, ix2, ix2);
+	} else {
+		hal_reo_read_write_ctrl_ix(soc->hal_soc, false, &ix0, NULL,
+					   NULL, NULL);
+		dp_ipa_reo_remap_history_add(ix0, 0, 0);
 	}
 
 	return QDF_STATUS_SUCCESS;
@@ -772,7 +844,9 @@ QDF_STATUS dp_ipa_enable_autonomy(struct cdp_pdev *ppdev)
  *
  * Disable RX packet routing to IPA REO
  * Program Destination_Ring_Ctrl_IX_0 REO register to disable
- * Return: none
+ *
+ * Return: QDF_STATUS_SUCCESS in case of success
+ *         QDF error code in failure cases
  */
 QDF_STATUS dp_ipa_disable_autonomy(struct cdp_pdev *ppdev)
 {
@@ -784,6 +858,9 @@ QDF_STATUS dp_ipa_disable_autonomy(struct cdp_pdev *ppdev)
 
 	if (!wlan_cfg_is_ipa_enabled(soc->wlan_cfg_ctx))
 		return QDF_STATUS_SUCCESS;
+
+	if (!hif_is_target_ready(HIF_GET_SOFTC(soc->hif_handle)))
+		return QDF_STATUS_E_AGAIN;
 
 	/* Call HAL API to remap REO rings to REO2IPA ring */
 	ix0 = HAL_REO_REMAP_VAL(REO_REMAP_TCL, REO_REMAP_TCL) |
@@ -800,11 +877,12 @@ QDF_STATUS dp_ipa_disable_autonomy(struct cdp_pdev *ppdev)
 
 		hal_reo_read_write_ctrl_ix(soc->hal_soc, false, &ix0, NULL,
 					   &ix2, &ix3);
+		dp_ipa_reo_remap_history_add(ix0, ix2, ix3);
+	} else {
+		hal_reo_read_write_ctrl_ix(soc->hal_soc, false, &ix0, NULL,
+					   NULL, NULL);
+		dp_ipa_reo_remap_history_add(ix0, 0, 0);
 	}
-
-	qdf_spin_lock_bh(&soc->remap_lock);
-	soc->reo_remapped = false;
-	qdf_spin_unlock_bh(&soc->remap_lock);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -1544,6 +1622,7 @@ QDF_STATUS dp_ipa_enable_pipes(struct cdp_pdev *ppdev)
 	struct dp_soc *soc = pdev->soc;
 	QDF_STATUS result;
 
+	qdf_atomic_set(&soc->ipa_pipes_enabled, 1);
 	dp_ipa_handle_rx_buf_pool_smmu_mapping(soc, pdev, true);
 
 	result = qdf_ipa_wdi_enable_pipes();
@@ -1551,6 +1630,7 @@ QDF_STATUS dp_ipa_enable_pipes(struct cdp_pdev *ppdev)
 		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
 			  "%s: Enable WDI PIPE fail, code %d",
 			  __func__, result);
+		qdf_atomic_set(&soc->ipa_pipes_enabled, 0);
 		dp_ipa_handle_rx_buf_pool_smmu_mapping(soc, pdev, false);
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -1576,6 +1656,7 @@ QDF_STATUS dp_ipa_disable_pipes(struct cdp_pdev *ppdev)
 			  "%s: Disable WDI PIPE fail, code %d",
 			  __func__, result);
 
+	qdf_atomic_set(&soc->ipa_pipes_enabled, 0);
 	dp_ipa_handle_rx_buf_pool_smmu_mapping(soc, pdev, false);
 
 	return result ? QDF_STATUS_E_FAILURE : QDF_STATUS_SUCCESS;
@@ -1731,5 +1812,92 @@ bool dp_ipa_is_mdm_platform(void)
 	return false;
 }
 #endif
+
+/**
+ * dp_ipa_frag_nbuf_linearize - linearize nbuf for IPA
+ * @soc: soc
+ * @nbuf: source skb
+ *
+ * Return: new nbuf if success and otherwise NULL
+ */
+static qdf_nbuf_t dp_ipa_frag_nbuf_linearize(struct dp_soc *soc,
+					     qdf_nbuf_t nbuf)
+{
+	uint8_t *src_nbuf_data;
+	uint8_t *dst_nbuf_data;
+	qdf_nbuf_t dst_nbuf;
+	qdf_nbuf_t temp_nbuf = nbuf;
+	uint32_t nbuf_len = qdf_nbuf_len(nbuf);
+	bool is_nbuf_head = true;
+	uint32_t copy_len = 0;
+
+	dst_nbuf = qdf_nbuf_alloc(soc->osdev, RX_BUFFER_SIZE,
+				  RX_BUFFER_RESERVATION, RX_BUFFER_ALIGNMENT,
+				  FALSE);
+
+	if (!dst_nbuf) {
+		dp_err_rl("nbuf allocate fail");
+		return NULL;
+	}
+
+	if ((nbuf_len + L3_HEADER_PADDING) > RX_BUFFER_SIZE) {
+		qdf_nbuf_free(dst_nbuf);
+		dp_err_rl("nbuf is jumbo data");
+		return NULL;
+	}
+
+	/* prepeare to copy all data into new skb */
+	dst_nbuf_data = qdf_nbuf_data(dst_nbuf);
+	while (temp_nbuf) {
+		src_nbuf_data = qdf_nbuf_data(temp_nbuf);
+		/* first head nbuf */
+		if (is_nbuf_head) {
+			qdf_mem_copy(dst_nbuf_data, src_nbuf_data,
+				     RX_PKT_TLVS_LEN);
+			/* leave extra 2 bytes L3_HEADER_PADDING */
+			dst_nbuf_data += (RX_PKT_TLVS_LEN + L3_HEADER_PADDING);
+			src_nbuf_data += RX_PKT_TLVS_LEN;
+			copy_len = qdf_nbuf_headlen(temp_nbuf) -
+						RX_PKT_TLVS_LEN;
+			temp_nbuf = qdf_nbuf_get_ext_list(temp_nbuf);
+			is_nbuf_head = false;
+		} else {
+			copy_len = qdf_nbuf_len(temp_nbuf);
+			temp_nbuf = qdf_nbuf_queue_next(temp_nbuf);
+		}
+		qdf_mem_copy(dst_nbuf_data, src_nbuf_data, copy_len);
+		dst_nbuf_data += copy_len;
+	}
+
+	qdf_nbuf_set_len(dst_nbuf, nbuf_len);
+	/* copy is done, free original nbuf */
+	qdf_nbuf_free(nbuf);
+
+	return dst_nbuf;
+}
+
+/**
+ * dp_ipa_handle_rx_reo_reinject - Handle RX REO reinject skb buffer
+ * @soc: soc
+ * @nbuf: skb
+ *
+ * Return: nbuf if success and otherwise NULL
+ */
+qdf_nbuf_t dp_ipa_handle_rx_reo_reinject(struct dp_soc *soc, qdf_nbuf_t nbuf)
+{
+
+	if (!wlan_cfg_is_ipa_enabled(soc->wlan_cfg_ctx))
+		return nbuf;
+
+	/* WLAN IPA is run-time disabled */
+	if (!qdf_atomic_read(&soc->ipa_pipes_enabled))
+		return nbuf;
+
+	if (!qdf_nbuf_is_frag(nbuf))
+		return nbuf;
+
+	/* linearize skb for IPA */
+	return dp_ipa_frag_nbuf_linearize(soc, nbuf);
+}
 
 #endif

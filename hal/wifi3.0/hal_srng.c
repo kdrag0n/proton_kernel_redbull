@@ -475,7 +475,7 @@ void hal_reo_read_write_ctrl_ix(struct hal_soc *hal, bool read, uint32_t *ix0,
 			reg_offset =
 				HWIO_REO_R0_DESTINATION_RING_CTRL_IX_0_ADDR(
 						SEQ_WCSS_UMAC_REO_REG_OFFSET);
-			HAL_REG_WRITE(hal, reg_offset, *ix0);
+			HAL_REG_WRITE_CONFIRM(hal, reg_offset, *ix0);
 		}
 
 		if (ix1) {
@@ -489,14 +489,14 @@ void hal_reo_read_write_ctrl_ix(struct hal_soc *hal, bool read, uint32_t *ix0,
 			reg_offset =
 				HWIO_REO_R0_DESTINATION_RING_CTRL_IX_2_ADDR(
 						SEQ_WCSS_UMAC_REO_REG_OFFSET);
-			HAL_REG_WRITE(hal, reg_offset, *ix2);
+			HAL_REG_WRITE_CONFIRM(hal, reg_offset, *ix2);
 		}
 
 		if (ix3) {
 			reg_offset =
 				HWIO_REO_R0_DESTINATION_RING_CTRL_IX_3_ADDR(
 						SEQ_WCSS_UMAC_REO_REG_OFFSET);
-			HAL_REG_WRITE(hal, reg_offset, *ix3);
+			HAL_REG_WRITE_CONFIRM(hal, reg_offset, *ix3);
 		}
 	}
 }
@@ -784,15 +784,15 @@ enum hal_srng_dir hal_srng_get_dir(void *hal_soc, int ring_type)
 void hal_srng_dump(struct hal_srng *srng)
 {
 	if (srng->ring_dir == HAL_SRNG_SRC_RING) {
-		qdf_print("=== SRC RING %d ===", srng->ring_id);
-		qdf_print("hp %u, reap_hp %u, tp %u, cached tp %u",
+		hal_debug("=== SRC RING %d ===", srng->ring_id);
+		hal_debug("hp %u, reap_hp %u, tp %u, cached tp %u",
 			  srng->u.src_ring.hp,
 			  srng->u.src_ring.reap_hp,
 			  *srng->u.src_ring.tp_addr,
 			  srng->u.src_ring.cached_tp);
 	} else {
-		qdf_print("=== DST RING %d ===", srng->ring_id);
-		qdf_print("tp %u, hp %u, cached tp %u, loop_cnt %u",
+		hal_debug("=== DST RING %d ===", srng->ring_id);
+		hal_debug("tp %u, hp %u, cached tp %u, loop_cnt %u",
 			  srng->u.dst_ring.tp,
 			  *srng->u.dst_ring.hp_addr,
 			  srng->u.dst_ring.cached_hp,

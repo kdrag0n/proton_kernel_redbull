@@ -1342,10 +1342,15 @@ send_roam_scan_offload_mode_cmd_tlv(wmi_unified_t wmi_handle,
 					WMI_LOGI("LFR3:PMKSA caching disabled");
 				}
 
+				roam_offload_11i->pmk_len = roam_req->pmk_len >
+					ROAM_OFFLOAD_PMK_BYTES ?
+					ROAM_OFFLOAD_PMK_BYTES :
+					roam_req->pmk_len;
+
 				qdf_mem_copy(roam_offload_11i->pmk,
 					     roam_req->psk_pmk,
-					     sizeof(roam_offload_11i->pmk));
-				roam_offload_11i->pmk_len = roam_req->pmk_len;
+					     roam_offload_11i->pmk_len);
+
 				WMITLV_SET_HDR(&roam_offload_11i->tlv_header,
 				WMITLV_TAG_STRUC_wmi_roam_11i_offload_tlv_param,
 				WMITLV_GET_STRUCT_TLVLEN
@@ -1885,11 +1890,6 @@ static QDF_STATUS send_roam_scan_offload_chan_list_cmd_tlv(wmi_unified_t wmi_han
 	wmi_roam_chan_list_fixed_param *chan_list_fp;
 	uint32_t *roam_chan_list_array;
 
-	if (chan_count == 0) {
-		WMI_LOGD("%s : invalid number of channels %d", __func__,
-			 chan_count);
-		return QDF_STATUS_E_EMPTY;
-	}
 	/* Channel list is a table of 2 TLV's */
 	list_tlv_len = WMI_TLV_HDR_SIZE + chan_count * sizeof(uint32_t);
 	len = sizeof(wmi_roam_chan_list_fixed_param) + list_tlv_len;
@@ -1906,7 +1906,7 @@ static QDF_STATUS send_roam_scan_offload_chan_list_cmd_tlv(wmi_unified_t wmi_han
 			       (wmi_roam_chan_list_fixed_param));
 	chan_list_fp->vdev_id = vdev_id;
 	chan_list_fp->num_chan = chan_count;
-	if (chan_count > 0 && list_type == WMI_CHANNEL_LIST_STATIC) {
+	if (list_type == WMI_CHANNEL_LIST_STATIC) {
 		/* external app is controlling channel list */
 		chan_list_fp->chan_list_type =
 			WMI_ROAM_SCAN_CHAN_LIST_TYPE_STATIC;

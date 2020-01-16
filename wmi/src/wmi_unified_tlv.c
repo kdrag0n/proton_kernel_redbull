@@ -578,6 +578,8 @@ static QDF_STATUS wmi_unified_cmd_send_pm_chk(struct wmi_unified *wmi_handle,
 			return QDF_STATUS_SUCCESS;
 	}
 
+	qdf_atomic_set(&wmi_handle->num_stats_over_qmi, 0);
+
 	return wmi_unified_cmd_send(wmi_handle, buf, buflen, cmd_id);
 }
 #else
@@ -3057,6 +3059,9 @@ static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 
 	if (chan_list->append)
 		cmd->flags |= APPEND_TO_EXISTING_CHAN_LIST;
+
+	if (chan_list->max_bw_support_present)
+		cmd->flags |= CHANNEL_MAX_BANDWIDTH_VALID;
 
 	cmd->pdev_id = wmi_handle->ops->convert_pdev_id_host_to_target(
 							chan_list->pdev_id);
@@ -5832,6 +5837,11 @@ static QDF_STATUS send_regdomain_info_to_fw_cmd_tlv(wmi_unified_t wmi_handle,
 	cmd->reg_domain_5G = regdmn5G;
 	cmd->conformance_test_limit_2G = ctl2G;
 	cmd->conformance_test_limit_5G = ctl5G;
+
+	wmi_debug("regd = %x, regd_2g = %x, regd_5g = %x, ctl_2g = %x, ctl_5g = %x",
+		  cmd->reg_domain, cmd->reg_domain_2G, cmd->reg_domain_5G,
+		  cmd->conformance_test_limit_2G,
+		  cmd->conformance_test_limit_5G);
 
 	wmi_mtrace(WMI_PDEV_SET_REGDOMAIN_CMDID, NO_SESSION, 0);
 	if (wmi_unified_cmd_send(wmi_handle, buf, len,
@@ -9114,8 +9124,11 @@ static QDF_STATUS extract_per_chain_rssi_stats_tlv(wmi_unified_t wmi_handle,
 
 	data = ((uint8_t *)(&rssi_event[1])) + WMI_TLV_HDR_SIZE;
 	fw_rssi_stats = &((wmi_rssi_stats *)data)[index];
+	if (fw_rssi_stats->vdev_id < WLAN_UMAC_PDEV_MAX_VDEVS)
+		rssi_stats->vdev_id = fw_rssi_stats->vdev_id;
+	else
+		return QDF_STATUS_E_INVAL;
 
-	rssi_stats->vdev_id = fw_rssi_stats->vdev_id;
 	qdf_mem_copy(rssi_stats->rssi_avg_beacon,
 		     fw_rssi_stats->rssi_avg_beacon,
 		     sizeof(fw_rssi_stats->rssi_avg_beacon));
@@ -12334,6 +12347,8 @@ static void populate_tlv_events_id(uint32_t *event_ids)
 		WMI_PDEV_DIV_RSSI_ANTID_EVENTID;
 	event_ids[wmi_twt_enable_complete_event_id] =
 		WMI_TWT_ENABLE_COMPLETE_EVENTID;
+	event_ids[wmi_twt_disable_complete_event_id] =
+		WMI_TWT_DISABLE_COMPLETE_EVENTID;
 	event_ids[wmi_apf_get_vdev_work_memory_resp_event_id] =
 		WMI_BPF_GET_VDEV_WORK_MEMORY_RESP_EVENTID;
 	event_ids[wmi_wlan_sar2_result_event_id] = WMI_SAR2_RESULT_EVENTID;
@@ -12372,6 +12387,7 @@ static void populate_tlv_events_id(uint32_t *event_ids)
 	event_ids[wmi_roam_auth_offload_event_id] =
 				WMI_ROAM_PREAUTH_START_EVENTID;
 	event_ids[wmi_get_elna_bypass_event_id] = WMI_GET_ELNA_BYPASS_EVENTID;
+	event_ids[wmi_oem_data_event_id] = WMI_OEM_DATA_EVENTID;
 }
 
 /**
@@ -12640,6 +12656,8 @@ static void populate_tlv_service(uint32_t *wmi_service)
 			WMI_SERVICE_WPA3_SAE_ROAM_SUPPORT;
 	wmi_service[wmi_service_owe_roam_support] =
 			WMI_SERVICE_WPA3_OWE_ROAM_SUPPORT;
+	wmi_service[wmi_service_6ghz_support] =
+			WMI_SERVICE_6GHZ_SUPPORT;
 }
 
 /**

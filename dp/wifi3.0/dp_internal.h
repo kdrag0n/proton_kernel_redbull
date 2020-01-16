@@ -464,6 +464,7 @@ static inline void dp_update_pdev_ingress_stats(struct dp_pdev *tgtobj,
 	DP_STATS_AGGR(tgtobj, srcobj, tx_i.raw.dma_map_error);
 	DP_STATS_AGGR_PKT(tgtobj, srcobj, tx_i.tso.tso_pkt);
 	DP_STATS_AGGR(tgtobj, srcobj, tx_i.tso.dropped_host.num);
+	DP_STATS_AGGR(tgtobj, srcobj, tx_i.tso.tso_no_mem_dropped.num);
 	DP_STATS_AGGR(tgtobj, srcobj, tx_i.tso.dropped_target);
 	DP_STATS_AGGR(tgtobj, srcobj, tx_i.sg.dropped_host.num);
 	DP_STATS_AGGR(tgtobj, srcobj, tx_i.sg.dropped_target);
@@ -1325,5 +1326,17 @@ QDF_STATUS dp_tx_add_to_comp_queue(struct dp_soc *soc,
 	return QDF_STATUS_E_FAILURE;
 }
 #endif
+
+/*
+ * dp_rx_tid_update_wifi3() – Update receive TID state
+ * @peer: Datapath peer handle
+ * @tid: TID
+ * @ba_window_size: BlockAck window size
+ * @start_seq: Starting sequence number
+ *
+ * Return: QDF_STATUS code
+ */
+QDF_STATUS dp_rx_tid_update_wifi3(struct dp_peer *peer, int tid, uint32_t
+					 ba_window_size, uint32_t start_seq);
 
 #endif /* #ifndef _DP_INTERNAL_H_ */

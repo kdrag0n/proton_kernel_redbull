@@ -217,6 +217,7 @@ QDF_STATUS dp_rx_buffers_replenish(struct dp_soc *dp_soc, uint32_t mac_id,
 
 		paddr = qdf_nbuf_get_frag_paddr(rx_netbuf, 0);
 
+		dp_ipa_handle_rx_buf_smmu_mapping(dp_soc, rx_netbuf, true);
 		/*
 		 * check if the physical address of nbuf->data is
 		 * less then 0x50000000 then free the nbuf and try
@@ -255,7 +256,6 @@ QDF_STATUS dp_rx_buffers_replenish(struct dp_soc *dp_soc, uint32_t mac_id,
 
 		*desc_list = next;
 
-		dp_ipa_handle_rx_buf_smmu_mapping(dp_soc, rx_netbuf, true);
 	}
 
 	hal_srng_access_end(dp_soc->hal_soc, rxdma_srng);
@@ -719,19 +719,23 @@ struct dp_vdev *dp_rx_nac_filter(struct dp_pdev *pdev,
  * dp_rx_process_invalid_peer(): Function to pass invalid peer list to umac
  * @soc: DP SOC handle
  * @mpdu: mpdu for which peer is invalid
+ * @mac_id: mac_id which is one of 3 mac_ids(Assuming mac_id and
+ * pool_id has same mapping)
  *
  * return: integer type
  */
-uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu)
+uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu,
+				   uint8_t mac_id)
 {
 	struct dp_invalid_peer_msg msg;
 	struct dp_vdev *vdev = NULL;
 	struct dp_pdev *pdev = NULL;
 	struct ieee80211_frame *wh;
-	uint8_t i;
 	qdf_nbuf_t curr_nbuf, next_nbuf;
 	uint8_t *rx_tlv_hdr = qdf_nbuf_data(mpdu);
 	uint8_t *rx_pkt_hdr = hal_rx_pkt_hdr_get(rx_tlv_hdr);
+
+	rx_pkt_hdr = hal_rx_pkt_hdr_get(rx_tlv_hdr);
 
 	if (!HAL_IS_DECAP_FORMAT_RAW(rx_tlv_hdr)) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
@@ -743,53 +747,51 @@ uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu)
 
 	if (!DP_FRAME_IS_DATA(wh)) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
-				"NAWDS valid only for data frames");
+			  "NAWDS valid only for data frames");
 		goto free;
 	}
 
 	if (qdf_nbuf_len(mpdu) < sizeof(struct ieee80211_frame)) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-				"Invalid nbuf length");
+			"Invalid nbuf length");
 		goto free;
 	}
 
+	pdev = dp_get_pdev_for_mac_id(soc, mac_id);
 
-	for (i = 0; i < MAX_PDEV_CNT; i++) {
-		pdev = soc->pdev_list[i];
-		if (!pdev) {
-			QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-					"PDEV not found");
-			continue;
+	if (!pdev) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "PDEV not found");
+		goto free;
+	}
+
+	if (pdev->filter_neighbour_peers) {
+		/* Next Hop scenario not yet handle */
+		vdev = dp_rx_nac_filter(pdev, rx_pkt_hdr);
+		if (vdev) {
+			dp_rx_mon_deliver(soc, pdev->pdev_id,
+					  pdev->invalid_peer_head_msdu,
+					  pdev->invalid_peer_tail_msdu);
+
+			pdev->invalid_peer_head_msdu = NULL;
+			pdev->invalid_peer_tail_msdu = NULL;
+
+			return 0;
 		}
-
-		if (pdev->filter_neighbour_peers) {
-			/* Next Hop scenario not yet handle */
-			vdev = dp_rx_nac_filter(pdev, rx_pkt_hdr);
-			if (vdev) {
-				dp_rx_mon_deliver(soc, i,
-						pdev->invalid_peer_head_msdu,
-						pdev->invalid_peer_tail_msdu);
-
-				pdev->invalid_peer_head_msdu = NULL;
-				pdev->invalid_peer_tail_msdu = NULL;
-
-				return 0;
-			}
-		}
+	}
 
 
-		TAILQ_FOREACH(vdev, &pdev->vdev_list, vdev_list_elem) {
+	TAILQ_FOREACH(vdev, &pdev->vdev_list, vdev_list_elem) {
 
-			if (qdf_mem_cmp(wh->i_addr1, vdev->mac_addr.raw,
-						QDF_MAC_ADDR_SIZE) == 0) {
-				goto out;
-			}
+		if (qdf_mem_cmp(wh->i_addr1, vdev->mac_addr.raw,
+				QDF_MAC_ADDR_SIZE) == 0) {
+			goto out;
 		}
 	}
 
 	if (!vdev) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-				"VDEV not found");
+			"VDEV not found");
 		goto free;
 	}
 
@@ -819,22 +821,25 @@ free:
  * @soc: DP SOC handle
  * @mpdu: mpdu for which peer is invalid
  * @mpdu_done: if an mpdu is completed
+ * @mac_id: mac_id which is one of 3 mac_ids(Assuming mac_id and
+ * pool_id has same mapping)
  *
  * return: integer type
  */
 void dp_rx_process_invalid_peer_wrapper(struct dp_soc *soc,
-					qdf_nbuf_t mpdu, bool mpdu_done)
+					qdf_nbuf_t mpdu, bool mpdu_done,
+					uint8_t mac_id)
 {
 	/* Only trigger the process when mpdu is completed */
 	if (mpdu_done)
-		dp_rx_process_invalid_peer(soc, mpdu);
+		dp_rx_process_invalid_peer(soc, mpdu, mac_id);
 }
 #else
-uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu)
+uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu,
+				   uint8_t mac_id)
 {
 	qdf_nbuf_t curr_nbuf, next_nbuf;
 	struct dp_pdev *pdev;
-	uint8_t i;
 	struct dp_vdev *vdev = NULL;
 	struct ieee80211_frame *wh;
 	uint8_t *rx_tlv_hdr = qdf_nbuf_data(mpdu);
@@ -854,25 +859,23 @@ uint8_t dp_rx_process_invalid_peer(struct dp_soc *soc, qdf_nbuf_t mpdu)
 		goto free;
 	}
 
-	for (i = 0; i < MAX_PDEV_CNT; i++) {
-		pdev = soc->pdev_list[i];
-		if (!pdev) {
-			QDF_TRACE(QDF_MODULE_ID_DP,
-				  QDF_TRACE_LEVEL_ERROR,
-				  "PDEV not found");
-			continue;
-		}
-
-		qdf_spin_lock_bh(&pdev->vdev_list_lock);
-		DP_PDEV_ITERATE_VDEV_LIST(pdev, vdev) {
-			if (qdf_mem_cmp(wh->i_addr1, vdev->mac_addr.raw,
-					QDF_MAC_ADDR_SIZE) == 0) {
-				qdf_spin_unlock_bh(&pdev->vdev_list_lock);
-				goto out;
-			}
-		}
-		qdf_spin_unlock_bh(&pdev->vdev_list_lock);
+	pdev = dp_get_pdev_for_mac_id(soc, mac_id);
+	if (!pdev) {
+		QDF_TRACE(QDF_MODULE_ID_DP,
+			  QDF_TRACE_LEVEL_ERROR,
+			  "PDEV not found");
+		goto free;
 	}
+
+	qdf_spin_lock_bh(&pdev->vdev_list_lock);
+	DP_PDEV_ITERATE_VDEV_LIST(pdev, vdev) {
+		if (qdf_mem_cmp(wh->i_addr1, vdev->mac_addr.raw,
+				QDF_MAC_ADDR_SIZE) == 0) {
+			qdf_spin_unlock_bh(&pdev->vdev_list_lock);
+			goto out;
+		}
+	}
+	qdf_spin_unlock_bh(&pdev->vdev_list_lock);
 
 	if (!vdev) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
@@ -885,15 +888,8 @@ out:
 		soc->cdp_soc.ol_ops->rx_invalid_peer(vdev->vdev_id, wh);
 free:
 	/* reset the head and tail pointers */
-	for (i = 0; i < MAX_PDEV_CNT; i++) {
-		pdev = soc->pdev_list[i];
-		if (!pdev) {
-			QDF_TRACE(QDF_MODULE_ID_DP,
-				  QDF_TRACE_LEVEL_ERROR,
-				  "PDEV not found");
-			continue;
-		}
-
+	pdev = dp_get_pdev_for_mac_id(soc, mac_id);
+	if (pdev) {
 		pdev->invalid_peer_head_msdu = NULL;
 		pdev->invalid_peer_tail_msdu = NULL;
 	}
@@ -910,10 +906,11 @@ free:
 }
 
 void dp_rx_process_invalid_peer_wrapper(struct dp_soc *soc,
-					qdf_nbuf_t mpdu, bool mpdu_done)
+					qdf_nbuf_t mpdu, bool mpdu_done,
+					uint8_t mac_id)
 {
 	/* Process the nbuf */
-	dp_rx_process_invalid_peer(soc, mpdu);
+	dp_rx_process_invalid_peer(soc, mpdu, mac_id);
 }
 #endif
 
@@ -1647,9 +1644,46 @@ void dp_rx_deliver_to_stack_no_peer(struct dp_soc *soc, qdf_nbuf_t nbuf)
 #endif
 
 /**
+ * dp_rx_srng_get_num_pending() - get number of pending entries
+ * @hal_soc: hal soc opaque pointer
+ * @hal_ring: opaque pointer to the HAL Rx Ring
+ * @num_entries: number of entries in the hal_ring.
+ * @near_full: pointer to a boolean. This is set if ring is near full.
+ *
+ * The function returns the number of entries in a destination ring which are
+ * yet to be reaped. The function also checks if the ring is near full.
+ * If more than half of the ring needs to be reaped, the ring is considered
+ * approaching full.
+ * The function useses hal_srng_dst_num_valid_locked to get the number of valid
+ * entries. It should not be called within a SRNG lock. HW pointer value is
+ * synced into cached_hp.
+ *
+ * Return: Number of pending entries in the hal_ring
+ */
+static
+uint32_t dp_rx_srng_get_num_pending(void *hal_soc,
+				    void *hal_ring_hdl,
+				    uint32_t num_entries,
+				    bool *near_full)
+{
+	uint32_t num_pending = 0;
+
+	num_pending = hal_srng_dst_num_valid_locked(hal_soc,
+						    hal_ring_hdl,
+						    true);
+
+	if (num_entries && (num_pending >= num_entries >> 1))
+		*near_full = true;
+	else
+		*near_full = false;
+
+	return num_pending;
+}
+
+/**
  * dp_rx_process() - Brain of the Rx processing functionality
  *		     Called from the bottom half (tasklet/NET_RX_SOFTIRQ)
- * @soc: core txrx main context
+ * @int_ctx: per interrupt context
  * @hal_ring: opaque pointer to the HAL Rx Ring, which will be serviced
  * @reo_ring_num: ring number (0, 1, 2 or 3) of the reo ring.
  * @quota: No. of units (packets) that can be serviced in one shot.
@@ -1666,8 +1700,10 @@ uint32_t dp_rx_process(struct dp_intr *int_ctx, void *hal_ring,
 	void *ring_desc;
 	struct dp_rx_desc *rx_desc = NULL;
 	qdf_nbuf_t nbuf, next;
+	bool near_full;
 	union dp_rx_desc_list_elem_t *head[MAX_PDEV_CNT];
 	union dp_rx_desc_list_elem_t *tail[MAX_PDEV_CNT];
+	uint32_t num_pending;
 	uint32_t rx_bufs_used = 0, rx_buf_cookie;
 	uint32_t l2_hdr_offset = 0;
 	uint16_t msdu_len = 0;
@@ -1701,6 +1737,7 @@ uint32_t dp_rx_process(struct dp_intr *int_ctx, void *hal_ring,
 	bool is_prev_msdu_last = true;
 	uint32_t num_entries_avail = 0;
 	uint32_t rx_ol_pkt_cnt = 0;
+	uint32_t num_entries = 0;
 
 	DP_HIST_INIT();
 
@@ -1711,6 +1748,8 @@ uint32_t dp_rx_process(struct dp_intr *int_ctx, void *hal_ring,
 	scn = soc->hif_handle;
 	hif_pm_runtime_mark_dp_rx_busy(scn);
 	intr_id = int_ctx->dp_intr_id;
+	num_entries = hal_srng_get_num_entries(hal_soc,
+					       hal_ring);
 
 more_data:
 	/* reset local variables here to be re-used in the function */
@@ -2157,8 +2196,6 @@ done:
 
 		dp_rx_fill_gro_info(soc, rx_tlv_hdr, nbuf, &rx_ol_pkt_cnt);
 
-		qdf_nbuf_cb_update_peer_local_id(nbuf, peer->local_id);
-
 		DP_RX_LIST_APPEND(deliver_list_head,
 				  deliver_list_tail,
 				  nbuf);
@@ -2175,11 +2212,23 @@ done:
 				       deliver_list_tail);
 
 	if (dp_rx_enable_eol_data_check(soc) && rx_bufs_used) {
-		if (quota &&
-		    hal_srng_dst_peek_sync_locked(soc, hal_ring)) {
-			DP_STATS_INC(soc, rx.hp_oos2, 1);
-			if (!hif_exec_should_yield(scn, intr_id))
-				goto more_data;
+		if (quota) {
+			num_pending =
+				dp_rx_srng_get_num_pending(hal_soc,
+							   hal_ring,
+							   num_entries,
+							   &near_full);
+			if (num_pending) {
+				DP_STATS_INC(soc, rx.hp_oos2, 1);
+
+				if (!hif_exec_should_yield(scn, intr_id))
+					goto more_data;
+
+				if (qdf_unlikely(near_full)) {
+					DP_STATS_INC(soc, rx.near_full, 1);
+					goto more_data;
+				}
+			}
 		}
 
 		if (vdev && vdev->osif_gro_flush && rx_ol_pkt_cnt) {
@@ -2194,8 +2243,24 @@ done:
 	return rx_bufs_used; /* Assume no scale factor for now */
 }
 
+QDF_STATUS dp_rx_vdev_detach(struct dp_vdev *vdev)
+{
+	QDF_STATUS ret;
+
+	if (vdev->osif_rx_flush) {
+		ret = vdev->osif_rx_flush(vdev->osif_vdev, vdev->vdev_id);
+		if (!ret) {
+			dp_err("Failed to flush rx pkts for vdev %d\n",
+			       vdev->vdev_id);
+			return ret;
+		}
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
 /**
- * dp_rx_detach() - detach dp rx
+ * dp_rx_pdev_detach() - detach dp rx
  * @pdev: core txrx pdev context
  *
  * This function will detach DP RX into main device context

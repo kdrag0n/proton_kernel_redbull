@@ -1243,8 +1243,10 @@ QDF_STATUS alloc_mem_ce_debug_hist_data(struct hif_softc *scn, uint32_t ce_id)
 		event = &hist_ev[index];
 		event->data =
 			(uint8_t *)qdf_mem_malloc(CE_DEBUG_MAX_DATA_BUF_SIZE);
-		if (!event->data)
+		if (!event->data) {
+			hif_err_rl("ce debug data alloc failed");
 			return QDF_STATUS_E_NOMEM;
+		}
 	}
 	return QDF_STATUS_SUCCESS;
 }
@@ -1276,6 +1278,7 @@ void free_mem_ce_debug_hist_data(struct hif_softc *scn, uint32_t ce_id)
 		event->data = NULL;
 		event = NULL;
 	}
+
 }
 #endif /* HIF_CE_DEBUG_DATA_BUF */
 
@@ -1319,11 +1322,11 @@ static void free_mem_ce_debug_history(struct hif_softc *scn, unsigned int ce_id)
 	struct ce_desc_hist *ce_hist = &scn->hif_ce_desc_hist;
 
 	ce_hist->enable[ce_id] = 0;
-	ce_hist->hist_ev[ce_id] = NULL;
 	if (ce_hist->data_enable[ce_id]) {
 		ce_hist->data_enable[ce_id] = false;
 		free_mem_ce_debug_hist_data(scn, ce_id);
 	}
+	ce_hist->hist_ev[ce_id] = NULL;
 }
 #else
 static inline QDF_STATUS
@@ -2069,8 +2072,6 @@ hif_pci_ce_send_done(struct CE_handle *copyeng, void *ce_context,
 {
 	struct HIF_CE_pipe_info *pipe_info =
 		(struct HIF_CE_pipe_info *)ce_context;
-	struct HIF_CE_state *hif_state = pipe_info->HIF_CE_state;
-	struct hif_softc *scn = HIF_GET_SOFTC(hif_state);
 	unsigned int sw_idx = sw_index, hw_idx = hw_index;
 	struct hif_msg_callbacks *msg_callbacks =
 		&pipe_info->pipe_callbacks;
@@ -2080,19 +2081,11 @@ hif_pci_ce_send_done(struct CE_handle *copyeng, void *ce_context,
 		 * The upper layer callback will be triggered
 		 * when last fragment is complteted.
 		 */
-		if (transfer_context != CE_SENDLIST_ITEM_CTXT) {
-			if (scn->target_status == TARGET_STATUS_RESET) {
-
-				qdf_nbuf_unmap_single(scn->qdf_dev,
-						      transfer_context,
-						      QDF_DMA_TO_DEVICE);
-				qdf_nbuf_free(transfer_context);
-			} else
-				msg_callbacks->txCompletionHandler(
-					msg_callbacks->Context,
-					transfer_context, transfer_id,
-					toeplitz_hash_result);
-		}
+		if (transfer_context != CE_SENDLIST_ITEM_CTXT)
+			msg_callbacks->txCompletionHandler(
+				msg_callbacks->Context,
+				transfer_context, transfer_id,
+				toeplitz_hash_result);
 
 		qdf_spin_lock_bh(&pipe_info->completion_freeq_lock);
 		pipe_info->num_sends_allowed++;
@@ -2350,6 +2343,7 @@ QDF_STATUS hif_post_recv_buffers_for_pipe(struct HIF_CE_pipe_info *pipe_info)
 	struct hif_softc *scn = HIF_GET_SOFTC(pipe_info->HIF_CE_state);
 	QDF_STATUS status;
 	uint32_t bufs_posted = 0;
+	unsigned int ce_id;
 
 	buf_sz = pipe_info->buf_sz;
 	if (buf_sz == 0) {
@@ -2358,6 +2352,7 @@ QDF_STATUS hif_post_recv_buffers_for_pipe(struct HIF_CE_pipe_info *pipe_info)
 	}
 
 	ce_hdl = pipe_info->ce_hdl;
+	ce_id = ((struct CE_state *)ce_hdl)->id;
 
 	qdf_spin_lock_bh(&pipe_info->recv_bufs_needed_lock);
 	while (atomic_read(&pipe_info->recv_bufs_needed) > 0) {
@@ -2367,6 +2362,9 @@ QDF_STATUS hif_post_recv_buffers_for_pipe(struct HIF_CE_pipe_info *pipe_info)
 		atomic_dec(&pipe_info->recv_bufs_needed);
 		qdf_spin_unlock_bh(&pipe_info->recv_bufs_needed_lock);
 
+		hif_record_ce_desc_event(scn, ce_id,
+					 HIF_RX_DESC_PRE_NBUF_ALLOC, NULL, NULL,
+					 0, 0);
 		nbuf = qdf_nbuf_alloc(scn->qdf_dev, buf_sz, 0, 4, false);
 		if (!nbuf) {
 			hif_post_recv_buffers_failure(pipe_info, nbuf,
@@ -2376,6 +2374,9 @@ QDF_STATUS hif_post_recv_buffers_for_pipe(struct HIF_CE_pipe_info *pipe_info)
 			return QDF_STATUS_E_NOMEM;
 		}
 
+		hif_record_ce_desc_event(scn, ce_id,
+					 HIF_RX_DESC_PRE_NBUF_MAP, NULL, nbuf,
+					 0, 0);
 		/*
 		 * qdf_nbuf_peek_header(nbuf, &data, &unused);
 		 * CE_data = dma_map_single(dev, data, buf_sz, );
@@ -2394,7 +2395,9 @@ QDF_STATUS hif_post_recv_buffers_for_pipe(struct HIF_CE_pipe_info *pipe_info)
 		}
 
 		CE_data = qdf_nbuf_get_frag_paddr(nbuf, 0);
-
+		hif_record_ce_desc_event(scn, ce_id,
+					 HIF_RX_DESC_POST_NBUF_MAP, NULL, nbuf,
+					 0, 0);
 		qdf_mem_dma_sync_single_for_device(scn->qdf_dev, CE_data,
 					       buf_sz, DMA_FROM_DEVICE);
 		status = ce_recv_buf_enqueue(ce_hdl, (void *)nbuf, CE_data);
