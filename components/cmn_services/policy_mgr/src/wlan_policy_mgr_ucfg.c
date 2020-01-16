@@ -62,6 +62,7 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 		cfg_get(psoc, CFG_ENABLE_SAP_MANDATORY_CHAN_LIST);
 	cfg->mark_indoor_chnl_disable =
 		cfg_get(psoc, CFG_MARK_INDOOR_AS_DISABLE_FEATURE);
+	cfg->prefer_5g_scc_to_dbs = cfg_get(psoc, CFG_PREFER_5G_SCC_TO_DBS);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -186,6 +187,13 @@ ucfg_policy_mgr_get_sta_sap_scc_on_dfs_chnl(struct wlan_objmgr_psoc *psoc,
 {
 	return policy_mgr_get_sta_sap_scc_on_dfs_chnl(psoc,
 						      sta_sap_scc_on_dfs_chnl);
+}
+
+bool
+ucfg_policy_mgr_get_dfs_master_dynamic_enabled(struct wlan_objmgr_psoc *psoc,
+					       uint8_t vdev_id)
+{
+	return policy_mgr_get_dfs_master_dynamic_enabled(psoc, vdev_id);
 }
 
 QDF_STATUS

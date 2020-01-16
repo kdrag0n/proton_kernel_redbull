@@ -530,6 +530,21 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
 			MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
 				session_entry->peSessionId,
 				session_entry->limMlmState));
+
+			/* WAR for some IOT issue on specific AP:
+			 * STA failed to connect to SAE AP due to incorrect
+			 * password is used. Then AP will still reject the
+			 * authentication even correct password is used unless
+			 * STA send deauth to AP upon authentication failure.
+			 */
+			if (auth_type == eSIR_AUTH_TYPE_SAE) {
+				pe_debug("Send deauth for SAE auth failure");
+				lim_send_deauth_mgmt_frame(mac_ctx,
+						       auth_cnf->protStatusCode,
+						       auth_cnf->peerMacAddr,
+						       session_entry, false);
+			}
+
 			/*
 			 * Need to send Join response with
 			 * auth failure to Host.
@@ -637,21 +652,9 @@ void lim_process_mlm_assoc_cnf(struct mac_context *mac_ctx,
 	}
 }
 
-/**
- * lim_fill_assoc_ind_params() - Initialize association indication
- * mac_ctx: Pointer to Global MAC structure
- * assoc_ind: PE association indication structure
- * sme_assoc_ind: SME association indication
- * session_entry: PE session entry
- *
- * This function is called to initialzie the association
- * indication strucutre to process association indication.
- *
- * Return: None
- */
-
-static void
-lim_fill_assoc_ind_params(struct mac_context *mac_ctx,
+void
+lim_fill_sme_assoc_ind_params(
+	struct mac_context *mac_ctx,
 	tpLimMlmAssocInd assoc_ind, struct assoc_ind *sme_assoc_ind,
 	struct pe_session *session_entry)
 {
@@ -772,9 +775,9 @@ void lim_process_mlm_assoc_ind(struct mac_context *mac, uint32_t *msg_buf)
 	}
 
 	pSirSmeAssocInd->messageType = eWNI_SME_ASSOC_IND;
-	lim_fill_assoc_ind_params(mac, (tpLimMlmAssocInd) msg_buf,
-				  pSirSmeAssocInd,
-				  pe_session);
+	lim_fill_sme_assoc_ind_params(mac, (tpLimMlmAssocInd)msg_buf,
+				      pSirSmeAssocInd,
+				      pe_session);
 	msg.type = eWNI_SME_ASSOC_IND;
 	msg.bodyptr = pSirSmeAssocInd;
 	msg.bodyval = 0;
@@ -1173,13 +1176,11 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
 	if (eSIR_SME_SUCCESS == pMlmSetKeysCnf->resultCode) {
 		if (pMlmSetKeysCnf->key_len_nonzero)
 			pe_session->is_key_installed = 1;
-		if (LIM_IS_AP_ROLE(pe_session)) {
-			sta_ds = dph_lookup_hash_entry(mac,
+		sta_ds = dph_lookup_hash_entry(mac,
 				pMlmSetKeysCnf->peer_macaddr.bytes,
 				&aid, &pe_session->dph.dphHashTable);
-			if (sta_ds && pMlmSetKeysCnf->key_len_nonzero)
-				sta_ds->is_key_installed = 1;
-		}
+		if (sta_ds && pMlmSetKeysCnf->key_len_nonzero)
+			sta_ds->is_key_installed = 1;
 	}
 	pe_debug("is_key_installed = %d", pe_session->is_key_installed);
 
@@ -2713,7 +2714,22 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 	session_entry = pe_find_session_by_sme_session_id(mac_ctx,
 							  sme_session_id);
 	if (!session_entry) {
-		pe_err("session does not exist for given session_id");
+		pe_err("session does not exist for given vdev_id %d", sme_session_id);
+		qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
+		qdf_mem_free(msg->bodyptr);
+		msg->bodyptr = NULL;
+		lim_send_sme_set_context_rsp(mac_ctx,
+					     mlm_set_key_cnf.peer_macaddr,
+					     0, eSIR_SME_INVALID_SESSION, NULL,
+					     sme_session_id);
+		return;
+	}
+
+	if (!lim_is_set_key_req_converged() &&
+	    (session_entry->limMlmState != eLIM_MLM_WT_SET_STA_KEY_STATE)) {
+		pe_err("Received in unexpected limMlmState %X vdev %d pe_session_id %d",
+			session_entry->limMlmState, session_entry->vdev_id,
+			session_entry->peSessionId);
 		qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
 		qdf_mem_free(msg->bodyptr);
 		msg->bodyptr = NULL;
@@ -2724,18 +2740,10 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 		return;
 	}
 	session_id = session_entry->peSessionId;
-	pe_debug("PE session ID %d, SME session id %d", session_id,
-		 sme_session_id);
+	pe_debug("PE session ID %d, vdev id %d", session_id, sme_session_id);
 	result_status = set_key_params->status;
 	if (!lim_is_set_key_req_converged()) {
-		if (eLIM_MLM_WT_SET_STA_KEY_STATE !=
-				session_entry->limMlmState) {
-			pe_err("Received unexpected [Mesg Id - %d] in state %X",
-			       msg->type, session_entry->limMlmState);
-			resp_reqd = 0;
-		} else {
-			mlm_set_key_cnf.resultCode = result_status;
-		}
+		mlm_set_key_cnf.resultCode = result_status;
 		/* Restore MLME state */
 		session_entry->limMlmState = session_entry->limPrevMlmState;
 	}
@@ -2811,8 +2819,8 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 	session_entry = pe_find_session_by_sme_session_id(mac_ctx,
 							  sme_session_id);
 	if (!session_entry) {
-		pe_err("session does not exist for given sessionId [%d]",
-			session_id);
+		pe_err("session does not exist for given vdev %d",
+		       sme_session_id);
 		qdf_mem_zero(msg->bodyptr, sizeof(tSetBssKeyParams));
 		qdf_mem_free(msg->bodyptr);
 		msg->bodyptr = NULL;
@@ -2821,6 +2829,22 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 					     sme_session_id);
 		return;
 	}
+	if (!lim_is_set_key_req_converged() &&
+	    (session_entry->limMlmState != eLIM_MLM_WT_SET_BSS_KEY_STATE) &&
+	    (session_entry->limMlmState !=
+	     eLIM_MLM_WT_SET_STA_BCASTKEY_STATE)) {
+		pe_err("Received in unexpected limMlmState %X vdev %d pe_session_id %d",
+			session_entry->limMlmState, session_entry->vdev_id,
+			session_entry->peSessionId);
+		qdf_mem_zero(msg->bodyptr, sizeof(tSetBssKeyParams));
+		qdf_mem_free(msg->bodyptr);
+		msg->bodyptr = NULL;
+		lim_send_sme_set_context_rsp(mac_ctx, set_key_cnf.peer_macaddr,
+					     0, eSIR_SME_INVALID_SESSION, NULL,
+					     sme_session_id);
+		return;
+	}
+
 	session_id = session_entry->peSessionId;
 	pe_debug("PE session ID %d, SME session id %d", session_id,
 		 sme_session_id);
@@ -2851,15 +2875,7 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 		set_key_cnf.key_len_nonzero = false;
 
 	if (!lim_is_set_key_req_converged()) {
-		if (eLIM_MLM_WT_SET_BSS_KEY_STATE !=
-				session_entry->limMlmState &&
-				eLIM_MLM_WT_SET_STA_BCASTKEY_STATE !=
-				session_entry->limMlmState) {
-			pe_err("Received unexpected [Mesg Id - %d] in state %X",
-			       msg->type, session_entry->limMlmState);
-		} else {
-			set_key_cnf.resultCode = result_status;
-		}
+		set_key_cnf.resultCode = result_status;
 		session_entry->limMlmState = session_entry->limPrevMlmState;
 	}
 

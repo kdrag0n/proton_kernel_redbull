@@ -46,6 +46,7 @@ struct dp_rx_tm_handle_cmn;
  * @gro_flushes: number of GRO flushes
  * @nbufq_max_len: maximum number of nbuf_lists queued for the thread
  * @dropped_invalid_vdev: packets(nbuf_list) dropped due to no vdev
+ * @rx_flushed: packets flushed after vdev delete
  * @dropped_invalid_peer: packets(nbuf_list) dropped due to no peer
  * @dropped_others: packets dropped due to other reasons
 
@@ -57,6 +58,7 @@ struct dp_rx_thread_stats {
 	unsigned int gro_flushes;
 	unsigned int nbufq_max_len;
 	unsigned int dropped_invalid_vdev;
+	unsigned int rx_flushed;
 	unsigned int dropped_invalid_peer;
 	unsigned int dropped_invalid_os_rx_handles;
 	unsigned int dropped_others;
@@ -99,18 +101,16 @@ struct dp_rx_thread {
 };
 
 /**
- * enum dp_rx_thread_state - enum to keep track of the state of the rx thread
- * @DP_RX_THREAD_INVALID: initial invalid state
- * @DP_RX_THREAD_INIT: state after being initialized
- * @DP_RX_THREAD_RUNNING: rx thread is functional(NOT suspended, processing
+ * enum dp_rx_thread_state - enum to keep track of the state of the rx threads
+ * @DP_RX_THREADS_INVALID: initial invalid state
+ * @DP_RX_THREADS_RUNNING: rx threads functional(NOT suspended, processing
  *			  packets or waiting on a wait_queue)
- * @DP_RX_THREAD_SUSPENDED: rx_thread operation is suspeded from cfg8011 suspend
+ * @DP_RX_THREADS_SUSPENDED: rx_threads suspended from cfg8011 suspend
  */
 enum dp_rx_thread_state {
-	DP_RX_THREAD_INVALID,
-	DP_RX_THREAD_INIT,
-	DP_RX_THREAD_RUNNING,
-	DP_RX_THREAD_SUSPENDED
+	DP_RX_THREADS_INVALID,
+	DP_RX_THREADS_RUNNING,
+	DP_RX_THREADS_SUSPENDED
 };
 
 /**
@@ -172,6 +172,18 @@ QDF_STATUS dp_rx_tm_gro_flush_ind(struct dp_rx_tm_handle *rx_tm_handle,
  * Return: QDF_STATUS_SUCCESS on success, error qdf status on failure
  */
 QDF_STATUS dp_rx_tm_suspend(struct dp_rx_tm_handle *rx_tm_handle);
+
+/**
+ * dp_rx_tm_flush_by_vdev_id() - flush rx packets by vdev_id in all
+				 rx thread queues
+ * @rx_tm_hdl: dp_rx_tm_handle containing the overall thread
+ *             infrastructure
+ * @vdev_id: vdev id for which packets are to be flushed
+ *
+ * Return: QDF_STATUS_SUCCESS
+ */
+QDF_STATUS dp_rx_tm_flush_by_vdev_id(struct dp_rx_tm_handle *rx_tm_hdl,
+				     uint8_t vdev_id);
 
 /**
  * dp_rx_tm_resume() - resume all threads in RXTI

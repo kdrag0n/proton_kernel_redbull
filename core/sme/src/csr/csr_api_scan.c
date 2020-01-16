@@ -478,6 +478,7 @@ static void csr_purge_channel_power(struct mac_context *mac,
 	 * Remove the channel sets from the learned list and put them
 	 * in the free list
 	 */
+	csr_ll_lock(pChannelList);
 	while ((pEntry = csr_ll_remove_head(pChannelList,
 					    LL_ACCESS_NOLOCK)) != NULL) {
 		pChannelSet = GET_BASE_ADDR(pEntry,
@@ -485,6 +486,7 @@ static void csr_purge_channel_power(struct mac_context *mac,
 		if (pChannelSet)
 			qdf_mem_free(pChannelSet);
 	}
+	csr_ll_unlock(pChannelList);
 }
 
 /*
@@ -693,7 +695,8 @@ static void csr_get_channel_power_info(struct mac_context *mac,
 	struct csr_channel_powerinfo *ch_set;
 
 	/* Get 2.4Ghz first */
-	entry = csr_ll_peek_head(list, LL_ACCESS_LOCK);
+	csr_ll_lock(list);
+	entry = csr_ll_peek_head(list, LL_ACCESS_NOLOCK);
 	while (entry && (chn_idx < *num_ch)) {
 		ch_set = GET_BASE_ADDR(entry,
 				struct csr_channel_powerinfo, link);
@@ -704,8 +707,9 @@ static void csr_get_channel_power_info(struct mac_context *mac,
 				 + (idx * ch_set->interChannelOffset));
 			chn_pwr_info[chn_idx++].tx_power = ch_set->txPower;
 		}
-		entry = csr_ll_next(list, entry, LL_ACCESS_LOCK);
+		entry = csr_ll_next(list, entry, LL_ACCESS_NOLOCK);
 	}
+	csr_ll_unlock(list);
 	*num_ch = chn_idx;
 }
 
@@ -1210,6 +1214,7 @@ void csr_scan_callback(struct wlan_objmgr_vdev *vdev,
 	struct csr_roam_session *session;
 	uint32_t session_id = 0;
 	uint8_t chan = 0;
+	QDF_STATUS status;
 	bool success = false;
 
 	mac_ctx = (struct mac_context *)arg;
@@ -1224,10 +1229,16 @@ void csr_scan_callback(struct wlan_objmgr_vdev *vdev,
 		scan_status = eCSR_SCAN_SUCCESS;
 
 	session_id = wlan_vdev_get_id(vdev);
+	status = sme_acquire_global_lock(&mac_ctx->sme);
+	if (QDF_IS_STATUS_ERROR(status))
+		return;
+
 	if (!CSR_IS_SESSION_VALID(mac_ctx, session_id)) {
 		sme_err("session %d is invalid", session_id);
+		sme_release_global_lock(&mac_ctx->sme);
 		return;
 	}
+
 	session = CSR_GET_SESSION(mac_ctx, session_id);
 
 	sme_debug("Scan Completion: status %d session %d scan_id %d",
@@ -1237,6 +1248,7 @@ void csr_scan_callback(struct wlan_objmgr_vdev *vdev,
 	if (session->scan_info.scan_id != event->scan_id) {
 		sme_debug("Scan Completion on wrong scan_id %d, expected %d",
 			session->scan_info.scan_id, event->scan_id);
+		sme_release_global_lock(&mac_ctx->sme);
 		return;
 	}
 #ifdef FEATURE_WLAN_DIAG_SUPPORT_CSR
@@ -1248,6 +1260,8 @@ void csr_scan_callback(struct wlan_objmgr_vdev *vdev,
 	/* We reuse the command here instead reissue a new command */
 	csr_handle_nxt_cmd(mac_ctx, NextCommand,
 			   session_id, chan);
+
+	sme_release_global_lock(&mac_ctx->sme);
 }
 
 tCsrScanResultInfo *csr_scan_result_get_first(struct mac_context *mac,
@@ -1500,7 +1514,8 @@ static void csr_save_tx_power_to_cfg(struct mac_context *mac,
 		return;
 
 	ch_pwr_set = (tSirMacChanInfo *)(p_buf);
-	pEntry = csr_ll_peek_head(pList, LL_ACCESS_LOCK);
+	csr_ll_lock(pList);
+	pEntry = csr_ll_peek_head(pList, LL_ACCESS_NOLOCK);
 	/*
 	 * write the tuples (startChan, numChan, txPower) for each channel found
 	 * in the channel power list.
@@ -1549,7 +1564,7 @@ static void csr_save_tx_power_to_cfg(struct mac_context *mac,
 				count++;
 			}
 		} else {
-			if (cbLen >= dataLen) {
+			if (cbLen + sizeof(tSirMacChanInfo) >= dataLen) {
 				/* this entry will overflow our allocation */
 				sme_err(
 					"Buffer overflow, start %d, num %d, offset %d",
@@ -1572,8 +1587,9 @@ static void csr_save_tx_power_to_cfg(struct mac_context *mac,
 			ch_pwr_set++;
 			count++;
 		}
-		pEntry = csr_ll_next(pList, pEntry, LL_ACCESS_LOCK);
+		pEntry = csr_ll_next(pList, pEntry, LL_ACCESS_NOLOCK);
 	}
+	csr_ll_unlock(pList);
 	if (band == BAND_2G) {
 		mac->mlme_cfg->power.max_tx_power_24.len = 3 * count;
 		qdf_mem_copy(mac->mlme_cfg->power.max_tx_power_24.data,
@@ -1663,7 +1679,7 @@ QDF_STATUS csr_scan_abort_mac_scan(struct mac_context *mac_ctx,
 				vdev_id, WLAN_LEGACY_SME_ID);
 
 	if (!vdev) {
-		sme_err("Failed get vdev");
+		sme_debug("Failed get vdev");
 		qdf_mem_free(req);
 		return QDF_STATUS_E_INVAL;
 	}
@@ -1955,6 +1971,8 @@ csr_get_channel_for_hw_mode_change(struct mac_context *mac_ctx,
 	}
 
 	if (!policy_mgr_is_hw_dbs_2x2_capable(mac_ctx->psoc) &&
+	    !policy_mgr_is_hw_dbs_required_for_band(mac_ctx->psoc,
+		HW_MODE_MAC_BAND_2G) &&
 	    !policy_mgr_get_connection_count(mac_ctx->psoc)) {
 		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
 			  FL("1x1 DBS HW with no prior connection"));
@@ -1973,7 +1991,9 @@ csr_get_channel_for_hw_mode_change(struct mac_context *mac_ctx,
 		scan_result = GET_BASE_ADDR(next_element,
 					    struct tag_csrscan_result,
 					    Link);
-		if (policy_mgr_is_hw_dbs_2x2_capable(mac_ctx->psoc)) {
+		if (policy_mgr_is_hw_dbs_required_for_band(
+				mac_ctx->psoc,
+				HW_MODE_MAC_BAND_2G)) {
 			if (WLAN_REG_IS_24GHZ_CH
 				(scan_result->Result.BssDescriptor.channelId)) {
 				channel_id =
@@ -3007,15 +3027,6 @@ void csr_init_occupied_channels_list(struct mac_context *mac_ctx,
 		return;
 	}
 
-	if (!csr_neighbor_roam_is_new_connected_profile(mac_ctx, sessionId)) {
-		/*
-		 * Do not flush occupied list since current roam profile matches
-		 * previous
-		 */
-		sme_debug("Current roam profile matches prev");
-		return;
-	}
-
 	profile = &mac_ctx->roam.roamSession[sessionId].connectedProfile;
 	if (!profile)
 		return;
@@ -3037,6 +3048,7 @@ void csr_init_occupied_channels_list(struct mac_context *mac_ctx,
 	filter->ssid_list[0].length = profile->SSID.length;
 	qdf_mem_copy(filter->ssid_list[0].ssid, profile->SSID.ssId,
 		     profile->SSID.length);
+	csr_update_pmf_cap_from_connected_profile(profile, filter);
 
 	pdev = wlan_objmgr_get_pdev_by_id(mac_ctx->psoc, 0, WLAN_LEGACY_MAC_ID);
 

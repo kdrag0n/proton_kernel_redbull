@@ -73,10 +73,6 @@
 /*----------------------------------------------------------------------------
  *  External declarations for global context
  * -------------------------------------------------------------------------*/
-#ifdef FEATURE_WLAN_CH_AVOID
-extern sapSafeChannelType safe_channels[];
-#endif /* FEATURE_WLAN_CH_AVOID */
-
 /*----------------------------------------------------------------------------
  * Static Variable Definitions
  * -------------------------------------------------------------------------*/
@@ -704,11 +700,31 @@ sap_chan_bond_dfs_sub_chan(struct sap_context *sap_context,
 
 uint8_t sap_select_default_oper_chan(struct sap_acs_cfg *acs_cfg)
 {
-	if (!acs_cfg || !acs_cfg->ch_list)
+	uint16_t i;
+
+	if (!acs_cfg || !acs_cfg->ch_list || !acs_cfg->ch_list_count)
 		return 0;
 
+	/*
+	 * There could be both 2.4Ghz and 5ghz channels present in the list
+	 * based upon the Hw mode received from hostapd, it is always better
+	 * to chose a default 5ghz operating channel than 2.4ghz, as it can
+	 * provide a better throughput, latency than 2.4ghz. Also 40 Mhz is
+	 * rare in 2.4ghz band, so 5ghz should be preferred. If we get a 5Ghz
+	 * chan in the acs cfg ch list , we should go for that first else the
+	 * default channel can be 2.4ghz.
+	 */
+
+	for (i = 0; i < acs_cfg->ch_list_count; i++) {
+		if (WLAN_CHAN_IS_5GHZ(acs_cfg->ch_list[i])) {
+			sap_debug("default channel chosen as %d",
+				  acs_cfg->ch_list[i]);
+			return acs_cfg->ch_list[i];
+		}
+	}
+
 	sap_debug("default channel chosen as %d", acs_cfg->ch_list[0]);
-	/* Return the default channel as first channel in list */
+
 	return acs_cfg->ch_list[0];
 }
 
@@ -797,6 +813,9 @@ sap_validate_chan(struct sap_context *sap_context,
 					"%s: Override ch %d to %d due to CC Intf",
 					__func__, sap_context->channel, con_ch);
 				sap_context->channel = con_ch;
+				if (WLAN_REG_IS_24GHZ_CH(con_ch))
+					sap_context->ch_params.ch_width =
+							CH_WIDTH_20MHZ;
 				wlan_reg_set_channel_params(mac_ctx->pdev,
 						sap_context->channel, 0,
 						&sap_context->ch_params);
@@ -865,6 +884,9 @@ sap_validate_chan(struct sap_context *sap_context,
 					"%s: Override ch %d to %d due to CC Intf",
 					__func__, sap_context->channel, con_ch);
 				sap_context->channel = con_ch;
+				if (WLAN_REG_IS_24GHZ_CH(con_ch))
+					sap_context->ch_params.ch_width =
+							CH_WIDTH_20MHZ;
 				wlan_reg_set_channel_params(mac_ctx->pdev,
 						sap_context->channel, 0,
 						&sap_context->ch_params);
@@ -912,11 +934,8 @@ QDF_STATUS sap_channel_sel(struct sap_context *sap_context)
 	struct wlan_objmgr_vdev *vdev = NULL;
 	uint8_t i;
 	uint8_t pdev_id;
-
-#ifdef SOFTAP_CHANNEL_RANGE
 	uint8_t *channel_list = NULL;
 	uint8_t num_of_channels = 0;
-#endif
 	mac_handle_t mac_handle;
 	uint8_t con_ch;
 	uint8_t vdev_id;
@@ -973,49 +992,47 @@ QDF_STATUS sap_channel_sel(struct sap_context *sap_context)
 	if (sap_context->acs_cfg->skip_scan_status !=
 					eSAP_SKIP_ACS_SCAN) {
 #endif
+		if (sap_context->channelList) {
+			qdf_mem_free(sap_context->channelList);
+			sap_context->channelList = NULL;
+			sap_context->num_of_channel = 0;
+		}
+		sap_get_channel_list(sap_context, &channel_list,
+				     &num_of_channels);
+		if (!num_of_channels) {
+			sap_err("No channel sutiable for ACS, SAP failed");
+			return QDF_STATUS_E_FAILURE;
+		}
 
-	if (sap_context->channelList) {
-		qdf_mem_free(sap_context->channelList);
-		sap_context->channelList = NULL;
-		sap_context->num_of_channel = 0;
-	}
-	sap_get_channel_list(sap_context, &channel_list, &num_of_channels);
-	if (!num_of_channels) {
-		sap_err("No channel sutiable for ACS, SAP failed");
-		return QDF_STATUS_E_FAILURE;
-	}
+		req = qdf_mem_malloc(sizeof(*req));
+		if (!req) {
+			qdf_mem_free(channel_list);
+			return QDF_STATUS_E_NOMEM;
+		}
 
-	req = qdf_mem_malloc(sizeof(*req));
-	if (!req)
-		return QDF_STATUS_E_NOMEM;
+		pdev_id = wlan_objmgr_pdev_get_pdev_id(mac_ctx->pdev);
+		self_mac = sap_context->self_mac_addr;
+		vdev = wlan_objmgr_get_vdev_by_macaddr_from_psoc(mac_ctx->psoc,
+							pdev_id, self_mac,
+							WLAN_LEGACY_SME_ID);
+		if (!vdev) {
+			QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
+				  FL("Invalid vdev objmgr"));
+			qdf_mem_free(channel_list);
+			qdf_mem_free(req);
+			return QDF_STATUS_E_INVAL;
+		}
 
-	pdev_id = wlan_objmgr_pdev_get_pdev_id(mac_ctx->pdev);
-	self_mac = sap_context->self_mac_addr;
-	vdev = wlan_objmgr_get_vdev_by_macaddr_from_psoc(mac_ctx->psoc,
-							 pdev_id,
-							 self_mac,
-							 WLAN_LEGACY_SME_ID);
-	if (!vdev) {
-		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
-			  FL("Invalid vdev objmgr"));
-		qdf_mem_free(req);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	/* Initiate a SCAN request */
-	ucfg_scan_init_default_params(vdev, req);
-	scan_id = ucfg_scan_get_scan_id(mac_ctx->psoc);
-	req->scan_req.scan_id = scan_id;
-	vdev_id = wlan_vdev_get_id(vdev);
-	req->scan_req.vdev_id = vdev_id;
-	req->scan_req.scan_f_passive = false;
-	req->scan_req.scan_req_id = sap_context->req_id;
-	req->scan_req.scan_priority = SCAN_PRIORITY_HIGH;
-	req->scan_req.scan_f_bcast_probe = true;
-
-#ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
-	if (num_of_channels != 0) {
-#endif
+		/* Initiate a SCAN request */
+		ucfg_scan_init_default_params(vdev, req);
+		scan_id = ucfg_scan_get_scan_id(mac_ctx->psoc);
+		req->scan_req.scan_id = scan_id;
+		vdev_id = wlan_vdev_get_id(vdev);
+		req->scan_req.vdev_id = vdev_id;
+		req->scan_req.scan_f_passive = false;
+		req->scan_req.scan_req_id = sap_context->req_id;
+		req->scan_req.scan_priority = SCAN_PRIORITY_HIGH;
+		req->scan_req.scan_f_bcast_probe = true;
 
 		req->scan_req.chan_list.num_chan = num_of_channels;
 		for (i = 0; i < num_of_channels; i++)
@@ -1039,7 +1056,6 @@ QDF_STATUS sap_channel_sel(struct sap_context *sap_context)
 			sap_context->channel = sap_select_default_oper_chan(
 					sap_context->acs_cfg);
 
-#ifdef SOFTAP_CHANNEL_RANGE
 			if (sap_context->channelList) {
 				sap_context->channel =
 					sap_context->channelList[0];
@@ -1048,7 +1064,6 @@ QDF_STATUS sap_channel_sel(struct sap_context *sap_context)
 				sap_context->channelList = NULL;
 				sap_context->num_of_channel = 0;
 			}
-#endif
 			/*
 			* In case of ACS req before start Bss,
 			* return failure so that the calling
@@ -1064,7 +1079,6 @@ QDF_STATUS sap_channel_sel(struct sap_context *sap_context)
 			host_log_acs_scan_start(scan_id, vdev_id);
 		}
 #ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
-		}
 	} else {
 		sap_context->acs_cfg->skip_scan_status = eSAP_SKIP_ACS_SCAN;
 	}
@@ -2549,7 +2563,10 @@ static QDF_STATUS sap_fsm_state_starting(struct sap_context *sap_ctx,
 			if ((false == sap_dfs_info->ignore_cac) &&
 			    (eSAP_DFS_DO_NOT_SKIP_CAC ==
 			    sap_dfs_info->cac_state) &&
-			    !sap_ctx->pre_cac_complete) {
+			    !sap_ctx->pre_cac_complete &&
+			    policy_mgr_get_dfs_master_dynamic_enabled(
+					mac_ctx->psoc,
+					sap_ctx->sessionId)) {
 				QDF_TRACE(QDF_MODULE_ID_SAP,
 					  QDF_TRACE_LEVEL_INFO_HIGH,
 					  FL("start cac timer"));
@@ -3246,9 +3263,6 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 	uint8_t start_ch_num, band_start_ch;
 	uint8_t end_ch_num, band_end_ch;
 	uint32_t en_lte_coex;
-#ifdef FEATURE_WLAN_CH_AVOID
-	uint8_t i;
-#endif
 	struct mac_context *mac_ctx;
 	tSapChSelSpectInfo spect_info_obj = { NULL, 0 };
 	uint16_t ch_width;
@@ -3262,6 +3276,9 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 	}
 
 	dfs_master_enable = mac_ctx->mlme_cfg->dfs_cfg.dfs_master_capable;
+	if (sap_ctx->dfs_mode == ACS_DFS_MODE_DISABLE)
+		dfs_master_enable = false;
+
 	start_ch_num = sap_ctx->acs_cfg->start_ch;
 	end_ch_num = sap_ctx->acs_cfg->end_ch;
 	ch_width = sap_ctx->acs_cfg->ch_width;
@@ -3307,6 +3324,10 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 		if ((start_ch_num > WLAN_REG_CH_NUM(loop_count)) ||
 		    (end_ch_num < WLAN_REG_CH_NUM(loop_count)))
 			continue;
+		/* Skip channel 12, and 13 for IOT issues for now */
+		if (WLAN_REG_CH_NUM(loop_count) == 12 ||
+		    WLAN_REG_CH_NUM(loop_count) == 13)
+			continue;
 		/*
 		 * go to next channel if none of these condition pass
 		 * - DFS scan enabled and chan not in CHANNEL_STATE_DISABLE
@@ -3321,6 +3342,20 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 		      wlan_reg_get_channel_state(mac_ctx->pdev,
 						 WLAN_REG_CH_NUM(loop_count)))
 		     )))
+			continue;
+
+		/* check if the channel is in NOL blacklist */
+		if (sap_dfs_is_channel_in_nol_list(sap_ctx,
+		    WLAN_REG_CH_NUM(loop_count),
+		    PHY_SINGLE_CHANNEL_CENTERED)) {
+			sap_debug("Ch %d in NOL list",
+				  WLAN_REG_CH_NUM(loop_count));
+			continue;
+		}
+
+		/* Skip DSRC channels */
+		if (wlan_reg_is_dsrc_chan(mac_ctx->pdev,
+					  WLAN_REG_CH_NUM(loop_count)))
 			continue;
 
 		/*
@@ -3351,33 +3386,7 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 		    wlan_reg_is_etsi13_srd_chan(mac_ctx->pdev,
 						WLAN_REG_CH_NUM(loop_count)))
 			continue;
-		/*
-		 * If we have any 5Ghz channel in the channel list
-		 * and bw is 40/80/160 Mhz then we don't want SAP to
-		 * come up in 2.4Ghz as for 40Mhz, 2.4Ghz channel is
-		 * not preferred and 80/160Mhz is not allowed for 2.4Ghz
-		 * band. So, don't even scan on 2.4Ghz channels if bw is
-		 * 40/80/160Mhz and channel list has any 5Ghz channel.
-		 */
-		if (end_ch_num >= WLAN_REG_CH_NUM(CHAN_ENUM_36) &&
-		    ((ch_width == CH_WIDTH_40MHZ) ||
-		     (ch_width == CH_WIDTH_80MHZ) ||
-		     (ch_width == CH_WIDTH_80P80MHZ) ||
-		     (ch_width == CH_WIDTH_160MHZ))) {
-			if (WLAN_REG_CH_NUM(loop_count) >=
-			    WLAN_REG_CH_NUM(CHAN_ENUM_1) &&
-			    WLAN_REG_CH_NUM(loop_count) <=
-			    WLAN_REG_CH_NUM(CHAN_ENUM_14))
-				continue;
-		}
 
-#ifdef FEATURE_WLAN_CH_AVOID
-		for (i = 0; i < NUM_CHANNELS; i++) {
-			if (safe_channels[i].channelNumber ==
-			     WLAN_REG_CH_NUM(loop_count)) {
-				/* Check if channel is safe */
-				if (true == safe_channels[i].isSafe) {
-#endif
 #ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
 		uint8_t ch;
 
@@ -3413,12 +3422,6 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 #else
 		list[ch_count] = WLAN_REG_CH_NUM(loop_count);
 		ch_count++;
-#endif
-#ifdef FEATURE_WLAN_CH_AVOID
-				}
-				break;
-			}
-		}
 #endif
 	}
 	if (0 == ch_count) {

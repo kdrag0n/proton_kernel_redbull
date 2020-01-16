@@ -97,6 +97,7 @@
 #include "init_cmd_api.h"
 #include "nan_ucfg_api.h"
 #include "wma_coex.h"
+#include "wlan_policy_mgr_i.h"
 #ifdef DIRECT_BUF_RX_ENABLE
 #include <target_if_direct_buf_rx_api.h>
 #endif
@@ -2454,6 +2455,7 @@ static int wma_flush_complete_evt_handler(void *handle,
 			  data_stall_event->recovery_type);
 
 		cdp_post_data_stall_event(soc,
+					cds_get_context(QDF_MODULE_ID_TXRX),
 					DATA_STALL_LOG_INDICATOR_FIRMWARE,
 					data_stall_event->data_stall_type,
 					0XFF,
@@ -2995,7 +2997,7 @@ void wma_vdev_deinit(struct wma_txrx_node *vdev)
 	}
 
 	if (vdev->handle) {
-		qdf_mem_free(vdev->handle);
+		WMA_LOGE("%s: vdev->handle not NULL", __func__);
 		vdev->handle = NULL;
 	}
 
@@ -3317,6 +3319,8 @@ QDF_STATUS wma_open(struct wlan_objmgr_psoc *psoc,
 			"wlan_auto_shutdown_wl");
 		qdf_wake_lock_create(&wma_handle->roam_ho_wl,
 			"wlan_roam_ho_wl");
+		qdf_wake_lock_create(&wma_handle->roam_preauth_wl,
+				     "wlan_roam_preauth_wl");
 	}
 
 	qdf_status = wlan_objmgr_psoc_try_get_ref(psoc, WLAN_LEGACY_WMA_ID);
@@ -3608,6 +3612,13 @@ QDF_STATUS wma_open(struct wlan_objmgr_psoc *psoc,
 					   wma_cold_boot_cal_event_handler,
 					   WMA_RX_WORK_CTX);
 
+#ifdef FEATURE_OEM_DATA
+	wmi_unified_register_event_handler(wma_handle->wmi_handle,
+					   wmi_oem_data_event_id,
+					   wma_oem_event_handler,
+					   WMA_RX_WORK_CTX);
+#endif
+
 #ifdef WLAN_FEATURE_LINK_LAYER_STATS
 	/* Register event handler for processing Link Layer Stats
 	 * response from the FW
@@ -3777,6 +3788,10 @@ QDF_STATUS wma_open(struct wlan_objmgr_psoc *psoc,
 					   wmi_twt_enable_complete_event_id,
 					   wma_twt_en_complete_event_handler,
 					   WMA_RX_SERIALIZER_CTX);
+	wmi_unified_register_event_handler(wma_handle->wmi_handle,
+					   wmi_twt_disable_complete_event_id,
+					   wma_twt_disable_comp_event_handler,
+					   WMA_RX_SERIALIZER_CTX);
 #endif
 
 	wma_register_apf_events(wma_handle);
@@ -3821,6 +3836,7 @@ err_get_psoc_ref:
 		qdf_wake_lock_destroy(&wma_handle->wow_ap_assoc_lost_wl);
 		qdf_wake_lock_destroy(&wma_handle->wow_auto_shutdown_wl);
 		qdf_wake_lock_destroy(&wma_handle->roam_ho_wl);
+		qdf_wake_lock_destroy(&wma_handle->roam_preauth_wl);
 	}
 err_free_wma_handle:
 	cds_free_context(QDF_MODULE_ID_WMA, wma_handle);
@@ -4744,12 +4760,8 @@ QDF_STATUS wma_wmi_service_close(void)
 	wmi_unified_detach(wma_handle->wmi_handle);
 	wma_handle->wmi_handle = NULL;
 
-	for (i = 0; i < wma_handle->max_bssid; i++) {
-		/* Release peer and vdev ref hold by wma if not already done */
-		wma_release_vdev_and_peer_ref(wma_handle,
-					      &wma_handle->interfaces[i]);
+	for (i = 0; i < wma_handle->max_bssid; i++)
 		wma_vdev_deinit(&wma_handle->interfaces[i]);
-	}
 
 	qdf_mem_free(wma_handle->interfaces);
 
@@ -4846,6 +4858,7 @@ QDF_STATUS wma_close(void)
 		qdf_wake_lock_destroy(&wma_handle->wow_ap_assoc_lost_wl);
 		qdf_wake_lock_destroy(&wma_handle->wow_auto_shutdown_wl);
 		qdf_wake_lock_destroy(&wma_handle->roam_ho_wl);
+		qdf_wake_lock_destroy(&wma_handle->roam_preauth_wl);
 	}
 
 	/* unregister Firmware debug log */
@@ -5719,6 +5732,40 @@ static void wma_update_mlme_related_tgt_caps(struct wlan_objmgr_psoc *psoc,
 	wlan_mlme_update_cfg_with_tgt_caps(psoc, &mlme_tgt_cfg);
 }
 
+static bool
+wma_is_dbs_mandatory(struct wlan_objmgr_psoc *psoc,
+		     struct target_psoc_info *tgt_hdl)
+{
+	uint8_t i, total_mac_phy_cnt;
+	struct wlan_psoc_host_mac_phy_caps *mac_cap, *mac_phy_cap;
+	uint8_t supported_band = 0;
+
+	if (!policy_mgr_find_if_fw_supports_dbs(psoc) ||
+	    !policy_mgr_find_if_hwlist_has_dbs(psoc))
+		return false;
+
+	total_mac_phy_cnt = target_psoc_get_total_mac_phy_cnt(tgt_hdl);
+	mac_phy_cap = target_psoc_get_mac_phy_cap(tgt_hdl);
+
+	for (i = 0; i < total_mac_phy_cnt; i++) {
+		mac_cap = &mac_phy_cap[i];
+		if (mac_cap->phy_id == 0)
+			supported_band |= mac_cap->supported_bands;
+	}
+
+	/* If Mac0 supports both the bands then DBS is not mandatory */
+	if (supported_band & WLAN_2G_CAPABILITY &&
+	    supported_band & WLAN_5G_CAPABILITY) {
+		wma_debug("Mac0 supports both bands DBS is optional");
+		return false;
+	}
+
+	wma_info("MAC0 does not support both bands %d DBS is mandatory",
+		 supported_band);
+
+	return true;
+}
+
 /**
  * wma_update_hdd_cfg() - update HDD config
  * @wma_handle: wma handle
@@ -6346,7 +6393,7 @@ static QDF_STATUS wma_get_phyid_for_given_band(
 			struct target_psoc_info *tgt_hdl,
 			enum cds_band_type band, uint8_t *phyid)
 {
-	uint8_t idx, i, num_radios;
+	uint8_t idx, i, total_mac_phy_cnt;
 	struct wlan_psoc_host_mac_phy_caps *mac_phy_cap;
 
 	if (!wma_handle) {
@@ -6356,10 +6403,10 @@ static QDF_STATUS wma_get_phyid_for_given_band(
 
 	idx = 0;
 	*phyid = idx;
-	num_radios = target_psoc_get_num_radios(tgt_hdl);
+	total_mac_phy_cnt = target_psoc_get_total_mac_phy_cnt(tgt_hdl);
 	mac_phy_cap = target_psoc_get_mac_phy_cap(tgt_hdl);
 
-	for (i = 0; i < num_radios; i++) {
+	for (i = 0; i < total_mac_phy_cnt; i++) {
 		if ((band == CDS_BAND_2GHZ) &&
 		(WLAN_2G_CAPABILITY == mac_phy_cap[idx + i].supported_bands)) {
 			*phyid = idx + i;
@@ -6372,7 +6419,8 @@ static QDF_STATUS wma_get_phyid_for_given_band(
 			return QDF_STATUS_SUCCESS;
 		}
 	}
-	WMA_LOGD("Using default single hw mode phyid[%d]", *phyid);
+	WMA_LOGD("Using default single hw mode phyid[%d] total_mac_phy_cnt %d",
+		 *phyid, total_mac_phy_cnt);
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -6981,6 +7029,13 @@ int wma_rx_service_ready_ext_event(void *handle, uint8_t *event,
 
 	WMA_LOGD("WMA --> WMI_INIT_CMDID");
 
+	if (wma_is_dbs_mandatory(wma_handle->psoc, tgt_hdl) &&
+	   (policy_mgr_is_dual_mac_disabled_in_ini(wma_handle->psoc))) {
+		policy_mgr_set_dual_mac_feature(wma_handle->psoc,
+				ENABLE_DBS_CXN_AND_DISABLE_SIMULTANEOUS_SCAN);
+		policy_mgr_set_ch_select_plcy(wma_handle->psoc,
+					      POLICY_MGR_CH_SELECT_POLICY_DEF);
+	}
 	wma_init_scan_fw_mode_config(wma_handle->psoc, conc_scan_config_bits,
 				     fw_config_bits);
 
@@ -8770,6 +8825,10 @@ static QDF_STATUS wma_mc_process_msg(struct scheduler_msg *msg)
 		qdf_mem_free(msg->bodyptr);
 		break;
 
+	case WMA_ROAM_SYNC_TIMEOUT:
+		wma_handle_roam_sync_timeout(wma_handle, msg->bodyptr);
+		qdf_mem_free(msg->bodyptr);
+		break;
 	case WMA_RATE_UPDATE_IND:
 		wma_process_rate_update_indicate(wma_handle,
 				(tSirRateUpdateInd *) msg->bodyptr);
@@ -8950,11 +9009,6 @@ static QDF_STATUS wma_mc_process_msg(struct scheduler_msg *msg)
 		wma_set_epno_network_list(wma_handle, msg->bodyptr);
 		qdf_mem_free(msg->bodyptr);
 		break;
-	case WMA_SET_PER_ROAM_CONFIG_CMD:
-		wma_update_per_roam_config(wma_handle,
-			(struct wmi_per_roam_config_req *)msg->bodyptr);
-		qdf_mem_free(msg->bodyptr);
-		break;
 	case WMA_SET_PASSPOINT_LIST_REQ:
 		/* Issue reset passpoint network list first and clear
 		 * the entries
@@ -8969,6 +9023,11 @@ static QDF_STATUS wma_mc_process_msg(struct scheduler_msg *msg)
 		qdf_mem_free(msg->bodyptr);
 		break;
 #endif /* FEATURE_WLAN_EXTSCAN */
+	case WMA_SET_PER_ROAM_CONFIG_CMD:
+		wma_update_per_roam_config(wma_handle,
+			(struct wmi_per_roam_config_req *)msg->bodyptr);
+		qdf_mem_free(msg->bodyptr);
+		break;
 	case WMA_SET_SCAN_MAC_OUI_REQ:
 		wma_scan_probe_setoui(wma_handle, msg->bodyptr);
 		qdf_mem_free(msg->bodyptr);
@@ -9737,9 +9796,15 @@ QDF_STATUS wma_get_rx_chainmask(uint8_t pdev_id, uint32_t *chainmask_2g,
 				uint32_t *chainmask_5g)
 {
 	struct wlan_psoc_host_mac_phy_caps *mac_phy_cap;
-	uint8_t total_mac_phy_cnt;
+	uint8_t total_mac_phy_cnt, idx;
 	struct target_psoc_info *tgt_hdl;
+	uint32_t hw_mode_idx = 0, num_hw_modes = 0;
+
 	tp_wma_handle wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
+	if (!wma_handle) {
+		wma_err("wma_handle is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
 
 	tgt_hdl = wlan_psoc_get_tgt_if_handle(wma_handle->psoc);
 	if (!tgt_hdl) {
@@ -9748,17 +9813,28 @@ QDF_STATUS wma_get_rx_chainmask(uint8_t pdev_id, uint32_t *chainmask_2g,
 	}
 
 	total_mac_phy_cnt = target_psoc_get_total_mac_phy_cnt(tgt_hdl);
+	num_hw_modes = target_psoc_get_num_hw_modes(tgt_hdl);
 	if (total_mac_phy_cnt <= pdev_id) {
 		WMA_LOGE("%s: mac phy cnt %d, pdev id %d", __func__,
 			 total_mac_phy_cnt, pdev_id);
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	if ((wma_handle->new_hw_mode_index != WMA_DEFAULT_HW_MODE_INDEX) &&
+	    (num_hw_modes > 0) &&
+	    (wma_handle->new_hw_mode_index < num_hw_modes))
+		hw_mode_idx = wma_handle->new_hw_mode_index;
 	mac_phy_cap = target_psoc_get_mac_phy_cap(tgt_hdl);
-	*chainmask_2g = mac_phy_cap[pdev_id].rx_chain_mask_2G;
-	*chainmask_5g = mac_phy_cap[pdev_id].rx_chain_mask_5G;
-	WMA_LOGD("%s, pdev id: %d, rx chainmask 2g:%d, rx chainmask 5g:%d",
-		 __func__, pdev_id, *chainmask_2g, *chainmask_5g);
+	for (idx = 0; idx < total_mac_phy_cnt; idx++) {
+		if (mac_phy_cap[idx].hw_mode_id != hw_mode_idx)
+			continue;
+		if (mac_phy_cap[idx].supported_bands & WLAN_2G_CAPABILITY)
+			*chainmask_2g = mac_phy_cap[idx].rx_chain_mask_2G;
+		if (mac_phy_cap[idx].supported_bands & WLAN_5G_CAPABILITY)
+			*chainmask_5g = mac_phy_cap[idx].rx_chain_mask_5G;
+	}
+	WMA_LOGD("%s, pdev id: %d, hw_mode_idx: %d, rx chainmask 2g:%d, 5g:%d",
+		 __func__, pdev_id, hw_mode_idx, *chainmask_2g, *chainmask_5g);
 
 	return QDF_STATUS_SUCCESS;
 }

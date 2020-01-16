@@ -95,10 +95,21 @@ QDF_STATUS wlan_ipa_uc_enable_pipes(struct wlan_ipa_priv *ipa_ctx);
 /**
  * wlan_ipa_uc_disable_pipes() - Disable IPA uC pipes
  * @ipa_ctx: IPA context
+ * @force_disable: If true, immediately disable IPA pipes. If false, wait for
+ *		   pending IPA WLAN TX completions
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS wlan_ipa_uc_disable_pipes(struct wlan_ipa_priv *ipa_ctx);
+QDF_STATUS wlan_ipa_uc_disable_pipes(struct wlan_ipa_priv *ipa_ctx,
+				     bool force_disable);
+
+/**
+ * wlan_ipa_is_tx_pending() - Check if IPA TX Completions are pending
+ * @ipa_ctx: IPA context
+ *
+ * Return: bool
+ */
+bool wlan_ipa_is_tx_pending(struct wlan_ipa_priv *ipa_ctx);
 
 /**
  * wlan_ipa_set_perf_level() - Set IPA performance level
@@ -131,6 +142,18 @@ QDF_STATUS wlan_ipa_init_perf_level(struct wlan_ipa_priv *ipa_ctx);
  */
 struct wlan_ipa_iface_context
 *wlan_ipa_get_iface(struct wlan_ipa_priv *ipa_ctx, uint8_t mode);
+
+/**
+ * wlan_ipa_get_iface_by_mode_netdev() - Get IPA interface
+ * @ipa_ctx: IPA context
+ * @ndev: Interface netdev pointer
+ * @mode: Interface device mode
+ *
+ * Return: IPA interface address
+ */
+struct wlan_ipa_iface_context *
+wlan_ipa_get_iface_by_mode_netdev(struct wlan_ipa_priv *ipa_ctx,
+				  qdf_netdev_t ndev, uint8_t mode);
 
 #ifndef CONFIG_IPA_WDI_UNIFIED_API
 

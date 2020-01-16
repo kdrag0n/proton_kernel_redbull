@@ -153,6 +153,7 @@ struct scheduler_msg;
  * @SIR_ROAMING_ABORT: Firmware aborted roaming operation, still connected.
  * @SIR_ROAM_SYNCH_COMPLETE: Roam sync propagation is complete.
  * @SIR_ROAMING_INVOKE_FAIL: Firmware roaming failed.
+ * @SIR_ROAMING_DEAUTH: Firmware indicates deauth.
  */
 enum sir_roam_op_code {
 	SIR_ROAM_SYNCH_PROPAGATION = 1,
@@ -162,6 +163,7 @@ enum sir_roam_op_code {
 	SIR_ROAM_SYNCH_COMPLETE,
 	SIR_ROAM_SYNCH_NAPI_OFF,
 	SIR_ROAMING_INVOKE_FAIL,
+	SIR_ROAMING_DEAUTH,
 };
 /**
  * Module ID definitions.
@@ -196,6 +198,7 @@ struct rsn_caps {
 
 /**
  * struct wlan_beacon_report - Beacon info to be send to userspace
+ * @vdev_id: vdev id
  * @ssid: ssid present in beacon
  * @bssid: bssid present in beacon
  * @frequency: channel frequency in MHz
@@ -204,6 +207,7 @@ struct rsn_caps {
  * @boot_time: Boot time when beacon received
  */
 struct wlan_beacon_report {
+	uint8_t vdev_id;
 	struct wlan_ssid ssid;
 	struct qdf_mac_addr bssid;
 	uint32_t frequency;
@@ -1127,6 +1131,7 @@ struct assoc_ind {
 	const uint8_t *owe_ie;
 	uint32_t owe_ie_len;
 	uint16_t owe_status;
+	bool need_assoc_rsp_tx_cb;
 };
 
 /**
@@ -1151,6 +1156,7 @@ struct assoc_cnf {
 	enum mac_status_code mac_status_code;
 	uint8_t *owe_ie;
 	uint32_t owe_ie_len;
+	bool need_assoc_rsp_tx_cb;
 };
 
 /* / Enum definition for  Wireless medium status change codes */
@@ -2118,12 +2124,12 @@ typedef struct {
 	uint32_t authentication;
 	uint8_t encryption;
 	uint8_t mcencryption;
+	tAniEdType gp_mgmt_cipher_suite;
 	uint8_t ChannelCount;
 	uint8_t ChannelCache[SIR_ROAM_MAX_CHANNELS];
 #ifdef WLAN_FEATURE_11W
 	bool mfp_enabled;
 #endif
-
 } tSirRoamNetworkType;
 
 typedef enum {
@@ -2257,6 +2263,14 @@ struct mawc_params {
 struct roam_init_params {
 	uint8_t vdev_id;
 	uint8_t enable;
+};
+
+/**
+ * struct roam_sync_timeout_timer_info - Info related to roam sync timer
+ * @vdev_id: Vdev id for which host waiting roam sync ind from fw
+ */
+struct roam_sync_timeout_timer_info {
+	uint8_t vdev_id;
 };
 
 struct roam_offload_scan_req {
@@ -3127,6 +3141,29 @@ struct sir_wisa_params {
 	uint8_t vdev_id;
 };
 
+/**
+ * typedef enum wifi_scan_flags - wifi scan flags
+ * @WIFI_SCAN_FLAG_INTERRUPTED: Indicates that scan results are not complete
+ *				because probes were not sent on some channels
+ */
+typedef enum {
+	WIFI_SCAN_FLAG_INTERRUPTED = 1,
+} wifi_scan_flags;
+
+typedef enum {
+	WIFI_BAND_UNSPECIFIED,
+	WIFI_BAND_BG = 1,       /* 2.4 GHz */
+	WIFI_BAND_A = 2,        /* 5 GHz without DFS */
+	WIFI_BAND_ABG = 3,      /* 2.4 GHz + 5 GHz; no DFS */
+	WIFI_BAND_A_DFS_ONLY = 4,       /* 5 GHz DFS only */
+	/* 5 is reserved */
+	WIFI_BAND_A_WITH_DFS = 6,       /* 5 GHz with DFS */
+	WIFI_BAND_ABG_WITH_DFS = 7,     /* 2.4 GHz + 5 GHz with DFS */
+
+	/* Keep it last */
+	WIFI_BAND_MAX
+} tWifiBand;
+
 #ifdef FEATURE_WLAN_EXTSCAN
 
 #define WLAN_EXTSCAN_MAX_CHANNELS                 36
@@ -3158,29 +3195,6 @@ typedef enum {
 	/* Keep this last */
 	eSIR_EXTSCAN_CALLBACK_TYPE_MAX,
 } tSirExtScanCallbackType;
-
-/**
- * typedef enum wifi_scan_flags - wifi scan flags
- * @WIFI_SCAN_FLAG_INTERRUPTED: Indicates that scan results are not complete
- *				because probes were not sent on some channels
- */
-typedef enum {
-	WIFI_SCAN_FLAG_INTERRUPTED = 1,
-} wifi_scan_flags;
-
-typedef enum {
-	WIFI_BAND_UNSPECIFIED,
-	WIFI_BAND_BG = 1,       /* 2.4 GHz */
-	WIFI_BAND_A = 2,        /* 5 GHz without DFS */
-	WIFI_BAND_ABG = 3,      /* 2.4 GHz + 5 GHz; no DFS */
-	WIFI_BAND_A_DFS_ONLY = 4,       /* 5 GHz DFS only */
-	/* 5 is reserved */
-	WIFI_BAND_A_WITH_DFS = 6,       /* 5 GHz with DFS */
-	WIFI_BAND_ABG_WITH_DFS = 7,     /* 2.4 GHz + 5 GHz with DFS */
-
-	/* Keep it last */
-	WIFI_BAND_MAX
-} tWifiBand;
 
 /**
  * enum wifi_extscan_event_type - extscan event type
@@ -5806,6 +5820,7 @@ struct sme_rcpi_req {
  * @EAPOL_IN_PROGRESS: STA/P2P-CLI is in middle of EAPOL/WPS exchange
  * @SAP_EAPOL_IN_PROGRESS: SAP/P2P-GO is in middle of EAPOL/WPS exchange
  * @SAP_CONNECTION_IN_PROGRESS: SAP/P2P-GO is in middle of connection.
+ * @NAN_ENABLE_DISABLE_IN_PROGRESS: NAN is in middle of enable/disable discovery
  */
 enum scan_reject_states {
 	SCAN_REJECT_DEFAULT = 0,
@@ -5814,6 +5829,7 @@ enum scan_reject_states {
 	EAPOL_IN_PROGRESS,
 	SAP_EAPOL_IN_PROGRESS,
 	SAP_CONNECTION_IN_PROGRESS,
+	NAN_ENABLE_DISABLE_IN_PROGRESS,
 };
 
 /**

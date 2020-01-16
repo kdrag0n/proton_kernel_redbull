@@ -284,6 +284,15 @@ bool ucfg_is_nan_enable_allowed(struct wlan_objmgr_psoc *psoc,
 				uint8_t nan_chan);
 
 /**
+ * ucfg_is_nan_disc_active() - ucfg API to query if NAN Discovery is
+ * active
+ * @psoc: pointer to psoc object
+ *
+ * Return: True if NAN Discovery is active, False otherwise
+ */
+bool ucfg_is_nan_disc_active(struct wlan_objmgr_psoc *psoc);
+
+/**
  * ucfg_nan_set_tgt_caps: ucfg API to set the NAN capabilities of the Target
  * @psoc: pointer to psoc object
  * @nan_caps: pointer to the structure of NAN capability bits
@@ -331,6 +340,26 @@ ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS ucfg_ndi_remove_entry_from_policy_mgr(struct wlan_objmgr_vdev *vdev);
 
+/**
+ * ucfg_nan_is_enable_disable_in_progress() - Is NAN enable/disable in progress
+ * @psoc: Pointer to PSOC object
+ *
+ * Return: True if NAN discovery enable/disable is in progress, false otherwise
+ */
+bool ucfg_nan_is_enable_disable_in_progress(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_nan_is_sta_ndp_concurrency_allowed() - Indicates if NDP is allowed
+ * @psoc: pointer to psoc object
+ * @vdev: pointer to vdev object
+ *
+ * If STA+NDI(NDPs) exist and another NDI tries to establish
+ * NDP, then reject the second NDI(NDP).
+ *
+ * Return: true if allowed, false otherwise
+ */
+bool ucfg_nan_is_sta_ndp_concurrency_allowed(struct wlan_objmgr_psoc *psoc,
+					     struct wlan_objmgr_vdev *vdev);
 #else /* WLAN_FEATURE_NAN */
 
 static inline
@@ -359,5 +388,22 @@ static inline void ucfg_nan_psoc_close(struct wlan_objmgr_psoc *psoc)
 {
 }
 
+static inline bool ucfg_is_nan_disc_active(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+
+static inline
+bool ucfg_nan_is_enable_disable_in_progress(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+
+static inline
+bool ucfg_nan_is_sta_ndp_concurrency_allowed(struct wlan_objmgr_psoc *psoc,
+					     struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
 #endif /* WLAN_FEATURE_NAN */
 #endif /* _NAN_UCFG_API_H_ */

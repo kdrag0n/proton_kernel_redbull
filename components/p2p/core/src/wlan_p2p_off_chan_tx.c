@@ -571,6 +571,11 @@ static QDF_STATUS p2p_populate_mac_header(
 	psoc = tx_ctx->p2p_soc_obj->soc;
 
 	wh = (struct wlan_frame_hdr *)tx_ctx->buf;
+	/*
+	 * Remove the WEP bit if already set, p2p_populate_rmf_field will set it
+	 * if required.
+	 */
+	wh->i_fc[1] &= ~IEEE80211_FC1_WEP;
 	mac_addr = wh->i_addr1;
 	pdev_id = wlan_get_pdev_id_from_vdev_id(psoc, tx_ctx->vdev_id,
 						WLAN_P2P_ID);
@@ -601,6 +606,7 @@ static QDF_STATUS p2p_populate_mac_header(
 	seq_ctl->seq_num_lo = (seq_num & WLAN_LOW_SEQ_NUM_MASK);
 	seq_ctl->seq_num_hi = ((seq_num & WLAN_HIGH_SEQ_NUM_MASK) >>
 				WLAN_HIGH_SEQ_NUM_OFFSET);
+	p2p_debug("seq num: %d", seq_num);
 
 	wlan_objmgr_peer_release_ref(peer, WLAN_P2P_ID);
 
@@ -1530,6 +1536,7 @@ static QDF_STATUS p2p_populate_rmf_field(struct tx_action_context *tx_ctx,
 	uint8_t *frame;
 	uint32_t frame_len;
 	struct p2p_soc_priv_obj *p2p_soc_obj;
+	uint8_t action_category;
 
 	p2p_soc_obj = tx_ctx->p2p_soc_obj;
 
@@ -1544,8 +1551,14 @@ static QDF_STATUS p2p_populate_rmf_field(struct tx_action_context *tx_ctx,
 	wh = (struct wlan_frame_hdr *)(*ppbuf);
 	action_hdr = (struct action_frm_hdr *)(*ppbuf + sizeof(*wh));
 
-	if (!is_rmf_mgmt_action_frame(action_hdr->action_category)) {
-		p2p_debug("non rmf act frame 0x%x cat %x",
+	/*
+	 * For Action frame which are not handled, the resp is sent back to the
+	 * source without change, except that MSB of the Category set to 1, so
+	 * to get the actual action category we need to ignore the MSB.
+	 */
+	action_category = action_hdr->action_category & 0x7f;
+	if (!is_rmf_mgmt_action_frame(action_category)) {
+		p2p_debug("non rmf act frame 0x%x category %x",
 			  tx_ctx->frame_info.sub_type,
 			  action_hdr->action_category);
 		return QDF_STATUS_SUCCESS;
@@ -2937,6 +2950,7 @@ QDF_STATUS p2p_process_mgmt_tx_cancel(
 					cancel_tx->p2p_soc_obj;
 			cancel_roc.cookie =
 					cur_tx_ctx->roc_cookie;
+			p2p_remove_tx_context(cur_tx_ctx);
 			return p2p_process_cancel_roc_req(&cancel_roc);
 		}
 		if (is_ack_q) {

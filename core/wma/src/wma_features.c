@@ -1216,6 +1216,32 @@ int wma_unified_csa_offload_enable(tp_wma_handle wma, uint8_t vdev_id)
 }
 #endif /* WLAN_POWER_MANAGEMENT_OFFLOAD */
 
+static uint8_t *
+wma_parse_ch_switch_wrapper_ie(uint8_t *ch_wr_ie, uint8_t sub_ele_id)
+{
+	uint8_t len = 0, sub_ele_len = 0;
+	struct ie_header *ele;
+
+	ele = (struct ie_header *)ch_wr_ie;
+	if (ele->ie_id != WLAN_ELEMID_CHAN_SWITCH_WRAP ||
+	    ele->ie_len == 0)
+		return NULL;
+
+	len = ele->ie_len;
+	ele = (struct ie_header *)(ch_wr_ie + sizeof(struct ie_header));
+
+	while (len > 0) {
+		sub_ele_len = sizeof(struct ie_header) + ele->ie_len;
+		len -= sub_ele_len;
+		if (ele->ie_id == sub_ele_id)
+			return (uint8_t *)ele;
+
+		ele = (struct ie_header *)((uint8_t *)ele + sub_ele_len);
+	}
+
+	return NULL;
+}
+
 /**
  * wma_csa_offload_handler() - CSA event handler
  * @handle: wma handle
@@ -1293,12 +1319,32 @@ int wma_csa_offload_handler(void *handle, uint8_t *event, uint32_t len)
 		csa_offload_event->new_ch_width = wb_ie->new_ch_width;
 		csa_offload_event->new_ch_freq_seg1 = wb_ie->new_ch_freq_seg1;
 		csa_offload_event->new_ch_freq_seg2 = wb_ie->new_ch_freq_seg2;
+	} else if (csa_event->ies_present_flag &
+		   WMI_CSWRAP_IE_EXTENDED_PRESENT) {
+		wb_ie = (struct ieee80211_ie_wide_bw_switch *)
+				wma_parse_ch_switch_wrapper_ie(
+				(uint8_t *)&csa_event->cswrap_ie_extended,
+				WLAN_ELEMID_WIDE_BAND_CHAN_SWITCH);
+		if (wb_ie) {
+			csa_offload_event->new_ch_width = wb_ie->new_ch_width;
+			csa_offload_event->new_ch_freq_seg1 =
+						wb_ie->new_ch_freq_seg1;
+			csa_offload_event->new_ch_freq_seg2 =
+						wb_ie->new_ch_freq_seg2;
+			csa_event->ies_present_flag |= WMI_WBW_IE_PRESENT;
+		}
 	}
 
 	csa_offload_event->ies_present_flag = csa_event->ies_present_flag;
 
 	WMA_LOGD("CSA: New Channel = %d BSSID:%pM",
 		 csa_offload_event->channel, csa_offload_event->bssId);
+	WMA_LOGD("CSA: IEs Present Flag = 0x%x new ch width = %d ch center freq1 = %d ch center freq2 = %d new op class = %d",
+		 csa_event->ies_present_flag,
+		 csa_offload_event->new_ch_width,
+		 csa_offload_event->new_ch_freq_seg1,
+		 csa_offload_event->new_ch_freq_seg2,
+		 csa_offload_event->new_op_class);
 
 	cur_chan = cds_freq_to_chan(intr[vdev_id].mhz);
 	/*
@@ -1538,6 +1584,8 @@ static const uint8_t *wma_wow_wake_reason_str(A_INT32 wake_reason)
 		return "IOAC_TIMER_EVENT";
 	case WOW_REASON_ROAM_HO:
 		return "ROAM_HO";
+	case WOW_REASON_ROAM_PREAUTH_START:
+		return "ROAM_PREAUTH_START_EVENT";
 	case WOW_REASON_DFS_PHYERR_RADADR_EVENT:
 		return "DFS_PHYERR_RADADR_EVENT";
 	case WOW_REASON_BEACON_RECV:
@@ -1695,6 +1743,12 @@ static void wma_print_wow_stats(t_wma_handle *wma,
 	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(wma->psoc,
 						    wake_info->vdev_id,
 						    WLAN_LEGACY_WMA_ID);
+	if (!vdev) {
+		WMA_LOGE("%s, vdev_id: %d, failed to get vdev from psoc",
+			 __func__, wake_info->vdev_id);
+		return;
+	}
+
 	ucfg_mc_cp_stats_get_vdev_wake_lock_stats(vdev, &stats);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_WMA_ID);
 	wma_wow_stats_display(&stats);
@@ -1929,6 +1983,9 @@ static int wow_get_wmi_eventid(int32_t reason, uint32_t tag)
 		break;
 	case WOW_REASON_11D_SCAN:
 		event_id = WMI_11D_NEW_COUNTRY_EVENTID;
+		break;
+	case WOW_ROAM_PREAUTH_START_EVENT:
+		event_id = WMI_ROAM_PREAUTH_STATUS_CMDID;
 		break;
 	default:
 		WMA_LOGD(FL("No Event Id for WOW reason %s(%d)"),
@@ -2569,6 +2626,9 @@ static void wma_acquire_wow_wakelock(t_wma_handle *wma, int wake_reason)
 		wl = &wma->roam_ho_wl;
 		ms = WMA_ROAM_HO_WAKE_LOCK_DURATION;
 		break;
+	case WOW_REASON_ROAM_PREAUTH_START:
+		wl = &wma->roam_preauth_wl;
+		ms = WMA_ROAM_PREAUTH_WAKE_LOCK_DURATION;
 	default:
 		return;
 	}

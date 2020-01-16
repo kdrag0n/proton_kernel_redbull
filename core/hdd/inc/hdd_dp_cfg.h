@@ -37,10 +37,14 @@
 #define CFG_RX_MODE_DEFAULT 0
 #elif defined(HELIUMPLUS)
 #define CFG_RX_MODE_DEFAULT CFG_ENABLE_NAPI
-#elif defined(QCA_WIFI_QCA6290_11AX)
+#endif
+
+#ifndef CFG_RX_MODE_DEFAULT
+#if defined(FEATURE_WLAN_DP_RX_THREADS)
 #define CFG_RX_MODE_DEFAULT (CFG_ENABLE_DP_RX_THREADS | CFG_ENABLE_NAPI)
 #else
 #define CFG_RX_MODE_DEFAULT (CFG_ENABLE_RX_THREAD | CFG_ENABLE_NAPI)
+#endif
 #endif
 
 /* Max # of packets to be processed in 1 tx comp loop */
@@ -356,7 +360,7 @@
  *
  * @Min: 0
  * @Max: 4294967295UL
- * @Default: 7000
+ * @Default: 9000
  *
  * This ini specifies the bus bandwidth very high threshold
  *
@@ -369,7 +373,7 @@
 		"gBusBandwidthVeryHighThreshold", \
 		0, \
 		4294967295UL, \
-		7000, \
+		9000, \
 		CFG_VALUE_OR_DEFAULT, \
 		"Bus bandwidth very high threshold")
 
@@ -963,14 +967,40 @@
 	1, 4, 1, CFG_VALUE_OR_DEFAULT, \
 	"Control to set the number of dp rx threads")
 
+/*
+ * <ini>
+ * ce_service_max_rx_ind_flush - Maximum number of HTT messages
+ * to be processed per NAPI poll
+ *
+ * @Min: 1
+ * @Max: 32
+ * @Default: 1
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
 #define CFG_DP_CE_SERVICE_MAX_RX_IND_FLUSH \
 		CFG_INI_UINT("ce_service_max_rx_ind_flush", \
-		1, 32, 32, \
+		1, 32, 1, \
 		CFG_VALUE_OR_DEFAULT, "Ctrl to set ce service max rx ind flsh")
 
+/*
+ * <ini>
+ * ce_service_max_yield_time - Time in microseconds after which
+ * a NAPI poll must yield
+ *
+ * @Min: 500
+ * @Max: 10000
+ * @Default: 500
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
 #define CFG_DP_CE_SERVICE_MAX_YIELD_TIME \
 		CFG_INI_UINT("ce_service_max_yield_time", \
-		500, 10000, 10000, \
+		500, 10000, 500, \
 		CFG_VALUE_OR_DEFAULT, "Ctrl to set ce service max yield time")
 
 #ifdef WLAN_FEATURE_FASTPATH

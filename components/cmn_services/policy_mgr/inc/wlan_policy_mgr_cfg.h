@@ -98,6 +98,9 @@
 					1, 4, 3, \
 					CFG_VALUE_OR_DEFAULT, \
 					"Config max num allowed connections")
+
+#define POLICY_MGR_CH_SELECT_POLICY_DEF         0x00000003
+
 /*
  * <ini>
  * channel_select_logic_conc - Set channel selection logic
@@ -121,12 +124,12 @@
  * </ini>
  */
 #define CFG_CHNL_SELECT_LOGIC_CONC CFG_INI_UINT(\
-						"channel_select_logic_conc",\
-						0x00000000, \
-						0xFFFFFFFF, \
-						0x00000003, \
-						CFG_VALUE_OR_DEFAULT, \
-						"Set channel selection policy for various concurrency")
+					"channel_select_logic_conc",\
+					0x00000000, \
+					0xFFFFFFFF, \
+					POLICY_MGR_CH_SELECT_POLICY_DEF, \
+					CFG_VALUE_OR_DEFAULT, \
+					"Set channel selection policy for various concurrency")
 /*
  * <ini>
  * dbs_selection_policy - Configure dbs selection policy.
@@ -386,14 +389,18 @@ CFG_INI_UINT("gDualMacFeatureDisable", 0, 6, 0, CFG_VALUE_OR_DEFAULT, \
  * g_sta_sap_scc_on_dfs_chan - Allow STA+SAP SCC on DFS channel with master
  * mode support disabled.
  * @Min: 0
- * @Max: 1
- * @Default: 0
+ * @Max: 2
+ * @Default: 2
  *
  * This ini is used to allow STA+SAP SCC on DFS channel with master mode
- * support disabled.
+ * support disabled, the value is defined by enum PM_AP_DFS_MASTER_MODE.
  * 0 - Disallow STA+SAP SCC on DFS channel
  * 1 - Allow STA+SAP SCC on DFS channel with master mode disabled
- *
+ * 2 - enhance "1" with below requirement
+ *	 a. Allow single SAP (GO) start on DFS channel.
+ *	 b. Allow CAC process on DFS channel in single SAP (GO) mode
+ *	 c. Allow DFS radar event process in single SAP (GO) mode
+ *	 d. Disallow CAC and radar event process in SAP (GO) + STA mode.
  * Related: None.
  *
  * Supported Feature: Non-DBS, DBS
@@ -404,7 +411,7 @@ CFG_INI_UINT("gDualMacFeatureDisable", 0, 6, 0, CFG_VALUE_OR_DEFAULT, \
  */
 
 #define CFG_STA_SAP_SCC_ON_DFS_CHAN \
-CFG_INI_UINT("g_sta_sap_scc_on_dfs_chan", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
+CFG_INI_UINT("g_sta_sap_scc_on_dfs_chan", 0, 2, 2, CFG_VALUE_OR_DEFAULT, \
 	     "Allow STA+SAP SCC on DFS channel with master mode disable")
 
 /*
@@ -431,7 +438,7 @@ CFG_INI_UINT("g_sta_sap_scc_on_dfs_chan", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
  */
 
 #define CFG_FORCE_1X1_FEATURE \
-CFG_INI_UINT("gForce1x1Exception", 0, 1, 2, CFG_VALUE_OR_DEFAULT, \
+CFG_INI_UINT("gForce1x1Exception", 0, 2, 1, CFG_VALUE_OR_DEFAULT, \
 	     "force 1x1 when connecting to certain peer")
 
 /*
@@ -486,7 +493,7 @@ CFG_INI_BOOL("g_nan_sap_scc_on_lte_coex_chan", 1, \
  * g_sta_sap_scc_on_lte_coex_chan - Allow STA+SAP SCC on LTE coex channel
  * @Min: 0
  * @Max: 1
- * @Default: 0
+ * @Default: 1
  *
  * This ini is used to allow STA+SAP SCC on LTE coex channel
  * 0 - Disallow STA+SAP SCC on LTE coex channel
@@ -501,7 +508,7 @@ CFG_INI_BOOL("g_nan_sap_scc_on_lte_coex_chan", 1, \
  * </ini>
  */
 #define CFG_STA_SAP_SCC_ON_LTE_COEX_CHAN \
-CFG_INI_UINT("g_sta_sap_scc_on_lte_coex_chan", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
+CFG_INI_UINT("g_sta_sap_scc_on_lte_coex_chan", 0, 1, 1, CFG_VALUE_OR_DEFAULT, \
 	     "Allow STA+SAP SCC on LTE coex channel")
 
 /*
@@ -531,6 +538,28 @@ CFG_INI_UINT("g_sta_sap_scc_on_lte_coex_chan", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
 CFG_INI_UINT("g_mark_sap_indoor_as_disable", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
 	     "Enable/Disable Indoor channel")
 
+/*
+ * <ini>
+ * g_prefer_5g_scc_to_dbs - prefer 5g scc to dbs
+ * @Min: 0
+ * @Max: 0xFFFFFFFF
+ * @Default: 0
+ *
+ * This ini is used to give higher priority for 5g scc than dbs.
+ * It is bitmap per enum policy_mgr_con_mode.
+ * For example in GO+STA(5G) mode, when TPUT is onfigured as wlan system
+ * preference option, If 5G SCC needs higher priority than dbs, set it as 0x8.
+ *
+ * Supported Feature: P2P GO
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_PREFER_5G_SCC_TO_DBS \
+CFG_INI_UINT("g_prefer_5g_scc_to_dbs", 0, 0xFFFFFFFF, 0, CFG_VALUE_OR_DEFAULT, \
+	     "5G SCC has higher priority than DBS")
+
 #define CFG_POLICY_MGR_ALL \
 		CFG(CFG_MCC_TO_SCC_SWITCH) \
 		CFG(CFG_CONC_SYS_PREF) \
@@ -550,5 +579,6 @@ CFG_INI_UINT("g_mark_sap_indoor_as_disable", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
 		CFG(CFG_STA_SAP_SCC_ON_LTE_COEX_CHAN)\
 		CFG(CFG_NAN_SAP_SCC_ON_LTE_COEX_CHAN) \
 		CFG(CFG_MARK_INDOOR_AS_DISABLE_FEATURE)\
-		CFG(CFG_ALLOW_MCC_GO_DIFF_BI)
+		CFG(CFG_ALLOW_MCC_GO_DIFF_BI) \
+		CFG(CFG_PREFER_5G_SCC_TO_DBS)
 #endif

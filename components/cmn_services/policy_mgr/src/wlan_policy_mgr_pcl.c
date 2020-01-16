@@ -49,8 +49,9 @@ first_connection_pcl_table[PM_MAX_NUM_OF_MODE]
 	[PM_NAN_DISC_MODE] = {PM_5G, PM_5G, PM_5G},
 };
 
-pm_dbs_pcl_second_connection_table_type
-		*second_connection_pcl_dbs_table;
+enum policy_mgr_pcl_type
+	(*second_connection_pcl_dbs_table)[PM_MAX_ONE_CONNECTION_MODE]
+			[PM_MAX_NUM_OF_MODE][PM_MAX_CONC_PRIORITY_MODE];
 pm_dbs_pcl_third_connection_table_type
 		*third_connection_pcl_dbs_table;
 policy_mgr_next_action_two_connection_table_type
@@ -184,6 +185,7 @@ void policy_mgr_update_with_safe_channel_list(struct wlan_objmgr_psoc *psoc,
 	uint8_t i, j;
 	uint32_t safe_channel_count = 0, current_channel_count = 0;
 	struct policy_mgr_psoc_priv_obj *pm_ctx;
+	uint8_t scc_on_lte_coex = 0;
 
 	pm_ctx = policy_mgr_get_context(psoc);
 	if (!pm_ctx) {
@@ -210,6 +212,7 @@ void policy_mgr_update_with_safe_channel_list(struct wlan_objmgr_psoc *psoc,
 	qdf_mem_copy(org_weight_list, weight_list, QDF_MAX_NUM_CHAN);
 	qdf_mem_zero(weight_list, weight_len);
 
+	policy_mgr_get_sta_sap_scc_lte_coex_chnl(psoc, &scc_on_lte_coex);
 	for (i = 0; i < current_channel_count; i++) {
 		is_unsafe = 0;
 		for (j = 0; j < pm_ctx->unsafe_channel_count; j++) {
@@ -222,6 +225,13 @@ void policy_mgr_update_with_safe_channel_list(struct wlan_objmgr_psoc *psoc,
 				break;
 			}
 		}
+		if (is_unsafe && scc_on_lte_coex &&
+		    policy_mgr_is_sta_sap_scc(psoc, current_channel_list[i])) {
+			policy_mgr_debug("CH %d unsafe ingored when STA present on it",
+					 current_channel_list[i]);
+			is_unsafe = 0;
+		}
+
 		if (!is_unsafe) {
 			pcl_channels[safe_channel_count] =
 				current_channel_list[i];

@@ -597,33 +597,72 @@
 
 /*
  * <ini>
- * gEnableChangeChannelBandWidth  Enable/Disable change
- * channel&bandwidth in the mission mode
+ * mgmt_retry_max - Maximum Retries for mgmt frames
  * @Min: 0
- * @Max: 1
- * @Default: 0
+ * @Max: 31
+ * @Default: 15
  *
- * 0  not allow change channel&bandwidth by setMonChan
- * 1  allow change channel&bandwidth by setMonChan
+ * This ini is used to set maximum retries for mgmt frames
  *
- * Related: None
- *
- * Supported Feature: STA
+ * Supported Feature: STA/SAP
  *
  * Usage: External
  *
  * </ini>
  */
-#ifdef FEATURE_MONITOR_MODE_SUPPORT
-#define CFG_CHANGE_CHANNEL_BANDWIDTH_DEFAULT true
-#else
-#define CFG_CHANGE_CHANNEL_BANDWIDTH_DEFAULT false
-#endif
+#define CFG_MGMT_RETRY_MAX CFG_INI_UINT( \
+	"mgmt_retry_max", \
+	0, \
+	31, \
+	15, \
+	CFG_VALUE_OR_DEFAULT, \
+	"Max retries for mgmt frames")
 
-#define CFG_CHANGE_CHANNEL_BANDWIDTH CFG_INI_BOOL( \
-		"gEnableChangeChannelBandWidth", \
-		CFG_CHANGE_CHANNEL_BANDWIDTH_DEFAULT, \
-		"enable change channel bw")
+/*
+ * <ini>
+ * bmiss_skip_full_scan - To decide whether firmware does channel map based
+ * partial scan or partial scan followed by full scan in case no candidate is
+ * found in partial scan.
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * 0 : Based on the channel map , firmware does scan to find new AP. if AP is
+ *     not found then it does a full scan on all valid channels.
+ * 1 : Firmware does channel map based partial scan only.
+ *
+ * Related: None
+ *
+ * Supported Feature: STA Roaming
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_BMISS_SKIP_FULL_SCAN CFG_INI_BOOL("bmiss_skip_full_scan", \
+			0, \
+			"To decide partial/partial scan followed by full scan")
+/*
+ * <ini>
+ * gEnableRingBuffer - Enable Ring Buffer for Bug Report
+ * @Min: 0
+ * @Max: 1
+ * @Default: 1
+ *
+ * This ini is used to enable Ring Buffer
+ *
+ * Related: None
+ *
+ * Supported Feature: STA/SAP
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_ENABLE_RING_BUFFER CFG_INI_BOOL( \
+			"gEnableRingBuffer", \
+			1, \
+			"To Enable Ring Buffer")
 
 #define CFG_GENERIC_ALL \
 	CFG(CFG_ENABLE_DEBUG_PACKET_LOG) \
@@ -651,6 +690,7 @@
 	CFG(CFG_ITO_REPEAT_COUNT) \
 	CFG(CFG_ENABLE_BEACON_RECEPTION_STATS) \
 	CFG(CFG_REMOVE_TIME_STAMP_SYNC_CMD) \
-	CFG(CFG_CHANGE_CHANNEL_BANDWIDTH)
-
+	CFG(CFG_MGMT_RETRY_MAX) \
+	CFG(CFG_BMISS_SKIP_FULL_SCAN) \
+	CFG(CFG_ENABLE_RING_BUFFER)
 #endif /* __CFG_MLME_GENERIC_H */

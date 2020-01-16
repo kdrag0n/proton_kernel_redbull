@@ -190,8 +190,9 @@ extern struct policy_mgr_conc_connection_info
 extern const enum policy_mgr_pcl_type
 	first_connection_pcl_table[PM_MAX_NUM_OF_MODE]
 			[PM_MAX_CONC_PRIORITY_MODE];
-extern pm_dbs_pcl_second_connection_table_type
-		*second_connection_pcl_dbs_table;
+extern enum policy_mgr_pcl_type
+	(*second_connection_pcl_dbs_table)[PM_MAX_ONE_CONNECTION_MODE]
+			[PM_MAX_NUM_OF_MODE][PM_MAX_CONC_PRIORITY_MODE];
 extern pm_dbs_pcl_third_connection_table_type
 		*third_connection_pcl_dbs_table;
 extern policy_mgr_next_action_two_connection_table_type
@@ -237,6 +238,7 @@ struct sta_ap_intf_check_work_ctx {
  * @chnl_select_plcy: Channel selection policy
  * @enable_mcc_adaptive_sch: Enable/Disable MCC adaptive scheduler
  * @enable_sta_cxn_5g_band: Enable/Disable STA connection in 5G band
+ * @prefer_5g_scc_to_dbs: Prefer to work in 5G SCC mode.
  */
 struct policy_mgr_cfg {
 	uint8_t mcc_to_scc_switch;
@@ -258,6 +260,7 @@ struct policy_mgr_cfg {
 	uint32_t dbs_selection_plcy;
 	uint32_t vdev_priority_list;
 	uint32_t chnl_select_plcy;
+	uint32_t prefer_5g_scc_to_dbs;
 };
 
 /**
@@ -378,6 +381,16 @@ QDF_STATUS policy_mgr_get_updated_fw_mode_config(
 		bool agile_dfs);
 bool policy_mgr_is_dual_mac_disabled_in_ini(
 		struct wlan_objmgr_psoc *psoc);
+
+/**
+ * policy_mgr_find_if_hwlist_has_dbs() - Find if hw list has DBS modes or not
+ * @psoc: PSOC object information
+ *
+ * Find if hw list has DBS modes or not
+ *
+ * Return: true or false
+ */
+bool policy_mgr_find_if_hwlist_has_dbs(struct wlan_objmgr_psoc *psoc);
 
 /**
  * policy_mgr_get_mcc_to_scc_switch_mode() - MCC to SCC

@@ -64,6 +64,8 @@ static void nan_cfg_dp_init(struct wlan_objmgr_psoc *psoc,
 					       CFG_NAN_DATAPATH_ENABLE);
 	nan_obj->cfg_param.ndi_mac_randomize =
 				cfg_get(psoc, CFG_NAN_RANDOMIZE_NDI_MAC);
+	nan_obj->cfg_param.ndp_inactivity_timeout =
+				cfg_get(psoc, CFG_NAN_NDP_INACTIVITY_TIMEOUT);
 }
 #else
 static void nan_cfg_init(struct wlan_objmgr_psoc *psoc,
@@ -417,13 +419,13 @@ void ucfg_nan_datapath_event_handler(struct wlan_objmgr_psoc *psoc,
 	psoc_obj->cb_obj.os_if_ndp_event_handler(psoc, vdev, type, msg);
 }
 
-static void ucfg_concurrency_nan_disable_callback(void *cookie)
+static void ucfg_nan_request_process_cb(void *cookie)
 {
 	struct osif_request *request;
 
 	request = osif_request_get(cookie);
-
 	if (request) {
+		nan_debug("request (cookie:0x%pK) completed", cookie);
 		osif_request_complete(request);
 		osif_request_put(request);
 	} else {
@@ -456,8 +458,8 @@ int ucfg_nan_register_hdd_callbacks(struct wlan_objmgr_psoc *psoc,
 				cb_obj->os_if_ndp_event_handler;
 	psoc_obj->cb_obj.os_if_nan_event_handler =
 				cb_obj->os_if_nan_event_handler;
-	psoc_obj->cb_obj.ucfg_explicit_disable_cb =
-				ucfg_concurrency_nan_disable_callback;
+	psoc_obj->cb_obj.ucfg_nan_request_process_cb =
+				ucfg_nan_request_process_cb;
 
 	return 0;
 }
@@ -551,12 +553,24 @@ bool ucfg_is_nan_enable_allowed(struct wlan_objmgr_psoc *psoc, uint8_t nan_chan)
 	return nan_is_enable_allowed(psoc, nan_chan);
 }
 
+bool ucfg_is_nan_disc_active(struct wlan_objmgr_psoc *psoc)
+{
+	return nan_is_disc_active(psoc);
+}
+
 QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 {
 	struct wlan_objmgr_psoc *psoc;
 	struct scheduler_msg msg = {0};
 	uint32_t len;
 	QDF_STATUS status;
+	struct nan_psoc_priv_obj *psoc_priv;
+	struct osif_request *request = NULL;
+	static const struct osif_request_params params = {
+		.priv_size = 0,
+		.timeout_ms = 1000,
+	};
+	int err;
 
 	if (!in_req) {
 		nan_alert("NAN Discovery req is null");
@@ -568,6 +582,12 @@ QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 			struct nan_enable_req *req = in_req;
 
 			psoc = req->psoc;
+			psoc_priv = nan_get_psoc_priv_obj(psoc);
+			if (!psoc_priv) {
+				nan_err("nan psoc priv object is NULL");
+				return QDF_STATUS_E_INVAL;
+			}
+
 			/*
 			 * Take a psoc reference while it is being used by the
 			 * NAN requests.
@@ -595,6 +615,12 @@ QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 			struct nan_disable_req *req = in_req;
 
 			psoc = req->psoc;
+			psoc_priv = nan_get_psoc_priv_obj(psoc);
+			if (!psoc_priv) {
+				nan_err("nan psoc priv object is NULL");
+				return QDF_STATUS_E_INVAL;
+			}
+
 			status =  wlan_objmgr_psoc_try_get_ref(psoc,
 							       WLAN_NAN_ID);
 			if (QDF_IS_STATUS_ERROR(status)) {
@@ -619,6 +645,12 @@ QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 			struct nan_generic_req *req = in_req;
 
 			psoc = req->psoc;
+			psoc_priv = nan_get_psoc_priv_obj(psoc);
+			if (!psoc_priv) {
+				nan_err("nan psoc priv object is NULL");
+				return QDF_STATUS_E_INVAL;
+			}
+
 			status =  wlan_objmgr_psoc_try_get_ref(psoc,
 							       WLAN_NAN_ID);
 			if (QDF_IS_STATUS_ERROR(status)) {
@@ -644,6 +676,23 @@ QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 	msg.type = req_type;
 	msg.callback = nan_discovery_scheduled_handler;
 	msg.flush_callback = nan_discovery_flush_callback;
+
+	if (req_type == NAN_GENERIC_REQ)
+		goto post_msg;
+
+	request = osif_request_alloc(&params);
+	if (!request) {
+		nan_err("Request allocation failure");
+		nan_discovery_flush_callback(&msg);
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	psoc_priv->request_context = osif_request_cookie(request);
+	if (req_type == NAN_DISABLE_REQ)
+		psoc_priv->is_explicit_disable = true;
+
+post_msg:
+	nan_debug("posting request: %u", req_type);
 	status = scheduler_post_message(QDF_MODULE_ID_NAN,
 					QDF_MODULE_ID_NAN,
 					QDF_MODULE_ID_OS_IF, &msg);
@@ -651,6 +700,21 @@ QDF_STATUS ucfg_nan_discovery_req(void *in_req, uint32_t req_type)
 		nan_err("failed to post msg to NAN component, status: %d",
 			status);
 		nan_discovery_flush_callback(&msg);
+	}
+
+	if (req_type != NAN_GENERIC_REQ) {
+		err = osif_request_wait_for_response(request);
+		if (err)
+			nan_err("NAN request: %u timed out: %d",
+				req_type, err);
+		else
+			nan_debug("NAN request: %u serviced successfully",
+				  req_type);
+
+		if (req_type == NAN_DISABLE_REQ)
+			psoc_priv->is_explicit_disable = false;
+
+		osif_request_put(request);
 	}
 
 	return status;
@@ -661,13 +725,7 @@ void ucfg_nan_disable_concurrency(struct wlan_objmgr_psoc *psoc)
 	struct nan_disable_req nan_req = {0};
 	enum nan_disc_state curr_nan_state;
 	struct nan_psoc_priv_obj *psoc_priv;
-	struct osif_request *request;
-	static const struct osif_request_params params = {
-		.priv_size = 0,
-		.timeout_ms = 1000,
-	};
 	QDF_STATUS status;
-	int err;
 
 	if (!psoc) {
 		nan_err("psoc object is NULL, no action will be taken");
@@ -693,35 +751,17 @@ void ucfg_nan_disable_concurrency(struct wlan_objmgr_psoc *psoc)
 	}
 	qdf_spin_unlock_bh(&psoc_priv->lock);
 
-	request = osif_request_alloc(&params);
-	if (!request) {
-		nan_err("Request allocation failure");
-		return;
-	}
-
 	nan_req.psoc = psoc;
 	nan_req.disable_2g_discovery = true;
 	nan_req.disable_5g_discovery = true;
-	psoc_priv->disable_context = osif_request_cookie(request);
 
 	status = ucfg_nan_discovery_req(&nan_req, NAN_DISABLE_REQ);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		nan_err("Unable to disable NAN Discovery");
-		osif_request_put(request);
 		return;
 	}
 
-	psoc_priv->is_explicit_disable = true;
-	nan_debug("Successfully sent NAN Disable request");
-
-	err = osif_request_wait_for_response(request);
-	if (err)
-		nan_err("NAN Disable timed out waiting for disable ind-%d",
-			err);
-	else
-		nan_debug("NAN Disabled successfully");
-	psoc_priv->is_explicit_disable = false;
-	osif_request_put(request);
+	nan_debug("NAN Disabled successfully");
 }
 
 static QDF_STATUS
@@ -909,4 +949,85 @@ QDF_STATUS ucfg_ndi_remove_entry_from_policy_mgr(struct wlan_objmgr_vdev *vdev)
 	}
 
 	return QDF_STATUS_SUCCESS;
+}
+
+bool ucfg_nan_is_enable_disable_in_progress(struct wlan_objmgr_psoc *psoc)
+{
+	enum nan_disc_state nan_state;
+
+	nan_state = nan_get_discovery_state(psoc);
+	if (nan_state == NAN_DISC_ENABLE_IN_PROGRESS ||
+	    nan_state == NAN_DISC_DISABLE_IN_PROGRESS) {
+		nan_info("NAN enable/disable is in progress, state: %u",
+			 nan_state);
+		return true;
+	}
+
+	return false;
+}
+
+#ifdef NDP_SAP_CONCURRENCY_ENABLE
+/**
+ * is_sap_ndp_concurrency_allowed() - Is SAP+NDP allowed
+ *
+ * Return: True if the NDP_SAP_CONCURRENCY_ENABLE feature define
+ *	   is enabled, false otherwise.
+ */
+static inline bool is_sap_ndp_concurrency_allowed(void)
+{
+	return true;
+}
+#else
+static inline bool is_sap_ndp_concurrency_allowed(void)
+{
+	return false;
+}
+#endif
+
+bool ucfg_nan_is_sta_ndp_concurrency_allowed(struct wlan_objmgr_psoc *psoc,
+					     struct wlan_objmgr_vdev *vdev)
+{
+	uint8_t vdev_id_list[MAX_NUMBER_OF_CONC_CONNECTIONS];
+	uint8_t chan_list[MAX_NUMBER_OF_CONC_CONNECTIONS];
+	uint32_t ndi_cnt, sta_cnt, id;
+
+	sta_cnt = policy_mgr_mode_specific_connection_count(psoc,
+							    PM_STA_MODE, NULL);
+	/* Allow if STA is not in connected state */
+	if (!sta_cnt)
+		return true;
+
+	/* Reject if STA+STA is present */
+	if (sta_cnt > 1) {
+		nan_err("STA+STA+NDP concurrency is not allowed");
+		return false;
+	}
+
+	/*
+	 * SAP+NDP concurrency is already validated in hdd_is_ndp_allowed().
+	 * If SAP+NDP concurrency is enabled, return true from here to avoid
+	 * failure.
+	 */
+	if (is_sap_ndp_concurrency_allowed())
+		return true;
+
+	ndi_cnt = policy_mgr_get_mode_specific_conn_info(psoc,
+							 chan_list,
+							 vdev_id_list,
+							 PM_NDI_MODE);
+
+	/* Allow if no other NDP peers are present on the NDIs */
+	if (!ndi_cnt)
+		return true;
+
+	/*
+	 * Allow NDP creation if the current NDP request is on
+	 * the NDI which already has an NDP by checking the vdev id of
+	 * the NDIs
+	 */
+	for (id = 0; id < ndi_cnt; id++)
+		if (wlan_vdev_get_id(vdev) == vdev_id_list[id])
+			return true;
+
+	return false;
 }

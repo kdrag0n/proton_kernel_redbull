@@ -416,8 +416,9 @@ static void mlme_init_generic_cfg(struct wlan_objmgr_psoc *psoc,
 		cfg_get(psoc, CFG_ENABLE_BEACON_RECEPTION_STATS);
 	gen->enable_remove_time_stamp_sync_cmd =
 		cfg_get(psoc, CFG_REMOVE_TIME_STAMP_SYNC_CMD);
-	gen->enable_change_channel_bandwidth =
-		cfg_get(psoc, CFG_CHANGE_CHANNEL_BANDWIDTH);
+	gen->mgmt_retry_max = cfg_get(psoc, CFG_MGMT_RETRY_MAX);
+	gen->bmiss_skip_full_scan = cfg_get(psoc, CFG_BMISS_SKIP_FULL_SCAN);
+	gen->enable_ring_buffer = cfg_get(psoc, CFG_ENABLE_RING_BUFFER);
 }
 
 static void mlme_init_edca_ani_cfg(struct wlan_mlme_edca_params *edca_params)
@@ -1511,6 +1512,17 @@ mlme_init_bss_load_trigger_params(struct wlan_objmgr_psoc *psoc,
 			cfg_get(psoc, CFG_BSS_LOAD_TRIG_2G_RSSI_THRES);
 }
 
+void mlme_reinit_control_config_lfr_params(struct wlan_objmgr_psoc *psoc,
+					   struct wlan_mlme_lfr_cfg *lfr)
+{
+	/* Restore the params set through SETDFSSCANMODE */
+	lfr->roaming_dfs_channel =
+		cfg_get(psoc, CFG_LFR_ROAMING_DFS_CHANNEL);
+
+	/* Restore the params set through SETWESMODE */
+	lfr->wes_mode_enabled = cfg_get(psoc, CFG_LFR_ENABLE_WES_MODE);
+}
+
 static void mlme_init_lfr_cfg(struct wlan_objmgr_psoc *psoc,
 			      struct wlan_mlme_lfr_cfg *lfr)
 {
@@ -2275,6 +2287,10 @@ static void mlme_init_reg_cfg(struct wlan_objmgr_psoc *psoc,
 	reg->enable_11d_in_world_mode = cfg_get(psoc,
 						CFG_ENABLE_11D_IN_WORLD_MODE);
 	reg->scan_11d_interval = cfg_get(psoc, CFG_SCAN_11D_INTERVAL);
+	reg->ignore_fw_reg_offload_ind = cfg_get(
+						psoc,
+						CFG_IGNORE_FW_REG_OFFLOAD_IND);
+
 	qdf_uint8_array_parse(cfg_default(CFG_VALID_CHANNEL_LIST),
 			      reg->valid_channel_list,
 			      CFG_VALID_CHANNEL_LIST_LEN,
@@ -2740,6 +2756,32 @@ void mlme_set_roam_state(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
 }
 #endif
+
+void mlme_set_follow_ap_edca_flag(struct wlan_objmgr_vdev *vdev, bool flag)
+{
+	struct mlme_legacy_priv *mlme_priv;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return;
+	}
+
+	mlme_priv->follow_ap_edca = flag;
+}
+
+bool mlme_get_follow_ap_edca_flag(struct wlan_objmgr_vdev *vdev)
+{
+	struct mlme_legacy_priv *mlme_priv;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return false;
+	}
+
+	return mlme_priv->follow_ap_edca;
+}
 
 void mlme_set_peer_pmf_status(struct wlan_objmgr_peer *peer,
 			      bool is_pmf_enabled)

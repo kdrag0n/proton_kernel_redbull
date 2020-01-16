@@ -66,6 +66,12 @@ typedef struct sCsrNeighborRoamCfgParams {
 	tCsrChannelInfo pref_chan_info;
 	uint32_t full_roam_scan_period;
 	bool enable_scoring_for_roam;
+	uint8_t roam_rssi_diff;
+	uint16_t roam_scan_home_away_time;
+	uint8_t roam_scan_n_probes;
+	uint32_t roam_scan_inactivity_time;
+	uint32_t roam_inactive_data_packet_count;
+	uint32_t roam_scan_period_after_inactivity;
 } tCsrNeighborRoamCfgParams, *tpCsrNeighborRoamCfgParams;
 
 #define CSR_NEIGHBOR_ROAM_INVALID_CHANNEL_INDEX    255
@@ -318,6 +324,8 @@ void csr_roam_reset_roam_params(struct mac_context *mac_ptr);
 #define REASON_SUPPLICANT_INIT_ROAMING              46
 #define REASON_SUPPLICANT_DE_INIT_ROAMING           47
 #define REASON_DRIVER_DISABLED                      48
+#define REASON_ROAM_CONTROL_CONFIG_RESTORED         49
+#define REASON_ROAM_CONTROL_CONFIG_ENABLED          50
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
 QDF_STATUS csr_roam_offload_scan(struct mac_context *mac, uint8_t sessionId,

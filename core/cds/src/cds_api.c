@@ -56,6 +56,7 @@
 #include <cdp_txrx_misc.h>
 #include <dispatcher_init_deinit.h>
 #include <cdp_txrx_handle.h>
+#include <cdp_txrx_host_stats.h>
 #include "target_type.h"
 #include "wlan_ocb_ucfg_api.h"
 #include "wlan_ipa_ucfg_api.h"
@@ -89,7 +90,7 @@ static struct ol_if_ops  dp_ol_if_ops = {
 	.peer_set_default_routing = target_if_peer_set_default_routing,
 	.peer_rx_reorder_queue_setup = target_if_peer_rx_reorder_queue_setup,
 	.peer_rx_reorder_queue_remove = target_if_peer_rx_reorder_queue_remove,
-	.is_hw_dbs_2x2_capable = policy_mgr_is_hw_dbs_2x2_capable,
+	.is_hw_dbs_2x2_capable = policy_mgr_is_dp_hw_dbs_2x2_capable,
 	.lro_hash_config = target_if_lro_hash_config,
 	.rx_mic_error = wma_rx_mic_error_ind,
 	.rx_invalid_peer = wma_rx_invalid_peer_ind,
@@ -758,8 +759,6 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 	QDF_STATUS qdf_status;
 	struct dp_txrx_config dp_config;
 
-	cdp_set_intr_mode(cds_get_context(QDF_MODULE_ID_SOC));
-
 	cds_set_context(QDF_MODULE_ID_TXRX,
 		cdp_pdev_attach(cds_get_context(QDF_MODULE_ID_SOC),
 			(struct cdp_ctrl_objmgr_pdev *)gp_cds_context->cfg_ctx,
@@ -1181,6 +1180,11 @@ QDF_STATUS cds_close(struct wlan_objmgr_psoc *psoc)
 	}
 
 	gp_cds_context->mac_context = NULL;
+	/*
+	 * Call this before cdp soc detatch as it used the cdp soc to free the
+	 * cdp vdev if any.
+	 */
+	wma_release_pending_vdev_refs();
 
 	cdp_soc_detach(gp_cds_context->dp_soc);
 	gp_cds_context->dp_soc = NULL;
@@ -2764,6 +2768,53 @@ void cds_incr_arp_stats_tx_tgt_acked(void)
 	if (adapter)
 		adapter->hdd_stats.hdd_arp_stats.tx_ack_cnt++;
 }
+
+#ifdef FEATURE_ALIGN_STATS_FROM_DP
+/**
+ * cds_get_cdp_vdev_stats() - Function which retrieves cdp vdev stats
+ * @vdev_id: vdev id
+ * @vdev_stats: cdp vdev stats retrieves from DP
+ *
+ * Return: If get cdp vdev stats success return true, otherwise return false
+ */
+static bool
+cds_get_cdp_vdev_stats(uint8_t vdev_id, struct cdp_vdev_stats *vdev_stats)
+{
+	void *soc;
+	struct cdp_pdev *pdev;
+	struct cdp_vdev *vdev;
+
+	if (!vdev_stats)
+		return false;
+
+	if (cds_get_datapath_handles(&soc, &pdev, &vdev, vdev_id))
+		return false;
+
+	if (cdp_host_get_vdev_stats(soc, vdev, vdev_stats, true))
+		return false;
+
+	return true;
+}
+
+bool
+cds_dp_get_vdev_stats(uint8_t vdev_id, struct cds_vdev_dp_stats *stats)
+{
+	struct cdp_vdev_stats *vdev_stats;
+	bool ret = false;
+
+	vdev_stats = qdf_mem_malloc(sizeof(*vdev_stats));
+	if (!vdev_stats)
+		return false;
+
+	if (cds_get_cdp_vdev_stats(vdev_id, vdev_stats)) {
+		stats->tx_retries = vdev_stats->tx.retries;
+		ret = true;
+	}
+
+	qdf_mem_free(vdev_stats);
+	return ret;
+}
+#endif
 
 #ifdef ENABLE_SMMU_S1_TRANSLATION
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))

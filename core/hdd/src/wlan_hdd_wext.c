@@ -4401,9 +4401,9 @@ static int hdd_we_set_power(struct hdd_adapter *adapter, int value)
 		return 0;
 	case 2:
 		/* Disable PowerSave */
-		sme_save_usr_ps_cfg(mac_handle, false);
 		sme_ps_enable_disable(mac_handle, adapter->vdev_id,
 				      SME_PS_DISABLE);
+		sme_save_usr_ps_cfg(mac_handle, false);
 		return 0;
 	case 3:
 		/* Enable UASPD */
@@ -4685,7 +4685,7 @@ static int hdd_we_set_nss(struct hdd_adapter *adapter, int nss)
 	return qdf_status_to_os_return(status);
 }
 
-static int hdd_we_set_short_gi(struct hdd_adapter *adapter, int sgi)
+int hdd_we_set_short_gi(struct hdd_adapter *adapter, int sgi)
 {
 	mac_handle_t mac_handle = adapter->hdd_ctx->mac_handle;
 	int errno;
@@ -6230,8 +6230,10 @@ static int __iw_setnone_getint(struct net_device *dev,
 		if (!QDF_IS_STATUS_SUCCESS(status))
 			hdd_err("unable to get vht_enable2x2");
 		*value = (bval == 0) ? 1 : 2;
-		if (policy_mgr_is_current_hwmode_dbs(hdd_ctx->psoc))
+		if (!policy_mgr_is_hw_dbs_2x2_capable(hdd_ctx->psoc) &&
+		    policy_mgr_is_current_hwmode_dbs(hdd_ctx->psoc))
 			*value = *value - 1;
+
 		hdd_debug("GET_NSS: Current NSS:%d", *value);
 		break;
 	}
@@ -7424,6 +7426,7 @@ static int __iw_get_char_setnone(struct net_device *dev,
 	{
 		int8_t s7snr = 0;
 		int status = 0;
+		bool enable_snr_monitoring;
 		struct hdd_context *hdd_ctx;
 		struct hdd_station_ctx *sta_ctx;
 
@@ -7433,12 +7436,14 @@ static int __iw_get_char_setnone(struct net_device *dev,
 			return status;
 
 		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
-		if (!hdd_ctx->config->enable_snr_monitoring ||
+		enable_snr_monitoring =
+				ucfg_scan_is_snr_monitor_enabled(hdd_ctx->psoc);
+		if (!enable_snr_monitoring ||
 		    eConnectionState_Associated !=
 		    sta_ctx->conn_info.conn_state) {
 			hdd_err("getSNR failed: Enable SNR Monitoring-%d, ConnectionState-%d",
-			       hdd_ctx->config->enable_snr_monitoring,
-			       sta_ctx->conn_info.conn_state);
+				enable_snr_monitoring,
+				sta_ctx->conn_info.conn_state);
 			return -ENONET;
 		}
 		wlan_hdd_get_snr(adapter, &s7snr);

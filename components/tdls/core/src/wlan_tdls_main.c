@@ -811,7 +811,7 @@ static void tdls_state_param_setting_dump(struct tdls_info *info)
 	if (!info)
 		return;
 
-	tdls_debug("Setting tdls state and param in fw: vdev_id: %d, tdls_state: %d, notification_interval_ms: %d, tx_discovery_threshold: %d, tx_teardown_threshold: %d, rssi_teardown_threshold: %d, rssi_delta: %d, tdls_options: 0x%x, peer_traffic_ind_window: %d, peer_traffic_response_timeout: %d, puapsd_mask: 0x%x, puapsd_inactivity_time: %d, puapsd_rx_frame_threshold: %d, teardown_notification_ms: %d, tdls_peer_kickout_threshold: %d",
+	tdls_debug("Setting tdls state and param in fw: vdev_id: %d, tdls_state: %d, notification_interval_ms: %d, tx_discovery_threshold: %d, tx_teardown_threshold: %d, rssi_teardown_threshold: %d, rssi_delta: %d, tdls_options: 0x%x, peer_traffic_ind_window: %d, peer_traffic_response_timeout: %d, puapsd_mask: 0x%x, puapsd_inactivity_time: %d, puapsd_rx_frame_threshold: %d, teardown_notification_ms: %d, tdls_peer_kickout_threshold: %d, tdls_discovery_wake_timeout: %d",
 		   info->vdev_id,
 		   info->tdls_state,
 		   info->notification_interval_ms,
@@ -826,7 +826,8 @@ static void tdls_state_param_setting_dump(struct tdls_info *info)
 		   info->puapsd_inactivity_time,
 		   info->puapsd_rx_frame_threshold,
 		   info->teardown_notification_ms,
-		   info->tdls_peer_kickout_threshold);
+		   info->tdls_peer_kickout_threshold,
+		   info->tdls_discovery_wake_timeout);
 
 }
 
@@ -993,7 +994,13 @@ tdls_process_decrement_active_session(struct wlan_objmgr_psoc *psoc)
 	tdls_debug("Enter");
 	if (!psoc)
 		return QDF_STATUS_E_NULL_VALUE;
-
+	if (!policy_mgr_is_hw_dbs_2x2_capable(psoc) &&
+	   !policy_mgr_is_hw_dbs_required_for_band(
+				psoc, HW_MODE_MAC_BAND_2G) &&
+	   policy_mgr_is_current_hwmode_dbs(psoc)) {
+		tdls_err("Current HW mode is 1*1 DBS. Wait for Opportunistic timer to expire to enable TDLS in FW");
+		return QDF_STATUS_SUCCESS;
+	}
 	tdls_obj_vdev = tdls_get_vdev(psoc, WLAN_TDLS_NB_ID);
 	if (tdls_obj_vdev) {
 		tdls_debug("Enable TDLS in FW and host as only one active sta/p2p_cli interface is present");
@@ -1211,6 +1218,8 @@ void tdls_send_update_to_fw(struct tdls_vdev_priv_obj *tdls_vdev_obj,
 		tdls_soc_obj->tdls_configs.tdls_idle_timeout;
 	tdls_info_to_fw->tdls_peer_kickout_threshold =
 		tdls_soc_obj->tdls_configs.tdls_peer_kickout_threshold;
+	tdls_info_to_fw->tdls_discovery_wake_timeout =
+		tdls_soc_obj->tdls_configs.tdls_discovery_wake_timeout;
 
 	tdls_state_param_setting_dump(tdls_info_to_fw);
 

@@ -686,7 +686,8 @@ lim_cleanup_rx_path(struct mac_context *mac, tpDphHashNode sta,
  */
 void
 lim_send_del_sta_cnf(struct mac_context *mac, struct qdf_mac_addr sta_dsaddr,
-		     uint16_t staDsAssocId, tLimMlmStaContext mlmStaContext,
+		     uint16_t staDsAssocId,
+		     struct lim_sta_context mlmStaContext,
 		     tSirResultCodes status_code, struct pe_session *pe_session)
 {
 	tLimMlmDisassocCnf mlmDisassocCnf;
@@ -917,9 +918,11 @@ lim_reject_association(struct mac_context *mac_ctx, tSirMacAddr peer_addr,
 	}
 
 	if (delete_sta == false) {
-		lim_send_assoc_rsp_mgmt_frame(mac_ctx,
+		lim_send_assoc_rsp_mgmt_frame(
+				mac_ctx,
 				eSIR_MAC_MAX_ASSOC_STA_REACHED_STATUS,
-				1, peer_addr, sub_type, 0, session_entry);
+				1, peer_addr, sub_type, 0, session_entry,
+				false);
 		pe_warn("received Re/Assoc req when max associated STAs reached from");
 		lim_print_mac_addr(mac_ctx, peer_addr, LOGW);
 		lim_send_sme_max_assoc_exceeded_ntf(mac_ctx, peer_addr,
@@ -949,7 +952,7 @@ lim_reject_association(struct mac_context *mac_ctx, tSirMacAddr peer_addr,
 	 * status code to requesting STA.
 	 */
 	lim_send_assoc_rsp_mgmt_frame(mac_ctx, result_code, 0, peer_addr,
-					 sub_type, 0, session_entry);
+				      sub_type, 0, session_entry, false);
 
 	if (session_entry->parsedAssocReq[sta_ds->assocId]) {
 		uint8_t *assoc_req_frame;
@@ -1510,7 +1513,8 @@ QDF_STATUS lim_populate_own_rate_set(struct mac_context *mac_ctx,
 	    (self_sta_dot11mode == MLME_DOT11_MODE_11AC) ||
 	    (self_sta_dot11mode == MLME_DOT11_MODE_11N) ||
 	    (self_sta_dot11mode == MLME_DOT11_MODE_11G) ||
-	    (self_sta_dot11mode == MLME_DOT11_MODE_11B)) {
+	    (self_sta_dot11mode == MLME_DOT11_MODE_11B) ||
+	    (self_sta_dot11mode == MLME_DOT11_MODE_11AX)) {
 		val_len = mac_ctx->mlme_cfg->rates.supported_11b.len;
 		wlan_mlme_get_cfg_str((uint8_t *)&temp_rate_set.rate,
 				      &mac_ctx->mlme_cfg->rates.supported_11b,
@@ -1625,10 +1629,41 @@ static void lim_calculate_he_nss(struct supported_rates *rates,
 {
 	HE_GET_NSS(rates->rx_he_mcs_map_lt_80, session->nss);
 }
+
+static bool lim_check_valid_mcs_for_nss(struct pe_session *session,
+					tDot11fIEhe_cap *he_caps)
+{
+	uint16_t mcs_map;
+	uint8_t mcs_count = 2, i;
+
+	if (!session->he_capable || !he_caps)
+		return true;
+
+	mcs_map = he_caps->rx_he_mcs_map_lt_80;
+
+	do {
+		for (i = 0; i < session->nss; i++) {
+			if (((mcs_map >> (i * 2)) & 0x3) == 0x3)
+				return false;
+		}
+
+		mcs_map = he_caps->tx_he_mcs_map_lt_80;
+		mcs_count--;
+	} while (mcs_count);
+
+	return true;
+
+}
 #else
 static void lim_calculate_he_nss(struct supported_rates *rates,
 				 struct pe_session *session)
 {
+}
+
+static bool lim_check_valid_mcs_for_nss(struct pe_session *session,
+					tDot11fIEhe_cap *he_caps)
+{
+	return true;
 }
 #endif
 
@@ -1644,6 +1679,10 @@ QDF_STATUS lim_populate_peer_rate_set(struct mac_context *mac,
 	tSirMacRateSet tempRateSet2;
 	uint32_t i, j, val, min, isArate = 0;
 	qdf_size_t val_len;
+	tDot11fIEhe_cap *peer_he_caps;
+	tSchBeaconStruct *pBeaconStruct = NULL;
+	struct bss_description *bssDescription =
+		&pe_session->lim_join_req->bssDescription;
 
 	/* copy operational rate set from pe_session */
 	if (pe_session->rateSet.numRates <= WLAN_SUPPORTED_RATES_IE_MAX_LEN) {
@@ -1658,7 +1697,8 @@ QDF_STATUS lim_populate_peer_rate_set(struct mac_context *mac,
 	if ((pe_session->dot11mode == MLME_DOT11_MODE_11G) ||
 		(pe_session->dot11mode == MLME_DOT11_MODE_11A) ||
 		(pe_session->dot11mode == MLME_DOT11_MODE_11AC) ||
-		(pe_session->dot11mode == MLME_DOT11_MODE_11N)) {
+		(pe_session->dot11mode == MLME_DOT11_MODE_11N) ||
+		(pe_session->dot11mode == MLME_DOT11_MODE_11AX)) {
 		if (pe_session->extRateSet.numRates <=
 		    WLAN_SUPPORTED_RATES_IE_MAX_LEN) {
 			qdf_mem_copy((uint8_t *) tempRateSet2.rate,
@@ -1772,7 +1812,22 @@ QDF_STATUS lim_populate_peer_rate_set(struct mac_context *mac,
 	lim_populate_vht_mcs_set(mac, pRates, pVHTCaps,
 			pe_session, pe_session->nss);
 
-	lim_populate_he_mcs_set(mac, pRates, he_caps,
+	if (lim_check_valid_mcs_for_nss(pe_session, he_caps)) {
+		peer_he_caps = he_caps;
+	} else {
+		bssDescription = &pe_session->lim_join_req->bssDescription;
+		pBeaconStruct = qdf_mem_malloc(sizeof(tSchBeaconStruct));
+		if (!pBeaconStruct)
+			return QDF_STATUS_E_NOMEM;
+		lim_extract_ap_capabilities(mac,
+				(uint8_t *)bssDescription->ieFields,
+				lim_get_ielen_from_bss_description(
+					bssDescription),
+				pBeaconStruct);
+		peer_he_caps = &pBeaconStruct->he_cap;
+	}
+
+	lim_populate_he_mcs_set(mac, pRates, peer_he_caps,
 			pe_session, pe_session->nss);
 
 	if (IS_DOT11_MODE_HE(pe_session->dot11mode) && he_caps) {
@@ -1784,6 +1839,9 @@ QDF_STATUS lim_populate_peer_rate_set(struct mac_context *mac,
 		pe_session->nss = NSS_1x1_MODE;
 	}
 	pe_debug("nss: %d", pe_session->nss);
+
+	if (pBeaconStruct)
+		qdf_mem_free(pBeaconStruct);
 
 	return QDF_STATUS_SUCCESS;
 } /*** lim_populate_peer_rate_set() ***/
@@ -2531,6 +2589,20 @@ lim_add_sta(struct mac_context *mac_ctx,
 			add_sta_params->stbc_capable = 1;
 		else
 			add_sta_params->stbc_capable = 0;
+	}
+
+	if (session_entry->opmode == QDF_SAP_MODE ||
+	    session_entry->opmode == QDF_P2P_GO_MODE) {
+		if (session_entry->parsedAssocReq) {
+			uint16_t aid = sta_ds->assocId;
+			/* Get a copy of the already parsed Assoc Request */
+			assoc_req =
+			(tpSirAssocReq) session_entry->parsedAssocReq[aid];
+
+			add_sta_params->wpa_rsn = assoc_req->rsnPresent;
+			add_sta_params->wpa_rsn |=
+				(assoc_req->wpaPresent << 1);
+		}
 	}
 
 	lim_update_he_stbc_capable(add_sta_params);
@@ -4604,7 +4676,7 @@ lim_prepare_and_send_del_sta_cnf(struct mac_context *mac, tpDphHashNode sta,
 {
 	uint16_t staDsAssocId = 0;
 	struct qdf_mac_addr sta_dsaddr;
-	tLimMlmStaContext mlmStaContext;
+	struct lim_sta_context mlmStaContext;
 
 	if (!sta) {
 		pe_err("sta is NULL");

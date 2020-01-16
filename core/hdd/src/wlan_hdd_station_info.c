@@ -404,7 +404,8 @@ static void hdd_get_max_tx_bitrate(struct hdd_context *hdd_ctx,
 				   struct hdd_adapter *adapter)
 {
 	struct station_info sinfo;
-	uint8_t tx_rate_flags, tx_mcs_index, tx_nss = 1;
+	enum tx_rate_info tx_rate_flags;
+	uint8_t tx_mcs_index, tx_nss = 1;
 	uint16_t my_tx_rate;
 	struct hdd_station_ctx *hdd_sta_ctx;
 
@@ -852,7 +853,8 @@ static int32_t hdd_add_sta_info_sap(struct sk_buff *skb, int8_t rssi,
 	if (!nla_attr)
 		goto fail;
 
-	if (nla_put_u8(skb, NL80211_STA_INFO_SIGNAL, rssi)) {
+	if (nla_put_u8(skb, NL80211_STA_INFO_SIGNAL,
+		       rssi - HDD_NOISE_FLOOR_DBM)) {
 		hdd_err("put fail");
 		goto fail;
 	}

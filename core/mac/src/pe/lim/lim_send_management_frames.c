@@ -482,6 +482,73 @@ static QDF_STATUS lim_get_addn_ie_for_probe_resp(struct mac_context *mac,
 	return QDF_STATUS_SUCCESS;
 }
 
+/**
+ * lim_add_additional_ie() - Add additional IE to management frame
+ * @frame:          pointer to frame
+ * @frame_offset:   current offset of frame
+ * @add_ie:         pointer to addtional ie
+ * @add_ie_len:     length of addtional ie
+ * @p2p_ie:         pointer to p2p ie
+ * @noa_ie:         pointer to noa ie, this is seperate p2p ie
+ * @noa_ie_len:     length of noa ie
+ * @noa_stream:     pointer to noa stream, this is noa attribute only
+ * @noa_stream_len: length of noa stream
+ *
+ * This function adds additional IE to management frame.
+ *
+ * Return: None
+ */
+static void lim_add_additional_ie(uint8_t *frame, uint32_t frame_offset,
+				  uint8_t *add_ie, uint32_t add_ie_len,
+				  uint8_t *p2p_ie, uint8_t *noa_ie,
+				  uint32_t noa_ie_len, uint8_t *noa_stream,
+				  uint32_t noa_stream_len) {
+	uint16_t p2p_ie_offset;
+
+	if (!add_ie_len || !add_ie) {
+		pe_debug("no valid addtional ie");
+		return;
+	}
+
+	if (!noa_stream_len) {
+		qdf_mem_copy(frame + frame_offset, &add_ie[0], add_ie_len);
+		return;
+	}
+
+	if (noa_ie_len > (SIR_MAX_NOA_ATTR_LEN + SIR_P2P_IE_HEADER_LEN)) {
+		pe_err("Not able to insert NoA, len=%d", noa_ie_len);
+		return;
+	} else if (noa_ie_len > 0) {
+		pe_debug("new p2p ie for noa attr");
+		qdf_mem_copy(frame + frame_offset, &add_ie[0], add_ie_len);
+		frame_offset += add_ie_len;
+		qdf_mem_copy(frame + frame_offset, &noa_ie[0], noa_ie_len);
+	} else {
+		if (!p2p_ie || (p2p_ie < add_ie) ||
+		    (p2p_ie > (add_ie + add_ie_len))) {
+			pe_err("invalid p2p ie");
+			return;
+		}
+		p2p_ie_offset = p2p_ie - add_ie + p2p_ie[1] + 2;
+		if (p2p_ie_offset > add_ie_len) {
+			pe_err("Invalid p2p ie");
+			return;
+		}
+		pe_debug("insert noa attr to existed p2p ie");
+		p2p_ie[1] = p2p_ie[1] + noa_stream_len;
+		qdf_mem_copy(frame + frame_offset, &add_ie[0], p2p_ie_offset);
+		frame_offset += p2p_ie_offset;
+		qdf_mem_copy(frame + frame_offset, &noa_stream[0],
+			     noa_stream_len);
+		if (p2p_ie_offset < add_ie_len) {
+			frame_offset += noa_stream_len;
+			qdf_mem_copy(frame + frame_offset,
+				     &add_ie[p2p_ie_offset],
+				     add_ie_len - p2p_ie_offset);
+		}
+	}
+}
+
 void
 lim_send_probe_rsp_mgmt_frame(struct mac_context *mac_ctx,
 			      tSirMacAddr peer_macaddr,
@@ -502,7 +569,7 @@ lim_send_probe_rsp_mgmt_frame(struct mac_context *mac_ctx,
 	bool wps_ap = 0;
 	uint8_t tx_flag = 0;
 	uint8_t *add_ie = NULL;
-	const uint8_t *p2p_ie = NULL;
+	uint8_t *p2p_ie = NULL;
 	uint8_t noalen = 0;
 	uint8_t total_noalen = 0;
 	uint8_t noa_stream[SIR_MAX_NOA_ATTR_LEN + SIR_P2P_IE_HEADER_LEN];
@@ -688,18 +755,25 @@ lim_send_probe_rsp_mgmt_frame(struct mac_context *mac_ctx,
 		bytes = bytes + addn_ie_len;
 
 		if (preq_p2pie)
-			p2p_ie = limGetP2pIEPtr(mac_ctx, &add_ie[0],
-					addn_ie_len);
+			p2p_ie = (uint8_t *)limGetP2pIEPtr(mac_ctx, &add_ie[0],
+							   addn_ie_len);
 
 		if (p2p_ie) {
 			/* get NoA attribute stream P2P IE */
 			noalen = lim_get_noa_attr_stream(mac_ctx,
 					noa_stream, pe_session);
-			if (noalen != 0) {
-				total_noalen =
-					lim_build_p2p_ie(mac_ctx, &noa_ie[0],
-						&noa_stream[0], noalen);
-				bytes = bytes + total_noalen;
+			if (noalen) {
+				if ((p2p_ie[1] + noalen) >
+				    WNI_CFG_PROBE_RSP_BCN_ADDNIE_DATA_LEN) {
+					total_noalen = lim_build_p2p_ie(
+								mac_ctx,
+								&noa_ie[0],
+								&noa_stream[0],
+								noalen);
+					bytes = bytes + total_noalen;
+				} else {
+					bytes = bytes + noalen;
+				}
 			}
 		}
 	}
@@ -760,21 +834,9 @@ lim_send_probe_rsp_mgmt_frame(struct mac_context *mac_ctx,
 	pe_debug("Sending Probe Response frame to");
 	lim_print_mac_addr(mac_ctx, peer_macaddr, LOGD);
 
-	if (addn_ie_present)
-		qdf_mem_copy(frame + sizeof(tSirMacMgmtHdr) + payload,
-			     &add_ie[0], addn_ie_len);
-
-	if (noalen != 0) {
-		if (total_noalen >
-		    (SIR_MAX_NOA_ATTR_LEN + SIR_P2P_IE_HEADER_LEN)) {
-			pe_err("Not able to insert NoA, total len=%d",
-				total_noalen);
-			goto err_ret;
-		} else {
-			qdf_mem_copy(&frame[bytes - (total_noalen)],
-				     &noa_ie[0], total_noalen);
-		}
-	}
+	lim_add_additional_ie(frame, sizeof(tSirMacMgmtHdr) + payload, add_ie,
+			      addn_ie_len, p2p_ie, noa_ie, total_noalen,
+			      noa_stream, noalen);
 
 	if ((BAND_5G == lim_get_rf_band(pe_session->currentOperChannel)) ||
 	    (pe_session->opmode == QDF_P2P_CLIENT_MODE) ||
@@ -1010,24 +1072,136 @@ lim_send_addts_req_action_frame(struct mac_context *mac,
 } /* End lim_send_addts_req_action_frame. */
 
 /**
- * lim_send_assoc_rsp_mgmt_frame() - Send assoc response
- * @mac_ctx: Handle for mac context
- * @status_code: Status code for assoc response frame
- * @aid: Association ID
- * @peer_addr: Mac address of requesting peer
- * @subtype: Assoc/Reassoc
- * @sta: Pointer to station node
- * @pe_session: PE session id.
+ * lim_assoc_rsp_tx_complete() - Confirmation for assoc rsp OTA
+ * @context: pointer to global mac
+ * @buf: buffer which is nothing but entire assoc rsp frame
+ * @tx_complete : Sent status
+ * @params; tx completion params
  *
- * Builds and sends association response frame to the requesting peer.
- *
- * Return: void
+ * Return: This returns QDF_STATUS
  */
+static QDF_STATUS lim_assoc_rsp_tx_complete(
+					void *context,
+					qdf_nbuf_t buf,
+					uint32_t tx_complete,
+					void *params)
+{
+	struct mac_context *mac_ctx = (struct mac_context *)context;
+	tSirMacMgmtHdr *mac_hdr;
+	struct pe_session *session_entry;
+	uint8_t session_id;
+	tpLimMlmAssocInd lim_assoc_ind;
+	tpDphHashNode sta_ds;
+	uint16_t aid;
+	uint8_t *data;
+	struct assoc_ind *sme_assoc_ind;
+	struct scheduler_msg msg;
+	tpSirAssocReq assoc_req;
+
+	if (!buf) {
+		pe_err("Assoc rsp frame buffer is NULL");
+		goto null_buf;
+	}
+
+	data = qdf_nbuf_data(buf);
+
+	if (!data) {
+		pe_err("Assoc rsp frame is NULL");
+		goto end;
+	}
+
+	mac_hdr = (tSirMacMgmtHdr *)data;
+
+	session_entry = pe_find_session_by_bssid(
+				mac_ctx, mac_hdr->sa,
+				&session_id);
+	if (!session_entry) {
+		pe_err("session entry is NULL");
+		goto end;
+	}
+
+	sta_ds = dph_lookup_hash_entry(mac_ctx,
+				       (uint8_t *)mac_hdr->da, &aid,
+				       &session_entry->dph.dphHashTable);
+	if (!sta_ds) {
+		pe_err("sta_ds is NULL");
+		goto end;
+	}
+
+	/* Get a copy of the already parsed Assoc Request */
+	assoc_req =
+		(tpSirAssocReq)session_entry->parsedAssocReq[sta_ds->assocId];
+
+	if (!assoc_req) {
+		pe_err("assoc req for assoc_id:%d is NULL", sta_ds->assocId);
+		goto end;
+	}
+
+	lim_assoc_ind = qdf_mem_malloc(sizeof(tLimMlmAssocInd));
+	if (!lim_assoc_ind) {
+		pe_err("lim assoc ind is NULL");
+		goto free_assoc_req;
+	}
+	if (!lim_fill_lim_assoc_ind_params(lim_assoc_ind, mac_ctx,
+					   sta_ds, session_entry)) {
+		pe_err("lim assoc ind fill error");;
+		goto lim_assoc_ind;
+	}
+
+	sme_assoc_ind = qdf_mem_malloc(sizeof(struct assoc_ind));
+	if (!sme_assoc_ind) {
+		pe_err("sme assoc ind is NULL");
+		goto lim_assoc_ind;
+	}
+	sme_assoc_ind->messageType = eWNI_SME_ASSOC_IND_UPPER_LAYER;
+	lim_fill_sme_assoc_ind_params(
+				mac_ctx, lim_assoc_ind,
+				sme_assoc_ind,
+				session_entry);
+
+	qdf_mem_zero(&msg, sizeof(struct scheduler_msg));
+	msg.type = eWNI_SME_ASSOC_IND_UPPER_LAYER;
+	msg.bodyptr = sme_assoc_ind;
+	msg.bodyval = 0;
+	sme_assoc_ind->staId = sta_ds->staIndex;
+	sme_assoc_ind->reassocReq = sta_ds->mlmStaContext.subType;
+	sme_assoc_ind->timingMeasCap = sta_ds->timingMeasCap;
+
+	mac_ctx->lim.sme_msg_callback(mac_ctx, &msg);
+
+	qdf_mem_free(lim_assoc_ind);
+
+	if (assoc_req->assocReqFrame) {
+		qdf_mem_free(assoc_req->assocReqFrame);
+		assoc_req->assocReqFrame = NULL;
+	}
+	qdf_mem_free(session_entry->parsedAssocReq[sta_ds->assocId]);
+	session_entry->parsedAssocReq[sta_ds->assocId] = NULL;
+	qdf_nbuf_free(buf);
+
+	return QDF_STATUS_SUCCESS;
+
+lim_assoc_ind:
+	qdf_mem_free(lim_assoc_ind);
+free_assoc_req:
+	if (assoc_req->assocReqFrame) {
+		qdf_mem_free(assoc_req->assocReqFrame);
+		assoc_req->assocReqFrame = NULL;
+	}
+	qdf_mem_free(session_entry->parsedAssocReq[sta_ds->assocId]);
+	session_entry->parsedAssocReq[sta_ds->assocId] = NULL;
+end:
+	qdf_nbuf_free(buf);
+null_buf:
+	return QDF_STATUS_E_FAILURE;
+}
 
 void
-lim_send_assoc_rsp_mgmt_frame(struct mac_context *mac_ctx,
+lim_send_assoc_rsp_mgmt_frame(
+	struct mac_context *mac_ctx,
 	uint16_t status_code, uint16_t aid, tSirMacAddr peer_addr,
-	uint8_t subtype, tpDphHashNode sta, struct pe_session *pe_session)
+	uint8_t subtype, tpDphHashNode sta, struct pe_session *pe_session,
+	bool tx_complete)
 {
 	static tDot11fAssocResponse frm;
 	uint8_t *frame;
@@ -1353,7 +1527,17 @@ lim_send_assoc_rsp_mgmt_frame(struct mac_context *mac_ctx,
 	lim_diag_mgmt_tx_event_report(mac_ctx, mac_hdr,
 				      pe_session, QDF_STATUS_SUCCESS, status_code);
 	/* Queue Association Response frame in high priority WQ */
-	qdf_status = wma_tx_frame(mac_ctx, packet, (uint16_t) bytes,
+	if (tx_complete)
+		qdf_status = wma_tx_frameWithTxComplete(
+				mac_ctx, packet, (uint16_t)bytes,
+				TXRX_FRM_802_11_MGMT,
+				ANI_TXDIR_TODS,
+				7, lim_tx_complete, frame,
+				lim_assoc_rsp_tx_complete, tx_flag,
+				sme_session, false, 0, RATEID_DEFAULT);
+	else
+		qdf_status = wma_tx_frame(
+				mac_ctx, packet, (uint16_t)bytes,
 				TXRX_FRM_802_11_MGMT,
 				ANI_TXDIR_TODS,
 				7, lim_tx_complete, frame, tx_flag,
@@ -1661,7 +1845,7 @@ lim_send_assoc_req_mgmt_frame(struct mac_context *mac_ctx,
 	uint8_t sme_sessionid = 0;
 	bool vht_enabled = false;
 	tDot11fIEExtCap extr_ext_cap;
-	bool extr_ext_flag = true;
+	bool extr_ext_flag = true, is_open_auth = false;
 	tpSirMacMgmtHdr mac_hdr;
 	uint32_t ie_offset = 0;
 	uint8_t *p_ext_cap = NULL;
@@ -1672,6 +1856,7 @@ lim_send_assoc_req_mgmt_frame(struct mac_context *mac_ctx,
 	enum rateid min_rid = RATEID_DEFAULT;
 	uint8_t *mbo_ie = NULL, *adaptive_11r_ie = NULL, *vendor_ies = NULL;
 	uint8_t mbo_ie_len = 0, adaptive_11r_ie_len = 0;
+	struct wlan_objmgr_peer *peer;
 
 	if (!pe_session) {
 		pe_err("pe_session is NULL");
@@ -2011,7 +2196,27 @@ lim_send_assoc_req_mgmt_frame(struct mac_context *mac_ctx,
 
 		/* Include the EID and length fields */
 		mbo_ie_len = mbo_ie[1] + 2;
-		pe_debug("Stripped MBO IE of length %d", mbo_ie_len);
+
+		if (pe_session->connected_akm == ANI_AKM_TYPE_NONE)
+			is_open_auth = true;
+
+		pe_debug("Stripped MBO IE of length %d is_open_auth:%d",
+			 mbo_ie_len, is_open_auth);
+
+		if (!is_open_auth) {
+			peer = wlan_objmgr_get_peer_by_mac(
+						mac_ctx->psoc,
+						mlm_assoc_req->peerMacAddr,
+						WLAN_MBO_ID);
+			if (peer && !mlme_get_peer_pmf_status(peer)) {
+				pe_debug("Peer doesn't support PMF, Don't add MBO IE");
+				qdf_mem_free(mbo_ie);
+				mbo_ie = NULL;
+				mbo_ie_len = 0;
+			}
+			if (peer)
+				wlan_objmgr_peer_release_ref(peer, WLAN_MBO_ID);
+		}
 	}
 
 	/*
@@ -4139,23 +4344,6 @@ returnAfterError:
 	return status_code;
 } /* End lim_send_neighbor_report_request_frame. */
 
-/**
- * \brief Send a Link Report Action frame
- *
- *
- * \param mac Pointer to the global MAC structure
- *
- * \param pLinkReport Address of a tSirMacLinkReport
- *
- * \param peer mac address of peer station.
- *
- * \param pe_session address of session entry.
- *
- * \return QDF_STATUS_SUCCESS on success, QDF_STATUS_E_FAILURE else
- *
- *
- */
-
 QDF_STATUS
 lim_send_link_report_action_frame(struct mac_context *mac,
 				  tpSirMacLinkReport pLinkReport,
@@ -4169,13 +4357,14 @@ lim_send_link_report_action_frame(struct mac_context *mac,
 	void *pPacket;
 	QDF_STATUS qdf_status;
 	uint8_t txFlag = 0;
-	uint8_t smeSessionId = 0;
+	uint8_t vdev_id = 0;
 
 	if (!pe_session) {
-		pe_err("(!psession) in Request to send Link Report action frame");
+		pe_err("RRM: Send link report: NULL PE session");
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	vdev_id = pe_session->vdev_id;
 	qdf_mem_zero((uint8_t *) &frm, sizeof(frm));
 
 	frm.Category.category = ACTION_CATEGORY_RRM;
@@ -4250,8 +4439,7 @@ lim_send_link_report_action_frame(struct mac_context *mac,
 			nStatus);
 	}
 
-	pe_warn("Sending a Link Report to");
-	lim_print_mac_addr(mac, peer, LOGW);
+	pe_warn("RRM: Sending Link Report to %pM on vdev[%d]", peer, vdev_id);
 
 	if ((BAND_5G == lim_get_rf_band(pe_session->currentOperChannel)) ||
 	    (pe_session->opmode == QDF_P2P_CLIENT_MODE) ||
@@ -4266,7 +4454,7 @@ lim_send_link_report_action_frame(struct mac_context *mac,
 				TXRX_FRM_802_11_MGMT,
 				ANI_TXDIR_TODS,
 				7, lim_tx_complete, pFrame, txFlag,
-				smeSessionId, 0, RATEID_DEFAULT);
+				vdev_id, 0, RATEID_DEFAULT);
 	MTRACE(qdf_trace(QDF_MODULE_ID_PE, TRACE_CODE_TX_COMPLETE,
 			 pe_session->peSessionId, qdf_status));
 	if (QDF_STATUS_SUCCESS != qdf_status) {
@@ -4724,15 +4912,12 @@ returnAfterError:
 
 #if defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390)
 #ifdef WLAN_FEATURE_11AX
-#define IS_PE_SESSION_11N_MODE(_session) \
-	((_session)->htCapability && !(_session)->vhtCapability && \
-	 !(_session)->he_capable)
+#define IS_PE_SESSION_HE_MODE(_session) ((_session)->he_capable)
 #else
-#define IS_PE_SESSION_11N_MODE(_session) \
-	((_session)->htCapability && !(_session)->vhtCapability)
+#define IS_PE_SESSION_HE_MODE(_session) false
 #endif /* WLAN_FEATURE_11AX */
 #else
-#define IS_PE_SESSION_11N_MODE(_session) false
+#define IS_PE_SESSION_HE_MODE(_session) false
 #endif
 
 /**
@@ -4815,10 +5000,11 @@ QDF_STATUS lim_send_addba_response_frame(struct mac_context *mac_ctx,
 		session->active_ba_64_session = true;
 	}
 
-	/* disable 11n RX AMSDU */
+	/* Enable RX AMSDU only in HE mode if supported */
 	if (mac_ctx->is_usr_cfg_amsdu_enabled &&
-	    !IS_PE_SESSION_11N_MODE(session) &&
-	    !WLAN_REG_IS_24GHZ_CH(session->currentOperChannel))
+	    ((IS_PE_SESSION_HE_MODE(session) &&
+	      WLAN_REG_IS_24GHZ_CH(session->currentOperChannel)) ||
+	      WLAN_REG_IS_5GHZ_CH(session->currentOperChannel)))
 		frm.addba_param_set.amsdu_supp = amsdu_support;
 	else
 		frm.addba_param_set.amsdu_supp = 0;

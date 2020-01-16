@@ -632,14 +632,6 @@ typedef struct tagSapStruct {
 	bool enable_dfs_phy_error_logs;
 } tSapStruct, *tpSapStruct;
 
-#ifdef FEATURE_WLAN_CH_AVOID
-/* Store channel safety information */
-typedef struct {
-	uint16_t channelNumber;
-	bool isSafe;
-} sapSafeChannelType;
-#endif /* FEATURE_WLAN_CH_AVOID */
-
 /**
  * struct sap_context - per-BSS Context for SAP
  *
@@ -1331,7 +1323,7 @@ QDF_STATUS wlansap_acs_chselect(struct sap_context *sap_context,
  *
  * Return: None
  */
-void sap_undo_acs(struct sap_context *sap_context);
+void sap_undo_acs(struct sap_context *sap_context, struct sap_config *sap_cfg);
 
 /**
  * wlansap_get_chan_width() - get sap channel width.
@@ -1438,6 +1430,19 @@ QDF_STATUS wlansap_filter_ch_based_acs(struct sap_context *sap_ctx,
  */
 uint8_t
 wlansap_get_safe_channel_from_pcl_and_acs_range(struct sap_context *sap_ctx);
+
+/**
+ * wlansap_get_chan_band_restrict() -  get new chan for band change
+ * @sap_ctx: sap context pointer
+ *
+ * Sap/p2p go channel switch from 5G to 2G by CSA when 5G band disabled to
+ * avoid conflict with modem N79.
+ * Sap/p2p go channel restore to 5G channel when 5G band enabled.
+ *
+ * Return - restart channel
+ */
+uint8_t wlansap_get_chan_band_restrict(struct sap_context *sap_ctx);
+
 #ifdef __cplusplus
 }
 #endif

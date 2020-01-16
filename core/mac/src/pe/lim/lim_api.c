@@ -637,24 +637,18 @@ static bool is_mgmt_protected(uint32_t vdev_id,
 		return false;
 	}
 
-	if (LIM_IS_AP_ROLE(session)) {
-		sta_ds = dph_lookup_hash_entry(mac_ctx,
-					       (uint8_t *)peer_mac_addr, &aid,
-					       &session->dph.dphHashTable);
-		if (sta_ds) {
-			/* rmfenabled will be set at the time of addbss.
-			 * but sometimes EAP auth fails and keys are not
-			 * installed then if we send any management frame
-			 * like deauth/disassoc with this bit set then
-			 * firmware crashes. so check for keys are
-			 * installed or not also before setting the bit
-			 */
-			if (sta_ds->rmfEnabled && sta_ds->is_key_installed)
-				protected = true;
-		}
-	} else if (session->limRmfEnabled &&
-		   session->is_key_installed) {
-		protected = true;
+	sta_ds = dph_lookup_hash_entry(mac_ctx, (uint8_t *)peer_mac_addr, &aid,
+				       &session->dph.dphHashTable);
+	if (sta_ds) {
+		/* rmfenabled will be set at the time of addbss.
+		 * but sometimes EAP auth fails and keys are not
+		 * installed then if we send any management frame
+		 * like deauth/disassoc with this bit set then
+		 * firmware crashes. so check for keys are
+		 * installed or not also before setting the bit
+		 */
+		if (sta_ds->rmfEnabled && sta_ds->is_key_installed)
+			protected = true;
 	}
 
 	return protected;
@@ -1819,7 +1813,8 @@ void lim_ps_offload_handle_missed_beacon_ind(struct mac_context *mac,
 		pe_find_session_by_bss_idx(mac, missed_beacon_ind->bss_idx);
 
 	if (!pe_session) {
-		pe_err("session does not exist for given BSSId");
+		pe_err("session does not exist for vdev_id %d",
+			missed_beacon_ind->bss_idx);
 		return;
 	}
 
@@ -2284,6 +2279,27 @@ pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 	return QDF_STATUS_SUCCESS;
 }
 
+#ifdef WLAN_FEATURE_FILS_SK
+static void
+lim_fill_fils_ft(struct pe_session *src_session,
+		 struct pe_session *dst_session)
+{
+      if (src_session->fils_info &&
+          src_session->fils_info->fils_ft_len) {
+              dst_session->fils_info->fils_ft_len =
+                      src_session->fils_info->fils_ft_len;
+              qdf_mem_copy(dst_session->fils_info->fils_ft,
+                           src_session->fils_info->fils_ft,
+                           src_session->fils_info->fils_ft_len);
+      }
+}
+#else
+static inline void
+lim_fill_fils_ft(struct pe_session *src_session,
+		 struct pe_session *dst_session)
+{}
+#endif
+
 QDF_STATUS
 pe_roam_synch_callback(struct mac_context *mac_ctx,
 		       struct roam_offload_synch_ind *roam_sync_ind_ptr,
@@ -2393,17 +2409,8 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 
 	/* Next routine may update nss based on dot11Mode */
 	lim_ft_prepare_add_bss_req(mac_ctx, false, ft_session_ptr, bss_desc);
-	if (session_ptr->is11Rconnection) {
-		ft_session_ptr->is11Rconnection = session_ptr->is11Rconnection;
-		if (session_ptr->fils_info &&
-		    session_ptr->fils_info->fils_ft_len) {
-			ft_session_ptr->fils_info->fils_ft_len =
-			       session_ptr->fils_info->fils_ft_len;
-			qdf_mem_copy(ft_session_ptr->fils_info->fils_ft,
-				     session_ptr->fils_info->fils_ft,
-				     session_ptr->fils_info->fils_ft_len);
-		}
-	}
+	if (session_ptr->is11Rconnection)
+		lim_fill_fils_ft(session_ptr, ft_session_ptr);
 
 	roam_sync_ind_ptr->add_bss_params =
 		(tpAddBssParams) ft_session_ptr->ftPEContext.pAddBssReq;
@@ -2469,6 +2476,7 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 	curr_sta_ds->nss = ft_session_ptr->nss;
 	roam_sync_ind_ptr->nss = ft_session_ptr->nss;
 	ft_session_ptr->limMlmState = eLIM_MLM_LINK_ESTABLISHED_STATE;
+	ft_session_ptr->limPrevMlmState = ft_session_ptr->limMlmState;
 	lim_init_tdls_data(mac_ctx, ft_session_ptr);
 	join_rsp_len = ft_session_ptr->RICDataLen +
 			sizeof(struct join_rsp) - sizeof(uint8_t);
@@ -2523,8 +2531,8 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 	lim_set_tdls_flags(roam_sync_ind_ptr, ft_session_ptr);
 	roam_sync_ind_ptr->join_rsp->aid = ft_session_ptr->limAID;
 	lim_fill_join_rsp_ht_caps(ft_session_ptr, roam_sync_ind_ptr->join_rsp);
-	ft_session_ptr->limPrevSmeState = ft_session_ptr->limSmeState;
 	ft_session_ptr->limSmeState = eLIM_SME_LINK_EST_STATE;
+	ft_session_ptr->limPrevSmeState = ft_session_ptr->limSmeState;
 	ft_session_ptr->bRoamSynchInProgress = false;
 	if (mac_ctx->roam.pReassocResp)
 		qdf_mem_free(mac_ctx->roam.pReassocResp);
@@ -2645,8 +2653,8 @@ tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(struct mac_context *mac,
 				  curr_seq_num);
 			return eMGMT_DROP_DUPLICATE_AUTH_FRAME;
 		}
-	} else if ((subType == SIR_MAC_MGMT_ASSOC_REQ) &&
-		   (subType == SIR_MAC_MGMT_DISASSOC) &&
+	} else if ((subType == SIR_MAC_MGMT_ASSOC_REQ) ||
+		   (subType == SIR_MAC_MGMT_DISASSOC) ||
 		   (subType == SIR_MAC_MGMT_DEAUTH)) {
 		uint16_t assoc_id;
 		struct dph_hash_table *dph_table;
@@ -2657,7 +2665,7 @@ tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(struct mac_context *mac,
 		pe_session = pe_find_session_by_bssid(mac, pHdr->bssId,
 				&sessionId);
 		if (!pe_session)
-			return eMGMT_DROP_NO_DROP;
+			return eMGMT_DROP_SPURIOUS_FRAME;
 		dph_table = &pe_session->dph.dphHashTable;
 		sta_ds = dph_lookup_hash_entry(mac, pHdr->sa, &assoc_id,
 					       dph_table);
@@ -2665,7 +2673,7 @@ tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(struct mac_context *mac,
 			if (subType == SIR_MAC_MGMT_ASSOC_REQ)
 				return eMGMT_DROP_NO_DROP;
 			else
-				return eMGMT_DROP_EXCESSIVE_MGMT_FRAME;
+				return eMGMT_DROP_SPURIOUS_FRAME;
 		}
 
 		if (subType == SIR_MAC_MGMT_ASSOC_REQ)

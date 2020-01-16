@@ -760,8 +760,43 @@ static void wma_cp_stats_set_rate_flag(tp_wma_handle wma, uint8_t vdev_id)
 static void wma_cp_stats_set_rate_flag(tp_wma_handle wma, uint8_t vdev_id) {}
 #endif
 
+#ifdef WLAN_FEATURE_11AX
 /**
- * wma_set_bss_rate_flags() - set rate flags based on BSS capability
+ * wma_set_bss_rate_flags_he() - set rate flags based on BSS capability
+ * @iface: txrx_node ctx
+ * @add_bss: add_bss params
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS wma_set_bss_rate_flags_he(struct wma_txrx_node *iface,
+					    tpAddBssParams add_bss)
+{
+	if (!add_bss->he_capable)
+		return QDF_STATUS_E_NOSUPPORT;
+
+	/*extend TX_RATE_HE160 in future*/
+	if (add_bss->ch_width == CH_WIDTH_160MHZ ||
+	    add_bss->ch_width == CH_WIDTH_80P80MHZ ||
+	    add_bss->ch_width == CH_WIDTH_80MHZ)
+		iface->rate_flags |= TX_RATE_HE80;
+
+	else if (add_bss->ch_width)
+		iface->rate_flags |= TX_RATE_HE40;
+	else
+		iface->rate_flags |= TX_RATE_HE20;
+
+	wma_debug("he_capable %d", add_bss->he_capable);
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static QDF_STATUS wma_set_bss_rate_flags_he(struct wma_txrx_node *iface,
+					    tpAddBssParams add_bss)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+#endif
+/**
+ * wma_set_bss_rate_flags() - 11ax set rate flags based on BSS capability
  * @iface: txrx_node ctx
  * @add_bss: add_bss params
  *
@@ -773,32 +808,38 @@ void wma_set_bss_rate_flags(tp_wma_handle wma, uint8_t vdev_id,
 	struct wma_txrx_node *iface = &wma->interfaces[vdev_id];
 
 	iface->rate_flags = 0;
-	if (add_bss->vhtCapable) {
-		if (add_bss->ch_width == CH_WIDTH_80P80MHZ)
-			iface->rate_flags |= TX_RATE_VHT80;
-		if (add_bss->ch_width == CH_WIDTH_160MHZ)
-			iface->rate_flags |= TX_RATE_VHT80;
-		if (add_bss->ch_width == CH_WIDTH_80MHZ)
-			iface->rate_flags |= TX_RATE_VHT80;
-		else if (add_bss->ch_width)
-			iface->rate_flags |= TX_RATE_VHT40;
-		else
-			iface->rate_flags |= TX_RATE_VHT20;
-	}
-	/* avoid to conflict with htCapable flag */
-	else if (add_bss->htCapable) {
-		if (add_bss->ch_width)
-			iface->rate_flags |= TX_RATE_HT40;
-		else
-			iface->rate_flags |= TX_RATE_HT20;
-	}
 
+	if (QDF_STATUS_SUCCESS != wma_set_bss_rate_flags_he(iface, add_bss)) {
+		if (add_bss->vhtCapable) {
+			if (add_bss->ch_width == CH_WIDTH_80P80MHZ)
+				iface->rate_flags |= TX_RATE_VHT80;
+			if (add_bss->ch_width == CH_WIDTH_160MHZ)
+				iface->rate_flags |= TX_RATE_VHT80;
+			if (add_bss->ch_width == CH_WIDTH_80MHZ)
+				iface->rate_flags |= TX_RATE_VHT80;
+			else if (add_bss->ch_width)
+				iface->rate_flags |= TX_RATE_VHT40;
+			else
+				iface->rate_flags |= TX_RATE_VHT20;
+		}
+		/* avoid to conflict with htCapable flag */
+		else if (add_bss->htCapable) {
+			if (add_bss->ch_width)
+				iface->rate_flags |= TX_RATE_HT40;
+			else
+				iface->rate_flags |= TX_RATE_HT20;
+		}
+	}
 	if (add_bss->staContext.fShortGI20Mhz ||
 	    add_bss->staContext.fShortGI40Mhz)
 		iface->rate_flags |= TX_RATE_SGI;
 
 	if (!add_bss->htCapable && !add_bss->vhtCapable)
 		iface->rate_flags = TX_RATE_LEGACY;
+
+	wma_debug("capable: vht %u, ht %u, rate_flags %x, ch_width %d",
+		  add_bss->vhtCapable, add_bss->htCapable,
+		  iface->rate_flags, add_bss->ch_width);
 
 	wma_cp_stats_set_rate_flag(wma, vdev_id);
 }
@@ -863,8 +904,7 @@ static void wma_data_tx_ack_work_handler(void *ack_work)
 
 	/* Call the Ack Cb registered by UMAC */
 	if (ack_cb)
-		ack_cb((struct mac_context *) (wma_handle->mac_context), NULL,
-			work->status, NULL);
+		ack_cb(wma_handle->mac_context, NULL, work->status, NULL);
 	else
 		WMA_LOGE("Data Tx Ack Cb is NULL");
 
@@ -2893,11 +2933,11 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 					WLAN_MGMT_NB_ID);
 	}
 
-	status = wlan_mgmt_txrx_mgmt_frame_tx(peer,
-			(struct mac_context *)wma_handle->mac_context,
-			(qdf_nbuf_t)tx_frame,
-			NULL, tx_frm_ota_comp_cb,
-			WLAN_UMAC_COMP_MLME, &mgmt_param);
+	status = wlan_mgmt_txrx_mgmt_frame_tx(peer, wma_handle->mac_context,
+					      (qdf_nbuf_t)tx_frame, NULL,
+					      tx_frm_ota_comp_cb,
+					      WLAN_UMAC_COMP_MLME,
+					      &mgmt_param);
 
 	wlan_objmgr_peer_release_ref(peer, WLAN_MGMT_NB_ID);
 	if (status != QDF_STATUS_SUCCESS) {
@@ -3279,27 +3319,98 @@ void wma_rx_mic_error_ind(void *scn_handle, uint16_t vdev_id, void *wh)
 	wma_indicate_err(OL_RX_ERR_TKIP_MIC, &err_info);
 }
 
+void wma_delete_invalid_peer_entries(uint8_t vdev_id, uint8_t *peer_mac_addr)
+{
+	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	uint8_t i;
+	struct wma_txrx_node *iface;
+
+	if (!wma) {
+		wma_err("wma handle is NULL");
+		return;
+	}
+
+	iface = &wma->interfaces[vdev_id];
+
+	if (peer_mac_addr) {
+		for (i = 0; i < INVALID_PEER_MAX_NUM; i++) {
+			if (qdf_mem_cmp
+				      (iface->invalid_peers[i].rx_macaddr,
+				      peer_mac_addr,
+				      QDF_MAC_ADDR_SIZE) == 0) {
+				qdf_mem_zero(iface->invalid_peers[i].rx_macaddr,
+					     sizeof(QDF_MAC_ADDR_SIZE));
+				break;
+			}
+		}
+		if (i == INVALID_PEER_MAX_NUM)
+			wma_debug("peer_mac_addr %pM is not found", peer_mac_addr);
+	} else {
+		qdf_mem_zero(iface->invalid_peers,
+			     sizeof(iface->invalid_peers));
+	}
+}
+
 uint8_t wma_rx_invalid_peer_ind(uint8_t vdev_id, void *wh)
 {
 	struct ol_rx_inv_peer_params *rx_inv_msg;
 	struct ieee80211_frame *wh_l = (struct ieee80211_frame *)wh;
 	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	uint8_t i, index;
+	bool invalid_peer_found = false;
+	struct wma_txrx_node *iface;
 
+	if (!wma) {
+		wma_err("wma handle is NULL");
+		return -EINVAL;
+	}
+
+	iface = &wma->interfaces[vdev_id];
 	rx_inv_msg = qdf_mem_malloc(sizeof(struct ol_rx_inv_peer_params));
 	if (!rx_inv_msg)
 		return -ENOMEM;
 
+	index = iface->invalid_peer_idx;
 	rx_inv_msg->vdev_id = vdev_id;
 	qdf_mem_copy(rx_inv_msg->ra, wh_l->i_addr1, QDF_MAC_ADDR_SIZE);
 	qdf_mem_copy(rx_inv_msg->ta, wh_l->i_addr2, QDF_MAC_ADDR_SIZE);
 
-	WMA_LOGD("%s: vdev_id %d", __func__, vdev_id);
-	wma_debug("RA:"QDF_MAC_ADDR_STR,
-		  QDF_MAC_ADDR_ARRAY(rx_inv_msg->ra));
-	wma_debug("TA:"QDF_MAC_ADDR_STR,
-		  QDF_MAC_ADDR_ARRAY(rx_inv_msg->ta));
 
-	wma_send_msg(wma, SIR_LIM_RX_INVALID_PEER, (void *)rx_inv_msg, 0);
+	for (i = 0; i < INVALID_PEER_MAX_NUM; i++) {
+		if (qdf_mem_cmp
+			      (iface->invalid_peers[i].rx_macaddr,
+			      rx_inv_msg->ta,
+			      QDF_MAC_ADDR_SIZE) == 0) {
+			invalid_peer_found = true;
+			break;
+		}
+	}
+
+	if (!invalid_peer_found) {
+		qdf_mem_copy(iface->invalid_peers[index].rx_macaddr,
+			     rx_inv_msg->ta,
+			    QDF_MAC_ADDR_SIZE);
+
+		/* reset count if reached max */
+		iface->invalid_peer_idx =
+			(index + 1) % INVALID_PEER_MAX_NUM;
+
+		/* send deauth */
+		WMA_LOGD("%s: vdev_id %d", __func__, vdev_id);
+		wma_debug(" RA: " QDF_MAC_ADDR_STR,
+			  QDF_MAC_ADDR_ARRAY(rx_inv_msg->ra));
+		wma_debug(" TA: " QDF_MAC_ADDR_STR,
+			  QDF_MAC_ADDR_ARRAY(rx_inv_msg->ta));
+
+		wma_send_msg(wma,
+			     SIR_LIM_RX_INVALID_PEER,
+			     (void *)rx_inv_msg, 0);
+	} else {
+		wma_debug_rl("Ignore invalid peer indication as received more than once "
+			QDF_MAC_ADDR_STR,
+			QDF_MAC_ADDR_ARRAY(rx_inv_msg->ta));
+		qdf_mem_free(rx_inv_msg);
+	}
 
 	return 0;
 }

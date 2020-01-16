@@ -3106,12 +3106,14 @@ void __lim_process_sme_assoc_cnf_new(struct mac_context *mac_ctx, uint32_t msg_t
 			eLIM_MLM_LINK_ESTABLISHED_STATE;
 		sta_ds->mlmStaContext.owe_ie = assoc_cnf.owe_ie;
 		sta_ds->mlmStaContext.owe_ie_len = assoc_cnf.owe_ie_len;
-		pe_debug("sending Assoc Rsp frame to STA (assoc id=%d)",
-			sta_ds->assocId);
-		lim_send_assoc_rsp_mgmt_frame(mac_ctx, QDF_STATUS_SUCCESS,
+		pe_debug("sending Assoc Rsp frame to STA assoc id=%d, tx cb %d",
+			 sta_ds->assocId, assoc_cnf.need_assoc_rsp_tx_cb);
+		lim_send_assoc_rsp_mgmt_frame(
+					mac_ctx, QDF_STATUS_SUCCESS,
 					sta_ds->assocId, sta_ds->staAddr,
 					sta_ds->mlmStaContext.subType, sta_ds,
-					session_entry);
+					session_entry,
+					assoc_cnf.need_assoc_rsp_tx_cb);
 		sta_ds->mlmStaContext.owe_ie = NULL;
 		sta_ds->mlmStaContext.owe_ie_len = 0;
 		goto end;
@@ -3148,7 +3150,8 @@ void __lim_process_sme_assoc_cnf_new(struct mac_context *mac_ctx, uint32_t msg_t
 	}
 end:
 	if (((session_entry) && (sta_ds)) &&
-		(session_entry->parsedAssocReq[sta_ds->assocId])) {
+		(session_entry->parsedAssocReq[sta_ds->assocId]) &&
+		!assoc_cnf.need_assoc_rsp_tx_cb) {
 		assoc_req = (tpSirAssocReq)
 			session_entry->parsedAssocReq[sta_ds->assocId];
 		if (assoc_req->assocReqFrame) {
@@ -3721,6 +3724,37 @@ static void __lim_process_roam_scan_offload_req(struct mac_context *mac_ctx,
 		qdf_mem_free(req_buffer);
 	}
 }
+
+#if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * lim_send_roam_offload_init() - Process Roam offload flag from csr
+ * @mac_ctx: Pointer to Global MAC structure
+ * @msg_buf: Pointer to SME message buffer
+ *
+ * Return: None
+ */
+static void lim_send_roam_offload_init(struct mac_context *mac_ctx,
+				       uint32_t *msg_buf)
+{
+	struct scheduler_msg wma_msg = {0};
+	QDF_STATUS status;
+
+	wma_msg.type = WMA_ROAM_INIT_PARAM;
+	wma_msg.bodyptr = msg_buf;
+
+	status = wma_post_ctrl_msg(mac_ctx, &wma_msg);
+	if (QDF_STATUS_SUCCESS != status) {
+		pe_err("Posting WMA_ROAM_INIT_PARAM failed");
+		qdf_mem_free(msg_buf);
+	}
+}
+#else
+static void lim_send_roam_offload_init(struct mac_context *mac_ctx,
+				       uint32_t *msg_buf)
+{
+	qdf_mem_free(msg_buf);
+}
+#endif
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
@@ -4776,6 +4810,10 @@ bool lim_process_sme_req_messages(struct mac_context *mac,
 		break;
 	case eWNI_SME_ROAM_SCAN_OFFLOAD_REQ:
 		__lim_process_roam_scan_offload_req(mac, msg_buf);
+		bufConsumed = false;
+		break;
+	case eWNI_SME_ROAM_INIT_PARAM:
+		lim_send_roam_offload_init(mac, msg_buf);
 		bufConsumed = false;
 		break;
 	case eWNI_SME_ROAM_INVOKE:
@@ -6340,5 +6378,6 @@ void lim_add_roam_blacklist_ap(struct mac_context *mac_ctx,
 
 		/* Add this bssid to the rssi reject ap type in blacklist mgr */
 		lim_add_bssid_to_reject_list(mac_ctx->pdev, &entry);
+		blacklist++;
 	}
 }

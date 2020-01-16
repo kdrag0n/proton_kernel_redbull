@@ -1104,6 +1104,11 @@ struct wlan_mlme_chainmask {
  * @data_stall_recovery_fw_support: whether FW supports Data stall recovery.
  * @enable_change_channel_bandwidth: enable/disable change channel bw in mission
  * mode
+ * @as_enabled: antenna sharing enabled or not (FW capability)
+ * @mgmt_retry_max: maximum retries for management frame
+ * @bmiss_skip_full_scan: Decide if full scan can be skipped in firmware if no
+ * candidate is found in partial scan based on channel map
+ * @enable_ring_buffer: Decide to enable/disable ring buffer for bug report
  */
 struct wlan_mlme_generic {
 	enum band_info band_capability;
@@ -1134,6 +1139,10 @@ struct wlan_mlme_generic {
 	bool enable_remove_time_stamp_sync_cmd;
 	bool data_stall_recovery_fw_support;
 	bool enable_change_channel_bandwidth;
+	bool as_enabled;
+	uint8_t mgmt_retry_max;
+	bool bmiss_skip_full_scan;
+	bool enable_ring_buffer;
 };
 
 /*
@@ -1520,7 +1529,7 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t max_num_pre_auth;
 	uint32_t roam_preauth_retry_count;
 	uint32_t roam_preauth_no_ack_timeout;
-	uint32_t roam_rssi_diff;
+	uint8_t roam_rssi_diff;
 	bool roam_scan_offload_enabled;
 	uint32_t neighbor_scan_timer_period;
 	uint32_t neighbor_scan_min_timer_period;
@@ -2086,6 +2095,7 @@ struct wlan_mlme_mwc {
  * @avoid_acs_freq_list: List of the frequencies which need to be avoided
  * during acs
  * @avoid_acs_freq_list_num: Number of the frequencies to be avoided during acs
+ * @ignore_fw_reg_offload_ind: Ignore fw regulatory offload indication
  */
 struct wlan_mlme_reg {
 	uint32_t self_gen_frm_pwr;
@@ -2103,6 +2113,7 @@ struct wlan_mlme_reg {
 	uint16_t avoid_acs_freq_list[CFG_VALID_CHANNEL_LIST_LEN];
 	uint8_t avoid_acs_freq_list_num;
 #endif
+	bool ignore_fw_reg_offload_ind;
 };
 
 /**

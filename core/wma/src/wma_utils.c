@@ -62,6 +62,7 @@
 #include <wlan_utility.h>
 #include <wlan_mlme_main.h>
 #include "host_diag_core_log.h"
+#include <wlan_mlme_api.h>
 
 /* MCS Based rate table */
 /* HT MCS parameters with Nss = 1 */
@@ -121,6 +122,91 @@ static struct index_vht_data_rate_type vht_mcs_nss2[] = {
 	{9,  {1730, 1920}, {3600, 4000}, {7800, 8667} }
 };
 
+#ifdef WLAN_FEATURE_11AX
+/* MCS Based HE rate table */
+/* MCS parameters with Nss = 1*/
+static struct index_he_data_rate_type he_mcs_nss1[] = {
+/* MCS,  {dcm0:0.8/1.6/3.2}, {dcm1:0.8/1.6/3.2} */
+	{0,  {{86,   81,   73  }, {43,   40,  36 } }, /* HE20 */
+	     {{172,  163,  146 }, {86,   81,  73 } }, /* HE40 */
+	     {{360,  340,  306 }, {180,  170, 153} } }, /* HE80 */
+	{1,  {{172,  163,  146 }, {86,   81,  73 } },
+	     {{344,  325,  293 }, {172,  163, 146} },
+	     {{721,  681,  613 }, {360,  340, 306} } },
+	{2,  {{258,  244,  219 }, {0} },
+	     {{516,  488,  439 }, {0} },
+	     {{1081, 1021, 919 }, {0} } },
+	{3,  {{344,  325,  293 }, {172,  163, 146} },
+	     {{688,  650,  585 }, {344,  325, 293} },
+	     {{1441, 1361, 1225}, {721,  681, 613} } },
+	{4,  {{516,  488,  439 }, {258,  244, 219} },
+	     {{1032, 975,  878 }, {516,  488, 439} },
+	     {{2162, 2042, 1838}, {1081, 1021, 919} } },
+	{5,  {{688,  650,  585 }, {0} },
+	     {{1376, 1300, 1170}, {0} },
+	     {{2882, 2722, 2450}, {0} } },
+	{6,  {{774,  731,  658 }, {0} },
+	     {{1549, 1463, 1316}, {0} },
+	     {{3243, 3063, 2756}, {0} } },
+	{7,  {{860,  813,  731 }, {0} },
+	     {{1721, 1625, 1463}, {0} },
+	     {{3603, 3403, 3063}, {0} } },
+	{8,  {{1032, 975,  878 }, {0} },
+	     {{2065, 1950, 1755}, {0} },
+	     {{4324, 4083, 3675}, {0} } },
+	{9,  {{1147, 1083, 975 }, {0} },
+	     {{2294, 2167, 1950}, {0} },
+	     {{4804, 4537, 4083}, {0} } },
+	{10, {{1290, 1219, 1097}, {0} },
+	     {{2581, 2438, 2194}, {0} },
+	     {{5404, 5104, 4594}, {0} } },
+	{11, {{1434, 1354, 1219}, {0} },
+	     {{2868, 2708, 2438}, {0} },
+	     {{6004, 5671, 5104}, {0} } }
+};
+
+/*MCS parameters with Nss = 2*/
+static struct index_he_data_rate_type he_mcs_nss2[] = {
+/* MCS,  {dcm0:0.8/1.6/3.2}, {dcm1:0.8/1.6/3.2} */
+	{0,  {{172,   163,   146 }, {86,   81,   73 } }, /* HE20 */
+	     {{344,   325,   293 }, {172,  163,  146} }, /* HE40 */
+	     {{721,   681,   613 }, {360,  340,  306} } }, /* HE80 */
+	{1,  {{344,   325,   293 }, {172,  163,  146} },
+	     {{688,   650,   585 }, {344,  325,  293} },
+	     {{1441,  1361,  1225}, {721,  681,  613} } },
+	{2,  {{516,   488,   439 }, {0} },
+	     {{1032,  975,   878 }, {0} },
+	     {{2162,  2042,  1838}, {0} } },
+	{3,  {{688,   650,   585 }, {344,  325,  293 } },
+	     {{1376,  1300,  1170}, {688,  650,  585  } },
+	     {{2882,  2722,  2450}, {1441, 1361, 1225} } },
+	{4,  {{1032,  975,   878 }, {516,  488,  439 } },
+	     {{2065,  1950,  1755}, {1032, 975,  878 } },
+	     {{4324,  4083,  3675}, {2162, 2042, 1838} } },
+	{5,  {{1376,  1300,  1170}, {0} },
+	     {{2753,  2600,  2340}, {0} },
+	     {{5765,  5444,  4900}, {0} } },
+	{6,  {{1549,  1463,  1316}, {0} },
+	     {{3097,  2925,  2633}, {0} },
+	     {{6485,  6125,  5513}, {0} } },
+	{7,  {{1721,  1625,  1463}, {0} },
+	     {{3441,  3250,  2925}, {0} },
+	     {{7206,  6806,  6125}, {0} } },
+	{8,  {{2065,  1950,  1755}, {0} },
+	     {{4129,  3900,  3510}, {0} },
+	     {{8647,  8167,  7350}, {0} } },
+	{9,  {{2294,  2167,  1950}, {0} },
+	     {{4588,  4333,  3900}, {0} },
+	     {{9607,  9074,  8166}, {0} } },
+	{10, {{2581,  2438,  2194}, {0} },
+	     {{5162,  4875,  4388}, {0} },
+	     {{10809, 10208, 9188}, {0} } },
+	{11, {{2868,  2708,  2438}, {0} },
+	     {{5735,  5417,  4875}, {0} },
+	     {{12010, 11343, 10208}, {0} } }
+};
+#endif
+
 #ifdef BIG_ENDIAN_HOST
 
 /* ############# function definitions ############ */
@@ -149,90 +235,233 @@ void wma_swap_bytes(void *pv, uint32_t n)
 
 /**
  * wma_mcs_rate_match() - find the match mcs rate
- * @match_rate:	the rate to look up
- * @is_sgi:	return if the SGI rate is found
- * @nss:	the nss in use
+ * @raw_rate: the rate to look up
+ * @is_he: if it is he rate
  * @nss1_rate:	the nss1 rate
- * @nss1_srate:	the nss1 SGI rate
  * @nss2_rate:	the nss2 rate
- * @nss2_srate:	the nss2 SGI rate
+ * @nss: the nss in use
+ * @guard_interval: to get guard interval from rate
  *
  * This is a helper function to find the match of the tx_rate
- * in terms of the nss1/nss2 rate with non-SGI/SGI.
+ * and return nss/guard interval.
  *
  * Return: the found rate or 0 otherwise
  */
-static inline uint16_t wma_mcs_rate_match(uint16_t match_rate, bool *is_sgi,
-					  uint8_t *nss, uint16_t nss1_rate,
-					  uint16_t nss1_srate,
-					  uint16_t nss2_rate,
-					  uint16_t nss2_srate)
+static inline uint16_t wma_mcs_rate_match(uint16_t raw_rate,
+					  bool is_he,
+					  uint16_t *nss1_rate,
+					  uint16_t *nss2_rate,
+					  uint8_t *nss,
+					  enum txrate_gi *guard_interval)
 {
-	WMA_LOGD("%s match_rate: %d, %d %d %d %d",
-		__func__, match_rate, nss1_rate, nss1_srate, nss2_rate,
-		nss2_srate);
+	uint8_t gi_index;
+	uint8_t gi_index_max = 2;
+	uint16_t ret_rate = 0;
 
-	if (match_rate == nss1_rate) {
-		*nss = 1;
-		return nss1_rate;
-	} else if (match_rate == nss1_srate) {
-		*is_sgi = true;
-		*nss = 1;
-		return nss1_srate;
-	} else if (*nss == 2 && match_rate == nss2_rate)
-		return nss2_rate;
-	else if (*nss == 2 && match_rate == nss2_srate) {
-		*is_sgi = true;
-		return nss2_srate;
-	} else
-		return 0;
+	WMA_LOGD("%s raw_rate: %u, %u %u %u %u",
+		 __func__, raw_rate, nss1_rate[0],
+		 nss1_rate[1], nss2_rate[0], nss2_rate[1]);
+	if (is_he)
+		WMA_LOGD("%s : is_he %u,  %u, %u",
+			 __func__, is_he, nss1_rate[2], nss2_rate[2]);
+
+	if (is_he)
+		gi_index_max = 3;
+
+	for (gi_index = 0; gi_index < gi_index_max; gi_index++) {
+		if (raw_rate == nss1_rate[gi_index]) {
+			*nss = 1;
+			ret_rate = nss1_rate[gi_index];
+			break;
+		}
+		if (*nss == 2 && raw_rate == nss2_rate[gi_index]) {
+			ret_rate = nss2_rate[gi_index];
+			break;
+		}
+	}
+
+	if (ret_rate) {
+		if (gi_index == 1)
+			*guard_interval =
+				is_he ? TXRATE_GI_1_6_US : TXRATE_GI_0_4_US;
+		else if (is_he && gi_index == 2)
+			*guard_interval = TXRATE_GI_3_2_US;
+		else
+			*guard_interval = TXRATE_GI_0_8_US;
+	}
+
+	WMA_LOGD("%s ret_rate: %u, guard interval %u nss %u",
+		 __func__, ret_rate, *guard_interval, *nss);
+
+	return ret_rate;
 }
 
-uint8_t wma_get_mcs_idx(uint16_t max_rate, uint8_t rate_flags,
-			uint8_t *nss, uint8_t *mcs_rate_flag)
+#ifdef WLAN_FEATURE_11AX
+/**
+ * wma_get_mcs_idx() - get mcs index
+ * @raw_rate: raw rate from fw
+ * @rate_flags: rate flags
+ * @nss: nss
+ * @dcm: dcm
+ * @guard_interval: guard interval
+ * @mcs_rate_flag: mcs rate flags
+ * @p_index: index for matched rate
+ *
+ *  Return: return match rate if found, else 0
+ */
+static uint16_t wma_match_he_rate(uint16_t raw_rate,
+				  enum tx_rate_info rate_flags,
+				  uint8_t *nss, uint8_t *dcm,
+				  enum txrate_gi *guard_interval,
+				  enum tx_rate_info *mcs_rate_flag,
+				  uint8_t *p_index)
+{
+	uint8_t index = 0;
+	uint8_t dcm_index_max = 1;
+	uint8_t dcm_index = 0;
+	uint16_t match_rate = 0;
+	uint16_t *nss1_rate;
+	uint16_t *nss2_rate;
+
+	*p_index = 0;
+	if (!(rate_flags & (TX_RATE_HE80 | TX_RATE_HE40 |
+		TX_RATE_HE20)))
+		return 0;
+
+	for (index = 0; index < MAX_HE_MCS_IDX; index++) {
+		dcm_index_max = IS_MCS_HAS_DCM_RATE(index) ? 2 : 1;
+
+		for (dcm_index = 0; dcm_index < dcm_index_max;
+			 dcm_index++) {
+			if (rate_flags & TX_RATE_HE80) {
+				nss1_rate = &he_mcs_nss1[index].
+					supported_he80_rate[dcm_index][0];
+				nss2_rate = &he_mcs_nss2[index].
+					supported_he80_rate[dcm_index][0];
+				/* check for he80 nss1/2 rate set */
+				match_rate = wma_mcs_rate_match(raw_rate, 1,
+								nss1_rate,
+								nss2_rate,
+								nss,
+								guard_interval);
+				if (match_rate)
+					goto rate_found;
+			}
+
+			if (rate_flags & (TX_RATE_HE40 | TX_RATE_HE80)) {
+				nss1_rate = &he_mcs_nss1[index].
+					supported_he40_rate[dcm_index][0];
+				nss2_rate = &he_mcs_nss2[index].
+					supported_he40_rate[dcm_index][0];
+				/* check for he40 nss1/2 rate set */
+				match_rate = wma_mcs_rate_match(raw_rate, 1,
+								nss1_rate,
+								nss2_rate,
+								nss,
+								guard_interval);
+
+				if (match_rate) {
+					*mcs_rate_flag &= ~TX_RATE_HE80;
+					goto rate_found;
+				}
+			}
+
+			if (rate_flags & (TX_RATE_HE80 | TX_RATE_HE40 |
+				TX_RATE_HE20)) {
+				nss1_rate = &he_mcs_nss1[index].
+					supported_he20_rate[dcm_index][0];
+				nss2_rate = &he_mcs_nss2[index].
+					supported_he20_rate[dcm_index][0];
+				/* check for he20 nss1/2 rate set */
+				match_rate = wma_mcs_rate_match(raw_rate, 1,
+								nss1_rate,
+								nss2_rate,
+								nss,
+								guard_interval);
+
+				if (match_rate) {
+					*mcs_rate_flag &= TX_RATE_HE20;
+					goto rate_found;
+				}
+			}
+		}
+	}
+
+rate_found:
+	if (match_rate) {
+		if (dcm_index == 1)
+			*dcm = 1;
+		*p_index = index;
+	}
+	return match_rate;
+}
+#else
+static uint16_t wma_match_he_rate(uint16_t raw_rate,
+				  enum tx_rate_info rate_flags,
+				  uint8_t *nss, uint8_t *dcm,
+				  enum txrate_gi *guard_interval,
+				  enum tx_rate_info *mcs_rate_flag,
+				  uint8_t *p_index)
+{
+		return 0;
+}
+#endif
+
+uint8_t wma_get_mcs_idx(uint16_t raw_rate, enum tx_rate_info rate_flags,
+			uint8_t *nss, uint8_t *dcm,
+			enum txrate_gi *guard_interval,
+			enum tx_rate_info *mcs_rate_flag)
 {
 	uint8_t  index = 0;
 	uint16_t match_rate = 0;
-	bool is_sgi = false;
+	uint16_t *nss1_rate;
+	uint16_t *nss2_rate;
 
-	WMA_LOGD("%s rate:%d rate_flgs: 0x%x, nss: %d",
-		 __func__, max_rate, rate_flags, *nss);
+	WMA_LOGD("%s enter:  raw_rate:%d rate_flgs: 0x%x, nss: %d",
+		 __func__, raw_rate, rate_flags, *nss);
 
 	*mcs_rate_flag = rate_flags;
-	*mcs_rate_flag &= ~TX_RATE_SGI;
+
+	match_rate = wma_match_he_rate(raw_rate, rate_flags,
+				       nss, dcm, guard_interval,
+				       mcs_rate_flag, &index);
+	if (match_rate)
+		goto rate_found;
+
 	for (index = 0; index < MAX_VHT_MCS_IDX; index++) {
 		if (rate_flags & TX_RATE_VHT80) {
+			nss1_rate = &vht_mcs_nss1[index].ht80_rate[0];
+			nss2_rate = &vht_mcs_nss2[index].ht80_rate[0];
 			/* check for vht80 nss1/2 rate set */
-			match_rate = wma_mcs_rate_match(max_rate, &is_sgi, nss,
-					vht_mcs_nss1[index].ht80_rate[0],
-					vht_mcs_nss1[index].ht80_rate[1],
-					vht_mcs_nss2[index].ht80_rate[0],
-					vht_mcs_nss2[index].ht80_rate[1]);
+			match_rate = wma_mcs_rate_match(raw_rate, 0,
+							nss1_rate,
+							nss2_rate,
+							nss, guard_interval);
 			if (match_rate)
 				goto rate_found;
 		}
-		if ((rate_flags & TX_RATE_VHT40) |
-		    (rate_flags & TX_RATE_VHT80)) {
+		if (rate_flags & (TX_RATE_VHT40 | TX_RATE_VHT80)) {
+			nss1_rate = &vht_mcs_nss1[index].ht40_rate[0];
+			nss2_rate = &vht_mcs_nss2[index].ht40_rate[0];
 			/* check for vht40 nss1/2 rate set */
-			match_rate = wma_mcs_rate_match(max_rate, &is_sgi, nss,
-					vht_mcs_nss1[index].ht40_rate[0],
-					vht_mcs_nss1[index].ht40_rate[1],
-					vht_mcs_nss2[index].ht40_rate[0],
-					vht_mcs_nss2[index].ht40_rate[1]);
+			match_rate = wma_mcs_rate_match(raw_rate, 0,
+							nss1_rate,
+							nss2_rate,
+							nss, guard_interval);
 			if (match_rate) {
 				*mcs_rate_flag &= ~TX_RATE_VHT80;
 				goto rate_found;
 			}
 		}
-		if ((rate_flags & TX_RATE_VHT20) |
-		    (rate_flags & TX_RATE_VHT40) |
-		    (rate_flags & TX_RATE_VHT80)) {
+		if (rate_flags & (TX_RATE_VHT20 | TX_RATE_VHT40 |
+			TX_RATE_VHT80)) {
+			nss1_rate = &vht_mcs_nss1[index].ht20_rate[0];
+			nss2_rate = &vht_mcs_nss2[index].ht20_rate[0];
 			/* check for vht20 nss1/2 rate set */
-			match_rate = wma_mcs_rate_match(max_rate, &is_sgi, nss,
-					vht_mcs_nss1[index].ht20_rate[0],
-					vht_mcs_nss1[index].ht20_rate[1],
-					vht_mcs_nss2[index].ht20_rate[0],
-					vht_mcs_nss2[index].ht20_rate[1]);
+			match_rate = wma_mcs_rate_match(raw_rate, 0,
+							nss1_rate,
+							nss2_rate,
+							nss, guard_interval);
 			if (match_rate) {
 				*mcs_rate_flag &= ~(TX_RATE_VHT80 |
 						TX_RATE_VHT40);
@@ -242,12 +471,13 @@ uint8_t wma_get_mcs_idx(uint16_t max_rate, uint8_t rate_flags,
 	}
 	for (index = 0; index < MAX_HT_MCS_IDX; index++) {
 		if (rate_flags & TX_RATE_HT40) {
+			nss1_rate = &mcs_nss1[index].ht40_rate[0];
+			nss2_rate = &mcs_nss2[index].ht40_rate[0];
 			/* check for ht40 nss1/2 rate set */
-			match_rate = wma_mcs_rate_match(max_rate, &is_sgi, nss,
-					mcs_nss1[index].ht40_rate[0],
-					mcs_nss1[index].ht40_rate[1],
-					mcs_nss2[index].ht40_rate[0],
-					mcs_nss2[index].ht40_rate[1]);
+			match_rate = wma_mcs_rate_match(raw_rate, 0,
+							nss1_rate,
+							nss2_rate,
+							nss, guard_interval);
 			if (match_rate) {
 				*mcs_rate_flag = TX_RATE_HT40;
 				if (*nss == 2)
@@ -255,14 +485,14 @@ uint8_t wma_get_mcs_idx(uint16_t max_rate, uint8_t rate_flags,
 				goto rate_found;
 			}
 		}
-		if ((rate_flags & TX_RATE_HT20) ||
-			(rate_flags & TX_RATE_HT40)) {
+		if (rate_flags & (TX_RATE_HT20 | TX_RATE_HT40)) {
+			nss1_rate = &mcs_nss1[index].ht20_rate[0];
+			nss2_rate = &mcs_nss2[index].ht20_rate[0];
 			/* check for ht20 nss1/2 rate set */
-			match_rate = wma_mcs_rate_match(max_rate, &is_sgi, nss,
-					mcs_nss1[index].ht20_rate[0],
-					mcs_nss1[index].ht20_rate[1],
-					mcs_nss2[index].ht20_rate[0],
-					mcs_nss2[index].ht20_rate[1]);
+			match_rate = wma_mcs_rate_match(raw_rate, 0,
+							nss1_rate,
+							nss2_rate,
+							nss, guard_interval);
 			if (match_rate) {
 				*mcs_rate_flag = TX_RATE_HT20;
 				if (*nss == 2)
@@ -273,12 +503,17 @@ uint8_t wma_get_mcs_idx(uint16_t max_rate, uint8_t rate_flags,
 	}
 
 rate_found:
-	/* set SGI flag only if this is SGI rate */
-	if (match_rate && is_sgi == true)
-		*mcs_rate_flag |= TX_RATE_SGI;
 
-	WMA_LOGD("%s - match_rate: %d index: %d rate_flag: 0x%x is_sgi: %d",
-		 __func__, match_rate, index, *mcs_rate_flag, is_sgi);
+	/* set SGI flag only if this is SGI rate */
+	if (match_rate && *guard_interval == TXRATE_GI_0_4_US)
+		*mcs_rate_flag |= TX_RATE_SGI;
+	else
+		*mcs_rate_flag &= ~TX_RATE_SGI;
+
+	WMA_LOGD("%s exit: match_rate %d index: %d"
+		 " mcs_rate_flag: 0x%x nss %d guard interval %d",
+		 __func__, match_rate, index, *mcs_rate_flag,
+		 *nss, *guard_interval);
 
 	return match_rate ? index : INVALID_MCS_IDX;
 }
@@ -4493,10 +4728,23 @@ static void wma_set_roam_offload_flag(tp_wma_handle wma, uint8_t vdev_id,
 {
 	QDF_STATUS status;
 	uint32_t flag = 0;
+	bool bmiss_skip_full_scan;
 
-	if (is_set)
+	if (is_set) {
 		flag = WMI_ROAM_FW_OFFLOAD_ENABLE_FLAG |
 		       WMI_ROAM_BMISS_FINAL_SCAN_ENABLE_FLAG;
+
+		wlan_mlme_get_bmiss_skip_full_scan_value(wma->psoc,
+							 &bmiss_skip_full_scan);
+		/*
+		 * If WMI_ROAM_BMISS_FINAL_SCAN_ENABLE_FLAG is set, then
+		 * WMI_ROAM_BMISS_FINAL_SCAN_TYPE_FLAG decides whether firmware
+		 * does channel map based partial scan or partial scan followed
+		 * by full scan in case no candidate is found in partial scan.
+		 */
+		if (bmiss_skip_full_scan)
+			flag |= WMI_ROAM_BMISS_FINAL_SCAN_TYPE_FLAG;
+	}
 
 	WMA_LOGD("%s: vdev_id:%d, is_set:%d, flag:%d",
 		 __func__, vdev_id, is_set, flag);
@@ -4831,7 +5079,7 @@ QDF_STATUS wma_sta_vdev_up_send(struct vdev_mlme_obj *vdev_mlme,
 	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
 	QDF_STATUS status;
 	struct wma_txrx_node *iface;
-	struct vdev_mlme_mbss_11ax mbss_11ax = {0};
+	struct vdev_mlme_mbss_11ax *mbss_11ax = NULL;
 
 	if (!wma) {
 		WMA_LOGE("%s wma handle is NULL", __func__);
@@ -4843,12 +5091,13 @@ QDF_STATUS wma_sta_vdev_up_send(struct vdev_mlme_obj *vdev_mlme,
 	param.assoc_id = iface->aid;
 
 	mlme_get_mbssid_info(vdev_mlme->vdev, &mbss_11ax);
-	param.profile_idx = mbss_11ax.profile_idx;
-	param.profile_num = mbss_11ax.profile_num;
-	qdf_mem_copy(param.trans_bssid,
-		     mbss_11ax.trans_bssid,
-		     QDF_MAC_ADDR_SIZE);
-
+	if (mbss_11ax) {
+		param.profile_idx = mbss_11ax->profile_idx;
+		param.profile_num = mbss_11ax->profile_num;
+		qdf_mem_copy(param.trans_bssid,
+			     mbss_11ax->trans_bssid,
+			     QDF_MAC_ADDR_SIZE);
+	}
 	status = wma_send_vdev_up_to_fw(wma, &param, iface->bssid);
 
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -5343,3 +5592,50 @@ int wma_cold_boot_cal_event_handler(void *wma_ctx, uint8_t *event_buff,
 
 	return 0;
 }
+
+#ifdef FEATURE_OEM_DATA
+int wma_oem_event_handler(void *wma_ctx, uint8_t *event_buff, uint32_t len)
+{
+	WMI_OEM_DATA_EVENTID_param_tlvs *param_buf;
+	struct mac_context *pmac =
+		(struct mac_context *)cds_get_context(QDF_MODULE_ID_PE);
+	wmi_oem_data_event_fixed_param *event;
+	struct oem_data oem_event_data;
+
+	if (!pmac) {
+		wma_err("NULL mac handle");
+		return -EINVAL;
+	}
+
+	if (!pmac->sme.oem_data_event_handler_cb) {
+		wma_err("oem data handler cb is not registered");
+		return -EINVAL;
+	}
+
+	param_buf =
+		   (WMI_OEM_DATA_EVENTID_param_tlvs *)event_buff;
+	if (!param_buf) {
+		wma_err("Invalid oem data Event");
+		return -EINVAL;
+	}
+
+	event = param_buf->fixed_param;
+	if (!event) {
+		wma_err("Invalid fixed param in oem data Event");
+		return -EINVAL;
+	}
+
+	if (event->data_len > param_buf->num_data) {
+		wma_err("Invalid data len %d num_data %d", event->data_len,
+			param_buf->num_data);
+		return -EINVAL;
+	}
+
+	oem_event_data.data_len = event->data_len;
+	oem_event_data.data = param_buf->data;
+
+	pmac->sme.oem_data_event_handler_cb(&oem_event_data);
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif

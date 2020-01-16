@@ -1022,7 +1022,7 @@ static void wma_mask_tx_ht_rate(tp_wma_handle wma, uint8_t *mcs_set)
 	uint32_t i, j;
 	uint16_t mcs_limit;
 	uint8_t *rate_pos = mcs_set;
-	struct mac_context *mac = (struct mac_context *)wma->mac_context;
+	struct mac_context *mac = wma->mac_context;
 
 	/*
 	 * Get MCS limit from ini configure, and map it to rate parameters
@@ -1061,10 +1061,10 @@ static void wma_mask_tx_ht_rate(tp_wma_handle wma, uint8_t *mcs_set)
 #if SUPPORT_11AX
 /**
  * wma_fw_to_host_phymode_11ax() - convert fw to host phymode for 11ax phymodes
- * @wma:     wma handle
  * @phymode: phymode to convert
  *
- * Return: None
+ * Return: one of the 11ax values defined in enum wlan_phymode;
+ *         or WLAN_PHYMODE_AUTO if the input is not an 11ax phymode
  */
 static enum wlan_phymode wma_fw_to_host_phymode_11ax(WLAN_PHY_MODE phymode)
 {
@@ -1099,10 +1099,10 @@ static enum wlan_phymode wma_fw_to_host_phymode_11ax(WLAN_PHY_MODE phymode)
 /**
  * wma_fw_to_host_phymode_160() - convert fw to host phymode for 160 mhz
  * phymodes
- * @wma:     wma handle
  * @phymode: phymode to convert
  *
- * Return: None
+ * Return: one of the 160 mhz values defined in enum wlan_phymode;
+ *         or WLAN_PHYMODE_AUTO if the input is not a 160 mhz phymode
  */
 static enum wlan_phymode wma_fw_to_host_phymode_160(WLAN_PHY_MODE phymode)
 {
@@ -1123,10 +1123,10 @@ static enum wlan_phymode wma_fw_to_host_phymode_160(WLAN_PHY_MODE phymode)
 #endif
 /**
  * wma_fw_to_host_phymode() - convert fw to host phymode
- * @wma:     wma handle
  * @phymode: phymode to convert
  *
- * Return: None
+ * Return: one of the values defined in enum wlan_phymode;
+ *         or WLAN_PHYMODE_AUTO if the conversion fails
  */
 static enum wlan_phymode wma_fw_to_host_phymode(WLAN_PHY_MODE phymode)
 {
@@ -1165,6 +1165,104 @@ static enum wlan_phymode wma_fw_to_host_phymode(WLAN_PHY_MODE phymode)
 		return WLAN_PHYMODE_11AC_VHT40;
 	case MODE_11AC_VHT80_2G:
 		return WLAN_PHYMODE_11AC_VHT80;
+	}
+}
+
+#ifdef CONFIG_160MHZ_SUPPORT
+/**
+ * wma_host_to_fw_phymode_160() - convert host to fw phymode for 160 mhz
+ * @host_phymode: phymode to convert
+ *
+ * Return: one of the 160 mhz values defined in enum WLAN_PHY_MODE;
+ *         or MODE_UNKNOWN if the input is not a 160 mhz phymode
+ */
+static WLAN_PHY_MODE wma_host_to_fw_phymode_160(enum wlan_phymode host_phymode)
+{
+	switch (host_phymode) {
+	case WLAN_PHYMODE_11AC_VHT80_80:
+		return MODE_11AC_VHT80_80;
+	case WLAN_PHYMODE_11AC_VHT160:
+		return MODE_11AC_VHT160;
+	default:
+		return MODE_UNKNOWN;
+	}
+}
+#else
+static WLAN_PHY_MODE wma_host_to_fw_phymode_160(enum wlan_phymode host_phymode)
+{
+	return MODE_UNKNOWN;
+}
+#endif
+
+#if SUPPORT_11AX
+/**
+ * wma_host_to_fw_phymode_11ax() - convert host to fw phymode for 11ax phymode
+ * @host_phymode: phymode to convert
+ *
+ * Return: one of the 11ax values defined in enum WLAN_PHY_MODE;
+ *         or MODE_UNKNOWN if the input is not an 11ax phymode
+ */
+static WLAN_PHY_MODE wma_host_to_fw_phymode_11ax(enum wlan_phymode host_phymode)
+{
+	switch (host_phymode) {
+	case WLAN_PHYMODE_11AXA_HE20:
+		return MODE_11AX_HE20;
+	case WLAN_PHYMODE_11AXA_HE40:
+		return MODE_11AX_HE40;
+	case WLAN_PHYMODE_11AXA_HE80:
+		return MODE_11AX_HE80;
+	case WLAN_PHYMODE_11AXA_HE80_80:
+		return MODE_11AX_HE80_80;
+	case WLAN_PHYMODE_11AXA_HE160:
+		return MODE_11AX_HE160;
+	default:
+		return MODE_UNKNOWN;
+	}
+}
+#else
+static WLAN_PHY_MODE wma_host_to_fw_phymode_11ax(enum wlan_phymode host_phymode)
+{
+	return MODE_UNKNOWN;
+}
+#endif
+
+/**
+ * wma_host_to_fw_phymode() - convert host to fw phymode
+ * @host_phymode: phymode to convert
+ *
+ * Return: one of the values defined in enum WLAN_PHY_MODE;
+ *         or MODE_UNKNOWN if the conversion fails
+ */
+static WLAN_PHY_MODE wma_host_to_fw_phymode(enum wlan_phymode host_phymode)
+{
+	WLAN_PHY_MODE fw_phymode;
+
+	switch (host_phymode) {
+	case WLAN_PHYMODE_11A:
+		return MODE_11A;
+	case WLAN_PHYMODE_11G:
+		return MODE_11G;
+	case WLAN_PHYMODE_11B:
+		return MODE_11B;
+	case WLAN_PHYMODE_11NA_HT20:
+		return MODE_11NA_HT20;
+	case WLAN_PHYMODE_11NG_HT20:
+		return MODE_11NG_HT20;
+	case WLAN_PHYMODE_11NA_HT40:
+		return MODE_11NA_HT40;
+	case WLAN_PHYMODE_11NG_HT40:
+		return MODE_11NG_HT40;
+	case WLAN_PHYMODE_11AC_VHT20:
+		return MODE_11AC_VHT20;
+	case WLAN_PHYMODE_11AC_VHT40:
+		return MODE_11AC_VHT40;
+	case WLAN_PHYMODE_11AC_VHT80:
+		return MODE_11AC_VHT80;
+	default:
+		fw_phymode = wma_host_to_fw_phymode_160(host_phymode);
+		if (fw_phymode != MODE_UNKNOWN)
+			return fw_phymode;
+		return wma_host_to_fw_phymode_11ax(host_phymode);
 	}
 }
 
@@ -1255,7 +1353,7 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 	struct wma_txrx_node *intr = NULL;
 	bool is_he;
 	QDF_STATUS status;
-	struct mac_context *mac = (struct mac_context *)wma->mac_context;
+	struct mac_context *mac = wma->mac_context;
 
 	cmd = qdf_mem_malloc(sizeof(struct peer_assoc_params));
 	if (!cmd) {
@@ -1927,7 +2025,8 @@ static inline void wma_fill_in_wapi_key_params(
 static bool
 wma_skip_bip_key_set(tp_wma_handle wma_handle, uint32_t key_cipher)
 {
-	if ((key_cipher == WMI_CIPHER_AES_GMAC) &&
+	if ((key_cipher == WMI_CIPHER_AES_GMAC ||
+	     key_cipher == WMI_CIPHER_BIP_GMAC_256) &&
 	    !wmi_service_enabled(wma_handle->wmi_handle,
 				 wmi_service_gmac_offload_support))
 		return true;
@@ -3426,23 +3525,55 @@ int wma_mgmt_tx_bundle_completion_handler(void *handle, uint8_t *buf,
 void wma_process_update_opmode(tp_wma_handle wma_handle,
 			       tUpdateVHTOpMode *update_vht_opmode)
 {
-	struct wma_txrx_node *iface;
 	wmi_host_channel_width ch_width;
+	uint8_t pdev_id;
+	struct wlan_objmgr_peer *peer;
+	struct wlan_objmgr_psoc *psoc = wma_handle->psoc;
+	enum wlan_phymode peer_phymode;
+	uint32_t fw_phymode;
+	enum wlan_peer_type peer_type;
+	struct wma_txrx_node *iface;
 
 	iface = &wma_handle->interfaces[update_vht_opmode->smesessionId];
+
+	if (iface->type == WMI_VDEV_TYPE_STA) {
+		fw_phymode = iface->chanmode;
+	} else {
+		pdev_id = wlan_objmgr_pdev_get_pdev_id(wma_handle->pdev);
+		peer = wlan_objmgr_get_peer(psoc, pdev_id,
+					    update_vht_opmode->peer_mac,
+					    WLAN_LEGACY_WMA_ID);
+		if (!peer) {
+			WMA_LOGE("peer object invalid");
+			return;
+		}
+
+		peer_type = wlan_peer_get_peer_type(peer);
+		if (peer_type == WLAN_PEER_SELF) {
+			WMA_LOGE("self peer wrongly used");
+			wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
+			return;
+		}
+
+		wlan_peer_obj_lock(peer);
+		peer_phymode = wlan_peer_get_phymode(peer);
+		wlan_peer_obj_unlock(peer);
+		wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
+
+		fw_phymode = wma_host_to_fw_phymode(peer_phymode);
+	}
+
 	ch_width = wmi_get_ch_width_from_phy_mode(wma_handle->wmi_handle,
-						  iface->chanmode);
+						  fw_phymode);
+	WMA_LOGD("%s: ch_width: %d, fw phymode: %d", __func__,
+		 ch_width, fw_phymode);
 	if (ch_width < update_vht_opmode->opMode) {
 		WMA_LOGE("%s: Invalid peer bw update %d, self bw %d",
 				__func__, update_vht_opmode->opMode,
 				ch_width);
 		return;
 	}
-	WMA_LOGD("%s: phymode = %d", __func__, iface->chanmode);
-	/* Always send phymode before BW to avoid any mismatch in FW */
-	wma_set_peer_param(wma_handle, update_vht_opmode->peer_mac,
-			   WMI_PEER_PHYMODE, iface->chanmode,
-			   update_vht_opmode->smesessionId);
+
 	WMA_LOGD("%s: opMode = %d", __func__, update_vht_opmode->opMode);
 	wma_set_peer_param(wma_handle, update_vht_opmode->peer_mac,
 			   WMI_PEER_CHWIDTH, update_vht_opmode->opMode,
@@ -3816,7 +3947,8 @@ int wma_process_bip(tp_wma_handle wma_handle,
 
 	if (iface->key.key_cipher == WMI_CIPHER_AES_CMAC) {
 		mmie_size = cds_get_mmie_size();
-	} else if (iface->key.key_cipher == WMI_CIPHER_AES_GMAC) {
+	} else if (iface->key.key_cipher == WMI_CIPHER_AES_GMAC ||
+		   iface->key.key_cipher == WMI_CIPHER_BIP_GMAC_256) {
 		mmie_size = cds_get_gmac_mmie_size();
 	} else {
 		WMA_LOGE(FL("Invalid key cipher %d"), iface->key.key_cipher);
@@ -3865,6 +3997,7 @@ int wma_process_bip(tp_wma_handle wma_handle,
 		break;
 
 	case WMI_CIPHER_AES_GMAC:
+	case WMI_CIPHER_BIP_GMAC_256:
 		if (wmi_service_enabled(wma_handle->wmi_handle,
 				wmi_service_gmac_offload_support)) {
 			/*

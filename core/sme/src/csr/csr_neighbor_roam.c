@@ -326,6 +326,18 @@ static void csr_neighbor_roam_reset_init_state_control_info(struct mac_context *
 	csr_neighbor_roam_reset_report_scan_state_control_info(mac, sessionId);
 }
 
+#ifdef WLAN_FEATURE_11W
+void
+csr_update_pmf_cap_from_connected_profile(tCsrRoamConnectedProfile *profile,
+					  struct scan_filter *filter)
+{
+	if (profile->MFPCapable || profile->MFPEnabled)
+		filter->pmf_cap = WLAN_PMF_CAPABLE;
+	if (profile->MFPRequired)
+		filter->pmf_cap = WLAN_PMF_REQUIRED;
+}
+#endif
+
 /**
  * csr_neighbor_roam_prepare_scan_profile_filter()
  *
@@ -711,45 +723,6 @@ static bool csr_neighbor_roam_is_ssid_and_security_match(struct mac_context *mac
 
 }
 
-bool csr_neighbor_roam_is_new_connected_profile(struct mac_context *mac,
-						uint8_t sessionId)
-{
-	tpCsrNeighborRoamControlInfo pNeighborRoamInfo =
-		&mac->roam.neighborRoamInfo[sessionId];
-	tCsrRoamConnectedProfile *pCurrProfile = NULL;
-	tCsrRoamConnectedProfile *pPrevProfile = NULL;
-	tDot11fBeaconIEs *pIes = NULL;
-	struct bss_description *bss_desc = NULL;
-	bool fNew = true;
-
-	if (!(mac->roam.roamSession && CSR_IS_SESSION_VALID(mac, sessionId)))
-		return fNew;
-
-	pCurrProfile = &mac->roam.roamSession[sessionId].connectedProfile;
-	if (!pCurrProfile)
-		return fNew;
-
-	pPrevProfile = &pNeighborRoamInfo->prevConnProfile;
-	if (!pPrevProfile)
-		return fNew;
-
-	bss_desc = pPrevProfile->bss_desc;
-	if (bss_desc) {
-		if (QDF_IS_STATUS_SUCCESS(
-		    csr_get_parsed_bss_description_ies(mac, bss_desc, &pIes))
-		    && csr_neighbor_roam_is_ssid_and_security_match(mac,
-				pCurrProfile, bss_desc, pIes, sessionId)) {
-			fNew = false;
-		}
-		if (pIes)
-			qdf_mem_free(pIes);
-	}
-
-	sme_debug("roam profile match: %d", !fNew);
-
-	return fNew;
-}
-
 bool csr_neighbor_roam_connected_profile_match(struct mac_context *mac,
 					       uint8_t sessionId,
 					       struct tag_csrscan_result
@@ -954,8 +927,6 @@ static void csr_neighbor_roam_info_ctx_init(struct mac_context *mac,
 		&mac->roam.neighborRoamInfo[session_id];
 	struct csr_roam_session *session = &mac->roam.roamSession[session_id];
 	int init_ft_flag = false;
-	bool supplicant_disabled_roaming;
-	uint8_t reason;
 
 	csr_init_occupied_channels_list(mac, session_id);
 	csr_neighbor_roam_state_transition(mac,
@@ -1044,26 +1015,10 @@ static void csr_neighbor_roam_info_ctx_init(struct mac_context *mac,
 		} else
 #endif
 		{
-			/*
-			 * If supplicant disabled roaming, driver does not send
-			 * RSO cmd to fw. This causes roam invoke to fail in FW
-			 * since RSO start never happened at least once to
-			 * configure roaming engine in FW.
-			 */
 			csr_post_roam_state_change(mac, session_id,
 						   ROAM_RSO_STARTED,
 						   REASON_CTX_INIT);
 
-			supplicant_disabled_roaming =
-				mlme_get_supplicant_disabled_roaming(
-						mac->psoc, session_id);
-			if (supplicant_disabled_roaming) {
-				reason = REASON_SUPPLICANT_DISABLED_ROAMING;
-				sme_debug("ROAM: Supplicant has disabled roaming");
-				csr_post_roam_state_change(mac, session_id,
-							   ROAM_RSO_STOPPED,
-							   reason);
-			}
 		}
 	}
 }
@@ -1259,6 +1214,16 @@ QDF_STATUS csr_neighbor_roam_init(struct mac_context *mac, uint8_t sessionId)
 		mac->mlme_cfg->lfr.roam_full_scan_period;
 	pNeighborRoamInfo->cfgParams.enable_scoring_for_roam =
 		mac->mlme_cfg->scoring.enable_scoring_for_roam;
+	pNeighborRoamInfo->cfgParams.roam_scan_n_probes =
+		mac->mlme_cfg->lfr.roam_scan_n_probes;
+	pNeighborRoamInfo->cfgParams.roam_scan_home_away_time =
+		mac->mlme_cfg->lfr.roam_scan_home_away_time;
+	pNeighborRoamInfo->cfgParams.roam_scan_inactivity_time =
+		mac->mlme_cfg->lfr.roam_scan_inactivity_time;
+	pNeighborRoamInfo->cfgParams.roam_inactive_data_packet_count =
+		mac->mlme_cfg->lfr.roam_inactive_data_packet_count;
+	pNeighborRoamInfo->cfgParams.roam_scan_period_after_inactivity =
+		mac->mlme_cfg->lfr.roam_scan_period_after_inactivity;
 
 	specific_chan_info = &pNeighborRoamInfo->cfgParams.specific_chan_info;
 	specific_chan_info->numOfChannels =
@@ -1289,6 +1254,8 @@ QDF_STATUS csr_neighbor_roam_init(struct mac_context *mac, uint8_t sessionId)
 		mac->mlme_cfg->lfr.roam_scan_hi_rssi_delay;
 	pNeighborRoamInfo->cfgParams.hi_rssi_scan_rssi_ub =
 		mac->mlme_cfg->lfr.roam_scan_hi_rssi_ub;
+	pNeighborRoamInfo->cfgParams.roam_rssi_diff =
+		mac->mlme_cfg->lfr.roam_rssi_diff;
 
 	qdf_zero_macaddr(&pNeighborRoamInfo->currAPbssid);
 	pNeighborRoamInfo->currentNeighborLookupThreshold =

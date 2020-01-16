@@ -331,6 +331,18 @@ QDF_STATUS policy_mgr_psoc_open(struct wlan_objmgr_psoc *psoc)
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	pm_ctx->sta_ap_intf_check_work_info = qdf_mem_malloc(
+		sizeof(struct sta_ap_intf_check_work_ctx));
+	if (!pm_ctx->sta_ap_intf_check_work_info) {
+		qdf_mutex_destroy(&pm_ctx->qdf_conc_list_lock);
+		policy_mgr_err("Failed to alloc sta_ap_intf_check_work_info");
+		return QDF_STATUS_E_FAILURE;
+	}
+	pm_ctx->sta_ap_intf_check_work_info->psoc = psoc;
+	qdf_create_work(0, &pm_ctx->sta_ap_intf_check_work,
+			policy_mgr_check_sta_ap_concurrent_ch_intf,
+			pm_ctx->sta_ap_intf_check_work_info);
+
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -364,6 +376,34 @@ QDF_STATUS policy_mgr_psoc_close(struct wlan_objmgr_psoc *psoc)
 	}
 
 	return QDF_STATUS_SUCCESS;
+}
+
+/**
+ * policy_mgr_update_5g_scc_prefer() - Update pcl if 5g scc is preferred
+ * @psoc: psoc object
+ *
+ * Return: void
+ */
+static void policy_mgr_update_5g_scc_prefer(struct wlan_objmgr_psoc *psoc)
+{
+	enum policy_mgr_con_mode mode;
+
+	for (mode = PM_STA_MODE; mode < PM_MAX_NUM_OF_MODE; mode++) {
+		if (policy_mgr_get_5g_scc_prefer(psoc, mode)) {
+			(*second_connection_pcl_dbs_table)
+				[PM_STA_5_1x1][mode][PM_THROUGHPUT] =
+					PM_SCC_CH_24G;
+			policy_mgr_info("overwrite pm_second_connection_pcl_dbs_2x2_table, index %d mode %d system prefer %d new pcl %d",
+					PM_STA_5_1x1, mode,
+					PM_THROUGHPUT, PM_SCC_CH_24G);
+			(*second_connection_pcl_dbs_table)
+				[PM_STA_5_2x2][mode][PM_THROUGHPUT] =
+					PM_SCC_CH_24G;
+			policy_mgr_info("overwrite pm_second_connection_pcl_dbs_2x2_table, index %d mode %d system prefer %d new pcl %d",
+					PM_STA_5_2x2, mode,
+					PM_THROUGHPUT, PM_SCC_CH_24G);
+		}
+	}
 }
 
 QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
@@ -420,7 +460,8 @@ QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
 	}
 
 	/* init PCL table & function pointers based on HW capability */
-	if (policy_mgr_is_hw_dbs_2x2_capable(psoc))
+	if (policy_mgr_is_hw_dbs_2x2_capable(psoc) ||
+	    policy_mgr_is_hw_dbs_required_for_band(psoc, HW_MODE_MAC_BAND_2G))
 		policy_mgr_get_current_pref_hw_mode_ptr =
 		policy_mgr_get_current_pref_hw_mode_dbs_2x2;
 	else if (policy_mgr_is_2x2_1x1_dbs_capable(psoc))
@@ -431,14 +472,20 @@ QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
 		policy_mgr_get_current_pref_hw_mode_dbs_1x1;
 
 	if (policy_mgr_is_hw_dbs_2x2_capable(psoc) ||
-	    policy_mgr_is_2x2_1x1_dbs_capable(psoc))
+	    policy_mgr_is_hw_dbs_required_for_band(psoc,
+						   HW_MODE_MAC_BAND_2G) ||
+	    policy_mgr_is_2x2_1x1_dbs_capable(psoc)) {
 		second_connection_pcl_dbs_table =
 		&pm_second_connection_pcl_dbs_2x2_table;
-	else
+		policy_mgr_update_5g_scc_prefer(psoc);
+	} else {
 		second_connection_pcl_dbs_table =
 		&pm_second_connection_pcl_dbs_1x1_table;
+	}
 
 	if (policy_mgr_is_hw_dbs_2x2_capable(psoc) ||
+	    policy_mgr_is_hw_dbs_required_for_band(psoc,
+						   HW_MODE_MAC_BAND_2G) ||
 	    policy_mgr_is_2x2_1x1_dbs_capable(psoc))
 		third_connection_pcl_dbs_table =
 		&pm_third_connection_pcl_dbs_2x2_table;
@@ -446,7 +493,9 @@ QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
 		third_connection_pcl_dbs_table =
 		&pm_third_connection_pcl_dbs_1x1_table;
 
-	if (policy_mgr_is_hw_dbs_2x2_capable(psoc)) {
+	if (policy_mgr_is_hw_dbs_2x2_capable(psoc) ||
+	    policy_mgr_is_hw_dbs_required_for_band(psoc,
+						   HW_MODE_MAC_BAND_2G)) {
 		next_action_two_connection_table =
 		&pm_next_action_two_connection_dbs_2x2_table;
 	} else if (policy_mgr_is_2x2_1x1_dbs_capable(psoc)) {
@@ -459,7 +508,9 @@ QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
 		&pm_next_action_two_connection_dbs_1x1_table;
 	}
 
-	if (policy_mgr_is_hw_dbs_2x2_capable(psoc)) {
+	if (policy_mgr_is_hw_dbs_2x2_capable(psoc) ||
+	    policy_mgr_is_hw_dbs_required_for_band(psoc,
+						   HW_MODE_MAC_BAND_2G)) {
 		next_action_three_connection_table =
 		&pm_next_action_three_connection_dbs_2x2_table;
 	} else if (policy_mgr_is_2x2_1x1_dbs_capable(psoc)) {
@@ -474,8 +525,10 @@ QDF_STATUS policy_mgr_psoc_enable(struct wlan_objmgr_psoc *psoc)
 	policy_mgr_debug("is DBS Capable %d, is SBS Capable %d",
 			 policy_mgr_is_hw_dbs_capable(psoc),
 			 policy_mgr_is_hw_sbs_capable(psoc));
-	policy_mgr_debug("is2x2 %d, is2x2+1x1 %d, is2x2_5g+1x1_2g %d, is2x2_2g+1x1_5g %d",
+	policy_mgr_debug("is2x2 %d, 2g-on-dbs %d is2x2+1x1 %d, is2x2_5g+1x1_2g %d, is2x2_2g+1x1_5g %d",
 			 policy_mgr_is_hw_dbs_2x2_capable(psoc),
+			 policy_mgr_is_hw_dbs_required_for_band(
+				psoc, HW_MODE_MAC_BAND_2G),
 			 policy_mgr_is_2x2_1x1_dbs_capable(psoc),
 			 policy_mgr_is_2x2_5G_1x1_2G_dbs_capable(psoc),
 			 policy_mgr_is_2x2_2G_1x1_5G_dbs_capable(psoc));

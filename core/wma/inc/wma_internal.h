@@ -64,7 +64,14 @@
 
 #define MAX_HT_MCS_IDX 8
 #define MAX_VHT_MCS_IDX 10
+#ifdef WLAN_FEATURE_11AX
+#define MAX_HE_MCS_IDX 12
+#endif
 #define INVALID_MCS_IDX 255
+
+#define IS_MCS_HAS_DCM_RATE(val)  \
+		((val) == 0 || (val) == 1 || \
+		 (val) == 3 || (val) == 4)
 
 #define LINK_STATUS_LEGACY      0
 #define LINK_STATUS_VHT         0x1
@@ -102,6 +109,23 @@ struct index_vht_data_rate_type {
 	uint16_t ht40_rate[2];
 	uint16_t ht80_rate[2];
 };
+
+#ifdef WLAN_FEATURE_11AX
+#define MAX_HE_DCM_INDEX 2
+/**
+ * struct index_he_data_rate_type - he data rate type
+ * @beacon_rate_index: Beacon rate index
+ * @supported_he80_rate: he80 rate
+ * @supported_he40_rate: he40 rate
+ * @supported_he20_rate: he20 rate
+ */
+struct index_he_data_rate_type {
+	uint8_t beacon_rate_index;
+	uint16_t supported_he20_rate[MAX_HE_DCM_INDEX][3];
+	uint16_t supported_he40_rate[MAX_HE_DCM_INDEX][3];
+	uint16_t supported_he80_rate[MAX_HE_DCM_INDEX][3];
+};
+#endif
 
 struct wifi_scan_cmd_req_params;
 /*
@@ -587,20 +611,6 @@ struct cdp_vdev *wma_find_vdev_by_bssid(tp_wma_handle wma, uint8_t *bssid,
 QDF_STATUS wma_vdev_detach(tp_wma_handle wma_handle,
 			struct del_sta_self_params *pdel_sta_self_req_param,
 			uint8_t generateRsp);
-
-/**
- * wma_release_vdev_and_peer_ref() - release vdev ref taken by interface txrx
- * node and delete all the peers attached to this vdev
- * @wma - wma handle
- * @iface: wma interface txrx node
- *
- * This API release vdev ref taken by iface and all the peers attached to this
- * vdev, this need to be called on recovery to flush vdev and peer.
- *
- * Return: void.
- */
-void wma_release_vdev_and_peer_ref(tp_wma_handle wma,
-				   struct wma_txrx_node *iface);
 
 int wma_vdev_start_resp_handler(void *handle, uint8_t *cmd_param_info,
 				       uint32_t len);
@@ -1581,8 +1591,43 @@ int wma_vdev_bss_color_collision_info_handler(void *handle,
 					      uint8_t *event,
 					      uint32_t len);
 
+#ifdef WLAN_SUPPORT_TWT
+/**
+ * wma_twt_en_complete_event_handler - TWT enable complete event handler
+ * @handle: wma handle
+ * @event: buffer with event
+ * @len: buffer length
+ *
+ * Return: 0 on success
+ */
 int wma_twt_en_complete_event_handler(void *handle,
 				      uint8_t *event, uint32_t len);
+
+/**
+ * wma_twt_disable_comp_event_handler- TWT disable complete event handler
+ * @handle: wma handle
+ * @event: buffer with event
+ * @len: buffer length
+ *
+ * Return: 0 on success
+ */
+int wma_twt_disable_comp_event_handler(void *handle, uint8_t *event,
+				       uint32_t len);
+#else
+static inline int wma_twt_en_complete_event_handler(void *handle,
+						    uint8_t *event,
+						    uint32_t len)
+{
+	return 0;
+}
+
+static inline int wma_twt_disable_comp_event_handler(void *handle,
+						     uint8_t *event,
+						     uint32_t len)
+{
+	return 0;
+}
+#endif
 /**
  * wma_get_roam_scan_stats() - Get roam scan stats request
  * @handle: wma handle
@@ -1637,6 +1682,18 @@ void wma_send_vdev_down(tp_wma_handle wma, struct wma_target_req *req);
  */
 int wma_cold_boot_cal_event_handler(void *wma_ctx, uint8_t *event_buff,
 				    uint32_t len);
+
+#ifdef FEATURE_OEM_DATA
+/**
+ * wma_oem_event_handler() - oem data event handler
+ * @wma_ctx: wma handle
+ * @event_buff: event data
+ * @len: length of event buffer
+ *
+ * Return: Success or Failure status
+ */
+int wma_oem_event_handler(void *wma_ctx, uint8_t *event_buff, uint32_t len);
+#endif
 
 /**
  * wma_set_roam_triggers() - Send roam trigger bitmap to WMI

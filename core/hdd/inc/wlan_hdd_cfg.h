@@ -116,7 +116,6 @@ struct hdd_config {
 #ifdef ENABLE_MTRACE_LOG
 	bool enable_mtrace;
 #endif
-	bool enable_snr_monitoring;
 	bool advertise_concurrent_operation;
 #ifdef DHCP_SERVER_OFFLOAD
 	struct dhcp_server dhcp_server_ip;
@@ -216,9 +215,8 @@ struct hdd_config {
 	bool mac_provision;
 	uint32_t provisioned_intf_pool;
 	uint32_t derived_intf_pool;
-	uint8_t enable_rtt_support;
 	uint32_t cfg_wmi_credit_cnt;
-	uint32_t sar_version;
+	uint32_t enable_sar_conversion;
 	bool is_wow_disabled;
 #ifdef WLAN_FEATURE_TSF_PLUS
 	uint8_t tsf_ptp_options;

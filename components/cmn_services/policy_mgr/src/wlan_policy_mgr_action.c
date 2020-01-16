@@ -237,7 +237,8 @@ enum policy_mgr_conc_next_action policy_mgr_need_opportunistic_upgrade(
 		} else if ((pm_conc_connection_list[conn_index].mac == 1) &&
 			pm_conc_connection_list[conn_index].in_use) {
 			mac |= POLICY_MGR_MAC1;
-			if (policy_mgr_is_hw_dbs_2x2_capable(psoc) &&
+			if (policy_mgr_is_hw_dbs_required_for_band(
+					psoc, HW_MODE_MAC_BAND_2G) &&
 			    WLAN_REG_IS_24GHZ_CH(
 				    pm_conc_connection_list[conn_index].chan)
 			    ) {
@@ -519,7 +520,7 @@ bool policy_mgr_is_hwmode_set_for_given_chnl(struct wlan_objmgr_psoc *psoc,
 					     uint8_t channel)
 {
 	enum policy_mgr_band band;
-	bool is_hwmode_dbs, is_2x2_dbs;
+	bool is_hwmode_dbs, dbs_required_for_2g;
 
 	if (policy_mgr_is_hw_dbs_capable(psoc) == false)
 		return true;
@@ -530,12 +531,14 @@ bool policy_mgr_is_hwmode_set_for_given_chnl(struct wlan_objmgr_psoc *psoc,
 		band = POLICY_MGR_BAND_5;
 
 	is_hwmode_dbs = policy_mgr_is_current_hwmode_dbs(psoc);
-	is_2x2_dbs = policy_mgr_is_hw_dbs_2x2_capable(psoc);
+	dbs_required_for_2g = policy_mgr_is_hw_dbs_required_for_band(
+					psoc, HW_MODE_MAC_BAND_2G);
 	/*
 	 * If HW supports 2x2 chains in DBS HW mode and if DBS HW mode is not
 	 * yet set then this is the right time to block the connection.
 	 */
-	if ((band == POLICY_MGR_BAND_24) && is_2x2_dbs && !is_hwmode_dbs) {
+	if (band == POLICY_MGR_BAND_24 && dbs_required_for_2g &&
+	    !is_hwmode_dbs) {
 		policy_mgr_err("HW mode is not yet in DBS!!!!!");
 		return false;
 	}
@@ -819,7 +822,8 @@ policy_mgr_get_next_action(struct wlan_objmgr_psoc *psoc,
 	switch (num_connections) {
 	case 0:
 		if (band == POLICY_MGR_BAND_24)
-			if (policy_mgr_is_hw_dbs_2x2_capable(psoc))
+			if (policy_mgr_is_hw_dbs_required_for_band(
+					psoc, HW_MODE_MAC_BAND_2G))
 				*next_action = PM_DBS;
 			else
 				*next_action = PM_NOP;
@@ -1252,41 +1256,28 @@ void policy_mgr_update_user_config_sap_chan(
 }
 
 /**
- * policy_mgr_is_restart_sap_allowed() - Check if restart SAP
- * allowed during SCC -> MCC switch
+ * policy_mgr_is_sap_go_existed() - Check if restart SAP/Go exist
  * @psoc: PSOC object data
- * @mcc_to_scc_switch: MCC to SCC switch enabled user config
  *
- * Check if restart SAP allowed during SCC->MCC switch
- *
+ * To simplify, if SAP/P2P Go exist, they may need switch channel for
+ * forcing scc with sta or band capability change.
  * Restart: true or false
  */
-static bool policy_mgr_is_restart_sap_allowed(
-	struct wlan_objmgr_psoc *psoc,
-	uint32_t mcc_to_scc_switch)
+static bool policy_mgr_is_sap_go_existed(struct wlan_objmgr_psoc *psoc)
 {
-	uint32_t sta_ap_bit_mask = QDF_STA_MASK | QDF_SAP_MASK;
-	uint32_t sta_go_bit_mask = QDF_STA_MASK | QDF_P2P_GO_MASK;
 	uint32_t ap_present, go_present;
 
 	ap_present = policy_mgr_mode_specific_connection_count(
 				psoc, PM_SAP_MODE, NULL);
+	if (ap_present)
+		return true;
+
 	go_present = policy_mgr_mode_specific_connection_count(
 				psoc, PM_P2P_GO_MODE, NULL);
+	if (go_present)
+		return true;
 
-	if ((mcc_to_scc_switch == QDF_MCC_TO_SCC_SWITCH_DISABLE) ||
-		!policy_mgr_concurrent_open_sessions_running(psoc) ||
-		!((ap_present && ((policy_mgr_get_concurrency_mode(psoc) &
-		     sta_ap_bit_mask) == sta_ap_bit_mask)) ||
-		((mcc_to_scc_switch ==
-		  QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION)
-		  && go_present && ((policy_mgr_get_concurrency_mode(psoc) &
-		  sta_go_bit_mask) == sta_go_bit_mask)))) {
-		policy_mgr_debug("MCC switch disabled or not concurrent STA/SAP, STA/GO");
-		return false;
-	}
-
-	return true;
+	return false;
 }
 
 bool policy_mgr_is_safe_channel(struct wlan_objmgr_psoc *psoc,
@@ -1667,7 +1658,7 @@ static void __policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
 	policy_mgr_info("Concurrent open sessions running: %d",
 		policy_mgr_concurrent_open_sessions_running(psoc));
 
-	if (!policy_mgr_is_restart_sap_allowed(psoc, mcc_to_scc_switch))
+	if (!policy_mgr_is_sap_go_existed(psoc))
 		goto end;
 
 	cc_count = policy_mgr_get_mode_specific_conn_info(psoc,
@@ -1717,11 +1708,7 @@ static void __policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
 		}
 
 end:
-	if (work_info) {
-		qdf_mem_free(work_info);
-		if (pm_ctx)
-			pm_ctx->sta_ap_intf_check_work_info = NULL;
-	}
+	policy_mgr_debug("Check sta ap intf done");
 }
 
 void policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
@@ -1880,12 +1867,28 @@ void policy_mgr_check_concurrent_intf_and_restart_sap(
 	uint32_t cc_count = 0;
 	bool restart_sap = false;
 	uint8_t sap_ch;
+	/*
+	 * if no sta, sap/p2p go may need switch channel for band
+	 * capability change.
+	 * If sta exist, sap/p2p go may need switch channel to force scc
+	 */
+	bool sta_check;
 
 	pm_ctx = policy_mgr_get_context(psoc);
 	if (!pm_ctx) {
 		policy_mgr_err("Invalid context");
 		return;
 	}
+	if (!pm_ctx->sta_ap_intf_check_work_info) {
+		policy_mgr_err("Invalid sta_ap_intf_check_work_info");
+		return;
+	}
+	if (!policy_mgr_is_sap_go_existed(psoc)) {
+		policy_mgr_debug(
+			"No action taken at check_concurrent_intf_and_restart_sap");
+		return;
+	}
+
 	if (policy_mgr_get_connection_count(psoc) == 1) {
 		/*
 		 * If STA+SAP sessions are on DFS channel and STA+SAP SCC is
@@ -1912,20 +1915,15 @@ void policy_mgr_check_concurrent_intf_and_restart_sap(
 					&vdev_id[cc_count], PM_STA_MODE);
 	if (!cc_count) {
 		policy_mgr_debug("Could not get STA operating channel&vdevid");
-		return;
 	}
+
+	sta_check = !cc_count ||
+		    policy_mgr_valid_sta_channel_check(psoc, operating_channel[0]);
 
 	mcc_to_scc_switch =
 		policy_mgr_get_mcc_to_scc_switch_mode(psoc);
 	policy_mgr_info("MCC to SCC switch: %d chan: %d",
 			mcc_to_scc_switch, operating_channel[0]);
-
-	if (!policy_mgr_is_restart_sap_allowed(psoc, mcc_to_scc_switch)) {
-		policy_mgr_debug(
-			"No action taken at check_concurrent_intf_and_restart_sap");
-		return;
-	}
-
 sap_restart:
 	/*
 	 * If sta_sap_scc_on_dfs_chan is true then standalone SAP is not
@@ -1938,17 +1936,8 @@ sap_restart:
 	 */
 	if (restart_sap ||
 	    ((mcc_to_scc_switch != QDF_MCC_TO_SCC_SWITCH_DISABLE) &&
-	    policy_mgr_valid_sta_channel_check(psoc, operating_channel[0]) &&
-	    !pm_ctx->sta_ap_intf_check_work_info)) {
-		struct sta_ap_intf_check_work_ctx *work_info;
-		work_info = qdf_mem_malloc(
-			sizeof(struct sta_ap_intf_check_work_ctx));
-		pm_ctx->sta_ap_intf_check_work_info = work_info;
-		if (work_info) {
-			work_info->psoc = psoc;
-			qdf_create_work(0, &pm_ctx->sta_ap_intf_check_work,
-				policy_mgr_check_sta_ap_concurrent_ch_intf,
-				work_info);
+	    sta_check)) {
+		if (pm_ctx->sta_ap_intf_check_work_info) {
 			qdf_sched_work(0, &pm_ctx->sta_ap_intf_check_work);
 			policy_mgr_info(
 				"Checking for Concurrent Change interference");
@@ -2249,7 +2238,9 @@ QDF_STATUS policy_mgr_check_and_set_hw_mode_for_channel_switch(
 	}
 
 	if (!policy_mgr_is_hw_dbs_capable(psoc) ||
-	    !policy_mgr_is_hw_dbs_2x2_capable(psoc)) {
+	    (!policy_mgr_is_hw_dbs_2x2_capable(psoc) &&
+	    !policy_mgr_is_hw_dbs_required_for_band(
+					psoc, HW_MODE_MAC_BAND_2G))) {
 		policy_mgr_err("2x2 DBS is not enabled");
 		return QDF_STATUS_E_NOSUPPORT;
 	}
@@ -2335,10 +2326,11 @@ void policy_mgr_checkn_update_hw_mode_single_mac_mode(
 				policy_mgr_debug("DBS required");
 				return;
 			}
-			if (policy_mgr_is_hw_dbs_2x2_capable(psoc) &&
+			if (policy_mgr_is_hw_dbs_required_for_band(
+					psoc, HW_MODE_MAC_BAND_2G) &&
 			    (WLAN_REG_IS_24GHZ_CH(channel) ||
-			    WLAN_REG_IS_24GHZ_CH
-				(pm_conc_connection_list[i].chan))) {
+			    WLAN_REG_IS_24GHZ_CH(
+					pm_conc_connection_list[i].chan))) {
 				qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
 				policy_mgr_debug("DBS required");
 				return;

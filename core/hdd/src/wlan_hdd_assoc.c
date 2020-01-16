@@ -1069,8 +1069,9 @@ hdd_send_ft_assoc_response(struct net_device *dev,
 	unsigned int len = 0;
 	u8 *assoc_rsp = NULL;
 
-	if (roam_info->nAssocRspLength == 0) {
-		hdd_debug("assoc rsp length is 0");
+	if (roam_info->nAssocRspLength < FT_ASSOC_RSP_IES_OFFSET) {
+		hdd_debug("Invalid assoc rsp length %d",
+			  roam_info->nAssocRspLength);
 		return;
 	}
 
@@ -1084,14 +1085,19 @@ hdd_send_ft_assoc_response(struct net_device *dev,
 	/* assoc_rsp needs to point to the IEs */
 	assoc_rsp += FT_ASSOC_RSP_IES_OFFSET;
 
+	/* Send the Assoc Resp, the supplicant needs this for initial Auth. */
+	len = roam_info->nAssocRspLength - FT_ASSOC_RSP_IES_OFFSET;
+	if (len > IW_GENERIC_IE_MAX) {
+		hdd_err("Invalid Assoc resp length %d", len);
+		return;
+	}
+	wrqu.data.length = len;
+
 	/* We need to send the IEs to the supplicant. */
 	buff = qdf_mem_malloc(IW_GENERIC_IE_MAX);
 	if (!buff)
 		return;
 
-	/* Send the Assoc Resp, the supplicant needs this for initial Auth. */
-	len = roam_info->nAssocRspLength - FT_ASSOC_RSP_IES_OFFSET;
-	wrqu.data.length = len;
 	memcpy(buff, assoc_rsp, len);
 	wireless_send_event(dev, IWEVASSOCRESPIE, &wrqu, buff);
 
@@ -1369,8 +1375,8 @@ static void hdd_send_association_event(struct net_device *dev,
 
 		ucfg_p2p_status_connect(adapter->vdev);
 
-		hdd_info("wlan: " QDF_MAC_ADDR_STR " connected to "
-			QDF_MAC_ADDR_STR "\n",
+		hdd_info("%s(vdevid-%d): " QDF_MAC_ADDR_STR " connected to "
+			QDF_MAC_ADDR_STR, dev->name, adapter->vdev_id,
 			QDF_MAC_ADDR_ARRAY(adapter->mac_addr.bytes),
 			QDF_MAC_ADDR_ARRAY(wrqu.ap_addr.sa_data));
 		hdd_send_update_beacon_ies_event(adapter, roam_info);
@@ -1441,10 +1447,12 @@ static void hdd_send_association_event(struct net_device *dev,
 				adapter->vdev_id);
 		memcpy(wrqu.ap_addr.sa_data, sta_ctx->conn_info.bssid.bytes,
 				ETH_ALEN);
-		hdd_debug("wlan: new IBSS peer connection to BSSID " QDF_MAC_ADDR_STR,
-			QDF_MAC_ADDR_ARRAY(sta_ctx->conn_info.bssid.bytes));
+		hdd_debug("%s(vdevid-%d): new IBSS peer connection to BSSID " QDF_MAC_ADDR_STR,
+			  dev->name, adapter->vdev_id,
+			  QDF_MAC_ADDR_ARRAY(sta_ctx->conn_info.bssid.bytes));
 	} else {                /* Not Associated */
-		hdd_debug("wlan: disconnected");
+		hdd_info("%s(vdevid-%d): disconnected", dev->name,
+			 adapter->vdev_id);
 		memset(wrqu.ap_addr.sa_data, '\0', ETH_ALEN);
 		policy_mgr_decr_session_set_pcl(hdd_ctx->psoc,
 				adapter->device_mode, adapter->vdev_id);
@@ -1526,6 +1534,13 @@ static void hdd_conn_remove_connect_info(struct hdd_station_ctx *sta_ctx)
 	sta_ctx->conn_info.proxy_arp_service = 0;
 
 	qdf_mem_zero(&sta_ctx->conn_info.ssid, sizeof(tCsrSSIDInfo));
+
+	/*
+	 * Reset the ptk, gtk status flags to avoid using current connection
+	 * status in further connections.
+	 */
+	sta_ctx->conn_info.gtk_installed = false;
+	sta_ctx->conn_info.ptk_installed = false;
 }
 
 /**
@@ -1755,6 +1770,8 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 		 * by kernel
 		 */
 		if (sendDisconInd) {
+			int reason = WLAN_REASON_UNSPECIFIED;
+
 			if (roam_info && roam_info->disconnect_ies) {
 				disconnect_ies.data =
 					roam_info->disconnect_ies->data;
@@ -1765,28 +1782,21 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 			 * To avoid wpa_supplicant sending "HANGED" CMD
 			 * to ICS UI.
 			 */
-			if (eCSR_ROAM_LOSTLINK == roam_status) {
-				if (roam_info && roam_info->reasonCode ==
+			if (roam_info && eCSR_ROAM_LOSTLINK == roam_status) {
+				reason = roam_info->reasonCode;
+				if (reason ==
 				    eSIR_MAC_PEER_STA_REQ_LEAVING_BSS_REASON)
 					pr_info("wlan: disconnected due to poor signal, rssi is %d dB\n",
 						roam_info->rxRssi);
-				wlan_hdd_cfg80211_indicate_disconnect(
-							dev, false,
-							roam_info->reasonCode,
-							disconnect_ies.data,
-							disconnect_ies.len);
-			} else {
-				wlan_hdd_cfg80211_indicate_disconnect(
-							dev, false,
-							WLAN_REASON_UNSPECIFIED,
-							disconnect_ies.data,
-							disconnect_ies.len);
 			}
+			wlan_hdd_cfg80211_indicate_disconnect(
+							dev, false,
+							reason,
+							disconnect_ies.data,
+							disconnect_ies.len);
 
 			hdd_debug("sent disconnected event to nl80211, reason code %d",
-				(eCSR_ROAM_LOSTLINK == roam_status) ?
-				roam_info->reasonCode :
-				WLAN_REASON_UNSPECIFIED);
+				  reason);
 		}
 
 		/* update P2P connection status */
@@ -1803,16 +1813,15 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 	mac_handle = hdd_ctx->mac_handle;
 	sme_ft_reset(mac_handle, adapter->vdev_id);
 	sme_reset_key(mac_handle, adapter->vdev_id);
-	if (!hdd_remove_beacon_filter(adapter)) {
-		if (sme_is_beacon_report_started(mac_handle,
-						 adapter->vdev_id)) {
-			hdd_beacon_recv_pause_indication((hdd_handle_t)hdd_ctx,
-							 adapter->vdev_id,
-							 SCAN_EVENT_TYPE_MAX,
-							 true);
-		}
-	}
+	if (!hdd_remove_beacon_filter(adapter))
+		hdd_err("hdd_remove_beacon_filter() failed");
 
+	if (sme_is_beacon_report_started(mac_handle, adapter->vdev_id)) {
+		hdd_debug("Sending beacon pause indication to userspace");
+		hdd_beacon_recv_pause_indication((hdd_handle_t)hdd_ctx,
+						 adapter->vdev_id,
+						 SCAN_EVENT_TYPE_MAX, true);
+	}
 	if (eCSR_ROAM_IBSS_LEAVE == roam_status) {
 		uint8_t i;
 
@@ -1876,11 +1885,13 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 	* eConnectionState_Connecting state mean that connection is in
 	* progress so no need to set state to eConnectionState_NotConnected
 	*/
-	if ((eConnectionState_Connecting != sta_ctx->conn_info.conn_state)) {
+	if ((eConnectionState_Connecting != sta_ctx->conn_info.conn_state))
 		hdd_conn_set_connection_state(adapter,
 					       eConnectionState_NotConnected);
-		 hdd_set_roaming_in_progress(false);
-	}
+
+	/* Clear roaming in progress flag */
+	hdd_set_roaming_in_progress(false);
+
 	ucfg_pmo_flush_gtk_offload_req(adapter->vdev);
 
 	if ((QDF_STA_MODE == adapter->device_mode) ||
@@ -2119,10 +2130,12 @@ QDF_STATUS hdd_roam_register_sta(struct hdd_adapter *adapter,
 	if (adapter->hdd_ctx->enable_dp_rx_threads) {
 		txrx_ops.rx.rx = hdd_rx_pkt_thread_enqueue_cbk;
 		txrx_ops.rx.rx_stack = hdd_rx_packet_cbk;
+		txrx_ops.rx.rx_flush = hdd_rx_flush_packet_cbk;
 		txrx_ops.rx.rx_gro_flush = hdd_rx_thread_gro_flush_ind_cbk;
 	} else {
 		txrx_ops.rx.rx = hdd_rx_packet_cbk;
 		txrx_ops.rx.rx_stack = NULL;
+		txrx_ops.rx.rx_flush = NULL;
 	}
 
 	txrx_ops.rx.stats_rx = hdd_tx_rx_collect_connectivity_stats_info;
@@ -2273,6 +2286,19 @@ void hdd_save_gtk_params(struct hdd_adapter *adapter,
 }
 #endif
 #endif
+
+static void hdd_roam_decr_conn_count(struct hdd_adapter *adapter,
+				     struct hdd_context *hdd_ctx)
+{
+	/* In case of LFR2.0, the number of connection count is
+	 * already decrement in hdd_sme_roam_callback. Hence
+	 * here we should not decrement again.
+	 */
+	if (roaming_offload_enabled(hdd_ctx))
+		policy_mgr_decr_session_set_pcl(hdd_ctx->psoc,
+						adapter->device_mode,
+						adapter->vdev_id);
+}
 /**
  * hdd_send_re_assoc_event() - send reassoc event
  * @dev: pointer to net device
@@ -2319,8 +2345,9 @@ static void hdd_send_re_assoc_event(struct net_device *dev,
 		goto done;
 	}
 
-	if (roam_info->nAssocRspLength == 0) {
-		hdd_err("Assoc rsp length is 0");
+	if (roam_info->nAssocRspLength < FT_ASSOC_RSP_IES_OFFSET) {
+		hdd_err("Invalid assoc rsp length %d",
+			roam_info->nAssocRspLength);
 		goto done;
 	}
 
@@ -2343,14 +2370,17 @@ static void hdd_send_re_assoc_event(struct net_device *dev,
 	 * successful reassoc decrement the active session count here.
 	 */
 	if (!hdd_is_roam_sync_in_progress(roam_info)) {
-		policy_mgr_decr_session_set_pcl(hdd_ctx->psoc,
-				adapter->device_mode, adapter->vdev_id);
+		hdd_roam_decr_conn_count(adapter, hdd_ctx);
 		hdd_green_ap_start_state_mc(hdd_ctx, adapter->device_mode,
 					    false);
 	}
 
 	/* Send the Assoc Resp, the supplicant needs this for initial Auth */
 	len = roam_info->nAssocRspLength - FT_ASSOC_RSP_IES_OFFSET;
+	if (len > IW_GENERIC_IE_MAX) {
+		hdd_err("Invalid Assoc resp length %d", len);
+		goto done;
+	}
 	rsp_rsn_lemgth = len;
 	qdf_mem_copy(rsp_rsn_ie, assoc_rsp, len);
 	qdf_mem_zero(rsp_rsn_ie + len, IW_GENERIC_IE_MAX - len);
@@ -2787,13 +2817,6 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 	 */
 	hdd_reset_scan_reject_params(hdd_ctx, roam_status, roam_result);
 
-	/*
-	 * Enable roaming on other STA iface except this one.
-	 * Firmware dosent support connection on one STA iface while
-	 * roaming on other STA iface
-	 */
-	wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
-
 	/* HDD has initiated disconnect, do not send connect result indication
 	 * to kernel as it will be handled by __cfg80211_disconnect.
 	 */
@@ -2820,6 +2843,13 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 			hdd_conn_set_connection_state(adapter,
 						   eConnectionState_Associated);
 		}
+
+		/*
+		 * Enable roaming on other STA iface except this one.
+		 * Firmware dosent support connection on one STA iface while
+		 * roaming on other STA iface
+		 */
+		wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
 
 		/* Save the connection info from CSR... */
 		hdd_conn_save_connect_info(adapter, roam_info,
@@ -3087,10 +3117,9 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 						 */
 						if (!hdd_is_roam_sync_in_progress
 								(roam_info)) {
-						policy_mgr_decr_session_set_pcl(
-							hdd_ctx->psoc,
-							adapter->device_mode,
-							adapter->vdev_id);
+						hdd_roam_decr_conn_count(
+							 adapter, hdd_ctx);
+
 						hdd_green_ap_start_state_mc(
 							hdd_ctx,
 							adapter->device_mode,
@@ -3344,13 +3373,15 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 			qdf_copy_macaddr(&roam_info->bssid,
 					 &sta_ctx->requested_bssid);
 		if (roam_info)
-			hdd_err("wlan: connection failed with " QDF_MAC_ADDR_STR
-				 " result: %d and Status: %d",
+			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_STR
+				 " result: %d and Status: %d", dev->name,
+				 adapter->vdev_id,
 				 QDF_MAC_ADDR_ARRAY(roam_info->bssid.bytes),
 				 roam_result, roam_status);
 		else
-			hdd_err("wlan: connection failed with " QDF_MAC_ADDR_STR
-				 " result: %d and Status: %d",
+			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_STR
+				 " result: %d and Status: %d", dev->name,
+				 adapter->vdev_id,
 				 QDF_MAC_ADDR_ARRAY(sta_ctx->requested_bssid.bytes),
 				 roam_result, roam_status);
 
@@ -3493,6 +3524,12 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 		if (roam_status == eCSR_ROAM_ASSOCIATION_FAILURE ||
 		    roam_status == eCSR_ROAM_CANCELLED) {
 			ucfg_tdls_notify_connect_failure(hdd_ctx->psoc);
+			/*
+			 * Enable roaming on other STA iface except this one.
+			 * Firmware dosent support connection on one STA iface
+			 * while roaming on other STA iface
+			 */
+			wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
 		}
 
 		/*
@@ -3518,9 +3555,23 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 		 * waiting on disconnect_comp_var so unblock anyone waiting for
 		 * disconnect to complete.
 		 */
-		if ((roam_result == eCSR_ROAM_RESULT_SCAN_FOR_SSID_FAILURE) &&
+		/*
+		 * Also add eCSR_ROAM_ASSOCIATION_FAILURE and
+		 * eCSR_ROAM_CANCELLED here to handle the following scenarios:
+		 *
+		 * 1. Connection is in progress, but completes with failure
+		 *    before we check the CSR state.
+		 * 2. Connection is in progress. But the connect command is in
+		 *    pending queue and is removed from pending queue as part
+		 *    of csr_roam_disconnect.
+		 */
+		if ((roam_result == eCSR_ROAM_RESULT_SCAN_FOR_SSID_FAILURE ||
+		     roam_status == eCSR_ROAM_ASSOCIATION_FAILURE ||
+		     roam_status == eCSR_ROAM_CANCELLED) &&
 		    hddDisconInProgress)
 			complete(&adapter->disconnect_comp_var);
+
+		policy_mgr_check_concurrent_intf_and_restart_sap(hdd_ctx->psoc);
 	}
 
 	return QDF_STATUS_SUCCESS;
@@ -4086,10 +4137,12 @@ QDF_STATUS hdd_roam_register_tdlssta(struct hdd_adapter *adapter,
 	if (adapter->hdd_ctx->enable_dp_rx_threads) {
 		txrx_ops.rx.rx = hdd_rx_pkt_thread_enqueue_cbk;
 		txrx_ops.rx.rx_stack = hdd_rx_packet_cbk;
+		txrx_ops.rx.rx_flush = hdd_rx_flush_packet_cbk;
 		txrx_ops.rx.rx_gro_flush = hdd_rx_thread_gro_flush_ind_cbk;
 	} else {
 		txrx_ops.rx.rx = hdd_rx_packet_cbk;
 		txrx_ops.rx.rx_stack = NULL;
+		txrx_ops.rx.rx_flush = NULL;
 	}
 	txrx_vdev = cdp_get_vdev_from_vdev_id(soc,
 					      (struct cdp_pdev *)pdev,

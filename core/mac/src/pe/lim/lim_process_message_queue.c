@@ -328,7 +328,7 @@ static void lim_process_set_hw_mode_resp(struct mac_context *mac, void *body)
 	msg.type = eWNI_SME_SET_HW_MODE_RESP;
 	msg.bodyptr = param;
 	msg.bodyval = 0;
-	pe_err("Send eWNI_SME_SET_HW_MODE_RESP to SME");
+	pe_debug("Send eWNI_SME_SET_HW_MODE_RESP to SME");
 	lim_sys_process_mmh_msg_api(mac, &msg);
 	return;
 }
@@ -1728,6 +1728,7 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 	case eWNI_SME_ROAM_INVOKE:
 		/* fall through */
 	case eWNI_SME_ROAM_SCAN_OFFLOAD_REQ:
+	case eWNI_SME_ROAM_INIT_PARAM:
 	case eWNI_SME_SET_ADDBA_ACCEPT:
 	case eWNI_SME_UPDATE_EDCA_PROFILE:
 	case WNI_SME_UPDATE_MU_EDCA_PARAMS:

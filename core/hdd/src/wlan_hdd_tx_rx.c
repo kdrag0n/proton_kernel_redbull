@@ -1284,6 +1284,7 @@ static void __hdd_tx_timeout(struct net_device *dev)
 		adapter->hdd_stats.tx_rx_stats.cont_txtimeout_cnt = 0;
 		if (cdp_cfg_get(soc, cfg_dp_enable_data_stall))
 			cdp_post_data_stall_event(soc,
+					  cds_get_context(QDF_MODULE_ID_TXRX),
 					  DATA_STALL_LOG_INDICATOR_HOST_DRIVER,
 					  DATA_STALL_LOG_HOST_STA_TX_TIMEOUT,
 					  0xFF, 0xFF,
@@ -1944,10 +1945,26 @@ QDF_STATUS hdd_rx_thread_gro_flush_ind_cbk(void *adapter, int rx_ctx_id)
 QDF_STATUS hdd_rx_pkt_thread_enqueue_cbk(void *adapter,
 					 qdf_nbuf_t nbuf_list)
 {
+	struct hdd_adapter *hdd_adapter;
+	uint8_t vdev_id;
+	qdf_nbuf_t head_ptr;
+
 	if (qdf_unlikely(!adapter || !nbuf_list)) {
 		hdd_err("Null params being passed");
 		return QDF_STATUS_E_FAILURE;
 	}
+
+	hdd_adapter = (struct hdd_adapter *)adapter;
+	if (hdd_validate_adapter(hdd_adapter))
+		return QDF_STATUS_E_FAILURE;
+
+	vdev_id = hdd_adapter->vdev_id;
+	head_ptr = nbuf_list;
+	while (head_ptr) {
+		qdf_nbuf_cb_update_vdev_id(head_ptr, vdev_id);
+		head_ptr = qdf_nbuf_next(head_ptr);
+	}
+
 	return dp_rx_enqueue_pkt(cds_get_context(QDF_MODULE_ID_SOC), nbuf_list);
 }
 
@@ -2017,6 +2034,34 @@ static bool hdd_is_gratuitous_arp_unsolicited_na(struct sk_buff *skb)
 	return cfg80211_is_gratuitous_arp_unsolicited_na(skb);
 }
 #endif
+
+QDF_STATUS hdd_rx_flush_packet_cbk(void *adapter_context, uint8_t vdev_id)
+{
+	struct hdd_adapter *adapter;
+	struct hdd_context *hdd_ctx;
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	if (unlikely(!hdd_ctx)) {
+		QDF_TRACE(QDF_MODULE_ID_HDD_DATA, QDF_TRACE_LEVEL_ERROR,
+			  "%s: HDD context is Null", __func__);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	adapter = hdd_adapter_get_by_reference(hdd_ctx, adapter_context);
+	if (!adapter) {
+		QDF_TRACE(QDF_MODULE_ID_HDD_DATA, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Adapter reference is Null", __func__);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (hdd_ctx->enable_dp_rx_threads)
+		dp_txrx_flush_pkts_by_vdev_id(soc, vdev_id);
+
+	hdd_adapter_put(adapter);
+
+	return QDF_STATUS_SUCCESS;
+}
 
 QDF_STATUS hdd_rx_packet_cbk(void *adapter_context,
 			     qdf_nbuf_t rxBuf)
@@ -2678,6 +2723,7 @@ void hdd_print_netdev_txq_status(struct net_device *dev)
 int hdd_set_mon_rx_cb(struct net_device *dev)
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	struct hdd_context *hdd_ctx =  WLAN_HDD_GET_CTX(adapter);
 	int ret;
 	QDF_STATUS qdf_status;
 	struct ol_txrx_desc_type sta_desc = {0};
@@ -2700,6 +2746,14 @@ int hdd_set_mon_rx_cb(struct net_device *dev)
 		hdd_err("cdp_peer_register() failed to register. Status= %d [0x%08X]",
 			qdf_status, qdf_status);
 		goto exit;
+	}
+
+	qdf_status = sme_create_mon_session(hdd_ctx->mac_handle,
+					    adapter->mac_addr.bytes,
+					    adapter->vdev_id);
+	if (QDF_STATUS_SUCCESS != qdf_status) {
+		hdd_err("sme_create_mon_session() failed to register. Status= %d [0x%08X]",
+			qdf_status, qdf_status);
 	}
 
 exit:

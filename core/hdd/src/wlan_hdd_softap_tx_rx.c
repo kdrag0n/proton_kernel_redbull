@@ -725,6 +725,7 @@ static void __hdd_softap_tx_timeout(struct net_device *dev)
 		adapter->hdd_stats.tx_rx_stats.cont_txtimeout_cnt = 0;
 		if (cdp_cfg_get(soc, cfg_dp_enable_data_stall))
 			cdp_post_data_stall_event(soc,
+					  cds_get_context(QDF_MODULE_ID_TXRX),
 					  DATA_STALL_LOG_INDICATOR_HOST_DRIVER,
 					  DATA_STALL_LOG_HOST_SOFTAP_TX_TIMEOUT,
 					  0xFF, 0xFF,
@@ -1013,6 +1014,8 @@ QDF_STATUS hdd_softap_deregister_sta(struct hdd_adapter *adapter,
 		spin_unlock_bh(&adapter->sta_info_lock);
 	}
 
+	hdd_softap_deinit_tx_rx_sta(adapter, sta_id);
+
 	hdd_ctx->sta_to_adapter[sta_id] = NULL;
 	ucfg_mlme_update_oce_flags(hdd_ctx->pdev);
 
@@ -1068,10 +1071,12 @@ QDF_STATUS hdd_softap_register_sta(struct hdd_adapter *adapter,
 	if (adapter->hdd_ctx->enable_dp_rx_threads) {
 		txrx_ops.rx.rx = hdd_rx_pkt_thread_enqueue_cbk;
 		txrx_ops.rx.rx_stack = hdd_softap_rx_packet_cbk;
+		txrx_ops.rx.rx_flush = hdd_rx_flush_packet_cbk;
 		txrx_ops.rx.rx_gro_flush = hdd_rx_thread_gro_flush_ind_cbk;
 	} else {
 		txrx_ops.rx.rx = hdd_softap_rx_packet_cbk;
 		txrx_ops.rx.rx_stack = NULL;
+		txrx_ops.rx.rx_flush = NULL;
 	}
 
 	txrx_vdev = cdp_get_vdev_from_vdev_id(soc,

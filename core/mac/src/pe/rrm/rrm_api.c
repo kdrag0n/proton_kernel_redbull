@@ -372,6 +372,15 @@ rrm_process_neighbor_report_response(struct mac_context *mac,
 		fMobilityDomain =
 			pNeighborRep->NeighborReport[i].MobilityDomain;
 
+		if (!wlan_reg_is_6ghz_supported(mac->pdev) &&
+		    (wlan_reg_is_6ghz_op_class(mac->pdev,
+					       pNeighborRep->NeighborReport[i].
+					       regulatoryClass))) {
+			pe_err("channel belongs to 6 ghz spectrum, abort");
+			qdf_mem_free(pSmeNeighborRpt);
+			return QDF_STATUS_E_FAILURE;
+		}
+
 		pSmeNeighborRpt->sNeighborBssDescription[i].regClass =
 			pNeighborRep->NeighborReport[i].regulatoryClass;
 		pSmeNeighborRpt->sNeighborBssDescription[i].channel =
@@ -486,6 +495,7 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 	uint16_t measDuration, maxMeasduration;
 	int8_t maxDuration;
 	uint8_t sign;
+	tDot11fIEAPChannelReport *ie_ap_chan_rpt;
 
 	if (pBeaconReq->measurement_request.Beacon.BeaconReporting.present &&
 	    (pBeaconReq->measurement_request.Beacon.BeaconReporting.
@@ -558,12 +568,18 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 	}
 
 	if (pBeaconReq->measurement_request.Beacon.RequestedInfo.present) {
+		if (!pBeaconReq->measurement_request.Beacon.RequestedInfo.
+		    num_requested_eids) {
+			pe_debug("802.11k BCN RPT: Requested num of EID is 0");
+			return eRRM_FAILURE;
+		}
 		pCurrentReq->request.Beacon.reqIes.pElementIds =
 			qdf_mem_malloc(sizeof(uint8_t) *
 				       pBeaconReq->measurement_request.Beacon.
 				       RequestedInfo.num_requested_eids);
 		if (!pCurrentReq->request.Beacon.reqIes.pElementIds)
 			return eRRM_FAILURE;
+
 		pCurrentReq->request.Beacon.reqIes.num =
 			pBeaconReq->measurement_request.Beacon.RequestedInfo.
 			num_requested_eids;
@@ -571,6 +587,11 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 			     pBeaconReq->measurement_request.Beacon.
 			     RequestedInfo.requested_eids,
 			     pCurrentReq->request.Beacon.reqIes.num);
+		pe_debug("802.11k BCN RPT: Requested EIDs: num:[%d]",
+			 pCurrentReq->request.Beacon.reqIes.num);
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			   pCurrentReq->request.Beacon.reqIes.pElementIds,
+			   pCurrentReq->request.Beacon.reqIes.num);
 	}
 
 	if (pBeaconReq->measurement_request.Beacon.num_APChannelReport) {
@@ -596,6 +617,15 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 	pSmeBcnReportReq->msgSource = eRRM_MSG_SOURCE_11K;
 	pSmeBcnReportReq->randomizationInterval =
 		SYS_TU_TO_MS(pBeaconReq->measurement_request.Beacon.randomization);
+
+	if (!wlan_reg_is_6ghz_supported(mac->pdev) &&
+	    (wlan_reg_is_6ghz_op_class(mac->pdev,
+			 pBeaconReq->measurement_request.Beacon.regClass))) {
+		pe_err("channel belongs to 6 ghz spectrum, abort");
+		qdf_mem_free(pSmeBcnReportReq);
+		return eRRM_FAILURE;
+	}
+
 	pSmeBcnReportReq->channelInfo.regulatoryClass =
 		pBeaconReq->measurement_request.Beacon.regClass;
 	pSmeBcnReportReq->channelInfo.channelNum =
@@ -625,8 +655,18 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 
 		for (num_APChanReport = 0;
 		     num_APChanReport <
-		     pBeaconReq->measurement_request.Beacon.num_APChannelReport;
-		     num_APChanReport++) {
+			     pBeaconReq->measurement_request.Beacon.
+			     num_APChannelReport; num_APChanReport++) {
+			ie_ap_chan_rpt = &pBeaconReq->measurement_request.
+				Beacon.APChannelReport[num_APChanReport];
+			if (!wlan_reg_is_6ghz_supported(mac->pdev) &&
+			    (wlan_reg_is_6ghz_op_class(mac->pdev,
+					ie_ap_chan_rpt->regulatoryClass))) {
+				pe_err("channel belongs to 6 ghz spectrum, abort");
+				qdf_mem_free(pSmeBcnReportReq);
+				return eRRM_FAILURE;
+			}
+
 			len = pBeaconReq->measurement_request.Beacon.
 			    APChannelReport[num_APChanReport].num_channelList;
 			if (ch_ctr + len >
@@ -650,37 +690,28 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 	return eRRM_SUCCESS;
 }
 
-/* -------------------------------------------------------------------- */
 /**
- * rrm_fill_beacon_ies
- *
- * FUNCTION:
- *
- * LOGIC: Fills Fixed fields and Ies in bss description to an array of uint8_t.
- *
- * ASSUMPTIONS:
- *
- * NOTE:
- *
- * @param pIes - pointer to the buffer that should be populated with ies.
- * @param pNumIes - returns the num of ies filled in this param.
- * @param pIesMaxSize - Max size of the buffer pIes.
- * @param eids - pointer to array of eids. If NULL, all ies will be populated.
- * @param numEids - number of elements in array eids.
+ * rrm_fill_beacon_ies() - Fills fixed fields and Ies in bss description to an
+ * array of uint8_t.
+ * @pIes - pointer to the buffer that should be populated with ies.
+ * @pNumIes - returns the num of ies filled in this param.
+ * @pIesMaxSize - Max size of the buffer pIes.
+ * @eids - pointer to array of eids. If NULL, all ies will be populated.
+ * @numEids - number of elements in array eids.
  * @start_offset: Offset from where the IEs in the bss_desc should be parsed
- * @param bss_desc - pointer to Bss Description.
+ * @bss_desc - pointer to Bss Description.
  *
- * Returns: Remaining length of IEs in current bss_desc which are not included
- *	    in pIes.
+ * Return: Remaining length of IEs in current bss_desc which are not included
+ *	   in pIes.
  */
 static uint8_t
-rrm_fill_beacon_ies(struct mac_context *mac,
-		    uint8_t *pIes, uint8_t *pNumIes, uint8_t pIesMaxSize,
-		    uint8_t *eids, uint8_t numEids, uint8_t start_offset,
+rrm_fill_beacon_ies(struct mac_context *mac, uint8_t *pIes,
+		    uint8_t *pNumIes, uint8_t pIesMaxSize, uint8_t *eids,
+		    uint8_t numEids, uint8_t start_offset,
 		    struct bss_description *bss_desc)
 {
-	uint8_t len, *pBcnIes, count = 0, i;
-	uint16_t BcnNumIes, total_ies_len;
+	uint8_t *pBcnIes, count = 0, i;
+	uint16_t BcnNumIes, total_ies_len, len;
 	uint8_t rem_len = 0;
 
 	if ((!pIes) || (!pNumIes) || (!bss_desc)) {
@@ -725,12 +756,19 @@ rrm_fill_beacon_ies(struct mac_context *mac,
 	}
 
 	while (BcnNumIes > 0) {
-		len = *(pBcnIes + 1) + 2;       /* element id + length. */
+		len = *(pBcnIes + 1);
+		len += 2;       /* element id + length. */
 		pe_debug("EID = %d, len = %d total = %d",
 			*pBcnIes, *(pBcnIes + 1), len);
 
-		if (!len) {
-			pe_err("Invalid length");
+		if (BcnNumIes < len) {
+			pe_err("RRM: Invalid IE len:%d exp_len:%d",
+			       len, BcnNumIes);
+			break;
+		}
+
+		if (len <= 2) {
+			pe_err("RRM: Invalid IE");
 			break;
 		}
 
@@ -1112,26 +1150,28 @@ QDF_STATUS rrm_process_beacon_req(struct mac_context *mac_ctx, tSirMacAddr peer,
  */
 static
 QDF_STATUS update_rrm_report(struct mac_context *mac_ctx,
-			     tpSirMacRadioMeasureReport report,
+			     tpSirMacRadioMeasureReport *report,
 			     tDot11fRadioMeasurementRequest *rrm_req,
 			     uint8_t *num_report, int index)
 {
-	if (!report) {
+	tpSirMacRadioMeasureReport rrm_report;
+
+	if (!*report) {
 		/*
 		 * Allocate memory to send reports for
 		 * any subsequent requests.
 		 */
-		report = qdf_mem_malloc(sizeof(*report) *
+		*report = qdf_mem_malloc(sizeof(tSirMacRadioMeasureReport) *
 			 (rrm_req->num_MeasurementRequest - index));
-		if (!report)
+		if (!*report)
 			return QDF_STATUS_E_NOMEM;
-		pe_debug("rrm beacon type incapable of %d report",
-			*num_report);
+		pe_debug("rrm beacon type incapable of %d report", *num_report);
 	}
-	report[*num_report].incapable = 1;
-	report[*num_report].type =
+	rrm_report = *report;
+	rrm_report[*num_report].incapable = 1;
+	rrm_report[*num_report].type =
 		rrm_req->MeasurementRequest[index].measurement_type;
-	report[*num_report].token =
+	rrm_report[*num_report].token =
 		 rrm_req->MeasurementRequest[index].measurement_token;
 	(*num_report)++;
 	return QDF_STATUS_SUCCESS;
@@ -1209,7 +1249,7 @@ rrm_process_radio_measurement_request(struct mac_context *mac_ctx,
 			break;
 		default:
 			/* Send a report with incapabale bit set. */
-			status = update_rrm_report(mac_ctx, report, rrm_req,
+			status = update_rrm_report(mac_ctx, &report, rrm_req,
 						   &num_report, i);
 			if (QDF_STATUS_SUCCESS != status)
 				return status;

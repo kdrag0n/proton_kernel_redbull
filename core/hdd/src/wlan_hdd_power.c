@@ -1071,7 +1071,7 @@ flush_mc_list:
 	status = ucfg_pmo_flush_mc_addr_list(hdd_ctx->psoc,
 					     adapter->vdev_id);
 	if (QDF_IS_STATUS_ERROR(status))
-		hdd_err("failed to flush mc list; status:%d", status);
+		hdd_debug("failed to flush mc list; status:%d", status);
 
 	hdd_exit();
 }
@@ -1277,6 +1277,8 @@ QDF_STATUS hdd_wlan_shutdown(void)
 	}
 
 	wlan_hdd_rx_thread_resume(hdd_ctx);
+
+	dp_txrx_resume(cds_get_context(QDF_MODULE_ID_SOC));
 
 	/*
 	 * After SSR, FW clear its txrx stats. In host,
@@ -1779,7 +1781,7 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 		return rc;
 
 	if (hdd_ctx->config->is_wow_disabled) {
-		hdd_err("wow is disabled");
+		hdd_info_rl("wow is disabled");
 		return -EINVAL;
 	}
 
@@ -2235,6 +2237,7 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	struct net_device *ndev = wdev->netdev;
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(ndev);
 	int status;
+	struct hdd_station_ctx *sta_ctx;
 
 	hdd_enter_dev(ndev);
 
@@ -2253,22 +2256,30 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	status = wlan_hdd_validate_vdev_id(adapter->vdev_id);
 	if (status)
 		return status;
-
-	if (adapter->device_mode == QDF_STA_MODE ||
-	    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
-		struct hdd_station_ctx *sta_ctx;
-
+	switch (adapter->device_mode) {
+	case QDF_STA_MODE:
+	case QDF_P2P_CLIENT_MODE:
 		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 		if (sta_ctx->hdd_reassoc_scenario) {
 			hdd_debug("Roaming is in progress, rej this req");
 			return -EINVAL;
 		}
-
 		if (sta_ctx->conn_info.conn_state !=
 		    eConnectionState_Associated) {
 			hdd_debug("Not associated");
 			return 0;
 		}
+		break;
+	case QDF_SAP_MODE:
+	case QDF_P2P_GO_MODE:
+		if (!test_bit(SOFTAP_BSS_STARTED, &adapter->event_flags)) {
+			hdd_err("SAP is not started yet");
+			return 0;
+		}
+		break;
+	default:
+		hdd_debug_rl("Current interface is not supported for get tx_power");
+		return 0;
 	}
 
 	if (hdd_ctx->driver_status != DRIVER_MODULES_ENABLED) {

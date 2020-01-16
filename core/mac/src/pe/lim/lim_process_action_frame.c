@@ -359,6 +359,15 @@ lim_process_ext_channel_switch_action_frame(struct mac_context *mac_ctx,
 		  status, frame_len);
 	}
 
+	if (!wlan_reg_is_6ghz_supported(mac_ctx->pdev) &&
+	    (wlan_reg_is_6ghz_op_class(mac_ctx->pdev,
+				       ext_channel_switch_frame->
+				       ext_chan_switch_ann_action.op_class))) {
+		pe_err("channel belongs to 6 ghz spectrum, abort");
+		qdf_mem_free(ext_channel_switch_frame);
+		return;
+	}
+
 	target_channel =
 	 ext_channel_switch_frame->ext_chan_switch_ann_action.new_channel;
 
@@ -1395,6 +1404,7 @@ __lim_process_neighbor_report(struct mac_context *mac, uint8_t *pRxPacketInfo,
 		pe_debug("There were warnings while unpacking a Neighbor report response (0x%08x, %d bytes):",
 			nStatus, frameLen);
 	}
+
 	/* Call rrm function to handle the request. */
 	rrm_process_neighbor_report_response(mac, pFrm, pe_session);
 
@@ -1594,22 +1604,18 @@ lim_drop_unprotected_action_frame(struct mac_context *mac, struct pe_session *pe
 	tpDphHashNode sta;
 	bool rmfConnection = false;
 
-	if (LIM_IS_AP_ROLE(pe_session)) {
-		sta =
-			dph_lookup_hash_entry(mac, pHdr->sa, &aid,
-					      &pe_session->dph.dphHashTable);
-		if (sta)
-			if (sta->rmfEnabled)
-				rmfConnection = true;
-	} else if (pe_session->limRmfEnabled)
+	sta = dph_lookup_hash_entry(mac, pHdr->sa, &aid,
+				    &pe_session->dph.dphHashTable);
+	if (sta && sta->rmfEnabled)
 		rmfConnection = true;
 
 	if (rmfConnection && (pHdr->fc.wep == 0)) {
 		pe_err("Dropping unprotected Action category: %d frame since RMF is enabled",
 			category);
 		return true;
-	} else
-		return false;
+	}
+
+	return false;
 }
 #endif
 
@@ -1679,16 +1685,24 @@ static void lim_process_addba_req(struct mac_context *mac_ctx, uint8_t *rx_pkt_i
 			addba_req->addba_param_set.buff_size,
 			addba_req->ba_start_seq_ctrl.ssn);
 
-	cdp_peer_release_ref(soc, peer, PEER_DEBUG_ID_WMA_ADDBA_REQ);
-
 	if (QDF_STATUS_SUCCESS == qdf_status) {
-		lim_send_addba_response_frame(mac_ctx, mac_hdr->sa,
-			addba_req->addba_param_set.tid, session,
+		qdf_status = lim_send_addba_response_frame(mac_ctx,
+			mac_hdr->sa,
+			addba_req->addba_param_set.tid,
+			session,
 			addba_req->addba_extn_element.present,
 			addba_req->addba_param_set.amsdu_supp);
+		if (qdf_status != QDF_STATUS_SUCCESS) {
+			pe_err("Failed to send addba response frame");
+			cdp_addba_resp_tx_completion(soc, peer,
+				addba_req->addba_param_set.tid,
+				WMI_MGMT_TX_COMP_TYPE_DISCARD);
+		}
 	} else {
-		pe_err("Failed to process addba request");
+		pe_err_rl("Failed to process addba request");
 	}
+
+	cdp_peer_release_ref(soc, peer, PEER_DEBUG_ID_WMA_ADDBA_REQ);
 
 error:
 	qdf_mem_free(addba_req);

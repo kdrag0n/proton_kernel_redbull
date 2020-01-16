@@ -846,6 +846,7 @@ typedef struct tagCsrRoamHTProfile {
 	uint8_t apChanWidth;
 } tCsrRoamHTProfile;
 #endif
+
 typedef struct tagCsrRoamConnectedProfile {
 	tSirMacSSid SSID;
 	bool handoffPermitted;
@@ -861,6 +862,8 @@ typedef struct tagCsrRoamConnectedProfile {
 	tCsrEncryptionList EncryptionInfo;
 	eCsrEncryptionType mcEncryptionType;
 	tCsrEncryptionList mcEncryptionInfo;
+	/* group management cipher suite used for 11w */
+	tAniEdType mgmt_encryption_type;
 	uint8_t country_code[WNI_CFG_COUNTRY_CODE_LEN];
 	uint32_t vht_channel_width;
 	tCsrKeys Keys;
@@ -1255,10 +1258,14 @@ typedef struct tagCsrGlobalClassAStatsInfo {
 	/* mcs index for HT20 and HT40 rates */
 	uint32_t tx_mcs_index;
 	uint32_t rx_mcs_index;
-	uint32_t tx_mcs_rate_flags;
-	uint32_t rx_mcs_rate_flags;
+	enum tx_rate_info tx_mcs_rate_flags;
+	enum tx_rate_info rx_mcs_rate_flags;
+	uint8_t  tx_dcm;
+	uint8_t  rx_dcm;
+	enum txrate_gi  tx_gi;
+	enum txrate_gi  rx_gi;
 	/* to diff between HT20 & HT40 rates;short & long guard interval */
-	uint32_t tx_rx_rate_flags;
+	enum tx_rate_info tx_rx_rate_flags;
 
 } tCsrGlobalClassAStatsInfo;
 
@@ -1538,4 +1545,22 @@ QDF_STATUS csr_update_owe_info(struct mac_context *mac,
 QDF_STATUS
 csr_send_roam_offload_init_msg(struct mac_context *mac, uint32_t vdev_id,
 			       bool enable);
+
+#ifdef WLAN_FEATURE_11W
+/**
+ * csr_update_pmf_cap_from_connected_profile() - Update pmf cap from profile
+ * @profile: connected profile
+ * @filter: scan filter
+ *
+ * Return: None
+ */
+void
+csr_update_pmf_cap_from_connected_profile(tCsrRoamConnectedProfile *profile,
+					  struct scan_filter *filter);
+#else
+static inline void
+csr_update_pmf_cap_from_connected_profile(tCsrRoamConnectedProfile *profile,
+					  struct scan_filter *filter)
+{}
+#endif
 #endif
