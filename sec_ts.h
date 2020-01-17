@@ -221,6 +221,7 @@
 #define SEC_TS_CMD_DISABLE_DF			0x44
 #define SEC_TS_CMD_ERASE_FLASH			0x45
 #define SEC_TS_CMD_RESET_BASELINE		0x47
+#define SEC_TS_CMD_SET_CONT_REPORT		0x49
 #define SEC_TS_CMD_WRITE_NORM_TABLE		0x49
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
@@ -242,6 +243,7 @@
 #define SEC_TS_CMD_P2PTEST			0x82
 #define SEC_TS_CMD_SET_P2PTEST_MODE		0x83
 #define SEC_TS_CMD_NVM				0x85
+#define SEC_TS_CMD_SET_WET_MODE			0x8B
 #define SEC_TS_CMD_STATEMANAGE_ON		0x8E
 #define SEC_TS_CMD_CALIBRATION_OFFSET_SDC	0x8F
 
@@ -273,6 +275,9 @@
 #define SEC_TS_READ_FORCE_RECAL_COUNT	0xB0
 #define SEC_TS_READ_FORCE_SIG_MAX_VAL	0xB1
 #define SEC_TS_CAAT_READ_STORED_DATA	0xB7
+#define SEC_TS_CMD_SET_NOISE_MODE	0xBB
+#define SEC_TS_CMD_SET_GRIP_DETEC	0xBC
+#define SEC_TS_CMD_SET_PALM_DETEC	0xBE
 #define SEC_TS_READ_CSRAM_RTDP_DATA	0xC3
 
 /* SEC_TS FLASH COMMAND */
@@ -682,6 +687,12 @@ struct sec_ts_gesture_status {
 	u8 left_event_5_0:6;
 	u8 reserved_2:2;
 } __attribute__ ((packed));
+
+
+/* status id for sec_ts event */
+#define SEC_TS_EVENT_STATUS_ID_NOISE	0x64
+#define SEC_TS_EVENT_STATUS_ID_GRIP	0x69
+#define SEC_TS_EVENT_STATUS_ID_PALM	0x70
 
 /* 8 byte */
 struct sec_ts_event_status {

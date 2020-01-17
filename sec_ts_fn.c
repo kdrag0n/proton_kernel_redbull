@@ -106,6 +106,11 @@ static void set_log_level(void *device_data);
 static void debug(void *device_data);
 static void set_touch_mode(void *device_data);
 static void not_support_cmd(void *device_data);
+static void set_palm_detection_enable(void *device_data);
+static void set_grip_detection_enable(void *device_data);
+static void set_wet_mode_enable(void *device_data);
+static void set_noise_mode_enable(void *device_data);
+static void set_continuous_report_enable(void *device_data);
 
 static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("fw_update", fw_update),},
@@ -202,8 +207,245 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("set_log_level", set_log_level),},
 	{SEC_CMD("debug", debug),},
 	{SEC_CMD("set_touch_mode", set_touch_mode),},
+	{SEC_CMD("set_palm_detection_enable", set_palm_detection_enable),},
+	{SEC_CMD("set_grip_detection_enable", set_grip_detection_enable),},
+	{SEC_CMD("set_wet_mode_enable", set_wet_mode_enable),},
+	{SEC_CMD("set_noise_mode_enable", set_noise_mode_enable),},
+	{SEC_CMD("set_continuous_report_enable",
+		set_continuous_report_enable),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
+
+
+static void set_palm_detection_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+	u8 para = 0x0;
+	u8 ret = 0;
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		para = 0x1;
+	else if (sec->cmd_param[0] == 0)
+		para = 0x0;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_PALM_DETEC, &para, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_PALM_DETEC, para, ret);
+		goto err_out;
+	}
+
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void set_grip_detection_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+	u8 para = 0x0;
+	u8 ret = 0;
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		para = 0x1F;
+	else if (sec->cmd_param[0] == 0)
+		para = 0x0;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_GRIP_DETEC, &para, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_GRIP_DETEC, para, ret);
+		goto err_out;
+	}
+
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void set_wet_mode_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+	u8 para = 0x0;
+	u8 ret = 0;
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		para = 0x0;
+	else if (sec->cmd_param[0] == 0)
+		para = 0x1;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_WET_MODE, &para, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_WET_MODE, para, ret);
+		goto err_out;
+	}
+
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void set_noise_mode_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+	u8 para = 0x0;
+	u8 ret = 0;
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		para = 0x00;
+	else if (sec->cmd_param[0] == 0)
+		para = 0x10;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_NOISE_MODE, &para, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_NOISE_MODE, para, ret);
+		goto err_out;
+	}
+
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void set_continuous_report_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+	u8 para = 0x0;
+	u8 ret = 0;
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		para = 0x1;
+	else if (sec->cmd_param[0] == 0)
+		para = 0x0;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_CONT_REPORT, &para, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_CONT_REPORT, para, ret);
+		goto err_out;
+	}
+
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
 
 static ssize_t scrub_position_show(struct device *dev,
 		struct device_attribute *attr, char *buf)

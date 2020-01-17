@@ -1420,7 +1420,12 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 			if (p_event_status->stype > 0) {
 				/* Demote 'vendor' messages */
 				if (p_event_status->stype ==
-				    TYPE_STATUS_EVENT_VENDOR_INFO)
+					TYPE_STATUS_EVENT_VENDOR_INFO) {
+					u8 status_id =
+						p_event_status->status_id;
+					u8 status_data_1 =
+						p_event_status->status_data_1;
+
 					input_dbg(true, &ts->client->dev,
 						"%s: STATUS %x %x %x %x %x %x %x %x\n",
 						__func__, event_buff[0],
@@ -1428,7 +1433,36 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						event_buff[3], event_buff[4],
 						event_buff[5], event_buff[6],
 						event_buff[7]);
-				else
+
+					switch (status_id) {
+					case SEC_TS_EVENT_STATUS_ID_NOISE:
+						input_info(true,
+							&ts->client->dev,
+							"%s: noise mode change to %x\n",
+							__func__,
+							status_data_1);
+						break;
+
+					case SEC_TS_EVENT_STATUS_ID_GRIP:
+						input_info(true,
+							&ts->client->dev,
+							"%s: detect grip %s!\n",
+							__func__,
+							(status_data_1) ?
+							"enter" : "leave");
+						break;
+
+					case SEC_TS_EVENT_STATUS_ID_PALM:
+						input_info(true,
+							&ts->client->dev,
+							"%s: detect palm!\n",
+							__func__);
+						break;
+
+					default:
+						break;
+					}
+				} else
 					input_info(true, &ts->client->dev,
 						"%s: STATUS %x %x %x %x %x %x %x %x\n",
 						__func__, event_buff[0],
