@@ -155,6 +155,7 @@ static int lpass_hw_vote_prepare(struct clk_hw *hw)
 		if (ret < 0) {
 			pr_err("%s lpass core hw vote failed %d\n",
 				__func__, ret);
+			BUG();
 			return ret;
 		}
 	}
