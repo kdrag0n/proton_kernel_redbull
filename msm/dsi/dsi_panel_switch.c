@@ -203,7 +203,8 @@ static int s6e3hc2_switch_mode_update(struct dsi_panel *panel,
 	 */
 	data.hbm_enable = (panel->hbm_mode != HBM_MODE_OFF) &&
 			hbm->cur_range != 0;
-	data.dimming_active = panel->bl_config.hbm->dimming_active;
+	data.dimming_active = panel->bl_config.dimming_mode ||
+				panel->bl_config.hbm->dimming_active;
 	data.refresh_rate = mode->timing.refresh_rate;
 
 	return s6e3hc2_write_ctrld_reg(panel, &data, send_last);

@@ -1767,6 +1767,9 @@ int dsi_panel_bl_parse_config(struct device *parent, struct dsi_backlight_config
 	}
 	pr_debug("[%s] bl-lut %sused\n", panel->name, bl->lut ? "" : "un");
 
+	bl->dimming_mode = utils->read_bool(utils->data,
+				"google,dsi-panel-dimming-enable");
+
 	rc = dsi_panel_bl_parse_hbm(parent, bl, utils->data);
 	if (rc)
 		pr_err("[%s] error while parsing high brightness mode (hbm) details, rc=%d\n",
