@@ -6,7 +6,7 @@
 
 #include "fw_update.h"
 
-#define OIS_CUR_FW_VERSION           0x09
+#define OIS_CUR_FW_VERSION           0x0B
 #define OIS_REARWIDE_I2C_ADDR_WRITE  0x76
 #define OIS_REARTELE_I2C_ADDR_WRITE  0x78
 #define MV_SHARP                     0x04170000

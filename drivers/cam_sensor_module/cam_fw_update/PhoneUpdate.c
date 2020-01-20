@@ -4,8 +4,8 @@
  *
  * @author		(C) 2019 ON Semiconductor.
  * @file		PhoneUpdate.c
- * @date		svn:$Date:: 2019-09-19 14:22:48 +0900#$
- * @version		svn:$Revision: 17 $
+ * @date		svn:$Date:: 2020-01-09 13:07:56 +0900#$
+ * @version		svn:$Revision: 21 $
  * @attention
  *
  **/
@@ -20,14 +20,10 @@
 #include     <math.h>
 #endif
 
-#include	"P20_FromCode_04_17_01_00.h"
-#include	"P20_FromCode_04_17_01_01.h"
 #include	"P20_FromCode_09_17_01_00.h"
-#include	"P20_FromCode_09_17_01_01.h"
 
 /* Actuator calibration parameters */
 #include 	"Calibration_Eve.h"
-#include 	"Calibration_Emily.h"
 
 #define	FLASH_BLOCKS			14
 #define	USER_RESERVE			2
@@ -65,10 +61,7 @@ extern void	WitTim(UINT_16);
 //	Table of download file
 //**************************
 const CODE_TBL_EXT CdTbl[] = {
-	{0x0401, CcUpdataCode129, UpDataCodeSize,  UpDataCodeCheckSum, CcFromCode129_04_17_01_00, sizeof(CcFromCode129_04_17_01_00), FromCheckSum_04_17_01_00, FromCheckSumSize_04_17_01_00 },
-	{0x0481, CcUpdataCode129, UpDataCodeSize,  UpDataCodeCheckSum, CcFromCode129_04_17_01_01, sizeof(CcFromCode129_04_17_01_01), FromCheckSum_04_17_01_01, FromCheckSumSize_04_17_01_01 },
 	{0x0901, CcUpdataCode129, UpDataCodeSize,  UpDataCodeCheckSum, CcFromCode129_09_17_01_00, sizeof(CcFromCode129_09_17_01_00), FromCheckSum_09_17_01_00, FromCheckSumSize_09_17_01_00 },
-	{0x0981, CcUpdataCode129, UpDataCodeSize,  UpDataCodeCheckSum, CcFromCode129_09_17_01_01, sizeof(CcFromCode129_09_17_01_01), FromCheckSum_09_17_01_01, FromCheckSumSize_09_17_01_01 },
 	{0xFFFF, (void*)0,        0,               0,                  (void*)0,                  0,                                 0,                        0}
 };
 
@@ -513,11 +506,7 @@ UINT_8 FlashUpdate129( UINT_8 chiperase, CODE_TBL_EXT* ptr )
 		return( 0x52 );
 	}
 
-	if( (ptr->Index & 0x0080) == 0x0000 ){
-		TempCompPtr = (stAdj_Temp_Compensation *)&Eve_TempCompParameter[(ptr->Index & 0x000F) - 1];
-	}else{
-		TempCompPtr = (stAdj_Temp_Compensation *)&Emily_TempCompParameter[(ptr->Index & 0x000F) - 1];
-	}
+	TempCompPtr = (stAdj_Temp_Compensation *)&Eve_TempCompParameter[(ptr->Index & 0x000F) - 1];
 
 	ans = WrTempCompData( TempCompPtr );
 	if( ans != 0x00 ){

@@ -5,8 +5,8 @@
  * @author		(C) 2019 ON Semiconductor.
  *
  * @file		Calibration_Eve.h
- * @date		svn:$Date:: 2019-09-19 10:14:36 +0900#$
- * @version 	svn:$Revision: 86 $
+ * @date		svn:$Date:: 2019-11-25 09:25:10 +0900#$
+ * @version 	svn:$Revision: 99 $
  * @attention
  **/
 #ifndef CALIBRATION_EVE_H_
@@ -102,7 +102,7 @@
 #endif
 
 //********************************************************************************
-// temperature compensation parameters : W0213C
+// temperature compensation parameters : R3W11166
 //********************************************************************************
 #define	TEMP_RCODEX				0x00000000
 #define	TEMP_RCODEY				0x00000000
@@ -121,15 +121,15 @@
 #define	TEMP_SHCB				0x00000000
 #define	TEMP_SHCC				0x00000000
 #define	TEMP_SHCA				0x00000000
-#define	TEMP_TAB				0x00001223
-#define	TEMP_TAC				0x7FFFDBB9
-#define	TEMP_TAA				0x00001223
-#define	TEMP_TBB				0x000147A7
-#define	TEMP_TBC				0x7FFD70B3
-#define	TEMP_TBA				0x000147A7
-#define	TEMP_TEMPOFF			0x1B000000
-#define	TEMP_TAG				0x49700000
-#define	TEMP_TBG				0xE5700000
+#define	TEMP_TAB				0x00000CE5
+#define	TEMP_TAC				0x7FFFE635
+#define	TEMP_TAA				0x00000CE5
+#define	TEMP_TBB				0x0000520D
+#define	TEMP_TBC				0x7FFF5BE1
+#define	TEMP_TBA				0x0000520D
+#define	TEMP_TEMPOFF			0x25000000
+#define	TEMP_TAG				0x6BD00000
+#define	TEMP_TBG				0xD1200000
 #define	TEMP_SHIFTG				0x3FFFFFFF
 #define	TEMP_SHOUTAG1			0x00000000
 #define	TEMP_SHOUTBG1			0x00000000
