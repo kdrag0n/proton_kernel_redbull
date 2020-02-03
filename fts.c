@@ -4065,7 +4065,7 @@ static int fts_identify_panel(struct fts_ts_info *info)
 		if (ret < 0) {
 			pr_err("%s: fts_read_panel_extinfo failed with ret=%d.\n",
 			       __func__, ret);
-			return ret;
+			goto get_panel_info_failed;
 		}
 	}
 
@@ -4133,6 +4133,7 @@ static int fts_identify_panel(struct fts_ts_info *info)
 	// panel was not detected from the list in the device tree, fall back to
 	// using predefined FW and limits paths hardcoded into the driver.
 	// --------------------------------------------------------------------
+get_panel_info_failed:
 	name = NULL;
 	if (info->board->panel)
 		of_property_read_string_index(np, "st,firmware_names",
@@ -4160,7 +4161,7 @@ static int fts_identify_panel(struct fts_ts_info *info)
 	info->board->sensor_inverted = (inverted != 0);
 	pr_info("Sensor inverted = %u\n", inverted);
 
-	return 0;
+	return ret;
 }
 
 /**
