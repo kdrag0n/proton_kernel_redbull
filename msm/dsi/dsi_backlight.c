@@ -283,6 +283,7 @@ static int dsi_backlight_update_status(struct backlight_device *bd)
 			goto done;
 		}
 		bl->bl_update_pending = false;
+		sysfs_notify(&bd->dev.kobj, NULL, "brightness");
 	}
 	bl->bl_actual = bl_lvl;
 	bl->last_state = bd->props.state;
