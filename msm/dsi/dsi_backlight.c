@@ -28,6 +28,7 @@
 
 #include "dsi_display.h"
 #include "dsi_panel.h"
+#include "sde_connector.h"
 
 #define BL_NODE_NAME_SIZE 32
 #define BL_BRIGHTNESS_BUF_SIZE 2
@@ -440,9 +441,11 @@ static int dsi_backlight_update_status(struct backlight_device *bd)
 {
 	struct dsi_backlight_config *bl = bl_get_data(bd);
 	struct dsi_panel *panel = container_of(bl, struct dsi_panel, bl_config);
+	struct dsi_display *display;
 	int brightness = bd->props.brightness;
 	int bl_lvl;
 	int rc = 0;
+	bool need_notify = false;
 
 	mutex_lock(&panel->panel_lock);
 	mutex_lock(&bl->state_lock);
@@ -471,6 +474,7 @@ static int dsi_backlight_update_status(struct backlight_device *bd)
 			goto done;
 		}
 		bl->bl_update_pending = false;
+		need_notify = true;
 		if (bl->bl_notifier && is_on_mode(bd->props.state)
 				&& !(dsi_panel_get_hbm(panel))) {
 			u32 target_range = 0;
@@ -492,6 +496,17 @@ static int dsi_backlight_update_status(struct backlight_device *bd)
 done:
 	mutex_unlock(&bl->state_lock);
 	mutex_unlock(&panel->panel_lock);
+
+	/* skip notifying user space if bl is 0 */
+	if (likely(need_notify && brightness)) {
+		display = dev_get_drvdata(panel->parent);
+		if (unlikely(!display))
+			return rc;
+
+		sde_connector_event_notify(display->drm_conn,
+			DRM_EVENT_SYS_BACKLIGHT, sizeof(u32), brightness);
+	}
+
 	return rc;
 }
 
