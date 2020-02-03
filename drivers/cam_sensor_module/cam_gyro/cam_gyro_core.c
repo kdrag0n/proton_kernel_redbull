@@ -134,7 +134,7 @@ int enable_cam_gyro(void)
 	}
 
 	/* FSR=±8g for OIS ACCEL */
-	rc = write_data_u8(0x1C, 0x02);
+	rc = write_data_u8(0x1C, 0x12);
 	if (rc < 0)
 		goto error_out;
 	/* A_DLPF_CFG=6(BW=5.05Hz) */
@@ -142,7 +142,7 @@ int enable_cam_gyro(void)
 	if (rc < 0)
 		goto error_out;
 	/* FSR=±500dps for OIS gyro, BW250Hz DLPF,ODR=8KHz */
-	rc = write_data_u8(0x68, 0x30);
+	rc = write_data_u8(0x68, 0x28);
 	if (rc < 0)
 		goto error_out;
 	/* ACCEL_FCHOICE_OIS_B=01, ODR=1Khz */
