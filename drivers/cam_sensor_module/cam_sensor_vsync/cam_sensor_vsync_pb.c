@@ -376,3 +376,6 @@ fail:
 	return rc;
 }
 EXPORT_SYMBOL(cam_vsync_parse_ind_message);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Sensor Vsync Pb");
