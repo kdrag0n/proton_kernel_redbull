@@ -25,6 +25,8 @@
 			"npu_noc-base", "camnoc_virt-base",
 			"qup_virt-base";
 
+		clocks = <&gcc GCC_AGGRE_UFS_PHY_AXI_CLK>;
+
 		/*RSCs*/
 		rsc_apps: rsc-apps {
 			cell-id = <MSM_BUS_RSC_APPS>;
