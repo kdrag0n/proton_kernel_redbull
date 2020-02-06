@@ -2794,6 +2794,8 @@
 		qcom,vdd_mss-uV-uA = <RPMH_REGULATOR_LEVEL_TURBO 100000>;
 		qcom,proxy-reg-names = "vdd_cx", "vdd_mss";
 
+		qcom,msm-bus,name = "pil-mss";
+
 		qcom,firmware-name = "modem";
 		memory-region = <&modem_wlan_mem>;
 		qcom,proxy-timeout-ms = <10000>;
@@ -2842,6 +2844,8 @@
 		clocks = <&rpmhcc RPMH_CXO_CLK>;
 		clock-names = "xo";
 		qcom,proxy-clock-names = "xo";
+
+		qcom,msm-bus,name = "pil-lpass";
 
 		qcom,pas-id = <1>;
 		qcom,proxy-timeout-ms = <10000>;
@@ -3558,6 +3562,7 @@
 		qcom,firmware-name = "ipa_fws";
 		qcom,pil-force-shutdown;
 		memory-region = <&pil_ipa_fw_mem>;
+		qcom,msm-bus,name = "pil-ipa_fws";
 	};
 
 	ipa_hw: qcom,ipa@1e00000 {
@@ -3712,6 +3717,7 @@
 		qcom,pas-id = <23>;
 		qcom,firmware-name = "npu";
 		memory-region = <&pil_npu_mem>;
+		qcom,msm-bus,name = "pil-npu";
 
 		/* Outputs to npu */
 		qcom,smem-states = <&npu_smp2p_out 0>;
