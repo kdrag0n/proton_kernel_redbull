@@ -1567,6 +1567,10 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 
 		ts->coord[t_id].palm =
 			(ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_PALM);
+
+		ts->coord[t_id].grip =
+			(ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_GRIP);
+
 		ts->coord[t_id].left_event = p_event_coord->left_event;
 
 		if (ts->coord[t_id].z <= 0)
@@ -1576,6 +1580,8 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 		     SEC_TS_TOUCHTYPE_NORMAL) ||
 		    (ts->coord[t_id].ttype ==
 		     SEC_TS_TOUCHTYPE_PALM) ||
+		    (ts->coord[t_id].ttype ==
+		     SEC_TS_TOUCHTYPE_GRIP) ||
 		    (ts->coord[t_id].ttype ==
 		     SEC_TS_TOUCHTYPE_WET) ||
 		    (ts->coord[t_id].ttype ==
@@ -1610,6 +1616,8 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 						BTN_TOOL_FINGER, 0);
 					ts->check_multi = 0;
 				}
+				__clear_bit(t_id, &ts->tid_palm_state);
+				__clear_bit(t_id, &ts->tid_grip_state);
 				__clear_bit(t_id, &ts->tid_touch_state);
 
 			} else if (ts->coord[t_id].action ==
@@ -1630,8 +1638,23 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 
 				input_mt_slot(ts->input_dev, t_id);
 				__set_bit(t_id, &ts->tid_touch_state);
-				input_mt_report_slot_state(ts->input_dev,
-					MT_TOOL_FINGER, 1);
+				if (ts->coord[t_id].palm) {
+					input_mt_report_slot_state(
+						ts->input_dev, MT_TOOL_PALM, 1);
+					__set_bit(t_id, &ts->tid_palm_state);
+					__clear_bit(t_id, &ts->tid_grip_state);
+				} else if (ts->coord[t_id].grip) {
+					input_mt_report_slot_state(
+						ts->input_dev, MT_TOOL_PALM, 1);
+					__clear_bit(t_id, &ts->tid_palm_state);
+					__set_bit(t_id, &ts->tid_grip_state);
+				} else {
+					input_mt_report_slot_state(
+						ts->input_dev,
+						MT_TOOL_FINGER, 1);
+					__clear_bit(t_id, &ts->tid_palm_state);
+					__clear_bit(t_id, &ts->tid_grip_state);
+				}
 				input_report_key(ts->input_dev, BTN_TOUCH, 1);
 				input_report_key(ts->input_dev,
 							BTN_TOOL_FINGER, 1);
@@ -1687,9 +1710,24 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 				}
 #endif
 				input_mt_slot(ts->input_dev, t_id);
-				input_mt_report_slot_state(ts->input_dev,
-					MT_TOOL_FINGER, 1);
 				__set_bit(t_id, &ts->tid_touch_state);
+				if (ts->coord[t_id].palm) {
+					input_mt_report_slot_state(
+						ts->input_dev, MT_TOOL_PALM, 1);
+					__set_bit(t_id, &ts->tid_palm_state);
+					__clear_bit(t_id, &ts->tid_grip_state);
+				} else if (ts->coord[t_id].grip) {
+					input_mt_report_slot_state(
+						ts->input_dev, MT_TOOL_PALM, 1);
+					__clear_bit(t_id, &ts->tid_palm_state);
+					__set_bit(t_id, &ts->tid_grip_state);
+				} else {
+					input_mt_report_slot_state(
+						ts->input_dev,
+						MT_TOOL_FINGER, 1);
+					__clear_bit(t_id, &ts->tid_palm_state);
+					__clear_bit(t_id, &ts->tid_grip_state);
+				}
 				input_report_key(ts->input_dev, BTN_TOUCH, 1);
 				input_report_key(ts->input_dev,
 							BTN_TOOL_FINGER, 1);
@@ -1810,6 +1848,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	int curr_pos;
 	int remain_event_count = 0;
 	bool processed_pointer_event = false;
+	unsigned long last_tid_palm_state = ts->tid_palm_state;
+	unsigned long last_tid_grip_state = ts->tid_grip_state;
 
 	if (ts->power_status == SEC_TS_STATE_LPM) {
 
@@ -1933,16 +1973,14 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 					case SEC_TS_EVENT_STATUS_ID_NOISE:
 						input_info(true,
 							&ts->client->dev,
-							"%s: noise mode change to %x\n",
-							__func__,
+							"STATUS: noise mode change to %x\n",
 							status_data_1);
 						break;
 
 					case SEC_TS_EVENT_STATUS_ID_GRIP:
 						input_info(true,
 							&ts->client->dev,
-							"%s: detect grip %s!\n",
-							__func__,
+							"STATUS: detect grip %s!\n",
 							(status_data_1) ?
 							"enter" : "leave");
 						break;
@@ -1950,8 +1988,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 					case SEC_TS_EVENT_STATUS_ID_PALM:
 						input_info(true,
 							&ts->client->dev,
-							"%s: detect palm!\n",
-							__func__);
+							"STATUS: detect palm!\n");
 						break;
 
 					default:
@@ -2053,7 +2090,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				(struct sec_ts_event_coordinate *)event_buff);
 			break;
 
-
 		case SEC_TS_GESTURE_EVENT:
 			p_gesture_status =
 				(struct sec_ts_gesture_status *)event_buff;
@@ -2115,8 +2151,53 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	input_sync(ts->input_dev);
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
-	if (processed_pointer_event)
+	if (processed_pointer_event) {
 		heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
+
+		/* palm */
+		if (last_tid_palm_state == 0 &&
+			ts->tid_palm_state >= 1) {
+			input_info(true, &ts->client->dev,
+				"COORD: detect palm enter(tid 0x0 -> %#x)\n",
+				ts->tid_palm_state);
+		}
+		if (last_tid_palm_state >= 1 &&
+			ts->tid_palm_state == 0) {
+			input_info(true, &ts->client->dev,
+				"COORD: detect palm leave(tid %#x -> 0x0), tid_touch %#x\n",
+				last_tid_palm_state, ts->tid_touch_state);
+			if (ts->touch_count || ts->tid_touch_state) {
+				ts->palms_leaved_once = true;
+				input_dbg(true, &ts->client->dev,
+					"COORD: wait all finger(s) release after palm entered\n");
+			}
+		}
+		/* grip */
+		if (last_tid_grip_state == 0 &&
+			ts->tid_grip_state >= 1) {
+			input_info(true, &ts->client->dev,
+				"COORD: detect grip enter(tid 0x0 -> %#x)\n",
+				ts->tid_grip_state);
+		}
+		if (last_tid_grip_state >= 1 &&
+			ts->tid_grip_state == 0) {
+			input_info(true, &ts->client->dev,
+				"COORD: detect grip leave(tid %#x -> 0x0), tid_touch %#x\n",
+				last_tid_grip_state, ts->tid_touch_state);
+			if (ts->touch_count || ts->tid_touch_state) {
+				ts->grips_leaved_once = true;
+				input_dbg(true, &ts->client->dev,
+					"COORD: wait all finger(s) release after grip entered\n");
+			}
+		}
+		if ((ts->touch_count == 0 || ts->tid_touch_state == 0) &&
+			(ts->palms_leaved_once || ts->grips_leaved_once)) {
+			ts->palms_leaved_once = false;
+			ts->grips_leaved_once = false;
+			input_info(true, &ts->client->dev,
+				"COORD: all fingers released with palm(s)/grip(s) leaved once\n");
+		}
+	}
 #endif
 }
 
@@ -2941,6 +3022,8 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts,
 			     0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+	input_set_abs_params(dev, ABS_MT_TOOL_TYPE, MT_TOOL_FINGER, MT_TOOL_MAX,
+				0, 0);
 #ifdef ABS_MT_CUSTOM
 	input_set_abs_params(dev, ABS_MT_CUSTOM, 0, 0xFFFF, 0, 0);
 #endif
@@ -3263,7 +3346,11 @@ static int sec_ts_probe(struct spi_device *client)
 	}
 
 	ts->touch_count = 0;
+	ts->tid_palm_state = 0;
+	ts->tid_grip_state = 0;
 	ts->tid_touch_state = 0;
+	ts->palms_leaved_once = false;
+	ts->grips_leaved_once = false;
 
 	ts->sec_ts_write = sec_ts_write;
 	ts->sec_ts_read = sec_ts_read;
@@ -3551,7 +3638,11 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
+	ts->tid_palm_state = 0;
+	ts->tid_grip_state = 0;
 	ts->tid_touch_state = 0;
+	ts->palms_leaved_once = false;
+	ts->grips_leaved_once = false;
 
 #ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
@@ -3616,7 +3707,11 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
+	ts->tid_palm_state = 0;
+	ts->tid_grip_state = 0;
 	ts->tid_touch_state = 0;
+	ts->palms_leaved_once = false;
+	ts->grips_leaved_once = false;
 
 #ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {

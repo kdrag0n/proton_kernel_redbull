@@ -356,6 +356,7 @@
 #define SEC_TS_TOUCHTYPE_WET		6
 #define SEC_TS_TOUCHTYPE_PROXIMITY	7
 #define SEC_TS_TOUCHTYPE_JIG		8
+#define SEC_TS_TOUCHTYPE_GRIP		10
 
 /* SEC_TS_INFO : Info acknowledge event */
 #define SEC_TS_ACK_BOOT_COMPLETE	0x00
@@ -783,6 +784,7 @@ struct sec_ts_coordinate {
 	bool palm;
 	int palm_count;
 	u8 left_event;
+	bool grip;
 };
 
 struct sec_ts_data {
@@ -842,7 +844,6 @@ struct sec_ts_data {
 	u16 touch_functions;
 	u8 charger_mode;
 	struct sec_ts_event_coordinate touchtype;
-	bool touched[11];
 	u8 gesture_status[6];
 	u8 cal_status;
 	struct mutex lock;
@@ -970,9 +971,19 @@ struct sec_ts_data {
 		};
 	};
 
+	/* slot id active state(bit mask) for grip/palm
+	 **/
+	unsigned long tid_palm_state;
+	unsigned long tid_grip_state;
 	/* slot id active state(bit mask) for all touch types
 	 **/
 	unsigned long tid_touch_state;
+	/* Record the state that grip/palm was leaved once ever after any
+	 * touch pressed. This state will set to default after all active
+	 * touch released.
+	 **/
+	bool palms_leaved_once;
+	bool grips_leaved_once;
 
 #ifdef CONFIG_TOUCHSCREEN_TBN
 	struct tbn_context *tbn;
