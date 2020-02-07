@@ -827,7 +827,7 @@ static void sde_mdp_destroy_dt_misc(struct platform_device *pdev,
 #define BUS_VOTE_40_MHZ 320000000
 #define BUS_VOTE_80_MHZ 640000000
 
-#ifdef CONFIG_QCOM_BUS_SCALING
+#if IS_ENABLED(CONFIG_QCOM_BUS_SCALING)
 
 static struct msm_bus_vectors mdp_reg_bus_vectors[] = {
 	MDP_REG_BUS_VECTOR_ENTRY(0, 0),

@@ -82,7 +82,7 @@
 /* forward prototype */
 static int sde_rotator_update_perf(struct sde_rot_mgr *mgr);
 
-#ifdef CONFIG_QCOM_BUS_SCALING
+#if IS_ENABLED(CONFIG_QCOM_BUS_SCALING)
 static struct msm_bus_vectors rot_reg_bus_vectors[] = {
 	SDE_REG_BUS_VECTOR_ENTRY(0, 0),
 	SDE_REG_BUS_VECTOR_ENTRY(0, BUS_VOTE_19_MHZ),
@@ -2766,7 +2766,7 @@ static struct attribute_group sde_rotator_fs_attr_group = {
 	.attrs = sde_rotator_fs_attrs
 };
 
-#ifdef CONFIG_QCOM_BUS_SCALING
+#if IS_ENABLED(CONFIG_QCOM_BUS_SCALING)
 static int sde_rotator_parse_dt_bus(struct sde_rot_mgr *mgr,
 	struct platform_device *dev)
 {
@@ -2920,7 +2920,7 @@ error:
 	return rc;
 }
 
-#ifdef CONFIG_QCOM_BUS_SCALING
+#if IS_ENABLED(CONFIG_QCOM_BUS_SCALING)
 static void sde_rotator_bus_scale_unregister(struct sde_rot_mgr *mgr)
 {
 	SDEROT_DBG("unregister bus_hdl=%x, reg_bus_hdl=%x\n",

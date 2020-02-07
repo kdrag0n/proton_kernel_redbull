@@ -279,7 +279,7 @@ clk_err:
 	return rc;
 }
 
-#ifdef CONFIG_QCOM_BUS_SCALING
+#if IS_ENABLED(CONFIG_QCOM_BUS_SCALING)
 
 #define MAX_AXI_PORT_COUNT 3
 
