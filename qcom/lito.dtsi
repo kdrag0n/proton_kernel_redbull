@@ -1910,6 +1910,7 @@
 		qcom,bus-vector-names = "MIN",
 					"MAX";
 		qcom,instance-type = "sdcc";
+		status = "disabled";
 	};
 
 	sdhc_1: sdhci@7c4000 {
