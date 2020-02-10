@@ -7843,6 +7843,7 @@ int afe_set_lpass_clk_cfg(int index, struct afe_clk_set *cfg)
 		trace_printk("%s: AFE clk cfg failed with ret %d\n",
 		       __func__, ret);
 	}
+
 	mutex_unlock(&this_afe.afe_clk_lock);
 	return ret;
 }

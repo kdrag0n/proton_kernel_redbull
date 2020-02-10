@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -837,6 +837,8 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 	int unmute_delay = TX_MACRO_DMIC_UNMUTE_DELAY_MS;
 	struct device *tx_dev = NULL;
 	struct tx_macro_priv *tx_priv = NULL;
+	u16 adc_mux_reg = 0, adc_reg = 0, adc_n = 0;
+	u16 dmic_clk_reg = 0;
 
 	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
 		return -EINVAL;
@@ -857,6 +859,22 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		adc_mux_reg = BOLERO_CDC_TX_INP_MUX_ADC_MUX0_CFG1 +
+				TX_MACRO_ADC_MUX_CFG_OFFSET * decimator;
+		if (snd_soc_component_read32(component, adc_mux_reg) & SWR_MIC) {
+			adc_reg = BOLERO_CDC_TX_INP_MUX_ADC_MUX0_CFG0 +
+					TX_MACRO_ADC_MUX_CFG_OFFSET * decimator;
+			adc_n = snd_soc_component_read32(component, adc_reg) &
+					TX_MACRO_SWR_MIC_MUX_SEL_MASK;
+			if (adc_n >= BOLERO_ADC_MAX) {
+				dmic_clk_reg =
+					BOLERO_CDC_TX_TOP_CSR_SWR_DMIC0_CTL +
+					((adc_n - 5) / 2) * 4;
+				snd_soc_component_update_bits(component,
+					dmic_clk_reg,
+					0x0E, tx_priv->dmic_clk_div << 0x1);
+			}
+		}
 		snd_soc_component_update_bits(component,
 			dec_cfg_reg, 0x06, tx_priv->dec_mode[decimator] <<
 			TX_MACRO_ADC_MODE_CFG0_SHIFT);
@@ -908,6 +926,12 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 			usleep_range(1000, 1010);
 			snd_soc_component_update_bits(component,
 					hpf_gate_reg, 0x02, 0x00);
+			snd_soc_component_update_bits(component,
+					hpf_gate_reg, 0x01, 0x01);
+			/*
+			 * 6ms delay is required as per HW spec
+			 */
+			usleep_range(6000, 6010);
 		}
 		/* apply gain after decimator is enabled */
 		snd_soc_component_write(component, tx_gain_ctl_reg,
@@ -2308,7 +2332,8 @@ static int tx_macro_register_event_listener(struct snd_soc_component *component,
 			"%s: priv is null for macro!\n", __func__);
 		return -EINVAL;
 	}
-	if (tx_priv->swr_ctrl_data && !tx_priv->tx_swr_clk_cnt) {
+	if (tx_priv->swr_ctrl_data &&
+		(!tx_priv->tx_swr_clk_cnt || !tx_priv->va_swr_clk_cnt)) {
 		if (enable) {
 			ret = swrm_wcd_notify(
 				tx_priv->swr_ctrl_data[0].tx_swr_pdev,
@@ -2448,7 +2473,7 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 				dev_err(tx_priv->dev, "%s: clock already disabled\n",
 						__func__);
 				tx_priv->tx_mclk_users = 0;
-				return 0;
+				goto tx_clk;
 			}
 			tx_priv->tx_mclk_users--;
 			if (tx_priv->tx_mclk_users == 0) {
@@ -2473,6 +2498,7 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 				goto done;
 			}
 		}
+tx_clk:
 		if (!clk_tx_ret)
 			ret = bolero_clk_rsc_request_clock(tx_priv->dev,
 						   TX_CORE_CLK,
@@ -2704,7 +2730,7 @@ undefined_rate:
 }
 
 static const struct tx_macro_reg_mask_val tx_macro_reg_init[] = {
-	{BOLERO_CDC_TX0_TX_PATH_SEC7, 0x3F, 0x02},
+	{BOLERO_CDC_TX0_TX_PATH_SEC7, 0x3F, 0x0A},
 };
 
 static int tx_macro_init(struct snd_soc_component *component)
