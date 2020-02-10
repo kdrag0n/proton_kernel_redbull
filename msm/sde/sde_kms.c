@@ -891,16 +891,18 @@ static void _sde_kms_drm_check_dpms(struct drm_atomic_state *old_state,
 	struct drm_connector *connector;
 	struct drm_connector_state *old_conn_state;
 	struct drm_crtc_state *old_crtc_state;
+	struct drm_crtc *crtc;
 	int i, old_mode, new_mode, old_fps, new_fps;
 
 	for_each_old_connector_in_state(old_state, connector,
 			old_conn_state, i) {
-		if (!connector->state->crtc)
+		crtc = connector->state->crtc ? connector->state->crtc :
+			old_conn_state->crtc;
+		if (!crtc)
 			continue;
 
-		new_fps = connector->state->crtc->state->mode.vrefresh;
-		new_mode = _sde_kms_get_blank(connector->state->crtc->state,
-						connector->state);
+		new_fps = crtc->state->mode.vrefresh;
+		new_mode = _sde_kms_get_blank(crtc->state, connector->state);
 		if (old_conn_state->crtc) {
 			old_crtc_state = drm_atomic_get_existing_crtc_state(
 					old_state, old_conn_state->crtc);
@@ -2753,6 +2755,9 @@ static void _sde_kms_pm_suspend_idle_helper(struct sde_kms *sde_kms,
 		if (lp != SDE_MODE_DPMS_LP2)
 			continue;
 
+		if (sde_encoder_in_clone_mode(conn->encoder))
+			continue;
+
 		ret = sde_encoder_wait_for_event(conn->encoder,
 						MSM_ENC_TX_COMPLETE);
 		if (ret && ret != -EWOULDBLOCK)
@@ -2839,7 +2844,8 @@ retry:
 		uint64_t lp;
 
 		if (!conn->state || !conn->state->crtc ||
-				conn->dpms != DRM_MODE_DPMS_ON)
+			conn->dpms != DRM_MODE_DPMS_ON ||
+			sde_encoder_in_clone_mode(conn->encoder))
 			continue;
 
 		lp = sde_connector_get_lp(conn);
