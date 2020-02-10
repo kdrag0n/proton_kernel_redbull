@@ -119,6 +119,7 @@ struct cam_sensor_ctrl_t {
 	uint8_t fw_update_flag;
 	uint16_t ois_fw_ver;
 	uint16_t vcm_fw_ver;
+	bool custom_gyro_support;
 };
 
 #endif /* _CAM_SENSOR_DEV_H_ */

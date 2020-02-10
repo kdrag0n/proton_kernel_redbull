@@ -228,11 +228,11 @@ static int cam_sensor_platform_remove(struct platform_device *pdev)
 	kfree(s_ctrl->i2c_data.per_frame);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
-	devm_kfree(&pdev->dev, s_ctrl);
 #if IS_ENABLED(CONFIG_CAMERA_GYRO)
-	release_cam_gyro();
+	if (s_ctrl->custom_gyro_support)
+		release_cam_gyro();
 #endif
-
+	devm_kfree(&pdev->dev, s_ctrl);
 	return 0;
 }
 

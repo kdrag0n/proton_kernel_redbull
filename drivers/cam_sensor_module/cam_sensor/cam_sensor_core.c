@@ -833,7 +833,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->slave_info.sensor_id);
 
 #if IS_ENABLED(CONFIG_CAMERA_GYRO)
-		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363 &&
+			s_ctrl->custom_gyro_support) {
 			rc = init_cam_gyro();
 			if (rc < 0)
 				CAM_ERR(CAM_SENSOR,
@@ -933,7 +934,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		}
 
 #if IS_ENABLED(CONFIG_CAMERA_GYRO)
-		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363 &&
+			s_ctrl->custom_gyro_support) {
 			rc = enable_cam_gyro();
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR, "CAM_GYRO_ENABLE failure");
@@ -972,7 +974,8 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		}
 
 #if IS_ENABLED(CONFIG_CAMERA_GYRO)
-		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363) {
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363 &&
+			s_ctrl->custom_gyro_support) {
 			rc = disable_cam_gyro();
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR,

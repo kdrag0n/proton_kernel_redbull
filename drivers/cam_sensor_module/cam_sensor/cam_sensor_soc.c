@@ -203,6 +203,13 @@ static int32_t cam_sensor_driver_get_dt_data(struct cam_sensor_ctrl_t *s_ctrl)
 		sensordata->pos_yaw = 360;
 	}
 
+	if (!of_property_read_bool(of_node, "custom-gyro-support")) {
+		CAM_DBG(CAM_SENSOR, "No custom-gyro-support param defined");
+		s_ctrl->custom_gyro_support = false;
+	} else {
+		CAM_INFO(CAM_SENSOR, "custom-gyro-support param defined");
+		s_ctrl->custom_gyro_support = true;
+	}
 	return rc;
 
 FREE_SENSOR_DATA:
