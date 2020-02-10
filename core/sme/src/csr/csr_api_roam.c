@@ -64,6 +64,7 @@
 #include "wlan_qct_sys.h"
 #include "wlan_blm_api.h"
 #include "wlan_policy_mgr_i.h"
+#include "wlan_scan_utils_api.h"
 
 #define RSN_AUTH_KEY_MGMT_SAE           WLAN_RSN_SEL(WLAN_AKM_SAE)
 #define MAX_PWR_FCC_CHAN_12 8
@@ -995,6 +996,37 @@ static void csr_add_social_channels(struct mac_context *mac,
 }
 #endif
 
+/**
+ * csr_scan_event_handler() - callback for scan event
+ * @vdev: wlan objmgr vdev pointer
+ * @event: scan event
+ * @arg: global mac context pointer
+ *
+ * Return: void
+ */
+static void csr_scan_event_handler(struct wlan_objmgr_vdev *vdev,
+					    struct scan_event *event,
+					    void *arg)
+{
+	bool success = false;
+	QDF_STATUS lock_status;
+	struct mac_context *mac = arg;
+
+	if (!mac)
+		return;
+
+	if (!util_is_scan_completed(event, &success))
+		return;
+
+	lock_status = sme_acquire_global_lock(&mac->sme);
+	if (QDF_IS_STATUS_ERROR(lock_status))
+		return;
+
+	if (mac->scan.pending_channel_list_req)
+		csr_update_channel_list(mac);
+	sme_release_global_lock(&mac->sme);
+}
+
 QDF_STATUS csr_update_channel_list(struct mac_context *mac)
 {
 	tSirUpdateChanList *pChanList;
@@ -1010,12 +1042,32 @@ QDF_STATUS csr_update_channel_list(struct mac_context *mac)
 	uint16_t cnt = 0;
 	uint8_t  channel;
 	bool is_unsafe_chan;
+	enum scm_scan_status scan_status;
+	QDF_STATUS lock_status;
+
 	qdf_device_t qdf_ctx = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
 
 	if (!qdf_ctx) {
 		sme_err("qdf_ctx is NULL");
 		return QDF_STATUS_E_FAILURE;
 	}
+
+	lock_status = sme_acquire_global_lock(&mac->sme);
+	if (QDF_IS_STATUS_ERROR(lock_status))
+		return lock_status;
+
+	if (mac->mlme_cfg->reg.enable_pending_chan_list_req) {
+		scan_status = ucfg_scan_get_pdev_status(mac->pdev);
+		if (scan_status == SCAN_IS_ACTIVE ||
+		    scan_status == SCAN_IS_ACTIVE_AND_PENDING) {
+			mac->scan.pending_channel_list_req = true;
+			sme_release_global_lock(&mac->sme);
+			sme_debug("scan in progress postpone channel list req ");
+			return QDF_STATUS_SUCCESS;
+		}
+		mac->scan.pending_channel_list_req = false;
+	}
+	sme_release_global_lock(&mac->sme);
 
 	pld_get_wlan_unsafe_channel(qdf_ctx->dev, unsafe_chan,
 		    &unsafe_chan_cnt,
@@ -1216,6 +1268,14 @@ QDF_STATUS csr_start(struct mac_context *mac)
 		mac->scan.requester_id = ucfg_scan_register_requester(
 						mac->psoc,
 						"CSR", csr_scan_callback, mac);
+
+		if (mac->mlme_cfg->reg.enable_pending_chan_list_req) {
+			status = ucfg_scan_register_event_handler(mac->pdev,
+					csr_scan_event_handler, mac);
+
+			if (QDF_IS_STATUS_ERROR(status))
+				sme_err("scan event registration failed ");
+		}
 	} while (0);
 	return status;
 }
@@ -1224,6 +1284,10 @@ QDF_STATUS csr_stop(struct mac_context *mac)
 {
 	uint32_t sessionId;
 
+	if (mac->mlme_cfg->reg.enable_pending_chan_list_req)
+		ucfg_scan_unregister_event_handler(mac->pdev,
+						   csr_scan_event_handler,
+						   mac);
 	ucfg_scan_psoc_set_disable(mac->psoc, REASON_SYSTEM_DOWN);
 	ucfg_scan_unregister_requester(mac->psoc, mac->scan.requester_id);
 
@@ -3687,39 +3751,117 @@ QDF_STATUS csr_roam_issue_disassociate(struct mac_context *mac, uint32_t session
 	return status;
 }
 
+static bool csr_peer_mac_match_cmd(tSmeCmd *sme_cmd,
+				   struct qdf_mac_addr peer_macaddr)
+{
+	if (sme_cmd->command == eSmeCommandRoam &&
+	    (sme_cmd->u.roamCmd.roamReason == eCsrForcedDisassocSta ||
+	     sme_cmd->u.roamCmd.roamReason == eCsrForcedDeauthSta) &&
+	    !qdf_mem_cmp(peer_macaddr.bytes, sme_cmd->u.roamCmd.peerMac,
+			 QDF_MAC_ADDR_SIZE))
+		return true;
+
+	if (sme_cmd->command == eSmeCommandWmStatusChange) {
+		struct wmstatus_changecmd *wms_cmd;
+
+		wms_cmd = &sme_cmd->u.wmStatusChangeCmd;
+		if (wms_cmd->Type == eCsrDisassociated &&
+		    !qdf_mem_cmp(peer_macaddr.bytes,
+				 wms_cmd->u.DisassocIndMsg.peer_macaddr.bytes,
+				 QDF_MAC_ADDR_SIZE))
+			return true;
+
+		if (wms_cmd->Type == eCsrDeauthenticated &&
+		    !qdf_mem_cmp(peer_macaddr.bytes,
+				 wms_cmd->u.DeauthIndMsg.peer_macaddr.bytes,
+				 QDF_MAC_ADDR_SIZE))
+			return true;
+	}
+
+	return false;
+}
+
+static bool
+csr_is_deauth_disassoc_in_pending_q(struct mac_context *mac_ctx,
+				    uint8_t vdev_id,
+				    struct qdf_mac_addr peer_macaddr)
+{
+	tListElem *entry = NULL;
+	tSmeCmd *sme_cmd;
+
+	entry = csr_nonscan_pending_ll_peek_head(mac_ctx, LL_ACCESS_NOLOCK);
+	while (entry) {
+		sme_cmd = GET_BASE_ADDR(entry, tSmeCmd, Link);
+		if ((sme_cmd->sessionId == vdev_id) &&
+		    csr_peer_mac_match_cmd(sme_cmd, peer_macaddr))
+			return true;
+		entry = csr_nonscan_pending_ll_next(mac_ctx, entry,
+						    LL_ACCESS_NOLOCK);
+	}
+
+	return false;
+}
+
+static bool
+csr_is_deauth_disassoc_in_active_q(struct mac_context *mac_ctx,
+				   uint8_t vdev_id,
+				   struct qdf_mac_addr peer_macaddr)
+{
+	tSmeCmd *sme_cmd;
+
+	sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc, vdev_id,
+						WLAN_SER_CMD_FORCE_DEAUTH_STA);
+
+	if (sme_cmd && csr_peer_mac_match_cmd(sme_cmd, peer_macaddr))
+		return true;
+
+	sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc, vdev_id,
+					WLAN_SER_CMD_FORCE_DISASSOC_STA);
+
+	if (sme_cmd && csr_peer_mac_match_cmd(sme_cmd, peer_macaddr))
+		return true;
+
+	/*
+	 * WLAN_SER_CMD_WM_STATUS_CHANGE is of two type, the handling
+	 * should take care of both the types.
+	 */
+	sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc, vdev_id,
+						WLAN_SER_CMD_WM_STATUS_CHANGE);
+	if (sme_cmd && csr_peer_mac_match_cmd(sme_cmd, peer_macaddr))
+		return true;
+
+	return false;
+}
+
 /*
  * csr_is_deauth_disassoc_already_active() - Function to check if deauth or
  *  disassoc is already in progress.
  * @mac_ctx: Global MAC context
- * @session_id: session id
+ * @vdev_id: vdev id
  * @peer_macaddr: Peer MAC address
  *
  * Return: True if deauth/disassoc indication can be dropped
  *  else false
  */
-static bool csr_is_deauth_disassoc_already_active(struct mac_context *mac_ctx,
-						  uint8_t session_id,
-					       struct qdf_mac_addr peer_macaddr)
+static bool
+csr_is_deauth_disassoc_already_active(struct mac_context *mac_ctx,
+				      uint8_t vdev_id,
+				      struct qdf_mac_addr peer_macaddr)
 {
-	bool ret = false;
-	tSmeCmd *sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc,
-							     session_id,
-						 WLAN_SER_CMD_FORCE_DEAUTH_STA);
-	if (!sme_cmd)
-		sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc,
-							    session_id,
-					       WLAN_SER_CMD_FORCE_DISASSOC_STA);
-	if (!sme_cmd)
-		sme_cmd = wlan_serialization_get_active_cmd(mac_ctx->psoc,
-							    session_id,
-						 WLAN_SER_CMD_WM_STATUS_CHANGE);
+	bool ret = csr_is_deauth_disassoc_in_pending_q(mac_ctx,
+						      vdev_id,
+						      peer_macaddr);
+	if (!ret)
+		/**
+		 * commands are not found in pending queue, check in active
+		 * queue as well
+		 */
+		ret = csr_is_deauth_disassoc_in_active_q(mac_ctx,
+							  vdev_id,
+							  peer_macaddr);
 
-	if (sme_cmd && !qdf_mem_cmp(peer_macaddr.bytes,
-			sme_cmd->u.roamCmd.peerMac, QDF_MAC_ADDR_SIZE)) {
-		sme_debug("Ignore DEAUTH_IND/DIASSOC_IND as Deauth/Disassoc already in progress for %pM",
-			  peer_macaddr.bytes);
-		ret = true;
-	}
+	sme_debug("Deauth/Disassoc %s in progress for %pM",
+		  (ret ? "already" : "not"), peer_macaddr.bytes);
 
 	return ret;
 }
@@ -19587,40 +19729,26 @@ csr_create_per_roam_request(struct mac_context *mac_ctx,
 static QDF_STATUS
 csr_roam_offload_per_scan(struct mac_context *mac_ctx, uint8_t session_id)
 {
-	tpCsrNeighborRoamControlInfo roam_info =
-		&mac_ctx->roam.neighborRoamInfo[session_id];
 	struct wmi_per_roam_config_req *req_buf;
 	struct scheduler_msg msg = {0};
-
-	/*
-	 * No need to update in case of stop command, FW takes care of stopping
-	 * this internally
-	 */
-	if (roam_info->last_sent_cmd == ROAM_SCAN_OFFLOAD_STOP)
-		return QDF_STATUS_SUCCESS;
+	QDF_STATUS status;
 
 	if (!mac_ctx->mlme_cfg->lfr.per_roam_enable) {
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			 "PER based roaming is disabled in configuration");
+		sme_debug("PER based roaming ini is disabled");
 		return QDF_STATUS_SUCCESS;
 	}
 
 	req_buf = csr_create_per_roam_request(mac_ctx, session_id);
-	if (!req_buf) {
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
-			 "Failed to create req packet");
+	if (!req_buf)
 		return QDF_STATUS_E_FAILURE;
-	}
-	msg.type = WMA_SET_PER_ROAM_CONFIG_CMD;
+
+	msg.type = eWNI_SME_ROAM_SEND_PER_REQ;
 	msg.reserved = 0;
 	msg.bodyptr = req_buf;
-	if (!QDF_IS_STATUS_SUCCESS(scheduler_post_message(QDF_MODULE_ID_SME,
-							  QDF_MODULE_ID_WMA,
-							  QDF_MODULE_ID_WMA,
-							  &msg))) {
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			"%s: Unable to post WMA_SET_PER_ROAM_CONFIG_CMD to WMA",
-			__func__);
+	status = scheduler_post_message(QDF_MODULE_ID_SME, QDF_MODULE_ID_PE,
+					QDF_MODULE_ID_PE, &msg);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		sme_debug("Unable to post WMA_SET_PER_ROAM_CONFIG_CMD to WMA");
 		qdf_mem_free(req_buf);
 	}
 	return QDF_STATUS_SUCCESS;
@@ -20484,6 +20612,12 @@ csr_roam_offload_scan(struct mac_context *mac_ctx, uint8_t session_id,
 	prev_roaming_state = mlme_get_roam_state(mac_ctx->psoc, session_id);
 	policy_mgr_set_pcl_for_existing_combo(mac_ctx->psoc, PM_STA_MODE);
 
+	/* Update PER config to FW. No need to update in case of stop command,
+	 * FW takes care of stopping this internally
+	 */
+	if (command != ROAM_SCAN_OFFLOAD_STOP)
+		csr_roam_offload_per_scan(mac_ctx, session_id);
+
 	if (!QDF_IS_STATUS_SUCCESS(
 		csr_roam_send_rso_cmd(mac_ctx, session_id, req_buf))) {
 		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
@@ -20498,8 +20632,6 @@ csr_roam_offload_scan(struct mac_context *mac_ctx, uint8_t session_id,
 	/* update the last sent cmd */
 	roam_info->last_sent_cmd = command;
 
-	/* Update PER config to FW after sending the command */
-	csr_roam_offload_per_scan(mac_ctx, session_id);
 	return status;
 }
 
@@ -21813,6 +21945,9 @@ void csr_process_set_hw_mode(struct mac_context *mac, tSmeCmd *command)
 	struct scheduler_msg msg = {0};
 	struct sir_set_hw_mode_resp *param;
 	enum policy_mgr_hw_mode_change hw_mode;
+	enum policy_mgr_conc_next_action action;
+	enum set_hw_mode_status hw_mode_change_status =
+						SET_HW_MODE_STATUS_ECANCELED;
 
 	/* Setting HW mode is for the entire system.
 	 * So, no need to check session
@@ -21831,6 +21966,7 @@ void csr_process_set_hw_mode(struct mac_context *mac, tSmeCmd *command)
 		 */
 		goto fail;
 
+	action = command->u.set_hw_mode_cmd.action;
 	/* For hidden SSID case, if there is any scan command pending
 	 * it needs to be cleared before issuing set HW mode
 	 */
@@ -21843,6 +21979,15 @@ void csr_process_set_hw_mode(struct mac_context *mac, tSmeCmd *command)
 			sme_err("Failed to clear scan cmd");
 			goto fail;
 		}
+	}
+
+	status = policy_mgr_validate_dbs_switch(mac->psoc, action);
+
+	if (QDF_IS_STATUS_ERROR(status)) {
+		sme_err("Hw mode change not sent to FW status = %d", status);
+		if (status == QDF_STATUS_E_ALREADY)
+			hw_mode_change_status = SET_HW_MODE_STATUS_ALREADY;
+		goto fail;
 	}
 
 	hw_mode = policy_mgr_get_hw_mode_change_from_hw_mode_index(
@@ -21905,7 +22050,7 @@ fail:
 		return;
 
 	sme_err("Sending set HW fail response to SME");
-	param->status = SET_HW_MODE_STATUS_ECANCELED;
+	param->status = hw_mode_change_status;
 	param->cfgd_hw_mode_index = 0;
 	param->num_vdev_mac_entries = 0;
 	msg.type = eWNI_SME_SET_HW_MODE_RESP;
@@ -22813,9 +22958,8 @@ csr_send_roam_offload_init_msg(struct mac_context *mac, uint32_t vdev_id,
 QDF_STATUS
 csr_roam_update_cfg(struct mac_context *mac, uint8_t vdev_id, uint8_t reason)
 {
-	if (!MLME_IS_ROAM_INITIALIZED(mac->psoc, vdev_id) &&
-	    reason != REASON_ROAM_SET_BLACKLIST_BSSID) {
-		sme_err("Update cfg received in roam uninitialized state");
+	if (!MLME_IS_ROAM_STATE_RSO_STARTED(mac->psoc, vdev_id)) {
+		sme_err("Update cfg received while ROAM RSO not started");
 		return QDF_STATUS_E_INVAL;
 	}
 

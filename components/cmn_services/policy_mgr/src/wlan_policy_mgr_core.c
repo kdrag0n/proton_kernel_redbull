@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -937,9 +937,14 @@ void policy_mgr_pdev_set_hw_mode_cb(uint32_t status,
 	policy_mgr_set_hw_mode_change_in_progress(context,
 		POLICY_MGR_HW_MODE_NOT_IN_PROGRESS);
 
+	if (status == SET_HW_MODE_STATUS_OK ||
+	    status == SET_HW_MODE_STATUS_ALREADY) {
+		policy_mgr_set_connection_update(context);
+	}
+
 	if (status != SET_HW_MODE_STATUS_OK) {
 		policy_mgr_err("Set HW mode failed with status %d", status);
-		goto set_done_event;
+		goto next_action;
 	}
 
 	/* vdev mac map for NAN Discovery is expected in NAN Enable resp */
@@ -981,14 +986,13 @@ void policy_mgr_pdev_set_hw_mode_cb(uint32_t status,
 	if (pm_ctx->mode_change_cb)
 		pm_ctx->mode_change_cb();
 
-	ret = policy_mgr_set_connection_update(context);
-	if (!QDF_IS_STATUS_SUCCESS(ret))
-		policy_mgr_err("ERROR: set connection_update_done event failed");
 	/* Notify tdls */
 	if (pm_ctx->tdls_cbacks.tdls_notify_decrement_session)
 		pm_ctx->tdls_cbacks.tdls_notify_decrement_session(pm_ctx->psoc);
 
-	if (PM_NOP != next_action)
+next_action:
+	if (PM_NOP != next_action && (status == SET_HW_MODE_STATUS_ALREADY ||
+	    status == SET_HW_MODE_STATUS_OK))
 		policy_mgr_next_actions(context, session_id,
 			next_action, reason);
 	else
