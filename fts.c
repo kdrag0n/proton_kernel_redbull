@@ -3302,9 +3302,18 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 		break;
 
 	case EVT_TYPE_STATUS_NOISE:
-		pr_debug("%s: Noise Status Event = %02X %02X %02X %02X %02X %02X\n",
-			__func__, event[2], event[3], event[4], event[5],
-			event[6], event[7]);
+		if(info->scanning_frequency != event[3]) {
+			pr_info("%s: Scanning frequency changed from %02X to %02X\n",
+				__func__, info->scanning_frequency, event[3]);
+			pr_info("%s: Noise Status Event = %02X %02X %02X %02X %02X %02X\n",
+				__func__, event[2], event[3],
+				event[4], event[5], event[6], event[7]);
+			info->scanning_frequency = event[3];
+		} else {
+			pr_debug("%s: Noise Status Event = %02X %02X %02X %02X %02X %02X\n",
+				__func__, event[2], event[3], event[4],
+				event[5], event[6], event[7]);
+		}
 		break;
 
 	case EVT_TYPE_STATUS_STIMPAD:

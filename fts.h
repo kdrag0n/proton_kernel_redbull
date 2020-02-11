@@ -483,6 +483,8 @@ struct fts_ts_info {
 	/* Touch simulation details */
 	struct fts_touchsim touchsim;
 
+	u8 scanning_frequency;
+
 	/* Preallocated i/o read buffer */
 	u8 io_read_buf[READ_CHUNK + DUMMY_FIFO];
 	/* Preallocated i/o write buffer */
