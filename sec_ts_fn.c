@@ -935,6 +935,7 @@ static ssize_t heatmap_mode_store(struct device *dev,
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	struct sec_ts_plat_data *pdata = ts->plat_data;
 	int result;
 	int val;
 	u8 config;
@@ -946,7 +947,7 @@ static ssize_t heatmap_mode_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	ts->heatmap_mode = val;
+	pdata->heatmap_mode = val;
 
 	/* reset all heatmap settings when any change */
 	config = 0;
@@ -977,9 +978,10 @@ static ssize_t heatmap_mode_show(struct device *dev,
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	const struct sec_ts_plat_data *pdata = ts->plat_data;
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n",
-			 ts->heatmap_mode);
+			 pdata->heatmap_mode);
 #else
 	return scnprintf(buf, PAGE_SIZE, "N/A\n");
 #endif

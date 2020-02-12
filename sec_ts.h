@@ -809,7 +809,6 @@ struct sec_ts_data {
 	struct pm_qos_request pm_qos_req;
 
 	u8 frame_type;
-	int heatmap_mode;
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	struct v4l2_heatmap v4l2;
@@ -949,6 +948,7 @@ struct sec_ts_plat_data {
 	int always_lpmode;
 	int bringup;
 	int mis_cal_check;
+	int heatmap_mode;
 #ifdef PAT_CONTROL
 	int pat_function;
 	int afe_base;

@@ -1144,6 +1144,7 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 {
 	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
+	const struct sec_ts_plat_data *pdata = ts->plat_data;
 	int result;
 	int max_x = v4l2->format.width;
 	int max_y = v4l2->format.height;
@@ -1155,7 +1156,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 		return false;
 	}
 
-	if (ts->heatmap_mode == HEATMAP_PARTIAL) {
+	if (pdata->heatmap_mode == HEATMAP_PARTIAL) {
 		strength_t heatmap_value;
 		int heatmap_x, heatmap_y;
 		/* index for through the heatmap buffer read over the bus */
@@ -1243,7 +1244,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 			frame_i = heatmap_y * max_x + heatmap_x;
 			v4l2->frame[frame_i] = heatmap_value;
 		}
-	} else if (ts->heatmap_mode == HEATMAP_FULL) {
+	} else if (pdata->heatmap_mode == HEATMAP_FULL) {
 		int i, j, index = 0;
 		int ret = 0;
 		u8 type;
@@ -2307,6 +2308,10 @@ static int sec_ts_parse_dt(struct spi_device *client)
 
 	if (of_property_read_u32(np, "sec,mis_cal_check", &pdata->mis_cal_check) < 0)
 		pdata->mis_cal_check = 0;
+
+	if (of_property_read_u32(np, "sec,heatmap_mode",
+		&pdata->heatmap_mode) < 0)
+		pdata->heatmap_mode = 0;
 
 	pdata->regulator_boot_on = of_property_read_bool(np, "sec,regulator_boot_on");
 	pdata->support_sidegesture = of_property_read_bool(np, "sec,support_sidegesture");
