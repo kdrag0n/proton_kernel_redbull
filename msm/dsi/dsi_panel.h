@@ -541,4 +541,6 @@ int dsi_panel_wakeup(struct dsi_panel *panel);
 int dsi_panel_get_sn(struct dsi_panel *panel);
 int dsi_panel_get_vendor_extinfo(struct dsi_panel *panel);
 
+int parse_u32_buf(char *src, size_t src_len, u32 *out, size_t out_len);
+
 #endif /* _DSI_PANEL_H_ */
