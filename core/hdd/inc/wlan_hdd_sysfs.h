@@ -48,18 +48,6 @@ void hdd_sysfs_create_version_interface(struct wlan_objmgr_psoc *psoc);
  * Return: none
  */
 void hdd_sysfs_destroy_version_interface(void);
-/**
- * hdd_sysfs_create_powerstats_interface() - create power_stats interface
- *
- * Return: none
- */
-void hdd_sysfs_create_powerstats_interface(void);
-/**
- * hdd_sysfs_destroy_powerstats_interface() - destroy power_stats interface
- *
- * Return: none
- */
-void hdd_sysfs_destroy_powerstats_interface(void);
 #else
 static inline
 void hdd_sysfs_create_driver_root_obj(void)
@@ -80,7 +68,22 @@ static inline
 void hdd_sysfs_destroy_version_interface(void)
 {
 }
+#endif
 
+#if defined(WLAN_SYSFS) && defined(WLAN_POWER_DEBUGFS)
+/**
+ * hdd_sysfs_create_powerstats_interface() - create power_stats interface
+ *
+ * Return: none
+ */
+void hdd_sysfs_create_powerstats_interface(void);
+/**
+ * hdd_sysfs_destroy_powerstats_interface() - destroy power_stats interface
+ *
+ * Return: none
+ */
+void hdd_sysfs_destroy_powerstats_interface(void);
+#else
 static inline
 void hdd_sysfs_create_powerstats_interface(void)
 {
@@ -90,7 +93,7 @@ static inline
 void hdd_sysfs_destroy_powerstats_interface(void)
 {
 }
-#endif
+#endif /* defined(WLAN_SYSFS) && defined(WLAN_POWER_DEBUGFS) */
 
 #ifdef WLAN_FEATURE_BEACON_RECEPTION_STATS
 /**
