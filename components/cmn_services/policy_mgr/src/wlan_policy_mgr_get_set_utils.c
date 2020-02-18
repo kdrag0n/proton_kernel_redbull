@@ -71,6 +71,27 @@ policy_mgr_get_enable_overlap_chnl(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 }
 
+bool policy_mgr_go_scc_enforced(struct wlan_objmgr_psoc *psoc)
+{
+	uint32_t mcc_to_scc_switch;
+	struct policy_mgr_psoc_priv_obj *pm_ctx;
+
+	pm_ctx = policy_mgr_get_context(psoc);
+	if (!pm_ctx) {
+		policy_mgr_err("Invalid Context");
+		return false;
+	}
+	mcc_to_scc_switch = policy_mgr_get_mcc_to_scc_switch_mode(psoc);
+	if (mcc_to_scc_switch ==
+	    QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION)
+		return true;
+
+	if (pm_ctx->cfg.go_force_scc && policy_mgr_is_force_scc(psoc))
+		return true;
+
+	return false;
+}
+
 QDF_STATUS policy_mgr_set_dual_mac_feature(struct wlan_objmgr_psoc *psoc,
 					   uint8_t dual_mac_feature)
 {
@@ -951,10 +972,8 @@ bool policy_mgr_is_dbs_scan_allowed(struct wlan_objmgr_psoc *psoc)
 	}
 
 	if (!policy_mgr_find_if_fw_supports_dbs(psoc) ||
-	    !policy_mgr_find_if_hwlist_has_dbs(psoc)) {
-		policy_mgr_debug("HW mode list has no DBS");
+	    !policy_mgr_find_if_hwlist_has_dbs(psoc))
 		return false;
-	}
 
 	policy_mgr_get_dual_mac_feature(psoc, &dbs_type);
 	/*
@@ -1621,7 +1640,7 @@ void policy_mgr_incr_active_session(struct wlan_objmgr_psoc *psoc,
 
 	policy_mgr_debug("No.# of active sessions for mode %d = %d",
 		mode, pm_ctx->no_of_active_sessions[mode]);
-	policy_mgr_incr_connection_count(psoc, session_id);
+	policy_mgr_incr_connection_count(psoc, session_id, mode);
 	if ((policy_mgr_mode_specific_connection_count(
 		psoc, PM_STA_MODE, NULL) > 0) && (mode != QDF_STA_MODE)) {
 		qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
@@ -1745,8 +1764,9 @@ QDF_STATUS policy_mgr_decr_active_session(struct wlan_objmgr_psoc *psoc,
 	return qdf_status;
 }
 
-QDF_STATUS policy_mgr_incr_connection_count(
-		struct wlan_objmgr_psoc *psoc, uint32_t vdev_id)
+QDF_STATUS policy_mgr_incr_connection_count(struct wlan_objmgr_psoc *psoc,
+					    uint32_t vdev_id,
+					    enum QDF_OPMODE op_mode)
 {
 	QDF_STATUS status = QDF_STATUS_E_FAILURE;
 	uint32_t conn_index;
@@ -1772,7 +1792,7 @@ QDF_STATUS policy_mgr_incr_connection_count(
 		return status;
 	}
 
-	if (vdev_id == NAN_PSEUDO_VDEV_ID) {
+	if (op_mode == QDF_NAN_DISC_MODE) {
 		status = wlan_nan_get_connection_info(psoc, &conn_table_entry);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			policy_mgr_err("Can't get NAN Connection info");

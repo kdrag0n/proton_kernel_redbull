@@ -1266,16 +1266,24 @@ void policy_mgr_update_user_config_sap_chan(
  */
 static bool policy_mgr_is_sap_go_existed(struct wlan_objmgr_psoc *psoc)
 {
+	uint32_t sta_ap_bit_mask = QDF_STA_MASK | QDF_SAP_MASK;
+	uint32_t sta_go_bit_mask = QDF_STA_MASK | QDF_P2P_GO_MASK;
 	uint32_t ap_present, go_present;
+	bool sta_ap_coexist, sta_go_coexist;
 
 	ap_present = policy_mgr_mode_specific_connection_count(
 				psoc, PM_SAP_MODE, NULL);
-	if (ap_present)
+	sta_ap_coexist = (policy_mgr_get_concurrency_mode(psoc) &
+			  sta_ap_bit_mask) == sta_ap_bit_mask;
+	if (ap_present && sta_ap_coexist)
 		return true;
 
 	go_present = policy_mgr_mode_specific_connection_count(
 				psoc, PM_P2P_GO_MODE, NULL);
-	if (go_present)
+	sta_go_coexist = (policy_mgr_get_concurrency_mode(psoc) &
+			  sta_go_bit_mask) == sta_go_bit_mask;
+	if (go_present && sta_go_coexist &&
+	    policy_mgr_go_scc_enforced(psoc))
 		return true;
 
 	return false;
@@ -1319,6 +1327,7 @@ bool policy_mgr_is_sap_restart_required_after_sta_disconnect(
 								PM_SAP_MODE);
 	bool sta_sap_scc_on_dfs_chan =
 		policy_mgr_is_sta_sap_scc_allowed_on_dfs_chan(psoc);
+	uint8_t sta_sap_scc_on_dfs_chnl_config_value = 0;
 
 	*intf_ch = 0;
 
@@ -1328,10 +1337,15 @@ bool policy_mgr_is_sap_restart_required_after_sta_disconnect(
 		return false;
 	}
 
-	policy_mgr_debug("sta_sap_scc_on_dfs_chan %u, sap_chan %u",
-			 sta_sap_scc_on_dfs_chan, sap_chan);
+	policy_mgr_get_sta_sap_scc_on_dfs_chnl(psoc, &sta_sap_scc_on_dfs_chnl_config_value);
+
+	policy_mgr_debug("sta_sap_scc_on_dfs_chan %u, sta_sap_scc_on_dfs_chnl_config_value %u, sap_chan %u",
+			 sta_sap_scc_on_dfs_chan,
+			 sta_sap_scc_on_dfs_chnl_config_value,
+			 sap_chan);
 
 	if ((!sta_sap_scc_on_dfs_chan ||
+	     (sta_sap_scc_on_dfs_chnl_config_value == 2) ||
 	     !(sap_chan && WLAN_REG_IS_5GHZ_CH(sap_chan) &&
 	       (wlan_reg_get_channel_state(pm_ctx->pdev, sap_chan) ==
 			CHANNEL_STATE_DFS))) &&
@@ -1632,7 +1646,7 @@ static void __policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
 	struct sta_ap_intf_check_work_ctx *work_info = NULL;
 	uint32_t mcc_to_scc_switch, cc_count = 0, i;
 	QDF_STATUS status;
-	uint8_t channel, sec_ch;
+	uint8_t channel, sec_ch, go_index_start;
 	uint8_t operating_channel[MAX_NUMBER_OF_CONC_CONNECTIONS];
 	uint8_t vdev_id[MAX_NUMBER_OF_CONC_CONNECTIONS];
 
@@ -1667,6 +1681,7 @@ static void __policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
 					&vdev_id[cc_count],
 					PM_SAP_MODE);
 	policy_mgr_debug("Number of concurrent SAP: %d", cc_count);
+	go_index_start = cc_count;
 	if (cc_count < MAX_NUMBER_OF_CONC_CONNECTIONS)
 		cc_count = cc_count +
 				policy_mgr_get_mode_specific_conn_info
@@ -1697,6 +1712,9 @@ static void __policy_mgr_check_sta_ap_concurrent_ch_intf(void *data)
 	}
 	if (cc_count < MAX_NUMBER_OF_CONC_CONNECTIONS)
 		for (i = 0; i < cc_count; i++) {
+			if (i >= go_index_start &&
+			    !policy_mgr_go_scc_enforced(psoc))
+				continue;
 			status = pm_ctx->hdd_cbacks.
 				wlan_hdd_get_channel_for_sap_restart
 					(psoc,
@@ -1873,7 +1891,7 @@ void policy_mgr_check_concurrent_intf_and_restart_sap(
 	 * capability change.
 	 * If sta exist, sap/p2p go may need switch channel to force scc
 	 */
-	bool sta_check;
+	bool sta_check = false, gc_check = false;
 
 	pm_ctx = policy_mgr_get_context(psoc);
 	if (!pm_ctx) {
@@ -1921,6 +1939,16 @@ void policy_mgr_check_concurrent_intf_and_restart_sap(
 	sta_check = !cc_count ||
 		    policy_mgr_valid_sta_channel_check(psoc, operating_channel[0]);
 
+	cc_count = 0;
+	cc_count = policy_mgr_get_mode_specific_conn_info(
+				psoc, &operating_channel[cc_count],
+				&vdev_id[cc_count], PM_P2P_CLIENT_MODE);
+	if (!cc_count)
+		policy_mgr_debug("Could not get GC operating channel&vdevid");
+
+	gc_check = !!cc_count;
+	policy_mgr_debug("gc_check: %d", gc_check);
+
 	mcc_to_scc_switch =
 		policy_mgr_get_mcc_to_scc_switch_mode(psoc);
 	policy_mgr_info("MCC to SCC switch: %d chan: %d",
@@ -1937,7 +1965,7 @@ sap_restart:
 	 */
 	if (restart_sap ||
 	    ((mcc_to_scc_switch != QDF_MCC_TO_SCC_SWITCH_DISABLE) &&
-	    sta_check)) {
+	    (sta_check || gc_check))) {
 		if (pm_ctx->sta_ap_intf_check_work_info) {
 			qdf_sched_work(0, &pm_ctx->sta_ap_intf_check_work);
 			policy_mgr_info(

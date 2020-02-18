@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -66,6 +66,9 @@ static void nan_cfg_dp_init(struct wlan_objmgr_psoc *psoc,
 				cfg_get(psoc, CFG_NAN_RANDOMIZE_NDI_MAC);
 	nan_obj->cfg_param.ndp_inactivity_timeout =
 				cfg_get(psoc, CFG_NAN_NDP_INACTIVITY_TIMEOUT);
+	nan_obj->cfg_param.nan_separate_iface_support =
+				cfg_get(psoc, CFG_NAN_SEPARATE_IFACE_SUPP);
+
 }
 #else
 static void nan_cfg_init(struct wlan_objmgr_psoc *psoc,
@@ -882,7 +885,7 @@ ucfg_nan_check_and_disable_unsupported_ndi(struct wlan_objmgr_psoc *psoc,
 							      NULL);
 	/* NDP force disable is done for unsupported concurrencies: NDI+SAP */
 	if (force) {
-		nan_warn("Force disable all NDPs");
+		nan_debug("Force disable all NDPs");
 		for (i = 0; i < ndi_count; i++) {
 			first_ndi_vdev_id =
 				policy_mgr_mode_specific_vdev_id(psoc,
@@ -1030,4 +1033,58 @@ bool ucfg_nan_is_sta_ndp_concurrency_allowed(struct wlan_objmgr_psoc *psoc,
 			return true;
 
 	return false;
+}
+
+bool ucfg_nan_is_vdev_creation_allowed(struct wlan_objmgr_psoc *psoc)
+{
+	struct nan_psoc_priv_obj *psoc_nan_obj;
+
+	psoc_nan_obj = nan_get_psoc_priv_obj(psoc);
+	if (!psoc_nan_obj) {
+		nan_err("psoc_nan_obj is null");
+		return false;
+	}
+
+	return psoc_nan_obj->nan_caps.nan_vdev_allowed;
+}
+
+bool ucfg_nan_get_is_separate_nan_iface(struct wlan_objmgr_psoc *psoc)
+{
+	struct nan_psoc_priv_obj *nan_obj = nan_get_psoc_priv_obj(psoc);
+
+	if (!nan_obj) {
+		nan_err("NAN obj null");
+		return false;
+	}
+	return nan_obj->cfg_param.nan_separate_iface_support;
+}
+
+QDF_STATUS ucfg_disable_nan_discovery(struct wlan_objmgr_psoc *psoc,
+				      uint8_t *data, uint32_t data_len)
+{
+	struct nan_disable_req *nan_req;
+	QDF_STATUS status;
+
+	nan_req = qdf_mem_malloc(sizeof(*nan_req) + data_len);
+	if (!nan_req)
+		return -ENOMEM;
+
+	nan_req->psoc = psoc;
+	nan_req->disable_2g_discovery = true;
+	nan_req->disable_5g_discovery = true;
+	if (data_len && data) {
+		nan_req->params.request_data_len = data_len;
+		qdf_mem_copy(nan_req->params.request_data, data, data_len);
+	}
+
+	nan_debug("sending NAN Disable Req");
+	status = ucfg_nan_discovery_req(nan_req, NAN_DISABLE_REQ);
+
+	if (QDF_IS_STATUS_SUCCESS(status))
+		nan_debug("Successfully sent NAN Disable request");
+	else
+		nan_err("Unable to send NAN Disable request: %u", status);
+
+	qdf_mem_free(nan_req);
+	return status;
 }

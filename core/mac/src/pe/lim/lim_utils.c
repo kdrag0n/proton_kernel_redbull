@@ -6782,6 +6782,7 @@ void lim_update_usr_he_cap(struct mac_context *mac_ctx, struct pe_session *sessi
 	struct he_cap_network_endian *he_cap_from_ie;
 	uint8_t extracted_buff[DOT11F_IE_HE_CAP_MAX_LEN + 2];
 	QDF_STATUS status;
+	struct sir_vht_config *vht_cfg = &session->vht_config;
 	qdf_mem_zero(extracted_buff, sizeof(extracted_buff));
 	status = lim_strip_ie(mac_ctx, add_ie->probeRespBCNData_buff,
 			&add_ie->probeRespBCNDataLen,
@@ -6808,6 +6809,23 @@ void lim_update_usr_he_cap(struct mac_context *mac_ctx, struct pe_session *sessi
 
 	pe_debug("After update: su_beamformer: %d, su_beamformee: %d, mu_beamformer: %d",
 		he_cap->su_beamformer, he_cap->su_beamformee, he_cap->mu_beamformer);
+	if (!he_cap->su_beamformer) {
+		he_cap->mu_beamformer = 0;
+		he_cap->num_sounding_lt_80 = 0;
+		he_cap->num_sounding_gt_80 = 0;
+		vht_cfg->su_beam_former = 0;
+		vht_cfg->mu_beam_former = 0;
+		vht_cfg->num_soundingdim = 0;
+	}
+	if (!he_cap->su_beamformee) {
+		he_cap->bfee_sts_lt_80 = 0;
+		he_cap->bfee_sts_gt_80 = 0;
+		vht_cfg->su_beam_formee = 0;
+		vht_cfg->mu_beam_formee = 0;
+		vht_cfg->csnof_beamformer_antSup = 0;
+	}
+	wma_set_he_txbf_params(session->vdev_id, he_cap->su_beamformer,
+			       he_cap->su_beamformee, he_cap->mu_beamformer);
 }
 
 void lim_decide_he_op(struct mac_context *mac_ctx, tpAddBssParams add_bss,
@@ -7120,7 +7138,8 @@ void lim_update_sta_he_capable(struct mac_context *mac,
 	struct pe_session *session_entry)
 {
 	if (LIM_IS_AP_ROLE(session_entry) || LIM_IS_IBSS_ROLE(session_entry))
-		add_sta_params->he_capable = sta_ds->mlmStaContext.he_capable;
+		add_sta_params->he_capable = sta_ds->mlmStaContext.he_capable &&
+						session_entry->he_capable;
 #ifdef FEATURE_WLAN_TDLS
 	else if (STA_ENTRY_TDLS_PEER == sta_ds->staType)
 		add_sta_params->he_capable = sta_ds->mlmStaContext.he_capable;
@@ -7404,13 +7423,11 @@ QDF_STATUS lim_populate_he_mcs_set(struct mac_context *mac_ctx,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	pe_debug("peer rates lt 80: rx_mcs - 0x%04x tx_mcs - 0x%04x",
+	pe_debug("PEER: lt 80: rx 0x%04x tx 0x%04x, 160: rx 0x%04x tx 0x%04x, 80+80: rx 0x%04x tx 0x%04x",
 		peer_he_caps->rx_he_mcs_map_lt_80,
-		peer_he_caps->tx_he_mcs_map_lt_80);
-	pe_debug("peer rates 160: rx_mcs - 0x%04x tx_mcs - 0x%04x",
+		peer_he_caps->tx_he_mcs_map_lt_80,
 		(*(uint16_t *)peer_he_caps->rx_he_mcs_map_160),
-		(*(uint16_t *)peer_he_caps->tx_he_mcs_map_160));
-	pe_debug("peer rates 80+80: rx_mcs - 0x%04x tx_mcs - 0x%04x",
+		(*(uint16_t *)peer_he_caps->tx_he_mcs_map_160),
 		(*(uint16_t *)peer_he_caps->rx_he_mcs_map_80_80),
 		(*(uint16_t *)peer_he_caps->tx_he_mcs_map_80_80));
 
@@ -7472,14 +7489,11 @@ QDF_STATUS lim_populate_he_mcs_set(struct mac_context *mac_ctx,
 		rates->tx_he_mcs_map_80_80 |= HE_MCS_INV_MSK_4_NSS(1);
 	}
 
-	pe_debug("enable2x2 - %d nss %d",
-		mac_ctx->mlme_cfg->vht_caps.vht_cap_info.enable2x2, nss);
-	pe_debug("he_rx_lt_80 - 0x%x he_tx_lt_80 0x%x",
-		rates->rx_he_mcs_map_lt_80, rates->tx_he_mcs_map_lt_80);
-	pe_debug("he_rx_160 - 0x%x he_tx_160 0x%x",
-		rates->rx_he_mcs_map_160, rates->tx_he_mcs_map_160);
-	pe_debug("he_rx_80_80 - 0x%x he_tx_80_80 0x%x",
-		rates->rx_he_mcs_map_80_80, rates->tx_he_mcs_map_80_80);
+	pe_debug("lt 80: rx 0x%x tx 0x%x, 160: rx 0x%x tx 0x%x, 80_80: rx 0x%x tx 0x%x",
+		 rates->rx_he_mcs_map_lt_80, rates->tx_he_mcs_map_lt_80,
+		 rates->rx_he_mcs_map_160, rates->tx_he_mcs_map_160,
+		 rates->rx_he_mcs_map_80_80, rates->tx_he_mcs_map_80_80);
+
 	return QDF_STATUS_SUCCESS;
 }
 #endif

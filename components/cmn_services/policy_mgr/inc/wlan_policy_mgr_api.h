@@ -828,7 +828,7 @@ enum policy_mgr_two_connection_mode
  * the current connections list
  * @psoc: PSOC object information
  * @vdev_id: vdev id
- *
+ * @mode: Operating mode
  *
  * This function adds the new connection to the current
  * connections list
@@ -836,7 +836,8 @@ enum policy_mgr_two_connection_mode
  * Return: QDF_STATUS
  */
 QDF_STATUS policy_mgr_incr_connection_count(struct wlan_objmgr_psoc *psoc,
-		uint32_t vdev_id);
+					    uint32_t vdev_id,
+					    enum QDF_OPMODE mode);
 
 /**
  * policy_mgr_update_connection_info() - updates the existing
@@ -2707,6 +2708,16 @@ bool policy_mgr_is_safe_channel(struct wlan_objmgr_psoc *psoc,
  * Return: True if SCC to be mandated, false otherwise
  */
 bool policy_mgr_is_force_scc(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * policy_mgr_go_scc_enforced() - Get GO force SCC enabled or not
+ * @psoc: psoc object
+ *
+ * This function checks if force SCC logic should be used on GO interface.
+ *
+ * Return: True if allow GO force SCC
+ */
+bool policy_mgr_go_scc_enforced(struct wlan_objmgr_psoc *psoc);
 
 /**
  * policy_mgr_valid_sap_conc_channel_check() - checks & updates
