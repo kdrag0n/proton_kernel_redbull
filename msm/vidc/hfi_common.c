@@ -4802,7 +4802,7 @@ static struct venus_hfi_device *__add_device(u32 device_id,
 
 	hdevice->res = res;
 	hdevice->device_id = device_id;
-	hdevice->callback = (msm_vidc_callback) callback;
+	hdevice->callback = callback;
 
 	__init_venus_ops(hdevice);
 
