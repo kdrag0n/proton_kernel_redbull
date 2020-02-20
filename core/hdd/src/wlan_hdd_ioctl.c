@@ -6122,24 +6122,28 @@ static int drv_cmd_tdls_off_channel(struct hdd_adapter *adapter,
 {
 	int ret;
 	uint8_t *value = command;
-	int set_value;
+	int channel;
+	enum channel_state reg_state;
 
 	/* Move pointer to point the string */
 	value += command_len;
 
-	ret = sscanf(value, "%d", &set_value);
+	ret = sscanf(value, "%d", &channel);
 	if (ret != 1)
 		return -EINVAL;
+	reg_state = wlan_reg_get_channel_state(hdd_ctx->pdev, channel);
 
-	if (wlan_reg_is_dfs_ch(hdd_ctx->pdev, set_value)) {
-		hdd_err("DFS channel %d is passed for hdd_set_tdls_offchannel",
-		    set_value);
+	if (reg_state == CHANNEL_STATE_DFS ||
+		reg_state == CHANNEL_STATE_DISABLE ||
+		reg_state == CHANNEL_STATE_INVALID) {
+		hdd_err("reg state of the  channel %d is %d and not supported",
+			channel, reg_state);
 		return -EINVAL;
 	}
 
-	hdd_debug("Tdls offchannel num: %d", set_value);
+	hdd_debug("Tdls offchannel num: %d", channel);
 
-	ret = hdd_set_tdls_offchannel(hdd_ctx, adapter, set_value);
+	ret = hdd_set_tdls_offchannel(hdd_ctx, adapter, channel);
 
 	return ret;
 }
@@ -7240,13 +7244,11 @@ static int hdd_parse_disable_chan_cmd(struct hdd_adapter *adapter, uint8_t *ptr)
 	hdd_debug("Number of channel to disable are: %d", temp_int);
 
 	if (!temp_int) {
-		if (!wlan_hdd_restore_channels(hdd_ctx, false)) {
-			/*
-			 * Free the cache channels only when the command is
-			 * received with num channels as 0
-			 */
-			wlan_hdd_free_cache_channels(hdd_ctx);
-		}
+		/*
+		 * Restore and Free the cache channels when the command is
+		 * received with num channels as 0
+		 */
+		wlan_hdd_restore_channels(hdd_ctx, false);
 		return 0;
 	}
 

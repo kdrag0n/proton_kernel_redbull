@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -700,22 +700,6 @@ uint32_t policy_mgr_get_dfs_beaconing_session_id(
 		struct wlan_objmgr_psoc *psoc);
 
 /**
- * policy_mgr_is_dfs_beaconing_present_except_vdev() - to find
- * if any DFS session except the given vdev id
- * @psoc: PSOC object information
- * @channel: pointer to channel that needs to filled
- * @vdev_id: vdev id
- *
- * If any beaconing session except given vdev id such as SAP or GO present and
- * it is on DFS channel then this function will return true
- *
- * Return: true if session is on DFS or false if session is on non-dfs channel
- */
-bool policy_mgr_is_dfs_beaconing_present_except_vdev(
-		struct wlan_objmgr_psoc *psoc, uint8_t *channel,
-		uint8_t vdev_id);
-
-/**
  * policy_mgr_is_any_dfs_beaconing_session_present() - to find
  * if any DFS session
  * @psoc: PSOC object information
@@ -1154,6 +1138,7 @@ QDF_STATUS policy_mgr_check_n_start_opportunistic_timer(
  * @reason: Reason for connection update
  * @next_action: next action to happen at policy mgr after
  *		HW mode change
+ * @action: action to be applied before hw mode change
  *
  * Sends the set hw mode request to FW
  *
@@ -1201,7 +1186,7 @@ QDF_STATUS policy_mgr_pdev_set_hw_mode(struct wlan_objmgr_psoc *psoc,
 		enum hw_mode_agile_dfs_capab dfs,
 		enum hw_mode_sbs_capab sbs,
 		enum policy_mgr_conn_update_reason reason,
-		uint8_t next_action);
+		uint8_t next_action, enum policy_mgr_conc_next_action action);
 
 /**
  * policy_mgr_pdev_set_hw_mode_cback() - callback invoked by
@@ -1418,6 +1403,25 @@ QDF_STATUS policy_mgr_next_actions(struct wlan_objmgr_psoc *psoc,
 		uint32_t session_id,
 		enum policy_mgr_conc_next_action action,
 		enum policy_mgr_conn_update_reason reason);
+
+/**
+ * policy_mgr_validate_dbs_switch() - Check DBS action valid or not
+ * @psoc: Pointer to psoc
+ * @action: action requested
+ *
+ * This routine will check the current hw mode with requested action.
+ * If we are already in the mode, the caller will do nothing.
+ * This will be called by policy_mgr_next_actions to check the action needed
+ * or not.
+ *
+ * return : QDF_STATUS_SUCCESS, action is allowed.
+ *          QDF_STATUS_E_ALREADY, action is not needed.
+ *          QDF_STATUS_E_FAILURE, error happens.
+ *          QDF_STATUS_E_NOSUPPORT, the requested mode not supported.
+ */
+QDF_STATUS
+policy_mgr_validate_dbs_switch(struct wlan_objmgr_psoc *psoc,
+			       enum policy_mgr_conc_next_action action);
 
 /**
  * policy_mgr_set_dual_mac_scan_config() - Set the dual MAC scan config

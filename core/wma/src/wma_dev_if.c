@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1291,6 +1291,75 @@ static void wma_handle_hidden_ssid_restart(tp_wma_handle wma,
 				      hidden_ssid_restart);
 }
 
+static void wma_sap_peer_send_phymode(struct wlan_objmgr_vdev *vdev,
+				      void *object, void *arg)
+{
+	struct wlan_objmgr_peer *peer = object;
+	enum wlan_phymode old_peer_phymode;
+	enum wlan_phymode new_phymode;
+	tSirNwType nw_type;
+	uint32_t fw_phymode;
+	uint32_t max_ch_width_supported;
+	tp_wma_handle wma;
+	uint8_t *peer_mac_addr;
+	uint8_t vdev_id;
+	struct wma_txrx_node *intr;
+
+	if (wlan_peer_get_peer_type(peer) == WLAN_PEER_SELF)
+		return;
+
+	wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+	if(!wma) {
+		wma_err("wma handle NULL");
+		return;
+	}
+
+	intr = wma->interfaces;
+	old_peer_phymode = wlan_peer_get_phymode(peer);
+	vdev_id = wlan_vdev_get_id(vdev);
+
+	peer_mac_addr = wlan_peer_get_macaddr(peer);
+
+	if (WLAN_REG_IS_24GHZ_CH_FREQ(intr[vdev_id].mhz)) {
+		if (intr[vdev_id].chanmode == WMI_HOST_MODE_11B)
+			nw_type = eSIR_11B_NW_TYPE;
+		else
+			nw_type = eSIR_11G_NW_TYPE;
+	} else {
+		nw_type = eSIR_11A_NW_TYPE;
+	}
+	fw_phymode = wma_peer_phymode(nw_type, STA_ENTRY_PEER,
+				      IS_WLAN_PHYMODE_HT(old_peer_phymode),
+				      intr[vdev_id].chan_width,
+				      IS_WLAN_PHYMODE_VHT(old_peer_phymode),
+				      IS_WLAN_PHYMODE_HE(old_peer_phymode));
+
+	new_phymode = wma_fw_to_host_phymode(fw_phymode);
+	wlan_peer_set_phymode(peer, new_phymode);
+
+	wma_set_peer_param(wma, peer_mac_addr, WMI_PEER_PHYMODE,
+			   fw_phymode, vdev_id);
+
+	max_ch_width_supported =
+		wmi_get_ch_width_from_phy_mode(wma->wmi_handle, fw_phymode);
+	wma_set_peer_param(wma, peer_mac_addr, WMI_PEER_CHWIDTH,
+			   max_ch_width_supported, vdev_id);
+
+	wma_debug("nw_type %d old phymode %d new phymode %d bw %d macaddr "QDF_MAC_ADDR_STR,
+		  nw_type, old_peer_phymode, new_phymode,
+		  max_ch_width_supported, QDF_MAC_ADDR_ARRAY(peer_mac_addr));
+}
+
+static void
+wma_update_peer_phymode_sap(struct wlan_objmgr_vdev *vdev)
+{
+	wlan_objmgr_iterate_peerobj_list(vdev,
+					 wma_sap_peer_send_phymode,
+					 NULL,
+					 WLAN_LEGACY_WMA_ID);
+}
+
 /**
  * wma_handle_channel_switch_resp() - handle channel switch resp
  * @wma: wma handle
@@ -1337,6 +1406,11 @@ wma_handle_channel_switch_resp(tp_wma_handle wma,
 					   (void *)params, 0);
 		return QDF_STATUS_SUCCESS;
 	}
+
+	if (QDF_IS_STATUS_SUCCESS(resp_event->status) &&
+	    iface->type == WMI_VDEV_TYPE_AP &&
+	    resp_event->resp_type == WMI_VDEV_RESTART_RESP_EVENT)
+		wma_update_peer_phymode_sap(iface->vdev);
 
 	if ((QDF_IS_STATUS_SUCCESS(resp_event->status) &&
 	     (resp_event->resp_type == WMI_VDEV_RESTART_RESP_EVENT) &&
@@ -2723,6 +2797,28 @@ int wma_vdev_stop_resp_handler(void *handle, uint8_t *cmd_param_info,
 	return 0;
 }
 
+#define DOT11AX_HEMU_MODE 0x30
+#define HE_SUBFEE 0
+#define HE_SUBFER 1
+#define HE_MUBFEE 2
+#define HE_MUBFER 3
+
+#ifdef WLAN_FEATURE_11AX
+static inline uint32_t wma_get_txbf_cap(struct mac_context *mac)
+{
+	return
+	(mac->mlme_cfg->he_caps.dot11_he_cap.su_beamformer << HE_SUBFER) |
+	(mac->mlme_cfg->he_caps.dot11_he_cap.su_beamformee << HE_SUBFEE) |
+	(1 << HE_MUBFEE) |
+	(mac->mlme_cfg->he_caps.dot11_he_cap.mu_beamformer << HE_MUBFER);
+}
+#else
+static inline uint32_t wma_get_txbf_cap(struct mac_context *mac)
+{
+	return 0;
+}
+#endif
+
 /**
  * wma_vdev_attach() - create vdev in fw
  * @wma_handle: wma handle
@@ -2759,6 +2855,7 @@ struct cdp_vdev *wma_vdev_attach(tp_wma_handle wma_handle,
 	struct wlan_objmgr_vdev *vdev;
 	uint32_t retry;
 	uint8_t amsdu_val;
+	uint32_t hemu_mode;
 
 	qdf_mem_zero(&tx_rx_aggregation_size, sizeof(tx_rx_aggregation_size));
 	WMA_LOGD("mac %pM, vdev_id %hu, type %d, sub_type %d, nss 2g %d, 5g %d",
@@ -3050,6 +3147,8 @@ struct cdp_vdev *wma_vdev_attach(tp_wma_handle wma_handle,
 	wma_set_vdev_mgmt_rate(wma_handle, self_sta_req->session_id);
 
 	if (IS_FEATURE_SUPPORTED_BY_FW(DOT11AX)) {
+		hemu_mode = DOT11AX_HEMU_MODE;
+		hemu_mode |= wma_get_txbf_cap(mac);
 		/*
 		 * Enable / disable trigger access for a AP vdev's peers.
 		 * For a STA mode vdev this will enable/disable triggered
@@ -3069,7 +3168,8 @@ struct cdp_vdev *wma_vdev_attach(tp_wma_handle wma_handle,
 		ret = wma_vdev_set_param(wma_handle->wmi_handle,
 					 self_sta_req->session_id,
 					 WMI_VDEV_PARAM_SET_HEMU_MODE,
-					 0x37);
+					 hemu_mode);
+		WMA_LOGD("set HEMU_MODE (hemu_mode = 0x%x)", hemu_mode);
 		if (QDF_IS_STATUS_ERROR(ret))
 			WMA_LOGE("Failed to set WMI_VDEV_PARAM_SET_HEMU_MODE");
 	}
@@ -5539,8 +5639,8 @@ static void wma_add_sta_req_sta_mode(tp_wma_handle wma, tpAddStaParams params)
 	}
 
 	if (wma_is_vdev_up(params->smesessionId)) {
-		WMA_LOGE("%s: vdev id %d is already UP for %pM", __func__,
-			params->smesessionId, params->bssId);
+		WMA_LOGD("%s: vdev id %d is already UP for %pM", __func__,
+			 params->smesessionId, params->bssId);
 		status = QDF_STATUS_E_FAILURE;
 		goto out;
 	}
