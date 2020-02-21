@@ -404,6 +404,8 @@ typedef enum {
 #define EVT_TYPE_STATUS_GRIP_TOUCH	0x0E	/* /< Grip Touch Status* */
 #define EVT_TYPE_STATUS_GOLDEN_RAW_VAL	0x0F	/* /< Golden Raw
 						 * Validation Status */
+#define EVT_TYPE_STATUS_GOLDEN_RAW_ERR	0x16	/* /< Golden Raw
+						 * Data Abnormal */
 
 /** @} */
 

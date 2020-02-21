@@ -3438,6 +3438,13 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 		}
 		break;
 
+	case EVT_TYPE_STATUS_GOLDEN_RAW_ERR:
+		pr_info("%s: Golden Raw Data Abnormal"
+				" = %02X %02X %02X %02X %02X %02X\n",
+				__func__, event[2], event[3], event[4],
+				event[5], event[6], event[7]);
+		break;
+
 	default:
 		pr_info("%s: Received unknown status event = %02X %02X %02X %02X %02X %02X %02X %02X\n",
 			__func__, event[0], event[1], event[2], event[3],
