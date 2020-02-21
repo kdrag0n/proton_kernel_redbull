@@ -542,6 +542,7 @@ typedef enum {
 #define TOUCH_TYPE_STYLUS	0x03	/* /< Stylus touch */
 #define TOUCH_TYPE_PALM		0x04	/* /< Palm touch */
 #define TOUCH_TYPE_HOVER	0x00	/* /< Hovering touch */
+#define TOUCH_TYPE_GRIP		0x07	/* /< Hovering touch */
 
 /* Keys code */
 #define FTS_KEY_0		0x01	/* /< Key 0 bit */

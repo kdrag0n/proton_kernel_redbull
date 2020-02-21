@@ -176,6 +176,8 @@ void release_all_touches(struct fts_ts_info *info)
 	input_report_key(info->input_dev, BTN_TOUCH, 0);
 	input_sync(info->input_dev);
 	info->touch_id = 0;
+	info->palm_touch_mask = 0;
+	info->grip_touch_mask = 0;
 #ifdef STYLUS_MODE
 	info->stylus_id = 0;
 #endif
@@ -3040,13 +3042,32 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 	 * touch */
 	case TOUCH_TYPE_FINGER:
 	case TOUCH_TYPE_GLOVE:
-	case TOUCH_TYPE_PALM:
 		pr_debug("%s : It is a touch type %d!\n", __func__, touchType);
-		tool = MT_TOOL_FINGER;
+		if (info->palm_touch_mask)
+			tool = MT_TOOL_PALM;
+		else
+			tool = MT_TOOL_FINGER;
 		touch_condition = 1;
 		__set_bit(touchId, &info->touch_id);
+		__clear_bit(touchId, &info->palm_touch_mask);
+		__clear_bit(touchId, &info->grip_touch_mask);
 		break;
-
+	case TOUCH_TYPE_PALM:
+		pr_debug("%s : It is a touch type %d!\n", __func__, touchType);
+		tool = MT_TOOL_PALM;
+		touch_condition = 1;
+		__set_bit(touchId, &info->touch_id);
+		__set_bit(touchId, &info->palm_touch_mask);
+		__clear_bit(touchId, &info->grip_touch_mask);
+		break;
+	case TOUCH_TYPE_GRIP:
+		pr_debug("%s : It is a touch type %d!\n", __func__, touchType);
+		tool = MT_TOOL_PALM;
+		touch_condition = 1;
+		__set_bit(touchId, &info->touch_id);
+		__clear_bit(touchId, &info->palm_touch_mask);
+		__set_bit(touchId, &info->grip_touch_mask);
+		break;
 
 	case TOUCH_TYPE_HOVER:
 		tool = MT_TOOL_FINGER;
@@ -3125,9 +3146,13 @@ static bool fts_leave_pointer_event_handler(struct fts_ts_info *info, unsigned
 	/* pr_info("%s : It is a glove!\n", __func__); */
 	case TOUCH_TYPE_PALM:
 	/* pr_info("%s : It is a palm!\n", __func__); */
+	case TOUCH_TYPE_GRIP:
+	/* pr_info("%s : It is a grip!\n", __func__); */
 	case TOUCH_TYPE_HOVER:
 		tool = MT_TOOL_FINGER;
 		__clear_bit(touchId, &info->touch_id);
+		__clear_bit(touchId, &info->palm_touch_mask);
+		__clear_bit(touchId, &info->grip_touch_mask);
 		break;
 
 	default:
@@ -5831,6 +5856,8 @@ static int fts_probe(struct spi_device *client)
 			     AREA_MAX, 0, 0);
 	input_set_abs_params(info->input_dev, ABS_MT_TOUCH_MINOR, AREA_MIN,
 			     AREA_MAX, 0, 0);
+	input_set_abs_params(info->input_dev, ABS_MT_TOOL_TYPE, MT_TOOL_FINGER,
+			     MT_TOOL_FINGER, 0, 0);
 #ifndef SKIP_PRESSURE
 	input_set_abs_params(info->input_dev, ABS_MT_PRESSURE, PRESSURE_MIN,
 		PRESSURE_MAX, 0, 0);
@@ -5902,6 +5929,8 @@ static int fts_probe(struct spi_device *client)
 	skip_5_1 = 1;
 	/* track slots */
 	info->touch_id = 0;
+	info->palm_touch_mask = 0;
+	info->grip_touch_mask = 0;
 #ifdef STYLUS_MODE
 	info->stylus_id = 0;
 #endif

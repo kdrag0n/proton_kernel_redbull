@@ -424,6 +424,8 @@ struct fts_ts_info {
 	unsigned int mode;	/* Device operating mode */
 				/* MSB - active or lpm */
 	unsigned long touch_id;	/* Bitmask for touch id */
+	unsigned long palm_touch_mask; /* Bitmask for palm touch */
+	unsigned long grip_touch_mask; /* Bitmask for grip touch */
 #ifdef STYLUS_MODE
 	unsigned long stylus_id;	/* Bitmask for the stylus */
 #endif
