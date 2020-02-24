@@ -240,6 +240,7 @@ static int bolero_clk_rsc_mux1_clk_request(struct bolero_clk_rsc *priv,
 	char __iomem *clk_muxsel = NULL;
 	int ret = 0;
 	int default_clk_id = priv->default_clk_id[clk_id];
+	u32 muxsel = 0;
 
 	clk_muxsel = bolero_clk_rsc_get_clk_muxsel(priv, clk_id);
 	if (!clk_muxsel) {
@@ -271,6 +272,9 @@ static int bolero_clk_rsc_mux1_clk_request(struct bolero_clk_rsc *priv,
 				}
 			}
 			iowrite32(0x1, clk_muxsel);
+			muxsel = ioread32(clk_muxsel);
+			trace_printk("%s: muxsel value after enable: %d\n",
+					__func__, muxsel);
 			bolero_clk_rsc_mux0_clk_request(priv, default_clk_id,
 							false);
 		}
@@ -290,6 +294,9 @@ static int bolero_clk_rsc_mux1_clk_request(struct bolero_clk_rsc *priv,
 			if (!ret)
 				iowrite32(0x0, clk_muxsel);
 
+			muxsel = ioread32(clk_muxsel);
+			trace_printk("%s: muxsel value after disable: %d\n",
+					__func__, muxsel);
 			if (priv->clk[clk_id + NPL_CLK_OFFSET])
 				clk_disable_unprepare(
 					priv->clk[clk_id + NPL_CLK_OFFSET]);
