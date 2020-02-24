@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,10 +31,31 @@
 #include <linux/skbuff.h>
 #include "cdp_txrx_flow_ctrl_legacy.h"
 
+struct hdd_netif_queue_history;
 struct hdd_context;
 
+#define hdd_dp_alert(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_warn(params...) QDF_TRACE_WARN(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_info(params...) QDF_TRACE_INFO(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_HDD_DATA, params)
+
+#define hdd_dp_alert_rl(params...) \
+			QDF_TRACE_FATAL_RL(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_err_rl(params...) \
+			QDF_TRACE_ERROR_RL(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_warn_rl(params...) \
+			QDF_TRACE_WARN_RL(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_info_rl(params...) \
+			QDF_TRACE_INFO_RL(QDF_MODULE_ID_HDD_DATA, params)
+#define hdd_dp_debug_rl(params...) \
+			QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_HDD_DATA, params)
+
+#define hdd_dp_enter() hdd_dp_debug("enter")
+#define hdd_dp_enter_dev(dev) hdd_dp_debug("enter(%s)", (dev)->name)
+#define hdd_dp_exit() hdd_dp_debug("exit")
+
 #define HDD_ETHERTYPE_802_1_X              0x888E
-#define HDD_ETHERTYPE_802_1_X_FRAME_OFFSET 12
 #ifdef FEATURE_WLAN_WAPI
 #define HDD_ETHERTYPE_WAI                  0x88b4
 #define IS_HDD_ETHERTYPE_WAI(_skb) (ntohs(_skb->protocol) == \
@@ -55,10 +76,77 @@ void hdd_tx_timeout(struct net_device *dev);
 
 QDF_STATUS hdd_init_tx_rx(struct hdd_adapter *adapter);
 QDF_STATUS hdd_deinit_tx_rx(struct hdd_adapter *adapter);
-QDF_STATUS hdd_rx_packet_cbk(void *context, qdf_nbuf_t rxBuf);
 
 /**
- * hdd_rx_ol_init() - Initialize Rx mode(LRO or GRO) method
+ * hdd_rx_flush_packet_cbk() - flush rx packet handler
+ * @adapter_context: pointer to HDD adapter context
+ * @vdev_id: vdev_id of the packets to be flushed
+ *
+ * Flush rx packet callback registered with data path. DP will call this to
+ * notify HDD when packets for a particular vdev is to be flushed out.
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_rx_flush_packet_cbk(void *adapter_context, uint8_t vdev_id);
+
+/**
+ * hdd_rx_packet_cbk() - Receive packet handler
+ * @adapter_context: pointer to HDD adapter context
+ * @rxBuf: pointer to rx qdf_nbuf
+ *
+ * Receive callback registered with data path.  DP will call this to notify
+ * the HDD when one or more packets were received for a registered
+ * STA.
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_rx_packet_cbk(void *adapter_context, qdf_nbuf_t rxBuf);
+
+/**
+ * hdd_rx_deliver_to_stack() - HDD helper function to deliver RX pkts to stack
+ * @adapter: pointer to HDD adapter context
+ * @skb: pointer to skb
+ *
+ * The function calls the appropriate stack function depending upon the packet
+ * type and whether GRO/LRO is enabled.
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_rx_deliver_to_stack(struct hdd_adapter *adapter,
+				   struct sk_buff *skb);
+
+/**
+ * hdd_rx_thread_gro_flush_ind_cbk() - receive handler to flush GRO packets
+ * @adapter: pointer to HDD adapter
+ * @rx_ctx_id: RX CTX Id for which flush should happen
+ *
+ * Receive callback registered with DP layer which flushes GRO packets
+ * for a given RX CTX ID (RX Thread)
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_rx_thread_gro_flush_ind_cbk(void *adapter, int rx_ctx_id);
+
+/**
+ * hdd_rx_pkt_thread_enqueue_cbk() - receive pkt handler to enqueue into thread
+ * @adapter: pointer to HDD adapter
+ * @nbuf_list: pointer to qdf_nbuf list
+ *
+ * Receive callback registered with DP layer which enqueues packets into dp rx
+ * thread
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_rx_pkt_thread_enqueue_cbk(void *adapter_context,
+					 qdf_nbuf_t nbuf_list);
+
+/**
+ * hdd_rx_ol_init() - Initialize Rx offload mode (LRO or GRO)
  * @hdd_ctx: pointer to HDD Station Context
  *
  * Return: 0 on success and non zero on failure.
@@ -82,9 +170,18 @@ void hdd_disable_rx_ol_in_concurrency(bool disable);
  */
 void hdd_disable_rx_ol_for_low_tput(struct hdd_context *hdd_ctx, bool disable);
 
+/**
+ * hdd_get_peer_sta_id() - Get the StationID using the Peer Mac address
+ * @sta_ctx: pointer to HDD Station Context
+ * @mac_address: pointer to Peer Mac address
+ * @sta_id: pointer to returned Station Index
+ *
+ * Return: QDF_STATUS_SUCCESS/QDF_STATUS_E_FAILURE
+ */
 QDF_STATUS hdd_get_peer_sta_id(struct hdd_station_ctx *sta_ctx,
-				struct qdf_mac_addr *peer_mac_addr,
-				uint8_t *sta_id);
+			       struct qdf_mac_addr *mac_address,
+			       uint8_t *sta_id);
+
 /**
  * hdd_reset_all_adapters_connectivity_stats() - reset connectivity stats
  * @hdd_ctx: pointer to HDD Station Context
@@ -108,14 +205,14 @@ void hdd_tx_rx_collect_connectivity_stats_info(struct sk_buff *skb,
 
 /**
  * hdd_tx_queue_cb() - Disable/Enable the Transmit Queues
- * @context: HDD context
+ * @hdd_handle: HDD handle
  * @vdev_id: vdev id
  * @action: Action to be taken on the Tx Queues
  * @reason: Reason for the netif action
  *
  * Return: None
  */
-void hdd_tx_queue_cb(void *context, uint32_t vdev_id,
+void hdd_tx_queue_cb(hdd_handle_t hdd_handle, uint32_t vdev_id,
 		     enum netif_action_type action,
 		     enum netif_reason_type reason);
 
@@ -129,7 +226,6 @@ void hdd_tx_resume_cb(void *adapter_context, bool tx_resume);
  * Return: true if TX Q is paused by flow control
  */
 bool hdd_tx_flow_control_is_pause(void *adapter_context);
-void hdd_tx_resume_timer_expired_handler(void *adapter_context);
 
 /**
  * hdd_register_tx_flow_control() - Register TX Flow control
@@ -142,7 +238,7 @@ void hdd_tx_resume_timer_expired_handler(void *adapter_context);
  */
 void hdd_register_tx_flow_control(struct hdd_adapter *adapter,
 		qdf_mc_timer_callback_t timer_callback,
-		ol_txrx_tx_flow_control_fp flowControl,
+		ol_txrx_tx_flow_control_fp flow_control_fp,
 		ol_txrx_tx_flow_control_is_pause_fp flow_control_is_pause);
 void hdd_deregister_tx_flow_control(struct hdd_adapter *adapter);
 void hdd_get_tx_resource(struct hdd_adapter *adapter,
@@ -156,12 +252,9 @@ static inline bool hdd_tx_flow_control_is_pause(void *adapter_context)
 {
 	return false;
 }
-static inline void hdd_tx_resume_timer_expired_handler(void *adapter_context)
-{
-}
 static inline void hdd_register_tx_flow_control(struct hdd_adapter *adapter,
 		qdf_mc_timer_callback_t timer_callback,
-		ol_txrx_tx_flow_control_fp flowControl,
+		ol_txrx_tx_flow_control_fp flow_control_fp,
 		ol_txrx_tx_flow_control_is_pause_fp flow_control_is_pause)
 {
 }
@@ -174,11 +267,36 @@ static inline void hdd_get_tx_resource(struct hdd_adapter *adapter,
 }
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */
 
+#if defined(QCA_LL_LEGACY_TX_FLOW_CONTROL) || \
+		defined(QCA_HL_NETDEV_FLOW_CONTROL)
+void hdd_tx_resume_timer_expired_handler(void *adapter_context);
+#else
+static inline void hdd_tx_resume_timer_expired_handler(void *adapter_context)
+{
+}
+#endif
+
+#ifdef QCA_HL_NETDEV_FLOW_CONTROL
+void hdd_register_hl_netdev_fc_timer(struct hdd_adapter *adapter,
+				     qdf_mc_timer_callback_t timer_callback);
+void hdd_deregister_hl_netdev_fc_timer(struct hdd_adapter *adapter);
+#else
+static inline void hdd_register_hl_netdev_fc_timer(struct hdd_adapter *adapter,
+						   qdf_mc_timer_callback_t
+						   timer_callback)
+{}
+
+static inline void
+	hdd_deregister_hl_netdev_fc_timer(struct hdd_adapter *adapter)
+{}
+#endif /* QCA_HL_NETDEV_FLOW_CONTROL */
+
 int hdd_get_peer_idx(struct hdd_station_ctx *sta_ctx,
 		     struct qdf_mac_addr *addr);
 
 const char *hdd_reason_type_to_string(enum netif_reason_type reason);
 const char *hdd_action_type_to_string(enum netif_action_type action);
+
 void wlan_hdd_netif_queue_control(struct hdd_adapter *adapter,
 		enum netif_action_type action, enum netif_reason_type reason);
 
@@ -196,7 +314,7 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter);
 void hdd_send_rps_disable_ind(struct hdd_adapter *adapter);
 void wlan_hdd_classify_pkt(struct sk_buff *skb);
 
-#ifdef MSM_PLATFORM
+#ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
 void hdd_reset_tcp_delack(struct hdd_context *hdd_ctx);
 #ifdef RX_PERFORMANCE
 bool hdd_is_current_high_throughput(struct hdd_context *hdd_ctx);
@@ -283,4 +401,47 @@ hdd_skb_nontso_linearize(struct sk_buff *skb)
 }
 #endif
 
+/**
+ * hdd_dp_cfg_update() - update hdd config for HDD DP INIs
+ * @psoc: Pointer to psoc obj
+ * @hdd_ctx: Pointer to hdd context
+ *
+ * Return: None
+ */
+void hdd_dp_cfg_update(struct wlan_objmgr_psoc *psoc,
+		       struct hdd_context *hdd_ctx);
+
+/**
+ * hdd_print_netdev_txq_status() - print netdev tx queue status
+ * @dev: Pointer to network device
+ *
+ * This function is used to print netdev tx queue status
+ *
+ * Return: None
+ */
+void hdd_print_netdev_txq_status(struct net_device *dev);
+
+/**
+ * wlan_hdd_dump_queue_history_state() - Dump hdd queue history states
+ * @q_hist: pointer to hdd queue history structure
+ * @buf: buffer where the queue history string is dumped
+ * @size: size of the buffer
+ *
+ * Dump hdd queue history states into a buffer
+ *
+ * Return: number of bytes written to the buffer
+ */
+uint32_t
+wlan_hdd_dump_queue_history_state(struct hdd_netif_queue_history *q_hist,
+				  char *buf, uint32_t size);
+
+/**
+ * wlan_hdd_rx_rpm_mark_last_busy() - Check if dp rx marked last busy
+ * @hdd_ctx: Pointer to hdd context
+ * @hif_ctx: Pointer to hif context
+ *
+ * Return: dp mark last busy less than runtime delay value
+ */
+bool wlan_hdd_rx_rpm_mark_last_busy(struct hdd_context *hdd_ctx,
+				    void *hif_ctx);
 #endif /* end #if !defined(WLAN_HDD_TX_RX_H) */

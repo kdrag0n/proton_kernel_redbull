@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +24,8 @@
 
 #ifndef __WLAN_HDD_OEM_DATA_H__
 #define __WLAN_HDD_OEM_DATA_H__
+
+#include "wmi_unified_param.h"
 
 struct hdd_context;
 
@@ -167,11 +169,23 @@ struct oem_get_capability_rsp {
 	struct sme_oem_capability cap;
 };
 
-void hdd_send_peer_status_ind_to_oem_app(struct qdf_mac_addr *peerMac,
-					 uint8_t peerStatus,
-					 uint8_t peerTimingMeasCap,
-					 uint8_t sessionId,
-					 struct sSirSmeChanInfo *chan_info,
+/**
+ * hdd_send_peer_status_ind_to_oem_app() -
+ * Function to send peer status to a registered application
+ * @peer_mac: MAC address of peer
+ * @peer_status: ePeerConnected or ePeerDisconnected
+ * @peer_capability: 0: RTT/RTT2, 1: RTT3. Default is 0
+ * @vdev_id: vdev_id
+ * @chan_info: operating channel information
+ * @dev_mode: dev mode for which indication is sent
+ *
+ * Return: none
+ */
+void hdd_send_peer_status_ind_to_oem_app(struct qdf_mac_addr *peer_mac,
+					 uint8_t peer_status,
+					 uint8_t peer_capability,
+					 uint8_t vdev_id,
+					 struct oem_channel_info *chan_info,
 					 enum QDF_OPMODE dev_mode);
 
 int iw_get_oem_data_cap(struct net_device *dev, struct iw_request_info *info,
@@ -247,4 +261,19 @@ int wlan_hdd_cfg80211_oem_data_handler(struct wiphy *wiphy,
 #else
 #define FEATURE_OEM_DATA_VENDOR_COMMANDS
 #endif
+
+#ifdef FEATURE_OEM_DATA
+/**
+ * hdd_oem_event_handler_cb() - callback for oem data event
+ * @oem_event_data: oem data received in the event from the FW
+ *
+ * Return: None
+ */
+void hdd_oem_event_handler_cb(const struct oem_data *oem_event_data);
+#else
+static inline void hdd_oem_event_handler_cb(void *oem_event_data)
+{
+}
+#endif
+
 #endif /* __WLAN_HDD_OEM_DATA_H__ */

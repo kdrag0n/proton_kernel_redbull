@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -118,7 +118,7 @@ static QDF_STATUS pmo_configure_wow_ap(struct wlan_objmgr_vdev *vdev)
 {
 	QDF_STATUS ret;
 	uint8_t arp_offset = 20;
-	uint8_t mac_mask[PMO_80211_ADDR_LEN];
+	uint8_t mac_mask[QDF_MAC_ADDR_SIZE];
 	struct pmo_vdev_priv_obj *vdev_ctx;
 
 	vdev_ctx = pmo_vdev_get_priv(vdev);
@@ -128,12 +128,12 @@ static QDF_STATUS pmo_configure_wow_ap(struct wlan_objmgr_vdev *vdev)
 	 * WoW pattern id should be unique for each vdev
 	 * WoW pattern id can be same on 2 different VDEVs
 	 */
-	qdf_mem_set(&mac_mask, PMO_80211_ADDR_LEN, 0xFF);
+	qdf_mem_set(&mac_mask, QDF_MAC_ADDR_SIZE, 0xFF);
 	ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
 			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
 			wlan_vdev_mlme_get_macaddr(vdev),
-			PMO_80211_ADDR_LEN, 0, mac_mask,
-			PMO_80211_ADDR_LEN, false);
+			QDF_MAC_ADDR_SIZE, 0, mac_mask,
+			QDF_MAC_ADDR_SIZE, false);
 	if (ret != QDF_STATUS_SUCCESS) {
 		pmo_err("Failed to add WOW unicast pattern ret %d", ret);
 		return ret;
@@ -254,13 +254,13 @@ static QDF_STATUS pmo_configure_ssdp(struct wlan_objmgr_vdev *vdev)
 static QDF_STATUS pmo_configure_wow_sta(struct wlan_objmgr_vdev *vdev)
 {
 	uint8_t arp_offset = 12;
-	uint8_t mac_mask[PMO_80211_ADDR_LEN];
+	uint8_t mac_mask[QDF_MAC_ADDR_SIZE];
 	QDF_STATUS ret = QDF_STATUS_SUCCESS;
 	struct pmo_vdev_priv_obj *vdev_ctx;
 
 	vdev_ctx = pmo_vdev_get_priv(vdev);
 
-	qdf_mem_set(&mac_mask, PMO_80211_ADDR_LEN, 0xFF);
+	qdf_mem_set(&mac_mask, QDF_MAC_ADDR_SIZE, 0xFF);
 	/*
 	 * Set up unicast wow pattern
 	 * WoW pattern ID should be unique for each vdev
@@ -269,8 +269,8 @@ static QDF_STATUS pmo_configure_wow_sta(struct wlan_objmgr_vdev *vdev)
 	ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
 			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
 			wlan_vdev_mlme_get_macaddr(vdev),
-			PMO_80211_ADDR_LEN, 0, mac_mask,
-			PMO_80211_ADDR_LEN, false);
+			QDF_MAC_ADDR_SIZE, 0, mac_mask,
+			QDF_MAC_ADDR_SIZE, false);
 	if (ret != QDF_STATUS_SUCCESS) {
 		pmo_err("Failed to add WOW unicast pattern ret %d", ret);
 		return ret;
@@ -398,17 +398,25 @@ static void set_action_id_drop_pattern_for_public_action(
 				= DROP_PUBLIC_ACTION_FRAME_BITMAP;
 }
 
-void pmo_register_action_frame_patterns(struct wlan_objmgr_vdev *vdev)
+QDF_STATUS
+pmo_register_action_frame_patterns(struct wlan_objmgr_vdev *vdev,
+				   enum qdf_suspend_type suspend_type)
 {
 
 	struct pmo_action_wakeup_set_params cmd = {0};
 	int i = 0;
-	QDF_STATUS status;
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	cmd.vdev_id = pmo_vdev_get_id(vdev);
 	cmd.operation = pmo_action_wakeup_set;
 
-	cmd.action_category_map[i++] = ALLOWED_ACTION_FRAMES_BITMAP0;
+	if (suspend_type == QDF_SYSTEM_SUSPEND)
+		cmd.action_category_map[i++] =
+			SYSTEM_SUSPEND_ALLOWED_ACTION_FRAMES_BITMAP0;
+	else
+		cmd.action_category_map[i++] =
+				RUNTIME_PM_ALLOWED_ACTION_FRAMES_BITMAP0;
+
 	cmd.action_category_map[i++] = ALLOWED_ACTION_FRAMES_BITMAP1;
 	cmd.action_category_map[i++] = ALLOWED_ACTION_FRAMES_BITMAP2;
 	cmd.action_category_map[i++] = ALLOWED_ACTION_FRAMES_BITMAP3;
@@ -438,5 +446,24 @@ void pmo_register_action_frame_patterns(struct wlan_objmgr_vdev *vdev)
 	if (status != QDF_STATUS_SUCCESS)
 		pmo_err("Failed to config wow action frame map, ret %d",
 			status);
+
+	return status;
 }
 
+QDF_STATUS
+pmo_clear_action_frame_patterns(struct wlan_objmgr_vdev *vdev)
+{
+	struct pmo_action_wakeup_set_params cmd = {0};
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+
+	cmd.vdev_id = pmo_vdev_get_id(vdev);
+	cmd.operation = pmo_action_wakeup_reset;
+
+	/*  clear action frame pattern */
+	status = pmo_tgt_send_action_frame_pattern_req(vdev, &cmd);
+	if (QDF_IS_STATUS_ERROR(status))
+		pmo_err("Failed to clear wow action frame map, ret %d",
+			status);
+
+	return status;
+}

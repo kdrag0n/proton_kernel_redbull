@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,36 +43,33 @@
 #include "scheduler_api.h"
 
 /* Macro to count heartbeat */
-#define limResetHBPktCount(psessionEntry)   (psessionEntry->LimRxedBeaconCntDuringHB = 0)
+#define limResetHBPktCount(pe_session)   (pe_session->LimRxedBeaconCntDuringHB = 0)
 
-/* Useful macros for fetching various states in pMac->lim */
+/* Useful macros for fetching various states in mac->lim */
 /* gLimSystemRole */
-#define GET_LIM_SYSTEM_ROLE(psessionEntry)      (psessionEntry->limSystemRole)
-#define LIM_IS_AP_ROLE(psessionEntry)           (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_AP_ROLE)
-#define LIM_IS_STA_ROLE(psessionEntry)          (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_STA_ROLE)
-#define LIM_IS_IBSS_ROLE(psessionEntry)         (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_STA_IN_IBSS_ROLE)
-#define LIM_IS_UNKNOWN_ROLE(psessionEntry)      (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_UNKNOWN_ROLE)
-#define LIM_IS_P2P_DEVICE_ROLE(psessionEntry)   (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_P2P_DEVICE_ROLE)
-#define LIM_IS_P2P_DEVICE_GO(psessionEntry)     (GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_P2P_DEVICE_GO)
-#define LIM_IS_NDI_ROLE(psessionEntry) \
-		(GET_LIM_SYSTEM_ROLE(psessionEntry) == eLIM_NDI_ROLE)
+#define GET_LIM_SYSTEM_ROLE(pe_session)      (pe_session->limSystemRole)
+#define LIM_IS_AP_ROLE(pe_session)           (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_AP_ROLE)
+#define LIM_IS_STA_ROLE(pe_session)          (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_STA_ROLE)
+#define LIM_IS_IBSS_ROLE(pe_session)         (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_STA_IN_IBSS_ROLE)
+#define LIM_IS_UNKNOWN_ROLE(pe_session)      (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_UNKNOWN_ROLE)
+#define LIM_IS_P2P_DEVICE_ROLE(pe_session)   (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_P2P_DEVICE_ROLE)
+#define LIM_IS_P2P_DEVICE_GO(pe_session)     (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_P2P_DEVICE_GO)
+#define LIM_IS_NDI_ROLE(pe_session) \
+		(GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_NDI_ROLE)
 /* gLimSmeState */
-#define GET_LIM_SME_STATE(pMac)                 (pMac->lim.gLimSmeState)
-#define SET_LIM_SME_STATE(pMac, state)          (pMac->lim.gLimSmeState = state)
+#define GET_LIM_SME_STATE(mac)                 (mac->lim.gLimSmeState)
+#define SET_LIM_SME_STATE(mac, state)          (mac->lim.gLimSmeState = state)
 /* gLimMlmState */
-#define GET_LIM_MLM_STATE(pMac)                 (pMac->lim.gLimMlmState)
-#define SET_LIM_MLM_STATE(pMac, state)          (pMac->lim.gLimMlmState = state)
+#define GET_LIM_MLM_STATE(mac)                 (mac->lim.gLimMlmState)
+#define SET_LIM_MLM_STATE(mac, state)          (mac->lim.gLimMlmState = state)
 /*tpdphHashNode mlmStaContext*/
-#define GET_LIM_STA_CONTEXT_MLM_STATE(pStaDs)   (pStaDs->mlmStaContext.mlmState)
-#define SET_LIM_STA_CONTEXT_MLM_STATE(pStaDs, state)  (pStaDs->mlmStaContext.mlmState = state)
-/* gLimQuietState */
-#define GET_LIM_QUIET_STATE(pMac)               (pMac->lim.gLimSpecMgmt.quietState)
-#define SET_LIM_QUIET_STATE(pMac, state)        (pMac->lim.gLimSpecMgmt.quietState = state)
-#define LIM_IS_CONNECTION_ACTIVE(psessionEntry)  (psessionEntry->LimRxedBeaconCntDuringHB)
-/*pMac->lim.gLimProcessDefdMsgs*/
-#define GET_LIM_PROCESS_DEFD_MESGS(pMac) (pMac->lim.gLimProcessDefdMsgs)
-#define SET_LIM_PROCESS_DEFD_MESGS(pMac, val) \
-		pMac->lim.gLimProcessDefdMsgs = val; \
+#define GET_LIM_STA_CONTEXT_MLM_STATE(sta)   (sta->mlmStaContext.mlmState)
+#define SET_LIM_STA_CONTEXT_MLM_STATE(sta, state)  (sta->mlmStaContext.mlmState = state)
+#define LIM_IS_CONNECTION_ACTIVE(pe_session)  (pe_session->LimRxedBeaconCntDuringHB)
+/*mac->lim.gLimProcessDefdMsgs*/
+#define GET_LIM_PROCESS_DEFD_MESGS(mac) (mac->lim.gLimProcessDefdMsgs)
+#define SET_LIM_PROCESS_DEFD_MESGS(mac, val) \
+		mac->lim.gLimProcessDefdMsgs = val; \
 		pe_debug("%s Defer LIM messages - value %d", __func__, val);
 
 /* LIM exported function templates */
@@ -110,14 +107,12 @@ typedef enum eMgmtFrmDropReason {
  * Function to initialize LIM state machines.
  * This called upon LIM thread creation.
  */
-extern QDF_STATUS lim_initialize(tpAniSirGlobal);
-QDF_STATUS pe_open(tpAniSirGlobal pMac, struct cds_config_info *cds_cfg);
-QDF_STATUS pe_close(tpAniSirGlobal pMac);
-void pe_register_tl_handle(tpAniSirGlobal pMac);
-QDF_STATUS lim_start(tpAniSirGlobal pMac);
-QDF_STATUS pe_start(tpAniSirGlobal pMac);
-void pe_stop(tpAniSirGlobal pMac);
-QDF_STATUS peProcessMsg(tpAniSirGlobal pMac, struct scheduler_msg *limMsg);
+QDF_STATUS lim_initialize(struct mac_context *);
+QDF_STATUS pe_open(struct mac_context *mac, struct cds_config_info *cds_cfg);
+QDF_STATUS pe_close(struct mac_context *mac);
+QDF_STATUS lim_start(struct mac_context *mac);
+QDF_STATUS pe_start(struct mac_context *mac);
+void pe_stop(struct mac_context *mac);
 
 /**
  * pe_register_mgmt_rx_frm_callback() - registers callback for receiving
@@ -129,7 +124,7 @@ QDF_STATUS peProcessMsg(tpAniSirGlobal pMac, struct scheduler_msg *limMsg);
  *
  * Return: None
  */
-void pe_register_mgmt_rx_frm_callback(tpAniSirGlobal mac_ctx);
+void pe_register_mgmt_rx_frm_callback(struct mac_context *mac_ctx);
 
 /**
  * pe_deregister_mgmt_rx_frm_callback() - degisters callback for receiving
@@ -142,24 +137,24 @@ void pe_register_mgmt_rx_frm_callback(tpAniSirGlobal mac_ctx);
  *
  * Return: None
  */
-void pe_deregister_mgmt_rx_frm_callback(tpAniSirGlobal mac_ctx);
+void pe_deregister_mgmt_rx_frm_callback(struct mac_context *mac_ctx);
 
 /**
  * pe_register_callbacks_with_wma() - register SME and PE callback functions to
  * WMA.
- * @pMac: mac global ctx
+ * @mac: mac global ctx
  * @ready_req: Ready request parameters, containing callback pointers
  *
  * Return: None
  */
-void pe_register_callbacks_with_wma(tpAniSirGlobal pMac,
-				    tSirSmeReadyReq *ready_req);
+void pe_register_callbacks_with_wma(struct mac_context *mac,
+				    struct sme_ready_req *ready_req);
 
 /**
  * Function to cleanup LIM state.
  * This called upon reset/persona change etc
  */
-extern void lim_cleanup(tpAniSirGlobal);
+void lim_cleanup(struct mac_context *);
 
 /**
  * lim_post_msg_api() - post normal priority PE message
@@ -172,7 +167,7 @@ extern void lim_cleanup(tpAniSirGlobal);
  *
  * Return: QDF_STATUS_SUCCESS on success, other QDF_STATUS on error
  */
-QDF_STATUS lim_post_msg_api(tpAniSirGlobal mac, struct scheduler_msg *msg);
+QDF_STATUS lim_post_msg_api(struct mac_context *mac, struct scheduler_msg *msg);
 
 /**
  * lim_post_msg_high_priority() - post high priority PE message
@@ -185,42 +180,41 @@ QDF_STATUS lim_post_msg_api(tpAniSirGlobal mac, struct scheduler_msg *msg);
  *
  * Return: QDF_STATUS_SUCCESS on success, other QDF_STATUS on error
  */
-QDF_STATUS lim_post_msg_high_priority(tpAniSirGlobal mac,
+QDF_STATUS lim_post_msg_high_priority(struct mac_context *mac,
 				      struct scheduler_msg *msg);
 
 /**
  * Function to process messages posted to LIM thread
  * and dispatch to various sub modules within LIM module.
  */
-extern void lim_message_processor(tpAniSirGlobal, struct scheduler_msg *);
-/**
- * Function to check the LIM state if system is in Scan/Learn state.
- */
-extern uint8_t lim_is_system_in_scan_state(tpAniSirGlobal);
+void lim_message_processor(struct mac_context *, struct scheduler_msg *);
+
 /**
  * Function to handle IBSS coalescing.
  * Beacon Processing module to call this.
  */
-extern QDF_STATUS lim_handle_ibss_coalescing(tpAniSirGlobal,
-						tpSchBeaconStruct,
-						uint8_t *, tpPESession);
+QDF_STATUS lim_handle_ibss_coalescing(struct mac_context *,
+				      tpSchBeaconStruct,
+				      uint8_t *, struct pe_session *);
 /* / Function used by other Sirius modules to read global SME state */
-static inline tLimSmeStates lim_get_sme_state(tpAniSirGlobal pMac)
+static inline tLimSmeStates lim_get_sme_state(struct mac_context *mac)
 {
-	return pMac->lim.gLimSmeState;
+	return mac->lim.gLimSmeState;
 }
 
-extern void lim_received_hb_handler(tpAniSirGlobal, uint8_t, tpPESession);
-extern void limCheckAndQuietBSS(tpAniSirGlobal);
+void lim_received_hb_handler(struct mac_context *, uint8_t,
+			     struct pe_session *);
+
 /* / Function that triggers STA context deletion */
-extern void lim_trigger_sta_deletion(tpAniSirGlobal pMac, tpDphHashNode pStaDs,
-				     tpPESession psessionEntry);
+void lim_trigger_sta_deletion(struct mac_context *mac, tpDphHashNode sta,
+			      struct pe_session *pe_session);
 
 #ifdef FEATURE_WLAN_TDLS
 /* Function that sends TDLS Del Sta indication to SME */
-extern void lim_send_sme_tdls_del_sta_ind(tpAniSirGlobal pMac, tpDphHashNode pStaDs,
-					  tpPESession psessionEntry,
-					  uint16_t reasonCode);
+void lim_send_sme_tdls_del_sta_ind(struct mac_context *mac, tpDphHashNode sta,
+				   struct pe_session *pe_session,
+				   uint16_t reasonCode);
+
 /**
  * lim_set_tdls_flags() - update tdls flags based on newer STA connection
  * information
@@ -231,27 +225,41 @@ extern void lim_send_sme_tdls_del_sta_ind(tpAniSirGlobal pMac, tpDphHashNode pSt
  *
  * Return: None
  */
-void lim_set_tdls_flags(roam_offload_synch_ind *roam_sync_ind_ptr,
-		   tpPESession ft_session_ptr);
+void lim_set_tdls_flags(struct roam_offload_synch_ind *roam_sync_ind_ptr,
+			struct pe_session *ft_session_ptr);
 #else
-static inline void lim_set_tdls_flags(roam_offload_synch_ind *roam_sync_ind_ptr,
-		   tpPESession ft_session_ptr)
+static inline
+void lim_set_tdls_flags(struct roam_offload_synch_ind *roam_sync_ind_ptr,
+			struct pe_session *ft_session_ptr)
 {
 }
 #endif
 
 /* / Function that checks for change in AP's capabilties on STA */
-extern void lim_detect_change_in_ap_capabilities(tpAniSirGlobal,
-						 tpSirProbeRespBeacon, tpPESession);
-QDF_STATUS lim_update_short_slot(tpAniSirGlobal pMac,
+void lim_detect_change_in_ap_capabilities(struct mac_context *,
+					  tpSirProbeRespBeacon,
+					  struct pe_session *);
+
+QDF_STATUS lim_update_short_slot(struct mac_context *mac,
 				    tpSirProbeRespBeacon pBeacon,
 				    tpUpdateBeaconParams pBeaconParams,
-				    tpPESession);
+				    struct pe_session *);
 
-void lim_ps_offload_handle_missed_beacon_ind(tpAniSirGlobal pMac,
-					     struct scheduler_msg *pMsg);
-void lim_send_heart_beat_timeout_ind(tpAniSirGlobal pMac, tpPESession psessionEntry);
-tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(tpAniSirGlobal pMac,
+/**
+ * lim_ps_offload_handle_missed_beacon_ind() - handle missed beacon indication
+ * @mac: global mac context
+ * @msg: message
+ *
+ * This function process the SIR_HAL_MISSED_BEACON_IND
+ * message from HAL, to do active AP probing.
+ *
+ * Return: void
+ */
+void lim_ps_offload_handle_missed_beacon_ind(struct mac_context *mac,
+					     struct scheduler_msg *msg);
+
+void lim_send_heart_beat_timeout_ind(struct mac_context *mac, struct pe_session *pe_session);
+tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(struct mac_context *mac,
 						 uint8_t *pRxPacketInfo,
 						 uint32_t subType);
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
@@ -271,9 +279,9 @@ tMgmtFrmDropReason lim_is_pkt_candidate_for_drop(tpAniSirGlobal pMac,
  * Return: QDF_STATUS
  */
 QDF_STATUS
-pe_roam_synch_callback(tpAniSirGlobal mac_ctx,
-		       struct sSirSmeRoamOffloadSynchInd *roam_sync_ind_ptr,
-		       tpSirBssDescription  bss_desc_ptr,
+pe_roam_synch_callback(struct mac_context *mac_ctx,
+		       struct roam_offload_synch_ind *roam_sync_ind_ptr,
+		       struct bss_description *bss_desc_ptr,
 		       enum sir_roam_op_code reason);
 
 /**
@@ -281,23 +289,30 @@ pe_roam_synch_callback(tpAniSirGlobal mac_ctx,
  * from firmware
  * @mac: pointer to global mac context
  * @vdev_id: VDEV in which the event was received
+ * @deauth_disassoc_frame: Deauth/disassoc frame received from firmware
+ * @deauth_disassoc_frame_len: Length of @deauth_disassoc_frame
  *
  * Return: QDF_STATUS
  */
 QDF_STATUS
-pe_disconnect_callback(tpAniSirGlobal mac, uint8_t vdev_id);
+pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
+		       uint8_t *deauth_disassoc_frame,
+		       uint16_t deauth_disassoc_frame_len);
+
 #else
 static inline QDF_STATUS
-pe_roam_synch_callback(tpAniSirGlobal mac,
-		       struct sSirSmeRoamOffloadSynchInd *roam_sync_ind_ptr,
-		       tpSirBssDescription  bss_desc_ptr,
+pe_roam_synch_callback(struct mac_context *mac_ctx,
+		       struct roam_offload_synch_ind *roam_sync_ind_ptr,
+		       struct bss_description *bss_desc_ptr,
 		       enum sir_roam_op_code reason)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
 
 static inline QDF_STATUS
-pe_disconnect_callback(tpAniSirGlobal mac, uint8_t vdev_id)
+pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
+		       uint8_t *deauth_disassoc_frame,
+		       uint16_t deauth_disassoc_frame_len)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
@@ -311,7 +326,7 @@ pe_disconnect_callback(tpAniSirGlobal mac, uint8_t vdev_id)
  *
  * Return: None
  */
-void lim_update_lost_link_info(tpAniSirGlobal mac, tpPESession session,
+void lim_update_lost_link_info(struct mac_context *mac, struct pe_session *session,
 				int32_t rssi);
 
 /**
@@ -321,7 +336,7 @@ void lim_update_lost_link_info(tpAniSirGlobal mac, tpPESession session,
  *
  * Return: NONE
  */
-void lim_mon_init_session(tpAniSirGlobal mac_ptr,
+void lim_mon_init_session(struct mac_context *mac_ptr,
 			  struct sir_create_session *msg);
 
 /**
@@ -331,28 +346,26 @@ void lim_mon_init_session(tpAniSirGlobal mac_ptr,
  *
  * Return: NONE
  */
-void lim_mon_deinit_session(tpAniSirGlobal mac_ptr,
+void lim_mon_deinit_session(struct mac_context *mac_ptr,
 			    struct sir_delete_session *msg);
 
-#define limGetQosMode(psessionEntry, pVal) (*(pVal) = (psessionEntry)->limQosEnabled)
-#define limGetWmeMode(psessionEntry, pVal) (*(pVal) = (psessionEntry)->limWmeEnabled)
-#define limGetWsmMode(psessionEntry, pVal) (*(pVal) = (psessionEntry)->limWsmEnabled)
-#define limGet11dMode(psessionEntry, pVal) (*(pVal) = (psessionEntry)->lim11dEnabled)
-
+#define limGetQosMode(pe_session, pVal) (*(pVal) = (pe_session)->limQosEnabled)
+#define limGetWmeMode(pe_session, pVal) (*(pVal) = (pe_session)->limWmeEnabled)
+#define limGetWsmMode(pe_session, pVal) (*(pVal) = (pe_session)->limWsmEnabled)
 /* ----------------------------------------------------------------------- */
-static inline void lim_get_phy_mode(tpAniSirGlobal pMac, uint32_t *phyMode,
-				    tpPESession psessionEntry)
+static inline void lim_get_phy_mode(struct mac_context *mac, uint32_t *phyMode,
+				    struct pe_session *pe_session)
 {
 	*phyMode =
-		psessionEntry ? psessionEntry->gLimPhyMode : pMac->lim.gLimPhyMode;
+		pe_session ? pe_session->gLimPhyMode : mac->lim.gLimPhyMode;
 }
 
 /* ----------------------------------------------------------------------- */
-static inline void lim_get_rf_band_new(tpAniSirGlobal pMac,
+static inline void lim_get_rf_band_new(struct mac_context *mac,
 				       enum band_info *band,
-				       tpPESession psessionEntry)
+				       struct pe_session *pe_session)
 {
-	*band = psessionEntry ? psessionEntry->limRFBand : BAND_UNKNOWN;
+	*band = pe_session ? pe_session->limRFBand : BAND_UNKNOWN;
 }
 
 /**
@@ -374,26 +387,11 @@ QDF_STATUS pe_mc_process_handler(struct scheduler_msg *msg);
  \      to free a given PE message on the TX and MC thread.
  \      This happens when there are messages pending in the PE
  \      queue when system is being stopped and reset.
-   \param   tpAniSirGlobal pMac
+   \param   struct mac_context *mac
    \param   struct scheduler_msg       pMsg
    \return none
    -----------------------------------------------------------------*/
-void pe_free_msg(tpAniSirGlobal pMac, struct scheduler_msg *pMsg);
-
-/*--------------------------------------------------------------------------
-
-   \brief lim_remain_on_chn_rsp() - API for sending remain on channel response.
-
-   LIM calls this api to send the remain on channel response to SME.
-
-   \param pMac - Pointer to Global MAC structure
-   \param status - status of the response
-   \param data - pointer to msg
-
-   \return  void
-
-   --------------------------------------------------------------------------*/
-void lim_remain_on_chn_rsp(tpAniSirGlobal pMac, QDF_STATUS status, uint32_t *data);
+void pe_free_msg(struct mac_context *mac, struct scheduler_msg *pMsg);
 
 /**
  * lim_process_abort_scan_ind() - abort the scan which is presently being run
@@ -405,14 +403,14 @@ void lim_remain_on_chn_rsp(tpAniSirGlobal pMac, QDF_STATUS status, uint32_t *dat
  *
  * @return: None
  */
-void lim_process_abort_scan_ind(tpAniSirGlobal pMac, uint8_t vdev_id,
+void lim_process_abort_scan_ind(struct mac_context *mac, uint8_t vdev_id,
 	uint32_t scan_id, uint32_t scan_requestor_id);
 
-void __lim_process_sme_assoc_cnf_new(tpAniSirGlobal, uint32_t, uint32_t *);
+void __lim_process_sme_assoc_cnf_new(struct mac_context *, uint32_t, uint32_t *);
 
 /**
  * lim_process_sme_addts_rsp_timeout(): Send addts rsp timeout to SME
- * @pMac: Pointer to Global MAC structure
+ * @mac: Pointer to Global MAC structure
  * @param: Addts rsp timer count
  *
  * This function is used to reset the addts sent flag and
@@ -420,16 +418,19 @@ void __lim_process_sme_assoc_cnf_new(tpAniSirGlobal, uint32_t, uint32_t *);
  *
  * Return: None
  */
-void lim_process_sme_addts_rsp_timeout(tpAniSirGlobal pMac, uint32_t param);
+void lim_process_sme_addts_rsp_timeout(struct mac_context *mac, uint32_t param);
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
-void lim_fill_join_rsp_ht_caps(tpPESession session, tpSirSmeJoinRsp rsp);
+void lim_fill_join_rsp_ht_caps(struct pe_session *session,
+			       struct join_rsp *rsp);
 #else
-static inline void lim_fill_join_rsp_ht_caps(tpPESession session,
-	tpSirSmeJoinRsp rsp)
+static inline
+void lim_fill_join_rsp_ht_caps(struct pe_session *session,
+			       struct join_rsp *rsp)
 {}
 #endif
-QDF_STATUS lim_update_ext_cap_ie(tpAniSirGlobal mac_ctx,
-	uint8_t *ie_data, uint8_t *local_ie_buf, uint16_t *local_ie_len);
+QDF_STATUS lim_update_ext_cap_ie(struct mac_context *mac_ctx, uint8_t *ie_data,
+				 uint8_t *local_ie_buf, uint16_t *local_ie_len,
+				 struct pe_session *session);
 
 /**
  * lim_handle_sap_beacon(): Handle the beacon received from scan module for SAP
@@ -445,6 +446,14 @@ QDF_STATUS lim_update_ext_cap_ie(tpAniSirGlobal mac_ctx,
  */
 void lim_handle_sap_beacon(struct wlan_objmgr_pdev *pdev,
 					struct scan_cache_entry *scan_entry);
+
+/**
+ * lim_translate_rsn_oui_to_akm_type() - translate RSN OUI to AKM type
+ * @auth_suite: auth suite
+ *
+ * Return: AKM type
+ */
+enum ani_akm_type lim_translate_rsn_oui_to_akm_type(uint8_t auth_suite[4]);
 
 /************************************************************/
 #endif /* __LIM_API_H */

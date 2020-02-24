@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -57,20 +57,6 @@
 #define SIR_MAC_FRAME_TYPE_START   0x0
 #define SIR_MAC_FRAME_TYPE_END     0x3
 
-/* Control frame subtype definitions */
-
-#define SIR_MAC_CTRL_RR         4
-#define SIR_MAC_CTRL_BAR        8
-#define SIR_MAC_CTRL_BA         9
-#define SIR_MAC_CTRL_PS_POLL    10
-#define SIR_MAC_CTRL_RTS        11
-#define SIR_MAC_CTRL_CTS        12
-#define SIR_MAC_CTRL_ACK        13
-#define SIR_MAC_CTRL_CF_END     14
-#define SIR_MAC_CTRL_CF_END_ACK 15
-
-#define SIR_MAC_MAX_DURATION_MICRO_SECONDS       32767
-
 /* Data frame subtype definitions */
 #define SIR_MAC_DATA_DATA                 0
 #define SIR_MAC_DATA_DATA_ACK             1
@@ -114,59 +100,15 @@
 #define SIR_MAC_MGMT_ACTION       0xD
 #define SIR_MAC_MGMT_RESERVED15   0xF
 
-/* Action frame categories */
-
-#define SIR_MAC_ACTION_SPECTRUM_MGMT   0
-#define SIR_MAC_ACTION_QOS_MGMT        1
-#define SIR_MAC_ACTION_DLP             2
-#define SIR_MAC_ACTION_BLKACK          3
-#define SIR_MAC_ACTION_PUBLIC_USAGE    4
-#define SIR_MAC_ACTION_RRM             5
-#define SIR_MAC_ACTION_FAST_BSS_TRNST  6
-#define SIR_MAC_ACTION_HT              7
-#define SIR_MAC_ACTION_SA_QUERY        8
-#define SIR_MAC_ACTION_PROT_DUAL_PUB   9
-#define SIR_MAC_ACTION_WNM            10
-#define SIR_MAC_ACTION_UNPROT_WNM     11
-#define SIR_MAC_ACTION_TDLS           12
-#define SIR_MAC_ACITON_MESH           13
-#define SIR_MAC_ACTION_MHF            14
-#define SIR_MAC_SELF_PROTECTED        15
-#define SIR_MAC_ACTION_WME            17
-#define SIR_MAC_ACTION_FST            18
-#define SIR_MAC_ACTION_VHT            21
-#define SIR_MAC_ACTION_MAX            256
-
 #define SIR_MAC_ACTION_TX             1
 #define SIR_MAC_ACTION_RX             2
-
-/* QoS management action codes */
-
-#define SIR_MAC_QOS_ADD_TS_REQ      0
-#define SIR_MAC_QOS_ADD_TS_RSP      1
-#define SIR_MAC_QOS_DEL_TS_REQ      2
-#define SIR_MAC_QOS_SCHEDULE        3
-#define SIR_MAC_QOS_MAP_CONFIGURE   4
-/* and these are proprietary */
-#define SIR_MAC_QOS_DEF_BA_REQ      4
-#define SIR_MAC_QOS_DEF_BA_RSP      5
-
-#define SIR_MAC_ADDBA_REQ     0
-#define SIR_MAC_ADDBA_RSP     1
-#define SIR_MAC_DELBA_REQ     2
 
 #define SIR_MAC_BA_POLICY_DELAYED       0
 #define SIR_MAC_BA_POLICY_IMMEDIATE     1
 #define SIR_MAC_BA_AMSDU_SUPPORTED      1
 #define SIR_MAC_BA_DEFAULT_BUFF_SIZE    64
 
-#ifdef ANI_SUPPORT_11H
-#define SIR_MAC_ACTION_MEASURE_REQUEST_ID      0
-#define SIR_MAC_ACTION_MEASURE_REPORT_ID       1
-#define SIR_MAC_ACTION_TPC_REQUEST_ID          2
-#define SIR_MAC_ACTION_TPC_REPORT_ID           3
-#endif /* ANI_SUPPORT_11H */
-#define SIR_MAC_ACTION_CHANNEL_SWITCH_ID       4
+#define MAX_BA_BUFF_SIZE    256
 
 #ifdef ANI_SUPPORT_11H
 #define SIR_MAC_BASIC_MEASUREMENT_TYPE         0
@@ -186,14 +128,6 @@
 #define SIR_MAC_RRM_TSM_TYPE                   9
 #define SIR_MAC_RRM_LOCATION_CIVIC_TYPE        11
 #define SIR_MAC_RRM_FINE_TIME_MEAS_TYPE        16
-
-/* RRM action codes */
-#define SIR_MAC_RRM_RADIO_MEASURE_REQ          0
-#define SIR_MAC_RRM_RADIO_MEASURE_RPT          1
-#define SIR_MAC_RRM_LINK_MEASUREMENT_REQ       2
-#define SIR_MAC_RRM_LINK_MEASUREMENT_RPT       3
-#define SIR_MAC_RRM_NEIGHBOR_REQ               4
-#define SIR_MAC_RRM_NEIGHBOR_RPT               5
 
 /* VHT Action Field */
 #define SIR_MAC_VHT_GID_NOTIFICATION           1
@@ -231,19 +165,6 @@
 #define SIR_MAC_SA_QUERY_RSP             1
 #endif
 
-#ifdef FEATURE_WLAN_TDLS
-#define SIR_MAC_TDLS_SETUP_REQ           0
-#define SIR_MAC_TDLS_SETUP_RSP           1
-#define SIR_MAC_TDLS_SETUP_CNF           2
-#define SIR_MAC_TDLS_TEARDOWN            3
-#define SIR_MAC_TDLS_PEER_TRAFFIC_IND    4
-#define SIR_MAC_TDLS_CH_SWITCH_REQ       5
-#define SIR_MAC_TDLS_CH_SWITCH_RSP       6
-#define SIR_MAC_TDLS_PEER_TRAFFIC_RSP    9
-#define SIR_MAC_TDLS_DIS_REQ             10
-#define SIR_MAC_TDLS_DIS_RSP             14
-#endif
-
 /* WNM Action field values; IEEE Std 802.11-2012, 8.5.14.1, Table 8-250 */
 #define SIR_MAC_WNM_BSS_TM_QUERY         6
 #define SIR_MAC_WNM_BSS_TM_REQUEST       7
@@ -264,144 +185,10 @@
 /* and their min/max lengths */
 /* ----------------------------------------------------------------------------- */
 
-#define SIR_MAC_SSID_EID               0
-#define SIR_MAC_SSID_EID_MIN               0
-#define SIR_MAC_SSID_EID_MAX               32
-#define SIR_MAC_RATESET_EID            1
-#define SIR_MAC_RATESET_EID_MIN            1
-#define SIR_MAC_RATESET_EID_MAX            12
-#define SIR_MAC_FH_PARAM_SET_EID       2
-#define SIR_MAC_FH_PARAM_SET_EID_MIN       5
-#define SIR_MAC_FH_PARAM_SET_EID_MAX       5
-#define SIR_MAC_DS_PARAM_SET_EID       3
-#define SIR_MAC_DS_PARAM_SET_EID_MIN       1
-#define SIR_MAC_DS_PARAM_SET_EID_MAX       1
-#define SIR_MAC_CF_PARAM_SET_EID       4
-#define SIR_MAC_CF_PARAM_SET_EID_MIN       6
-#define SIR_MAC_CF_PARAM_SET_EID_MAX       6
-#define SIR_MAC_TIM_EID                5
 #define SIR_MAC_TIM_EID_MIN                3
-#define SIR_MAC_TIM_EID_MAX                254
-#define SIR_MAC_IBSS_PARAM_SET_EID     6
-#define SIR_MAC_IBSS_PARAM_SET_EID_MIN     2
-#define SIR_MAC_IBSS_PARAM_SET_EID_MAX     2
-#define SIR_MAC_COUNTRY_EID            7
-#define SIR_MAC_COUNTRY_EID_MIN            6
-#define SIR_MAC_COUNTRY_EID_MAX            254
-#define SIR_MAC_FH_PARAMS_EID          8
-#define SIR_MAC_FH_PARAMS_EID_MIN          4
-#define SIR_MAC_FH_PARAMS_EID_MAX          4
-#define SIR_MAC_FH_PATTERN_EID         9
-#define SIR_MAC_FH_PATTERN_EID_MIN         4
-#define SIR_MAC_FH_PATTERN_EID_MAX         254
-#define SIR_MAC_REQUEST_EID            10
-#define SIR_MAC_REQUEST_EID_MIN            1
-#define SIR_MAC_REQUEST_EID_MAX            255
-#define SIR_MAC_QBSS_LOAD_EID          11
-#define SIR_MAC_QBSS_LOAD_EID_MIN          5
-#define SIR_MAC_QBSS_LOAD_EID_MAX          5
-#define SIR_MAC_EDCA_PARAM_SET_EID     12       /* EDCA parameter set */
-#define SIR_MAC_EDCA_PARAM_SET_EID_MIN     18
-#define SIR_MAC_EDCA_PARAM_SET_EID_MAX     20   /* TBD temp - change backto 18 */
-#define SIR_MAC_TSPEC_EID              13
-#define SIR_MAC_TSPEC_EID_MIN              55
-#define SIR_MAC_TSPEC_EID_MAX              55
-#define SIR_MAC_TCLAS_EID              14
-#define SIR_MAC_TCLAS_EID_MIN              4
-#define SIR_MAC_TCLAS_EID_MAX              255
-#define SIR_MAC_QOS_SCHEDULE_EID       15
-#define SIR_MAC_QOS_SCHEDULE_EID_MIN       14
-#define SIR_MAC_QOS_SCHEDULE_EID_MAX       14
-#define SIR_MAC_CHALLENGE_TEXT_EID     16
-#define SIR_MAC_CHALLENGE_TEXT_EID_MIN     1
-#define SIR_MAC_CHALLENGE_TEXT_EID_MAX     253
-/* reserved       17-31 */
-#define SIR_MAC_PWR_CONSTRAINT_EID     32
-#define SIR_MAC_PWR_CONSTRAINT_EID_MIN     1
-#define SIR_MAC_PWR_CONSTRAINT_EID_MAX     1
-#define SIR_MAC_PWR_CAPABILITY_EID     33
-#define SIR_MAC_PWR_CAPABILITY_EID_MIN     2
-#define SIR_MAC_PWR_CAPABILITY_EID_MAX     2
-#define SIR_MAC_TPC_REQ_EID            34
-#define SIR_MAC_TPC_REQ_EID_MIN            0
-#define SIR_MAC_TPC_REQ_EID_MAX            255
-/* SIR_MAC_EXTENDED_CAP_EID    35 */
-#define SIR_MAC_TPC_RPT_EID            35
-#define SIR_MAC_TPC_RPT_EID_MIN            2
-#define SIR_MAC_TPC_RPT_EID_MAX            2
-#define SIR_MAC_SPRTD_CHNLS_EID        36
-#define SIR_MAC_SPRTD_CHNLS_EID_MIN        2
-#define SIR_MAC_SPRTD_CHNLS_EID_MAX        254
-#define SIR_MAC_CHNL_SWITCH_ANN_EID    37
-#define SIR_MAC_CHNL_SWITCH_ANN_EID_MIN    3
-#define SIR_MAC_CHNL_SWITCH_ANN_EID_MAX    3
-#define SIR_MAC_MEAS_REQ_EID           38
-#define SIR_MAC_MEAS_REQ_EID_MIN           3
-#define SIR_MAC_MEAS_REQ_EID_MAX           255
-#define SIR_MAC_MEAS_RPT_EID           39
-#define SIR_MAC_MEAS_RPT_EID_MIN           3
-#define SIR_MAC_MEAS_RPT_EID_MAX           255
-#define SIR_MAC_QUIET_EID              40
-#define SIR_MAC_QUIET_EID_MIN              6
-#define SIR_MAC_QUIET_EID_MAX              6
-#define SIR_MAC_IBSS_DFS_EID           41
-#define SIR_MAC_IBSS_DFS_EID_MIN           7
-#define SIR_MAC_IBSS_DFS_EID_MAX           255
-#define SIR_MAC_ERP_INFO_EID           42
-#define SIR_MAC_ERP_INFO_EID_MIN           0
-#define SIR_MAC_ERP_INFO_EID_MAX           255
-#define SIR_MAC_TS_DELAY_EID           43
-#define SIR_MAC_TS_DELAY_EID_MIN           4
-#define SIR_MAC_TS_DELAY_EID_MAX           4
-#define SIR_MAC_TCLAS_PROC_EID         44
-#define SIR_MAC_TCLAS_PROC_EID_MIN         1
-#define SIR_MAC_TCLAS_PROC_EID_MAX         1
-#define SIR_MAC_QOS_CAPABILITY_EID     46
-#define SIR_MAC_QOS_CAPABILITY_EID_MIN     1
-#define SIR_MAC_QOS_CAPABILITY_EID_MAX     1
-#define SIR_MAC_RSN_EID                48
-#define SIR_MAC_RSN_EID_MIN                4
-#define SIR_MAC_RSN_EID_MAX                254
 
-/* using reserved EID for Qos Action IE for now, */
-/* need to check 11e spec for the actual EID */
-#define SIR_MAC_QOS_ACTION_EID         49
-#define SIR_MAC_QOS_ACTION_EID_MIN         4
-#define SIR_MAC_QOS_ACTION_EID_MAX         255
-#define SIR_MAC_EXTENDED_RATE_EID      50
-#define SIR_MAC_EXTENDED_RATE_EID_MIN      0
-#define SIR_MAC_EXTENDED_RATE_EID_MAX      255
-#define SIR_MAC_CHNL_EXTENDED_SWITCH_ANN_EID 60
-#define SIR_MAC_CHNL_EXTENDED_SWITCH_ANN_EID_MIN    0
-#define SIR_MAC_CHNL_EXTENDED_SWITCH_ANN_EID_MAX    255
-
-#define SIR_MAC_OPERATING_CLASS_EID    59
-#define SIR_MAC_OPERATING_CLASS_EID_MIN    2
-#define SIR_MAC_OPERATING_CLASS_EID_MAX    253
-/* reserved       51-69 */
-#define SIR_MAC_RM_ENABLED_CAPABILITY_EID      70
-#define SIR_MAC_RM_ENABLED_CAPABILITY_EID_MIN  5
-#define SIR_MAC_RM_ENABLED_CAPABILITY_EID_MAX  5
-/* reserved       71-220 */
 #define SIR_MAC_WPA_EID                221
-#define SIR_MAC_WPA_EID_MIN                0
-#define SIR_MAC_WPA_EID_MAX                255
 
-#define SIR_MAC_EID_VENDOR                221
-
-#define SIR_MAC_WAPI_EID                68
-/* reserved                            222-254 */
-#define SIR_MAC_HT_CAPABILITIES_EID    45
-#define SIR_MAC_HT_CAPABILITIES_EID_MIN    0
-#define SIR_MAC_HT_CAPABILITIES_EID_MAX    255
-#define SIR_MAC_HT_INFO_EID      61
-#define SIR_MAC_HT_INFO_EID_MIN    0
-#define SIR_MAC_HT_INFO_EID_MAX    255
-
-#define SIR_MAC_VHT_CAPABILITIES_EID   191
-#define SIR_MAC_VHT_OPERATION_EID      192
-#define SIR_MAC_VHT_EXT_BSS_LOAD_EID   193
-#define SIR_MAC_VHT_OPMODE_EID         199
 #define SIR_MAC_MAX_SUPPORTED_MCS_SET    16
 
 #define VHT_RX_HIGHEST_SUPPORTED_DATA_RATE_1_1       390
@@ -415,27 +202,14 @@
 #define VHT_MCS_1x1 0xFFFC
 #define VHT_MCS_2x2 0xFFF3
 
-/* Mask to check if BTM offload is enabled/disabled*/
-#define BTM_OFFLOAD_ENABLED_MASK     0x01
-
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 #define SIR_MAC_QCOM_VENDOR_EID      200
 #define SIR_MAC_QCOM_VENDOR_OUI      "\x00\xA0\xC6"
 #define SIR_MAC_QCOM_VENDOR_SIZE     3
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
 
-/* / Workaround IE to change beacon length when it is 4*n+1 */
-#define SIR_MAC_ANI_WORKAROUND_EID     255
-#define SIR_MAC_ANI_WORKAROUND_EID_MIN     0
-#define SIR_MAC_ANI_WORKAROUND_EID_MAX     255
-
 #define SIR_MAC_MAX_ADD_IE_LENGTH       2048
 
-/* / Maximum length of each IE */
-#define SIR_MAC_MAX_IE_LENGTH       255
-
-/* / Maximum length of each IE */
-#define SIR_MAC_RSN_IE_MAX_LENGTH   255
 /* / Minimum length of each IE */
 #define SIR_MAC_RSN_IE_MIN_LENGTH   2
 #define SIR_MAC_WPA_IE_MIN_LENGTH   6
@@ -457,15 +231,12 @@
 
 /* OUI and type definition for WPA IE in network byte order */
 #define SIR_MAC_WPA_OUI             0x01F25000
-#define SIR_MAC_WME_OUI             0x02F25000
-#define SIR_MAC_WSM_OUI             SIR_MAC_WME_OUI
 #define SIR_MAC_WSC_OUI             "\x00\x50\xf2\x04"
 #define SIR_MAC_WSC_OUI_SIZE        4
 #define SIR_MAC_P2P_OUI             "\x50\x6f\x9a\x09"
 #define SIR_MAC_P2P_OUI_SIZE        4
 #define SIR_P2P_NOA_ATTR            12
 #define SIR_MAX_NOA_ATTR_LEN        31
-#define SIR_MAX_NOA_DESCR           2
 #define SIR_P2P_IE_HEADER_LEN       6
 
 #define SIR_MAC_CISCO_OUI "\x00\x40\x96"
@@ -477,89 +248,21 @@
 /* MBO OUI definitions */
 #define SIR_MAC_MBO_OUI "\x50\x6f\x9a\x16"
 #define SIR_MAC_MBO_OUI_SIZE 4
+#define SIR_MBO_ELEM_OFFSET  (2 + SIR_MAC_MBO_OUI_SIZE)
 
 /* min size of wme oui header: oui(3) + type + subtype + version */
 #define SIR_MAC_OUI_WME_HDR_MIN       6
-
-/* OUI subtype and their lengths */
-#define SIR_MAC_OUI_SUBTYPE_WME_INFO  0
-#define SIR_MAC_OUI_WME_INFO_MIN      7
-#define SIR_MAC_OUI_WME_INFO_MAX      7
-
-#define SIR_MAC_OUI_SUBTYPE_WME_PARAM 1
-#define SIR_MAC_OUI_WME_PARAM_MIN     24
-#define SIR_MAC_OUI_WME_PARAM_MAX     24
-
-#define SIR_MAC_OUI_SUBTYPE_WME_TSPEC 2
-#define SIR_MAC_OUI_WME_TSPEC_MIN     61
-#define SIR_MAC_OUI_WME_TSPEC_MAX     61
-
-#define SIR_MAC_OUI_SUBTYPE_WSM_TSPEC 2 /* same as WME TSPEC */
-#define SIR_MAC_OUI_WSM_TSPEC_MIN     61
-#define SIR_MAC_OUI_WSM_TSPEC_MAX     61
-
-/* reserved subtypes                        3-4 */
-/* WSM capability */
-#define SIR_MAC_OUI_SUBTYPE_WSM_CAPABLE     5
-#define SIR_MAC_OUI_WSM_CAPABLE_MIN         7
-#define SIR_MAC_OUI_WSM_CAPABLE_MAX         7
-/* WSM classifier */
-#define SIR_MAC_OUI_SUBTYPE_WSM_TCLAS       6
-#define SIR_MAC_OUI_WSM_TCLAS_MIN           10
-#define SIR_MAC_OUI_WSM_TCLAS_MAX           255
-/* classifier processing element */
-#define SIR_MAC_OUI_SUBTYPE_WSM_TCLASPROC   7
-#define SIR_MAC_OUI_WSM_TCLASPROC_MIN       7
-#define SIR_MAC_OUI_WSM_TCLASPROC_MAX       7
-/* tspec delay element */
-#define SIR_MAC_OUI_SUBTYPE_WSM_TSDELAY     8
-#define SIR_MAC_OUI_WSM_TSDELAY_MIN         10
-#define SIR_MAC_OUI_WSM_TSDELAY_MAX         10
-/* schedule element */
-#define SIR_MAC_OUI_SUBTYPE_WSM_SCHEDULE    9
-#define SIR_MAC_OUI_WSM_SCHEDULE_MIN        20
-#define SIR_MAC_OUI_WSM_SCHEDULE_MAX        20
-
-#ifdef WLAN_NS_OFFLOAD
-#define SIR_MAC_NS_OFFLOAD_SIZE             1   /* support only one IPv6 offload */
-/* Number of target IP V6 addresses for NS offload */
-#define SIR_MAC_NUM_TARGET_IPV6_NS_OFFLOAD_NA   16
-#define SIR_MAC_IPV6_ADDR_LEN               16
-#define SIR_IPV6_ADDR_VALID                 1
-#define SIR_IPV6_ADDR_UC_TYPE               0
-#define SIR_IPV6_ADDR_AC_TYPE               1
-#endif /* WLAN_NS_OFFLOAD */
 
 /* ----------------------------------------------------------------------------- */
 
 /* OFFSET definitions for fixed fields in Management frames */
 
 /* Beacon/Probe Response offsets */
-#define SIR_MAC_TS_OFFSET                    0
-#define SIR_MAC_BEACON_INT_OFFSET            8  /* Beacon Interval offset */
 #define SIR_MAC_B_PR_CAPAB_OFFSET            10
 #define SIR_MAC_B_PR_SSID_OFFSET             12
 
 /* Association/Reassociation offsets */
-#define SIR_MAC_ASSOC_CAPAB_OFFSET           0
-#define SIR_MAC_LISTEN_INT_OFFSET            2  /* Listen Interval offset */
-#define SIR_MAC_ASSOC_SSID_OFFSET            4
-#define SIR_MAC_CURRENT_AP_OFFSET            4
 #define SIR_MAC_REASSOC_SSID_OFFSET          10
-#define SIR_MAC_ASSOC_STATUS_CODE_OFFSET     2
-#define SIR_MAC_ASSOC_AID_OFFSET             4
-#define SIR_MAC_ASSOC_RSP_RATE_OFFSET        6
-
-/* Disassociation/Deauthentication offsets */
-#define SIR_MAC_REASON_CODE_OFFSET           0
-
-/* Probe Request offset */
-#define SIR_MAC_PROBE_REQ_SSID_OFFSET        0
-
-/* Authentication offsets */
-#define SIR_MAC_AUTH_ALGO_OFFSET             0
-#define SIR_MAC_AUTH_XACT_SEQNUM_OFFSET      2
-#define SIR_MAC_AUTH_STATUS_CODE_OFFSET      4
 
 /* / Transaction sequence number definitions (used in Authentication frames) */
 #define    SIR_MAC_AUTH_FRAME_1        1
@@ -568,7 +271,6 @@
 #define    SIR_MAC_AUTH_FRAME_4        4
 
 /* / Protocol defined MAX definitions */
-#define SIR_MAC_MAX_SSID_LENGTH              32
 #define SIR_MAC_MAX_NUMBER_OF_RATES          12
 #define SIR_MAC_MAX_NUM_OF_DEFAULT_KEYS      4
 #define SIR_MAC_KEY_LENGTH                   13 /* WEP Maximum key length size */
@@ -586,7 +288,6 @@
 
 /* / MAX key length when ULA is used */
 #define SIR_MAC_MAX_KEY_LENGTH               32
-#define SIR_MAC_MAX_KEY_RSC_LEN              16
 
 /* / Macro definitions for get/set on FC fields */
 #define SIR_MAC_GET_PROT_VERSION(x)      ((((uint16_t) x) & 0x0300) >> 8)
@@ -631,11 +332,7 @@
 	((u16value) &= (~(SIR_MAC_SET_ ## bitname(0))))
 
 #define IS_WES_MODE_ENABLED(x) \
-	((x)->roam.configParam.isWESModeEnabled)
-
-#define BA_RECIPIENT       1
-#define BA_INITIATOR       2
-#define BA_BOTH_DIRECTIONS 3
+	((x)->mlme_cfg->lfr.wes_mode_enabled)
 
 #define SIR_MAC_VENDOR_AP_1_OUI             "\x00\x0C\x43"
 #define SIR_MAC_VENDOR_AP_1_OUI_LEN         3
@@ -650,9 +347,10 @@
 #define SIR_MAX_BEACON_SIZE    512
 #define SIR_MAX_PROBE_RESP_SIZE 512
 
-/* / Status Code (present in Management response frames) enum */
+/* Status Code (present in Management response frames) enum */
+/* (IEEE Std 802.11-2016, 9.4.1.9, Table 9-46) */
 
-typedef enum eSirMacStatusCodes {
+enum mac_status_code {
 	eSIR_MAC_SUCCESS_STATUS = 0,    /* Reserved */
 	eSIR_MAC_UNSPEC_FAILURE_STATUS = 1,     /* Unspecified reason */
 	/* 802.11 reserved                              2-9 */
@@ -695,7 +393,9 @@ typedef enum eSirMacStatusCodes {
 	eSIR_MAC_DSSS_OFDM_NOT_SUPPORTED_STATUS = 26,   /* Association denied due to requesting station not supporting the DSSS-OFDM option */
 	/* reserved                                     27-29 */
 	eSIR_MAC_TRY_AGAIN_LATER = 30,  /* Association request rejected temporarily, try again later */
-	/* reserved                                     31 */
+#ifdef WLAN_FEATURE_11W
+	eSIR_MAC_ROBUST_MGMT_FRAMES_POLICY_VIOLATION_STATUS = 31,    /* Robust management frames policy violation */
+#endif
 	eSIR_MAC_QOS_UNSPECIFIED_FAILURE_STATUS = 32,   /* Unspecified, QoS-related failure */
 	eSIR_MAC_QAP_NO_BANDWIDTH_STATUS = 33,  /* Association denied because QoS AP has insufficient bandwidth to handle another */
 	/* QoS STA */
@@ -728,9 +428,8 @@ typedef enum eSirMacStatusCodes {
 	eSIR_MAC_DEST_STA_NOT_QSTA_STATUS = 50, /* The Destination STA is not a QoS STA */
 	eSIR_MAC_INVALID_LISTEN_INTERVAL_STATUS = 51,   /* Association denied because the ListenInterval is too large */
 
-	eSIR_MAC_DSSS_CCK_RATE_MUST_SUPPORT_STATUS = 52,        /* FIXME: */
-	eSIR_MAC_DSSS_CCK_RATE_NOT_SUPPORT_STATUS = 53,
-	eSIR_MAC_PSMP_CONTROLLED_ACCESS_ONLY_STATUS = 54,
+	eSIR_MAC_INVALID_FT_ACTION_FRAME_COUNT = 52,
+	eSIR_MAC_INVALID_PMKID = 53,
 #ifdef FEATURE_WLAN_ESE
 	eSIR_MAC_ESE_UNSPECIFIED_QOS_FAILURE_STATUS = 200,      /* ESE-Unspecified, QoS related failure in (Re)Assoc response frames */
 	eSIR_MAC_ESE_TSPEC_REQ_REFUSED_STATUS = 201,    /* ESE-TSPEC request refused due to AP's policy configuration in AddTs Rsp, (Re)Assoc Rsp. */
@@ -738,8 +437,7 @@ typedef enum eSirMacStatusCodes {
 	eSIR_MAC_ESE_INVALID_PARAMETERS_STATUS = 203,   /* ESE-Invalid parameters. (Re)Assoc request had one or more TSPEC parameters with */
 	/* invalid values. */
 #endif
-
-} tSirMacStatusCodes;
+};
 
 /**
  * Reason Code (present in Deauthentication/Disassociation
@@ -795,30 +493,6 @@ typedef enum eSirMacReasonCodes {
 	/* reserved                                         47 - 65535. */
 	eSIR_BEACON_MISSED = 65534,     /* We invented this to tell beacon missed case */
 } tSirMacReasonCodes;
-
-/* BA Initiator v/s Recipient */
-typedef enum eBADirection {
-	eBA_RECIPIENT,
-	eBA_INITIATOR
-} tBADirection;
-
-/* A-MPDU/BA Enable/Disable in Tx/Rx direction */
-typedef enum eBAEnable {
-	eBA_DISABLE,
-	eBA_ENABLE
-} tBAEnable;
-
-/* A-MPDU/BA Policy */
-typedef enum eBAPolicy {
-	eBA_UNCOMPRESSED,
-	eBA_COMPRESSED
-} tBAPolicy;
-
-/* A-MPDU/BA Policy */
-typedef enum eBAPolicyType {
-	eBA_POLICY_DELAYED,
-	eBA_POLICY_IMMEDIATE
-} tBAPolicyType;
 
 /* / Frame control field format (2 bytes) */
 typedef struct sSirMacFrameCtl {
@@ -1009,7 +683,7 @@ typedef struct sSirMacTim {
 /* The parser assume this to be at least 12 */
 typedef struct sSirMacRateSet {
 	uint8_t numRates;
-	uint8_t rate[SIR_MAC_RATESET_EID_MAX];
+	uint8_t rate[WLAN_SUPPORTED_RATES_IE_MAX_LEN];
 } qdf_packed tSirMacRateSet;
 
 /** struct merged_mac_rate_set - merged mac rate set
@@ -1018,24 +692,24 @@ typedef struct sSirMacRateSet {
  */
 struct merged_mac_rate_set {
 	uint8_t num_rates;
-	uint8_t rate[2 * SIR_MAC_RATESET_EID_MAX];
+	uint8_t rate[2 * WLAN_SUPPORTED_RATES_IE_MAX_LEN];
 };
 
 /* Reserve 1 byte for NULL character in the SSID name field to print in %s */
 typedef struct sSirMacSSid {
 	uint8_t length;
-	uint8_t ssId[SIR_MAC_MAX_SSID_LENGTH +1];
+	uint8_t ssId[WLAN_SSID_MAX_LEN +1];
 } qdf_packed tSirMacSSid;
 
 typedef struct sSirMacWpaInfo {
 	uint8_t length;
-	uint8_t info[SIR_MAC_MAX_IE_LENGTH];
+	uint8_t info[WLAN_MAX_IE_LEN];
 } qdf_packed tSirMacWpaInfo, *tpSirMacWpaInfo,
 tSirMacRsnInfo, *tpSirMacRsnInfo;
 
 typedef struct sSirMacWapiInfo {
 	uint8_t length;
-	uint8_t info[SIR_MAC_MAX_IE_LENGTH];
+	uint8_t info[WLAN_MAX_IE_LEN];
 } qdf_packed tSirMacWapiInfo, *tpSirMacWapiInfo;
 
 typedef struct sSirMacFHParamSet {
@@ -1115,25 +789,10 @@ typedef struct sSirMacRRMEnabledCap {
 #endif
 } tSirMacRRMEnabledCap, *tpSirMacRRMEnabledCap;
 
-/* ----------------
- *  EDCA Profiles
- * ---------------
- */
-
-#define EDCA_AC_BE 0
-#define EDCA_AC_BK 1
-#define EDCA_AC_VI 2
-#define EDCA_AC_VO 3
-#define AC_MGMT_LO 4
-#define AC_MGMT_HI 5
-#define MAX_NUM_AC 4
-
-/* access categories */
-#define SIR_MAC_EDCAACI_BESTEFFORT  (EDCA_AC_BE)
-#define SIR_MAC_EDCAACI_BACKGROUND  (EDCA_AC_BK)
-#define SIR_MAC_EDCAACI_VIDEO       (EDCA_AC_VI)
-#define SIR_MAC_EDCAACI_VOICE       (EDCA_AC_VO)
-
+#define MU_EDCA_DEF_AIFSN     0
+#define MU_EDCA_DEF_CW_MAX    15
+#define MU_EDCA_DEF_CW_MIN    15
+#define MU_EDCA_DEF_TIMER     255
 /* access category record */
 typedef struct sSirMacAciAifsn {
 #ifndef ANI_LITTLE_BIT_ENDIAN
@@ -1217,13 +876,6 @@ typedef struct sSirMacEdcaParamSetIE {
 	tSirMacEdcaParamRecord acvo;    /* voice */
 } qdf_packed tSirMacEdcaParamSetIE;
 
-typedef struct sSirMacQoSParams {
-	uint8_t count;
-	uint16_t limit;
-	uint8_t CWmin[8];
-	uint8_t AIFS[8];
-} qdf_packed tSirMacQoSParams;
-
 /* ts info direction field can take any of these values */
 #define SIR_MAC_DIRECTION_UPLINK    0
 #define SIR_MAC_DIRECTION_DNLINK    1
@@ -1235,72 +887,6 @@ typedef struct sSirMacQoSParams {
 #define SIR_MAC_ACCESSPOLICY_EDCA   1
 #define SIR_MAC_ACCESSPOLICY_HCCA   2
 #define SIR_MAC_ACCESSPOLICY_BOTH   3
-
-typedef struct sSirMacTSInfoTfc {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint8_t burstSizeDefn:1;
-	uint8_t reserved:7;
-#else
-	uint8_t reserved:7;
-	uint8_t burstSizeDefn:1;
-#endif
-
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint16_t ackPolicy:2;
-	uint16_t userPrio:3;
-	uint16_t psb:1;
-	uint16_t aggregation:1;
-	uint16_t accessPolicy:2;
-	uint16_t direction:2;
-	uint16_t tsid:4;
-	uint16_t trafficType:1;
-#else
-	uint16_t trafficType:1;
-	uint16_t tsid:4;
-	uint16_t direction:2;
-	uint16_t accessPolicy:2;
-	uint16_t aggregation:1;
-	uint16_t psb:1;
-	uint16_t userPrio:3;
-	uint16_t ackPolicy:2;
-#endif
-} qdf_packed tSirMacTSInfoTfc;
-
-typedef struct sSirMacTSInfoSch {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint8_t rsvd:7;
-	uint8_t schedule:1;
-#else
-	uint8_t schedule:1;
-	uint8_t rsvd:7;
-#endif
-} qdf_packed tSirMacTSInfoSch;
-
-typedef struct sSirMacTSInfo {
-	tSirMacTSInfoTfc traffic;
-	tSirMacTSInfoSch schedule;
-} qdf_packed tSirMacTSInfo;
-
-typedef struct sSirMacTspecIE {
-	uint8_t type;
-	uint8_t length;
-	tSirMacTSInfo tsinfo;
-	uint16_t nomMsduSz;
-	uint16_t maxMsduSz;
-	uint32_t minSvcInterval;
-	uint32_t maxSvcInterval;
-	uint32_t inactInterval;
-	uint32_t suspendInterval;
-	uint32_t svcStartTime;
-	uint32_t minDataRate;
-	uint32_t meanDataRate;
-	uint32_t peakDataRate;
-	uint32_t maxBurstSz;
-	uint32_t delayBound;
-	uint32_t minPhyRate;
-	uint16_t surplusBw;
-	uint16_t mediumTime;
-} qdf_packed tSirMacTspecIE;
 
 /* frame classifier types */
 #define SIR_MAC_TCLASTYPE_ETHERNET 0
@@ -1326,7 +912,6 @@ typedef struct sSirMacTclasParamIPv4 {
 } qdf_packed tSirMacTclasParamIPv4;
 
 #define SIR_MAC_TCLAS_IPV4  4
-#define SIR_MAC_TCLAS_IPV6  6
 
 typedef struct sSirMacTclasParamIPv6 {
 	uint8_t version;
@@ -1462,11 +1047,6 @@ typedef struct sSirMacMeasReqIE {
 	tSirMacMeasReqField measReqField;
 } tSirMacMeasReqIE, *tpSirMacMeasReqIE;
 
-#define SIR_MAC_MAX_SUPP_RATES            32
-
-#define SIR_MAC_MAX_SUPP_CHANNELS            100
-#define SIR_MAC_MAX_EXTN_CAP               8
-
 /* VHT Capabilities Info */
 typedef struct sSirMacVHTCapabilityInfo {
 #ifndef ANI_LITTLE_BIT_ENDIAN
@@ -1567,26 +1147,6 @@ typedef struct sSirVHtCap {
 	tSirVhtMcsInfo suppMcs;
 } tSirVHTCap;
 
-/**
- * struct sSirHtCap - HT capabilities
- *
- * This structure refers to "HT capabilities element" as
- * described in 802.11n draft section 7.3.2.52
- */
-
-typedef struct sSirHtCap {
-	uint16_t capInfo;
-	uint8_t ampduParamsInfo;
-	uint8_t suppMcsSet[16];
-	uint16_t extendedHtCapInfo;
-	uint32_t txBFCapInfo;
-	uint8_t antennaSelectionInfo;
-} tSirHTCap;
-
-/* HT Cap and HT IE Size defines */
-#define HT_CAPABILITY_IE_SIZE                       28
-#define HT_INFO_IE_SIZE                                          24
-
 /* */
 /* Determines the current operating mode of the 802.11n STA */
 /* */
@@ -1674,47 +1234,6 @@ typedef struct sHtCaps {
 
 } qdf_packed tHtCaps;
 
-/* During 11h channel switch, the AP can indicate if the
- * STA needs to stop the transmission or continue until the
- * channel-switch.
- * eSIR_CHANSW_MODE_NORMAL - STA can continue transmission
- * eSIR_CHANSW_MODE_SILENT - STA should stop transmission
- */
-typedef enum eSirMacChanSwMode {
-	eSIR_CHANSW_MODE_NORMAL = 0,
-	eSIR_CHANSW_MODE_SILENT = 1
-} tSirMacChanSwitchMode;
-
-typedef struct _BarControl {
-
-#ifndef ANI_BIG_BYTE_ENDIAN
-
-	uint16_t barAckPolicy:1;
-	uint16_t multiTID:1;
-	uint16_t bitMap:1;
-	uint16_t rsvd:9;
-	uint16_t numTID:4;
-
-#else
-	uint16_t numTID:4;
-	uint16_t rsvd:9;
-	uint16_t bitMap:1;
-	uint16_t multiTID:1;
-	uint16_t barAckPolicy:1;
-
-#endif
-
-} qdf_packed barCtrlType;
-
-typedef struct _BARFrmStruct {
-	tSirMacFrameCtl fc;
-	uint16_t duration;
-	tSirMacAddr rxAddr;
-	tSirMacAddr txAddr;
-	barCtrlType barControl;
-	tSirMacSeqCtl ssnCtrl;
-} qdf_packed BARFrmType;
-
 /* Supported MCS set */
 #define SIZE_OF_SUPPORTED_MCS_SET                          16
 #define SIZE_OF_BASIC_MCS_SET                              16
@@ -1762,41 +1281,6 @@ typedef enum eHTCapability {
 	eHT_PCO_ACTIVE,
 	eHT_PCO_PHASE
 } tHTCapability;
-
-/* HT Capabilities Info */
-typedef struct sSirMacHTCapabilityInfo {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint16_t lsigTXOPProtection:1;  /* Dynamic state */
-	uint16_t stbcControlFrame:1;    /* Static via CFG */
-	uint16_t psmp:1;        /* Static via CFG */
-	uint16_t dsssCckMode40MHz:1;    /* Static via CFG */
-	uint16_t maximalAMSDUsize:1;    /* Static via CFG */
-	uint16_t delayedBA:1;   /* Static via CFG */
-	uint16_t rxSTBC:2;      /* Static via CFG */
-	uint16_t txSTBC:1;      /* Static via CFG */
-	uint16_t shortGI40MHz:1;        /* Static via CFG */
-	uint16_t shortGI20MHz:1;        /* Static via CFG */
-	uint16_t greenField:1;  /* Static via CFG */
-	uint16_t mimoPowerSave:2;       /* Dynamic state */
-	uint16_t supportedChannelWidthSet:1;    /* Static via CFG */
-	uint16_t advCodingCap:1;        /* Static via CFG */
-#else
-	uint16_t advCodingCap:1;
-	uint16_t supportedChannelWidthSet:1;
-	uint16_t mimoPowerSave:2;
-	uint16_t greenField:1;
-	uint16_t shortGI20MHz:1;
-	uint16_t shortGI40MHz:1;
-	uint16_t txSTBC:1;
-	uint16_t rxSTBC:2;
-	uint16_t delayedBA:1;
-	uint16_t maximalAMSDUsize:1;
-	uint16_t dsssCckMode40MHz:1;
-	uint16_t psmp:1;
-	uint16_t stbcControlFrame:1;
-	uint16_t lsigTXOPProtection:1;
-#endif
-} qdf_packed tSirMacHTCapabilityInfo;
 
 /* HT Parameters Info */
 typedef struct sSirMacHTParametersInfo {
@@ -1905,84 +1389,11 @@ typedef struct sSirMacASCapabilityInfo {
 #endif
 } qdf_packed tSirMacASCapabilityInfo;
 
-/* Additional HT IE Field1 */
-typedef struct sSirMacHTInfoField1 {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint8_t serviceIntervalGranularity:3;   /* Dynamic state */
-	uint8_t controlledAccessOnly:1; /* Static via CFG */
-	uint8_t rifsMode:1;     /* Dynamic state */
-	uint8_t recommendedTxWidthSet:1;        /* Dynamic state */
-	uint8_t secondaryChannelOffset:2;       /* Dynamic state */
-#else
-	uint8_t secondaryChannelOffset:2;
-	uint8_t recommendedTxWidthSet:1;
-	uint8_t rifsMode:1;
-	uint8_t controlledAccessOnly:1;
-	uint8_t serviceIntervalGranularity:3;
-#endif
-} qdf_packed tSirMacHTInfoField1;
-
-/* Additional HT IE Field2 */
-typedef struct sSirMacHTInfoField2 {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint16_t reserved:11;
-	uint16_t obssNonHTStaPresent:1; /*added for Obss  */
-	uint16_t transmitBurstLimit:1;
-	uint16_t nonGFDevicesPresent:1;
-	uint16_t opMode:2;      /* Dynamic state */
-#else
-	uint16_t opMode:2;
-	uint16_t nonGFDevicesPresent:1;
-	uint16_t transmitBurstLimit:1;
-	uint16_t obssNonHTStaPresent:1; /*added for Obss  */
-	uint16_t reserved:11;
-#endif
-} qdf_packed tSirMacHTInfoField2;
-
-/* Additional HT IE Field3 */
-typedef struct sSirMacHTInfoField3 {
-#ifndef ANI_LITTLE_BIT_ENDIAN
-	uint16_t reserved:4;
-	uint16_t pcoPhase:1;    /* Dynamic state */
-	uint16_t pcoActive:1;   /* Dynamic state */
-	uint16_t lsigTXOPProtectionFullSupport:1;       /* Dynamic state */
-	uint16_t secondaryBeacon:1;     /* Dynamic state */
-	uint16_t dualCTSProtection:1;   /* Dynamic state */
-	uint16_t basicSTBCMCS:7;        /* Dynamic state */
-#else
-	uint16_t basicSTBCMCS:7;
-	uint16_t dualCTSProtection:1;
-	uint16_t secondaryBeacon:1;
-	uint16_t lsigTXOPProtectionFullSupport:1;
-	uint16_t pcoActive:1;
-	uint16_t pcoPhase:1;
-	uint16_t reserved:4;
-#endif
-} qdf_packed tSirMacHTInfoField3;
-
-typedef struct sSirMacProbeReqFrame {
-	tSirMacSSidIE ssIdIE;
-	tSirMacRateSetIE rateSetIE;
-	tSirMacRateSetIE extendedRateSetIE;
-} qdf_packed tSirMacProbeReqFrame, *tpSirMacProbeReqFrame;
-
-typedef struct sSirMacProbeRspFrame {
-	tSirMacTimeStamp ts;
-	tSirMacBeaconInterval beaconInterval;
-	tSirMacCapabilityInfo capabilityInfo;
-	tSirMacSSidIE ssIdIE;
-	tSirMacRateSetIE rateSetIE;
-	tSirMacRateSetIE extendedRateSetIE;
-	tSirMacNonErpPresentIE nonErpPresent;
-	tSirMacDsParamSetIE dsParamsIE;
-	tSirMacCfParamSetIE cfParamsIE;
-} qdf_packed tSirMacProbeRspFrame, *tpSirMacProbeRspFrame;
-
 typedef struct sSirMacAuthFrameBody {
 	uint16_t authAlgoNumber;
 	uint16_t authTransactionSeqNumber;
 	uint16_t authStatusCode;
-	uint8_t type;           /* = SIR_MAC_CHALLENGE_TEXT_EID */
+	uint8_t type;           /* = WLAN_ELEMID_CHALLENGE */
 	uint8_t length;         /* = SIR_MAC_AUTH_CHALLENGE_LENGTH */
 	uint8_t challengeText[SIR_MAC_AUTH_CHALLENGE_LENGTH];
 #ifdef WLAN_FEATURE_FILS_SK
@@ -1995,34 +1406,6 @@ typedef struct sSirMacAuthFrameBody {
 	uint8_t nonce[SIR_FILS_NONCE_LENGTH];
 #endif
 } qdf_packed tSirMacAuthFrameBody, *tpSirMacAuthFrameBody;
-
-typedef struct sSirMacAuthenticationFrame {
-	tSirMacAuthFrameBody authFrameBody;
-} qdf_packed tSirMacAuthFrame, *tpSirMacAuthFrame;
-
-typedef struct sSirMacAssocReqFrame {
-	tSirMacCapabilityInfo capabilityInfo;
-	uint16_t listenInterval;
-	tSirMacSSidIE ssIdIE;
-	tSirMacRateSetIE rateSetIE;
-	tSirMacRateSetIE extendedRateSetIE;
-} qdf_packed tSirMacAssocReqFrame, *tpSirMacAssocReqFrame;
-
-typedef struct sSirMacAssocRspFrame {
-	tSirMacCapabilityInfo capabilityInfo;
-	uint16_t statusCode;
-	uint16_t aid;
-	tSirMacRateSetIE supportedRates;
-	tSirMacRateSetIE extendedRateSetIE;
-} qdf_packed tSirMacAssocRspFrame, *tpSirMacAssocRspFrame;
-
-typedef struct sSirMacDisassocFrame {
-	uint16_t reasonCode;
-} qdf_packed tSirMacDisassocFrame, *tpSirMacDisassocFrame;
-
-typedef struct sDSirMacDeauthFrame {
-	uint16_t reasonCode;
-} qdf_packed tSirMacDeauthFrame, *tpSirMacDeauthFrame;
 
 /* / Common header for all action frames */
 typedef struct sSirMacActionFrameHdr {
@@ -2044,13 +1427,6 @@ typedef struct sSirMacVendorSpecificPublicActionFrameHdr {
 	uint8_t dialogToken;
 } qdf_packed tSirMacVendorSpecificPublicActionFrameHdr,
 *tpSirMacVendorSpecificPublicActionFrameHdr;
-
-typedef struct sSirMacP2PActionFrameHdr {
-	uint8_t category;
-	uint8_t Oui[4];
-	uint8_t OuiSubType;
-	uint8_t dialogToken;
-} qdf_packed tSirMacP2PActionFrameHdr, *tpSirMacP2PActionFrameHdr;
 
 typedef struct sSirMacMeasActionFrameHdr {
 	uint8_t category;
@@ -2161,44 +1537,50 @@ struct he_cap_network_endian {
 	uint32_t twt_request:1;
 	uint32_t twt_responder:1;
 	uint32_t fragmentation:2;
-	uint32_t max_num_frag_msdu:3;
+	uint32_t max_num_frag_msdu_amsdu_exp:3;
 	uint32_t min_frag_size:2;
 	uint32_t trigger_frm_mac_pad:2;
-	uint32_t multi_tid_aggr:3;
+	uint32_t multi_tid_aggr_rx_supp:3;
 	uint32_t he_link_adaptation:2;
 	uint32_t all_ack:1;
-	uint32_t ul_mu_rsp_sched:1;
+	uint32_t trigd_rsp_sched:1;
 	uint32_t a_bsr:1;
 	uint32_t broadcast_twt:1;
 	uint32_t ba_32bit_bitmap:1;
 	uint32_t mu_cascade:1;
 	uint32_t ack_enabled_multitid:1;
-	uint32_t dl_mu_ba:1;
+	uint32_t reserved:1;
 	uint32_t omi_a_ctrl:1;
 	uint32_t ofdma_ra:1;
-	uint32_t max_ampdu_len:2;
+	uint32_t max_ampdu_len_exp_ext:2;
 	uint32_t amsdu_frag:1;
 	uint32_t flex_twt_sched:1;
 	uint32_t rx_ctrl_frame:1;
 
-	uint8_t bsrp_ampdu_aggr:1;
-	uint8_t qtp:1;
-	uint8_t a_bqr:1;
-	uint8_t sr_responder:1;
-	uint8_t ndp_feedback_supp:1;
-	uint8_t ops_supp:1;
-	uint8_t amsdu_in_ampdu:1;
-	uint8_t reserved1:1;
+	uint16_t bsrp_ampdu_aggr:1;
+	uint16_t qtp:1;
+	uint16_t a_bqr:1;
+	uint16_t spatial_reuse_param_rspder:1;
+	uint16_t ndp_feedback_supp:1;
+	uint16_t ops_supp:1;
+	uint16_t amsdu_in_ampdu:1;
+	uint16_t multi_tid_aggr_tx_supp:3;
+	uint16_t he_sub_ch_sel_tx_supp:1;
+	uint16_t ul_2x996_tone_ru_supp:1;
+	uint16_t om_ctrl_ul_mu_data_dis_rx:1;
+	uint16_t he_dynamic_smps:1;
+	uint16_t punctured_sounding_supp:1;
+	uint16_t ht_vht_trg_frm_rx_supp:1;
 
-	uint32_t dual_band:1;
+	uint32_t reserved2:1;
 	uint32_t chan_width:7;
 	uint32_t rx_pream_puncturing:4;
 	uint32_t device_class:1;
 	uint32_t ldpc_coding:1;
 	uint32_t he_1x_ltf_800_gi_ppdu:1;
-	uint32_t midamble_rx_max_nsts:2;
+	uint32_t midamble_tx_rx_max_nsts:2;
 	uint32_t he_4x_ltf_3200_gi_ndp:1;
-	uint32_t tx_stbc_lt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_lt_80mhz:1;
 	uint32_t rx_stbc_lt_80mhz:1;
 	uint32_t doppler:2;
 	uint32_t ul_mu:2;
@@ -2225,16 +1607,25 @@ struct he_cap_network_endian {
 	uint32_t power_boost:1;
 	uint32_t he_ltf_800_gi_4x:1;
 	uint32_t max_nc:3;
-	uint32_t tx_stbc_gt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_gt_80mhz:1;
 	uint32_t rx_stbc_gt_80mhz:1;
 
-	uint8_t er_he_ltf_800_gi_4x:1;
-	uint8_t he_ppdu_20_in_40Mhz_2G:1;
-	uint8_t he_ppdu_20_in_160_80p80Mhz:1;
-	uint8_t he_ppdu_80_in_160_80p80Mhz:1;
-	uint8_t er_1x_he_ltf_gi:1;
-	uint8_t midamble_rx_1x_he_ltf:1;
-	uint8_t reserved2:2;
+	uint16_t er_he_ltf_800_gi_4x:1;
+	uint16_t he_ppdu_20_in_40Mhz_2G:1;
+	uint16_t he_ppdu_20_in_160_80p80Mhz:1;
+	uint16_t he_ppdu_80_in_160_80p80Mhz:1;
+	uint16_t er_1x_he_ltf_gi:1;
+	uint16_t midamble_tx_rx_1x_he_ltf:1;
+	uint16_t dcm_max_bw:2;
+	uint16_t longer_than_16_he_sigb_ofdm_sym:1;
+	uint16_t non_trig_cqi_feedback:1;
+	uint16_t tx_1024_qam_lt_242_tone_ru:1;
+	uint16_t rx_1024_qam_lt_242_tone_ru:1;
+	uint16_t rx_full_bw_su_he_mu_compress_sigb:1;
+	uint16_t rx_full_bw_su_he_mu_non_cmpr_sigb:1;
+	uint16_t reserved3:2;
+
+	uint8_t  reserved4;
 
 	uint16_t rx_he_mcs_map_lt_80;
 	uint16_t tx_he_mcs_map_lt_80;
@@ -2245,18 +1636,17 @@ struct he_cap_network_endian {
 } qdf_packed;
 
 struct he_ops_network_endian {
-	uint32_t            bss_color:6;
-	uint32_t           default_pe:3;
-	uint32_t         twt_required:1;
-	uint32_t        rts_threshold:10;
-	uint32_t      partial_bss_col:1;
-	uint32_t     vht_oper_present:1;
-	uint32_t            reserved1:6;
-	uint32_t            mbssid_ap:1;
-	uint32_t         tx_bssid_ind:1;
-	uint32_t     bss_col_disabled:1;
-	uint32_t            reserved2:1;
-	uint8_t             basic_mcs_nss[2];
+	uint16_t default_pe:3;
+	uint16_t twt_required:1;
+	uint16_t txop_rts_threshold:10;
+	uint16_t vht_oper_present:1;
+	uint16_t co_located_bss:1;
+	uint8_t  er_su_disable:1;
+	uint8_t  reserved1:7;
+	uint8_t  bss_color:6;
+	uint8_t  partial_bss_col:1;
+	uint8_t  bss_col_disabled:1;
+	uint8_t  basic_mcs_nss[2];
 	union {
 		struct {
 			uint8_t chan_width;
@@ -2267,7 +1657,7 @@ struct he_ops_network_endian {
 	union {
 		struct {
 			uint8_t data;
-		} info; /* mbssid_ap = 1 */
+		} info; /* co_located_bss = 1 */
 	} maxbssid_ind;
 } qdf_packed;
 
@@ -2277,35 +1667,41 @@ struct he_capability_info {
 	uint32_t rx_ctrl_frame:1;
 	uint32_t flex_twt_sched:1;
 	uint32_t amsdu_frag:1;
-	uint32_t max_ampdu_len:2;
+	uint32_t max_ampdu_len_exp_ext:2;
 	uint32_t ofdma_ra:1;
 	uint32_t omi_a_ctrl:1;
-	uint32_t dl_mu_ba:1;
+	uint32_t reserved:1;
 	uint32_t ack_enabled_multitid:1;
 	uint32_t mu_cascade:1;
 	uint32_t ba_32bit_bitmap:1;
 	uint32_t broadcast_twt:1;
 	uint32_t a_bsr:1;
-	uint32_t ul_mu_rsp_sched:1;
+	uint32_t trigd_rsp_sched:1;
 	uint32_t all_ack:1;
 	uint32_t he_link_adaptation:2;
-	uint32_t multi_tid_aggr:3;
+	uint32_t multi_tid_aggr_rx_supp:3;
 	uint32_t trigger_frm_mac_pad:2;
 	uint32_t min_frag_size:2;
-	uint32_t max_num_frag_msdu:3;
+	uint32_t max_num_frag_msdu_amsdu_exp:3;
 	uint32_t fragmentation:2;
 	uint32_t twt_responder:1;
 	uint32_t twt_request:1;
 	uint32_t htc_he:1;
 
-	uint8_t reserved1:1;
-	uint8_t amsdu_in_ampdu:1;
-	uint8_t ops_supp:1;
-	uint8_t ndp_feedback_supp:1;
-	uint8_t sr_responder:1;
-	uint8_t a_bqr:1;
-	uint8_t qtp:1;
-	uint8_t bsrp_ampdu_aggr:1;
+	uint16_t ht_vht_trg_frm_rx_supp:1;
+	uint16_t punctured_sounding_supp:1;
+	uint16_t he_dynamic_smps:1;
+	uint16_t om_ctrl_ul_mu_data_dis_rx:1;
+	uint16_t ul_2x996_tone_ru_supp:1;
+	uint16_t he_sub_ch_sel_tx_supp:1;
+	uint16_t multi_tid_aggr_tx_supp:3;
+	uint16_t amsdu_in_ampdu:1;
+	uint16_t ops_supp:1;
+	uint16_t ndp_feedback_supp:1;
+	uint16_t spatial_reuse_param_rspder:1;
+	uint16_t a_bqr:1;
+	uint16_t qtp:1;
+	uint16_t bsrp_ampdu_aggr:1;
 
 	uint32_t su_beamformer:1;
 	uint32_t ul_he_mu:1;
@@ -2314,18 +1710,18 @@ struct he_capability_info {
 	uint32_t ul_mu:2;
 	uint32_t doppler:2;
 	uint32_t rx_stbc_lt_80mhz:1;
-	uint32_t tx_stbc_lt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_lt_80mhz:1;
 	uint32_t he_4x_ltf_3200_gi_ndp:1;
-	uint32_t midamble_rx_max_nsts:2;
+	uint32_t midamble_tx_rx_max_nsts:2;
 	uint32_t he_1x_ltf_800_gi_ppdu:1;
 	uint32_t ldpc_coding:1;
 	uint32_t device_class:1;
 	uint32_t rx_pream_puncturing:4;
 	uint32_t chan_width:7;
-	uint32_t dual_band:1;
+	uint32_t reserved2:1;
 
 	uint32_t rx_stbc_gt_80mhz:1;
-	uint32_t tx_stbc_gt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_gt_80mhz:1;
 	uint32_t max_nc:3;
 	uint32_t he_ltf_800_gi_4x:1;
 	uint32_t power_boost:1;
@@ -2345,13 +1741,22 @@ struct he_capability_info {
 	uint32_t mu_beamformer:1;
 	uint32_t su_beamformee:1;
 
-	uint8_t reserved2:2;
-	uint8_t midamble_rx_1x_he_ltf:1;
-	uint8_t er_1x_he_ltf_gi:1;
-	uint8_t he_ppdu_80_in_160_80p80Mhz:1;
-	uint8_t he_ppdu_20_in_160_80p80Mhz:1;
-	uint8_t he_ppdu_20_in_40Mhz_2G:1;
-	uint8_t er_he_ltf_800_gi_4x:1;
+	uint16_t reserved3:2;
+	uint16_t rx_full_bw_su_he_mu_non_cmpr_sigb:1;
+	uint16_t rx_full_bw_su_he_mu_compress_sigb:1;
+	uint16_t rx_1024_qam_lt_242_tone_ru:1;
+	uint16_t tx_1024_qam_lt_242_tone_ru:1;
+	uint16_t non_trig_cqi_feedback:1;
+	uint16_t longer_than_16_he_sigb_ofdm_sym:1;
+	uint16_t dcm_max_bw:2;
+	uint16_t midamble_tx_rx_1x_he_ltf:1;
+	uint16_t er_1x_he_ltf_gi:1;
+	uint16_t he_ppdu_80_in_160_80p80Mhz:1;
+	uint16_t he_ppdu_20_in_160_80p80Mhz:1;
+	uint16_t he_ppdu_20_in_40Mhz_2G:1;
+	uint16_t er_he_ltf_800_gi_4x:1;
+
+	uint8_t reserved4;
 
 	uint16_t tx_he_mcs_map_80_80;
 	uint16_t rx_he_mcs_map_80_80;
@@ -2364,44 +1769,50 @@ struct he_capability_info {
 	uint32_t twt_request:1;
 	uint32_t twt_responder:1;
 	uint32_t fragmentation:2;
-	uint32_t max_num_frag_msdu:3;
+	uint32_t max_num_frag_msdu_amsdu_exp:3;
 	uint32_t min_frag_size:2;
 	uint32_t trigger_frm_mac_pad:2;
-	uint32_t multi_tid_aggr:3;
+	uint32_t multi_tid_aggr_rx_supp:3;
 	uint32_t he_link_adaptation:2;
 	uint32_t all_ack:1;
-	uint32_t ul_mu_rsp_sched:1;
+	uint32_t trigd_rsp_sched:1;
 	uint32_t a_bsr:1;
 	uint32_t broadcast_twt:1;
 	uint32_t ba_32bit_bitmap:1;
 	uint32_t mu_cascade:1;
 	uint32_t ack_enabled_multitid:1;
-	uint32_t dl_mu_ba:1;
+	uint32_t reserved:1;
 	uint32_t omi_a_ctrl:1;
 	uint32_t ofdma_ra:1;
-	uint32_t max_ampdu_len:2;
+	uint32_t max_ampdu_len_exp_ext:2;
 	uint32_t amsdu_frag:1;
 	uint32_t flex_twt_sched:1;
 	uint32_t rx_ctrl_frame:1;
 
-	uint8_t bsrp_ampdu_aggr:1;
-	uint8_t qtp:1;
-	uint8_t a_bqr:1;
-	uint8_t sr_responder:1;
-	uint8_t ndp_feedback_supp:1;
-	uint8_t ops_supp:1;
-	uint8_t amsdu_in_ampdu:1;
-	uint8_t reserved1:1;
+	uint16_t bsrp_ampdu_aggr:1;
+	uint16_t qtp:1;
+	uint16_t a_bqr:1;
+	uint16_t spatial_reuse_param_rspder:1;
+	uint16_t ndp_feedback_supp:1;
+	uint16_t ops_supp:1;
+	uint16_t amsdu_in_ampdu:1;
+	uint16_t multi_tid_aggr_tx_supp:3;
+	uint16_t he_sub_ch_sel_tx_supp:1;
+	uint16_t ul_2x996_tone_ru_supp:1;
+	uint16_t om_ctrl_ul_mu_data_dis_rx:1;
+	uint16_t he_dynamic_smps:1;
+	uint16_t punctured_sounding_supp:1;
+	uint16_t ht_vht_trg_frm_rx_supp:1;
 
-	uint32_t dual_band:1;
+	uint32_t reserved2:1;
 	uint32_t chan_width:7;
 	uint32_t rx_pream_puncturing:4;
 	uint32_t device_class:1;
 	uint32_t ldpc_coding:1;
 	uint32_t he_1x_ltf_800_gi_ppdu:1;
-	uint32_t midamble_rx_max_nsts:2;
+	uint32_t midamble_tx_rx_max_nsts:2;
 	uint32_t he_4x_ltf_3200_gi_ndp:1;
-	uint32_t tx_stbc_lt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_lt_80mhz:1;
 	uint32_t rx_stbc_lt_80mhz:1;
 	uint32_t doppler:2;
 	uint32_t ul_mu:2;
@@ -2428,16 +1839,25 @@ struct he_capability_info {
 	uint32_t power_boost:1;
 	uint32_t he_ltf_800_gi_4x:1;
 	uint32_t max_nc:3;
-	uint32_t tx_stbc_gt_80mhz:1;
+	uint32_t tb_ppdu_tx_stbc_gt_80mhz:1;
 	uint32_t rx_stbc_gt_80mhz:1;
 
-	uint8_t er_he_ltf_800_gi_4x:1;
-	uint8_t he_ppdu_20_in_40Mhz_2G:1;
-	uint8_t he_ppdu_20_in_160_80p80Mhz:1;
-	uint8_t he_ppdu_80_in_160_80p80Mhz:1;
-	uint8_t er_1x_he_ltf_gi:1;
-	uint8_t midamble_rx_1x_he_ltf:1;
-	uint8_t reserved2:2;
+	uint16_t er_he_ltf_800_gi_4x:1;
+	uint16_t he_ppdu_20_in_40Mhz_2G:1;
+	uint16_t he_ppdu_20_in_160_80p80Mhz:1;
+	uint16_t he_ppdu_80_in_160_80p80Mhz:1;
+	uint16_t er_1x_he_ltf_gi:1;
+	uint16_t midamble_tx_rx_1x_he_ltf:1;
+	uint16_t dcm_max_bw:2;
+	uint16_t longer_than_16_he_sigb_ofdm_sym:1;
+	uint16_t non_trig_cqi_feedback:1;
+	uint16_t tx_1024_qam_lt_242_tone_ru:1;
+	uint16_t rx_1024_qam_lt_242_tone_ru:1;
+	uint16_t rx_full_bw_su_he_mu_compress_sigb:1;
+	uint16_t rx_full_bw_su_he_mu_non_cmpr_sigb:1;
+	uint16_t reserved3:2;
+
+	uint8_t  reserved4;
 
 	uint16_t rx_he_mcs_map_lt_80;
 	uint16_t tx_he_mcs_map_lt_80;
@@ -2534,8 +1954,6 @@ struct he_capability_info {
 
 #define SIR_MAC_MIN_IE_LEN 2    /* Minimum IE length for IE validation */
 
-#define SIR_MAC_TI_TYPE_REASSOC_DEADLINE        1
-#define SIR_MAC_TI_TYPE_KEY_LIFETIME            2
 #define SIR_MAC_TI_TYPE_ASSOC_COMEBACK          3
 
 #define SIR_MAC_VHT_CAP_MAX_MPDU_LEN              0

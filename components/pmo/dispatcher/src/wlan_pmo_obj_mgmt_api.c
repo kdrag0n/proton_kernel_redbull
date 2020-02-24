@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -157,7 +157,7 @@ QDF_STATUS pmo_psoc_object_created_notification(
 	}
 
 	psoc_ctx = qdf_mem_malloc(sizeof(*psoc_ctx));
-	if (psoc_ctx == NULL) {
+	if (!psoc_ctx) {
 		pmo_err("Failed to allocate pmo_psoc");
 		status = QDF_STATUS_E_NOMEM;
 		goto out;
@@ -241,7 +241,7 @@ QDF_STATUS pmo_vdev_object_created_notification(
 	psoc_ctx = pmo_psoc_get_priv(psoc);
 
 	vdev_ctx = qdf_mem_malloc(sizeof(*vdev_ctx));
-	if (vdev_ctx == NULL) {
+	if (!vdev_ctx) {
 		pmo_err("Failed to allocate vdev_ctx");
 		status = QDF_STATUS_E_NOMEM;
 		goto out;
@@ -280,7 +280,6 @@ QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev)
 
 	/* Register static configuration with firmware */
 	pmo_register_wow_wakeup_events(vdev);
-	pmo_register_action_frame_patterns(vdev);
 
 	/* Register default wow patterns with firmware */
 	pmo_register_wow_default_patterns(vdev);
@@ -741,56 +740,43 @@ pmo_unregister_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc)
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS pmo_register_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc,
-					     pmo_get_cfg_int handler)
+QDF_STATUS pmo_register_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc,
+					   pmo_get_vdev_dp_handle handler)
 {
 	struct pmo_psoc_priv_obj *psoc_ctx;
-	QDF_STATUS status;
 
 	if (!psoc) {
+		QDF_BUG(psoc);
 		pmo_err("psoc is null");
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
 	if (!handler) {
-		pmo_err("pmo_get_cfg_int is null");
+		QDF_BUG(handler);
+		pmo_err("pmo_get_vdev_dp_handle is null");
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	status = pmo_psoc_get_ref(psoc);
-	if (status != QDF_STATUS_SUCCESS) {
-		pmo_err("pmo cannot get the reference out of psoc");
-		return status;
-	}
-
 	pmo_psoc_with_ctx(psoc, psoc_ctx) {
-		psoc_ctx->get_cfg_int = handler;
+		psoc_ctx->get_vdev_dp_handle = handler;
 	}
-	pmo_psoc_put_ref(psoc);
 
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS pmo_unregister_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc)
+QDF_STATUS pmo_unregister_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc)
 {
 	struct pmo_psoc_priv_obj *psoc_ctx;
-	QDF_STATUS status;
 
 	if (!psoc) {
+		QDF_BUG(psoc);
 		pmo_err("psoc is null");
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	status = pmo_psoc_get_ref(psoc);
-	if (status != QDF_STATUS_SUCCESS) {
-		pmo_err("pmo cannot get the reference out of psoc");
-		return status;
-	}
-
 	pmo_psoc_with_ctx(psoc, psoc_ctx) {
-		psoc_ctx->get_cfg_int = NULL;
+		psoc_ctx->get_vdev_dp_handle = NULL;
 	}
-	pmo_psoc_put_ref(psoc);
 
 	return QDF_STATUS_SUCCESS;
 }

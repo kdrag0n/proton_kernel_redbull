@@ -58,7 +58,7 @@ static QDF_STATUS pmo_core_cache_arp_in_vdev_priv(
 	request->enable = PMO_OFFLOAD_ENABLE;
 	request->is_offload_applied = false;
 	/* converting u32 to IPV4 address */
-	for (index = 0; index < PMO_IPV4_ADDR_LEN; index++)
+	for (index = 0; index < QDF_IPV4_ADDR_SIZE; index++)
 		request->host_ipv4_addr[index] =
 		(arp_req->ipv4_addr >> (index * 8)) & 0xFF;
 
@@ -204,7 +204,7 @@ static QDF_STATUS pmo_core_arp_offload_sanity(
 		return QDF_STATUS_E_INVAL;
 	}
 
-	if (!wlan_vdev_is_up(vdev))
+	if (wlan_vdev_is_up(vdev) != QDF_STATUS_SUCCESS)
 		return QDF_STATUS_E_INVAL;
 
 	return QDF_STATUS_SUCCESS;

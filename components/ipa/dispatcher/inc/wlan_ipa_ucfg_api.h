@@ -59,13 +59,6 @@ bool ucfg_ipa_is_enabled(void);
 bool ucfg_ipa_uc_is_enabled(void);
 
 /**
- * ucfg_ipa_update_config() - Update IPA component config
- *
- * Return: None
- */
-void ucfg_ipa_update_config(struct wlan_ipa_config *config);
-
-/**
  * ucfg_ipa_set_dp_handle() - register DP handle
  * @psoc: psoc handle
  * @dp_soc: data path soc handle
@@ -249,6 +242,14 @@ QDF_STATUS ucfg_ipa_uc_ol_init(struct wlan_objmgr_pdev *pdev,
 QDF_STATUS ucfg_ipa_uc_ol_deinit(struct wlan_objmgr_pdev *pdev);
 
 /**
+ * ucfg_ipa_is_tx_pending() - Check if IPA WLAN TX completions are pending
+ * @pdev: pdev obj
+ *
+ * Return: bool if pending TX for IPA.
+ */
+bool ucfg_ipa_is_tx_pending(struct wlan_objmgr_pdev *pdev);
+
+/**
  * ucfg_ipa_send_mcc_scc_msg() - Send IPA WLAN_SWITCH_TO_MCC/SCC message
  * @mcc_mode: 0=MCC/1=SCC
  *
@@ -347,6 +348,24 @@ void ucfg_ipa_uc_ssr_cleanup(struct wlan_objmgr_pdev *pdev);
  * Return: None
  */
 void ucfg_ipa_fw_rejuvenate_send_msg(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * ucfg_ipa_component_config_update() - update IPA component config
+ * @psoc: pointer to psoc object
+ *
+ * Return: None
+ */
+void ucfg_ipa_component_config_update(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_get_ipa_tx_buf_count() - get IPA tx buffer count
+ *
+ * Return: IPA tx buffer count
+ */
+uint32_t ucfg_ipa_get_tx_buf_count(void);
+
+void ucfg_ipa_update_tx_stats(struct wlan_objmgr_pdev *pdev, uint64_t sta_tx,
+			      uint64_t ap_tx);
 
 #else
 
@@ -484,6 +503,11 @@ QDF_STATUS ucfg_ipa_uc_ol_deinit(struct wlan_objmgr_pdev *pdev)
 	return QDF_STATUS_SUCCESS;
 }
 
+static inline bool ucfg_ipa_is_tx_pending(struct wlan_objmgr_pdev *pdev)
+{
+	return false;
+}
+
 static inline
 QDF_STATUS ucfg_ipa_send_mcc_scc_msg(struct wlan_objmgr_pdev *pdev,
 				     bool mcc_mode)
@@ -539,6 +563,23 @@ void ucfg_ipa_uc_ssr_cleanup(struct wlan_objmgr_pdev *pdev)
 
 static inline
 void ucfg_ipa_fw_rejuvenate_send_msg(struct wlan_objmgr_pdev *pdev)
+{
+}
+
+static inline
+void ucfg_ipa_component_config_update(struct wlan_objmgr_psoc *psoc)
+{
+}
+
+static inline
+uint32_t ucfg_ipa_get_tx_buf_count(void)
+{
+	return 0;
+}
+
+static inline
+void ucfg_ipa_update_tx_stats(struct wlan_objmgr_pdev *pdev, uint64_t sta_tx,
+			      uint64_t ap_tx)
 {
 }
 #endif /* IPA_OFFLOAD */

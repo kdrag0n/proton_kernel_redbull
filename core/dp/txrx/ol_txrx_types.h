@@ -34,7 +34,6 @@
 #include <qdf_lock.h>           /* qdf_spinlock */
 #include <pktlog.h>             /* ol_pktlog_dev_handle */
 #include <ol_txrx_stats.h>
-#include <txrx.h>
 #include "ol_txrx_htt_api.h"
 #include "ol_htt_tx_api.h"
 #include "ol_htt_rx_api.h"
@@ -78,6 +77,8 @@
 #define TXRX_DATA_HISTROGRAM_NUM_INTERVALS    100
 
 #define OL_TXRX_INVALID_VDEV_ID		(-1)
+#define ETHERTYPE_OCB_TX   0x8151
+#define ETHERTYPE_OCB_RX   0x8152
 
 struct ol_txrx_pdev_t;
 struct ol_txrx_vdev_t;
@@ -218,7 +219,7 @@ union ol_tx_desc_list_elem_t {
 };
 
 union ol_txrx_align_mac_addr_t {
-	uint8_t raw[OL_TXRX_MAC_ADDR_LEN];
+	uint8_t raw[QDF_MAC_ADDR_SIZE];
 	struct {
 		uint16_t bytes_ab;
 		uint16_t bytes_cd;
@@ -237,6 +238,18 @@ struct ol_rx_reorder_timeout_list_elem_t {
 	struct ol_txrx_peer_t *peer;
 	uint8_t tid;
 	uint8_t active;
+};
+
+/* wait on peer deletion timeout value in milliseconds */
+#define PEER_DELETION_TIMEOUT 500
+
+enum txrx_wmm_ac {
+	TXRX_WMM_AC_BE,
+	TXRX_WMM_AC_BK,
+	TXRX_WMM_AC_VI,
+	TXRX_WMM_AC_VO,
+
+	TXRX_NUM_WMM_AC
 };
 
 #define TXRX_TID_TO_WMM_AC(_tid) ( \
@@ -369,7 +382,7 @@ struct ol_tx_log_queue_add_t {
 };
 
 struct ol_mac_addr {
-	uint8_t mac_addr[OL_TXRX_MAC_ADDR_LEN];
+	uint8_t mac_addr[QDF_MAC_ADDR_SIZE];
 };
 
 struct ol_tx_sched_t;
@@ -426,6 +439,7 @@ enum throttle_phase {
 struct ol_tx_queue_group_t {
 	qdf_atomic_t credit;
 	u_int32_t membership;
+	int frm_count;
 };
 #define OL_TX_MAX_TXQ_GROUPS 2
 
@@ -442,7 +456,6 @@ struct ol_tx_group_credit_stats_t {
 };
 
 
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 /**
  * enum flow_pool_status - flow pool status
  * @FLOW_POOL_ACTIVE_UNPAUSED : pool is active (can take/put descriptors)
@@ -514,7 +527,6 @@ struct ol_tx_flow_pool_t {
 	uint16_t stop_priority_th;
 	uint16_t start_priority_th;
 };
-#endif
 
 
 #define OL_TXRX_INVALID_PEER_UNMAP_COUNT 0xF
@@ -627,6 +639,8 @@ struct ol_txrx_pdev_t {
 		int host_addba;
 		int ll_pause_txq_limit;
 		int default_tx_comp_req;
+		u8 credit_update_enabled;
+		u8 request_tx_comp;
 	} cfg;
 
 	/* WDI subscriber's event list */
@@ -637,6 +651,9 @@ struct ol_txrx_pdev_t {
 	/* Pktlog pdev */
 	struct pktlog_dev_t *pl_dev;
 #endif /* #ifndef REMOVE_PKT_LOG */
+
+	/* Monitor mode interface*/
+	struct ol_txrx_vdev_t *monitor_vdev;
 
 	enum ol_sec_type sec_types[htt_num_sec_types];
 	/* standard frame type */
@@ -732,8 +749,8 @@ struct ol_txrx_pdev_t {
 
 	data_stall_detect_cb data_stall_detect_callback;
 	/* packetdump callback functions */
-	tp_ol_packetdump_cb ol_tx_packetdump_cb;
-	tp_ol_packetdump_cb ol_rx_packetdump_cb;
+	ol_txrx_pktdump_cb ol_tx_packetdump_cb;
+	ol_txrx_pktdump_cb ol_rx_packetdump_cb;
 
 #ifdef WLAN_FEATURE_TSF_PLUS
 	tp_ol_timestamp_cb ol_tx_timestamp_cb;
@@ -757,13 +774,11 @@ struct ol_txrx_pdev_t {
 #ifdef DESC_DUP_DETECT_DEBUG
 		unsigned long *free_list_bitmap;
 #endif
-#ifdef QCA_LL_PDEV_TX_FLOW_CONTROL
 		uint16_t stop_th;
 		uint16_t start_th;
 		uint16_t stop_priority_th;
 		uint16_t start_priority_th;
 		enum flow_pool_status status;
-#endif
 	} tx_desc;
 
 	uint8_t is_mgmt_over_wmi_enabled;
@@ -867,10 +882,6 @@ struct ol_txrx_pdev_t {
 		} *data;
 	} rx_pn_trace;
 #endif /* ENABLE_RX_PN_TRACE */
-
-#if defined(PERE_IP_HDR_ALIGNMENT_WAR)
-	bool host_80211_enable;
-#endif
 
 	/*
 	 * tx_sched only applies for HL, but is defined unconditionally
@@ -1027,6 +1038,11 @@ struct ol_txrx_pdev_t {
 #endif /* CONFIG_Hl_SUPPORT && QCA_BAD_PEER_TX_FLOW_CL */
 
 	struct ol_tx_queue_group_t txq_grps[OL_TX_MAX_TXQ_GROUPS];
+#if defined(FEATURE_HL_GROUP_CREDIT_FLOW_CONTROL) && \
+	defined(FEATURE_HL_DBS_GROUP_CREDIT_SHARING)
+	bool limit_lend;
+	u16 min_reserve;
+#endif
 #ifdef DEBUG_HL_LOGGING
 		qdf_spinlock_t grp_stat_spinlock;
 		struct ol_tx_group_credit_stats_t grp_stats;
@@ -1053,8 +1069,9 @@ struct ol_txrx_pdev_t {
 	uint8_t peer_id_unmap_ref_cnt;
 	bool enable_peer_unmap_conf_support;
 	bool enable_tx_compl_tsf64;
-	uint64_t last_host_time;
-	uint64_t last_tsf64_time;
+
+	/* Current noise-floor reading for the pdev channel */
+	int16_t chan_noise_floor;
 };
 
 struct ol_txrx_vdev_t {
@@ -1065,6 +1082,9 @@ struct ol_txrx_vdev_t {
 				      * to the target
 				      */
 	void *osif_dev;
+
+	void *ctrl_vdev; /* vdev objmgr handle */
+
 	union ol_txrx_align_mac_addr_t mac_addr; /* MAC address */
 	/* tx paused - NO LONGER NEEDED? */
 	TAILQ_ENTRY(ol_txrx_vdev_t) vdev_list_elem; /* node in the pdev's list
@@ -1112,6 +1132,7 @@ struct ol_txrx_vdev_t {
 	uint32_t num_filters;
 
 	enum wlan_op_mode opmode;
+	enum wlan_op_subtype subtype;
 
 #ifdef QCA_IBSS_SUPPORT
 	/* ibss mode related */
@@ -1153,9 +1174,13 @@ struct ol_txrx_vdev_t {
 	bool hlTdlsFlag;
 #endif
 
-#if defined(CONFIG_PER_VDEV_TX_DESC_POOL)
+#if defined(QCA_HL_NETDEV_FLOW_CONTROL)
 	qdf_atomic_t tx_desc_count;
-#endif
+	int tx_desc_limit;
+	int queue_restart_th;
+	int queue_stop_th;
+	int prio_q_paused;
+#endif /* QCA_HL_NETDEV_FLOW_CONTROL */
 
 	uint16_t wait_on_peer_id;
 	union ol_txrx_align_mac_addr_t last_peer_mac_addr;
@@ -1253,6 +1278,9 @@ struct ol_txrx_cached_bufq_t {
 
 struct ol_txrx_peer_t {
 	struct ol_txrx_vdev_t *vdev;
+
+	/* UMAC peer objmgr handle */
+	struct cdp_ctrl_objmgr_peer *ctrl_peer;
 
 	qdf_atomic_t ref_cnt;
 	qdf_atomic_t access_list[PEER_DEBUG_ID_MAX];

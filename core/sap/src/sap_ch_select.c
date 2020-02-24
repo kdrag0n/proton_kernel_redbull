@@ -43,10 +43,12 @@
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 #include "lim_utils.h"
 #include "parser_api.h"
+#include <wlan_utility.h>
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
 #include "cds_utils.h"
 #include "pld_common.h"
 #include "wlan_reg_services_api.h"
+#include <wlan_scan_utils_api.h>
 
 /*--------------------------------------------------------------------------
    Function definitions
@@ -262,7 +264,7 @@ sap_check_n_add_overlapped_chnls(struct sap_context *sap_ctx,
 /**
  * sap_process_avoid_ie() - processes the detected Q2Q IE
  * context's avoid_channels_info struct
- * @hal:                hal handle
+ * @mac_handle:         opaque handle to the MAC context
  * @sap_ctx:            sap context.
  * @scan_result:        scan results for ACS scan.
  * @spect_info:         spectrum weights array to update
@@ -275,38 +277,42 @@ sap_check_n_add_overlapped_chnls(struct sap_context *sap_ctx,
  *
  * Return: void
  */
-static void sap_process_avoid_ie(tHalHandle hal,
+static void sap_process_avoid_ie(mac_handle_t mac_handle,
 			  struct sap_context *sap_ctx,
-			  tScanResultHandle scan_result,
+			  qdf_list_t *scan_list,
 			  tSapChSelSpectInfo *spect_info)
 {
-	uint32_t total_ie_len = 0;
-	uint8_t *temp_ptr = NULL;
+	const uint8_t *temp_ptr = NULL;
 	uint8_t i = 0;
 	struct sAvoidChannelIE *avoid_ch_ie;
-	tCsrScanResultInfo *node = NULL;
-	tpAniSirGlobal mac_ctx = NULL;
+	struct mac_context *mac_ctx = NULL;
 	tSapSpectChInfo *spect_ch = NULL;
+	qdf_list_node_t *cur_lst = NULL, *next_lst = NULL;
+	struct scan_cache_node *cur_node = NULL;
 
-	mac_ctx = PMAC_STRUCT(hal);
+	mac_ctx = MAC_CONTEXT(mac_handle);
 	spect_ch = spect_info->pSpectCh;
-	node = sme_scan_result_get_first(hal, scan_result);
 
-	while (node) {
-		total_ie_len =
-			GET_IE_LEN_IN_BSS(node->BssDescriptor.length);
+	if (scan_list)
+		qdf_list_peek_front(scan_list, &cur_lst);
+	while (cur_lst) {
+		cur_node = qdf_container_of(cur_lst, struct scan_cache_node,
+					    node);
+
 		temp_ptr = wlan_get_vendor_ie_ptr_from_oui(
 				SIR_MAC_QCOM_VENDOR_OUI,
 				SIR_MAC_QCOM_VENDOR_SIZE,
-				((uint8_t *)&node->BssDescriptor.ieFields),
-				total_ie_len);
+				util_scan_entry_ie_data(cur_node->entry),
+				util_scan_entry_ie_len(cur_node->entry));
 
 		if (temp_ptr) {
 			avoid_ch_ie = (struct sAvoidChannelIE *)temp_ptr;
 			if (avoid_ch_ie->type !=
 					QCOM_VENDOR_IE_MCC_AVOID_CH) {
-				node = sme_scan_result_get_next(hal,
-					scan_result);
+				qdf_list_peek_next(scan_list,
+						   cur_lst, &next_lst);
+				cur_lst = next_lst;
+				next_lst = NULL;
 				continue;
 			}
 
@@ -339,7 +345,10 @@ static void sap_process_avoid_ie(tHalHandle hal,
 					break;
 				}
 		} /* if (temp_ptr) */
-		node = sme_scan_result_get_next(hal, scan_result);
+
+		qdf_list_peek_next(scan_list, cur_lst, &next_lst);
+		cur_lst = next_lst;
+		next_lst = NULL;
 	}
 }
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
@@ -361,14 +370,14 @@ uint8_t sap_channel_in_acs_channel_list(uint8_t channel_num,
 {
 	uint8_t i = 0;
 
-	if ((NULL == sap_ctx->acs_cfg->master_ch_list) ||
-	    (NULL == spect_info_params))
+	if ((!sap_ctx->acs_cfg->master_ch_list) ||
+	    (!spect_info_params))
 		return channel_num;
 
 	if (channel_num > 0 && channel_num <= 252) {
 		for (i = 0; i < sap_ctx->acs_cfg->master_ch_list_count; i++) {
 			if ((sap_ctx->acs_cfg->master_ch_list[i]) ==
-								channel_num)
+			     channel_num)
 				return channel_num;
 		}
 		return SAP_CHANNEL_NOT_SELECTED;
@@ -395,9 +404,9 @@ uint8_t sap_select_preferred_channel_from_channel_list(uint8_t best_chnl,
 				tSapChSelSpectInfo *spectinfo_param)
 {
 	uint8_t i = 0;
-	tpAniSirGlobal mac_ctx = sme_get_mac_context();
+	struct mac_context *mac_ctx = sme_get_mac_context();
 
-	if (NULL == mac_ctx) {
+	if (!mac_ctx) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			"pmac Global Context is NULL");
 		return SAP_CHANNEL_NOT_SELECTED;
@@ -407,8 +416,8 @@ uint8_t sap_select_preferred_channel_from_channel_list(uint8_t best_chnl,
 	 * If Channel List is not Configured don't do anything
 	 * Else return the Best Channel from the Channel List
 	 */
-	if ((NULL == sap_ctx->acs_cfg->ch_list) ||
-		(NULL == spectinfo_param) ||
+	if ((!sap_ctx->acs_cfg->ch_list) ||
+		(!spectinfo_param) ||
 		(0 == sap_ctx->acs_cfg->ch_list_count))
 		return best_chnl;
 
@@ -431,73 +440,53 @@ uint8_t sap_select_preferred_channel_from_channel_list(uint8_t best_chnl,
 	return SAP_CHANNEL_NOT_SELECTED;
 }
 
-/*==========================================================================
-   FUNCTION    sap_chan_sel_init
-
-   DESCRIPTION
-    Function sap_chan_sel_init allocates the memory, initializes the
-    structures used by the channel selection algorithm
-
-   DEPENDENCIES
-    NA.
-
-   PARAMETERS
-
-    IN
-    halHandle          : Pointer to tHalHandle
-   *pSpectInfoParams  : Pointer to tSapChSelSpectInfo structure
-     sap_ctx           : Pointer to SAP Context
-
-   RETURN VALUE
-    bool:  Success or FAIL
-
-   SIDE EFFECTS
-   ============================================================================*/
-static bool sap_chan_sel_init(tHalHandle halHandle,
+/**
+ * sap_chan_sel_init() - Initialize channel select
+ * @mac_handle: Opaque handle to the global MAC context
+ * @pSpectInfoParams: Pointer to tSapChSelSpectInfo structure
+ * @sap_ctx: Pointer to SAP Context
+ *
+ * Function sap_chan_sel_init allocates the memory, initializes the
+ * structures used by the channel selection algorithm
+ *
+ * Return: bool Success or FAIL
+ */
+static bool sap_chan_sel_init(mac_handle_t mac_handle,
 			      tSapChSelSpectInfo *pSpectInfoParams,
 			      struct sap_context *sap_ctx)
 {
 	tSapSpectChInfo *pSpectCh = NULL;
 	uint8_t *pChans = NULL;
 	uint16_t channelnum = 0;
-	tpAniSirGlobal pMac = PMAC_STRUCT(halHandle);
+	struct mac_context *mac = MAC_CONTEXT(mac_handle);
 	bool chSafe = true;
-	uint32_t dfs_master_cap_enabled;
 	bool include_dfs_ch = true;
 	uint8_t chan_num;
 	bool sta_sap_scc_on_dfs_chan =
-		policy_mgr_is_sta_sap_scc_allowed_on_dfs_chan(pMac->psoc);
+		policy_mgr_is_sta_sap_scc_allowed_on_dfs_chan(mac->psoc);
 
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH, "In %s",
 		  __func__);
 
 	pSpectInfoParams->numSpectChans =
-		pMac->scan.base_channels.numChannels;
+		mac->scan.base_channels.numChannels;
 
 	/* Allocate memory for weight computation of 2.4GHz */
-	pSpectCh =
-		(tSapSpectChInfo *)qdf_mem_malloc(
-					(pSpectInfoParams->numSpectChans) *
-					sizeof(*pSpectCh));
-
-	if (pSpectCh == NULL) {
-		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
-			  "In %s, QDF_MALLOC_ERR", __func__);
+	pSpectCh = qdf_mem_malloc((pSpectInfoParams->numSpectChans) *
+			sizeof(*pSpectCh));
+	if (!pSpectCh)
 		return false;
-	}
 
 	/* Initialize the pointers in the DfsParams to the allocated memory */
 	pSpectInfoParams->pSpectCh = pSpectCh;
 
-	pChans = pMac->scan.base_channels.channelList;
+	pChans = mac->scan.base_channels.channelList;
 
 #if defined(FEATURE_WLAN_STA_AP_MODE_DFS_DISABLE)
 	if (sap_ctx->dfs_ch_disable == true)
 		include_dfs_ch = false;
 #endif
-	sme_cfg_get_int(halHandle, WNI_CFG_DFS_MASTER_ENABLED,
-			&dfs_master_cap_enabled);
-	if (dfs_master_cap_enabled == 0 ||
+	if (!mac->mlme_cfg->dfs_cfg.dfs_master_capable ||
 	    ACS_DFS_MODE_DISABLE == sap_ctx->dfs_mode)
 		include_dfs_ch = false;
 
@@ -527,7 +516,7 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 		}
 
 		if (!include_dfs_ch || sta_sap_scc_on_dfs_chan) {
-			if (wlan_reg_is_dfs_ch(pMac->pdev, *pChans)) {
+			if (wlan_reg_is_dfs_ch(mac->pdev, *pChans)) {
 				chSafe = false;
 				QDF_TRACE(QDF_MODULE_ID_SAP,
 					  QDF_TRACE_LEVEL_INFO_HIGH,
@@ -538,7 +527,7 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 			}
 		}
 
-		if (!policy_mgr_is_safe_channel(pMac->psoc, *pChans))
+		if (!policy_mgr_is_safe_channel(mac->psoc, *pChans))
 			chSafe = false;
 
 		/* OFDM rates are not supported on channel 14 */
@@ -548,11 +537,11 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 		}
 
 		/* Skip DSRC channels */
-		if (wlan_reg_is_dsrc_chan(pMac->pdev, *pChans))
+		if (wlan_reg_is_dsrc_chan(mac->pdev, *pChans))
 			continue;
 
-		if (!pMac->sap.enable_etsi13_srd_chan_support &&
-		    wlan_reg_is_etsi13_srd_chan(pMac->pdev, *pChans))
+		if (!mac->mlme_cfg->reg.etsi13_srd_chan_in_master_mode &&
+		    wlan_reg_is_etsi13_srd_chan(mac->pdev, *pChans))
 			continue;
 
 		if (true == chSafe) {
@@ -646,7 +635,7 @@ uint32_t sapweight_rssi_count(struct sap_context *sap_ctx, int8_t rssi,
  * Return: chan status info
  */
 static struct lim_channel_status *sap_get_channel_status
-	(tpAniSirGlobal p_mac, uint32_t channel_id)
+	(struct mac_context *p_mac, uint32_t channel_id)
 {
 	return csr_get_channel_status(p_mac, channel_id);
 }
@@ -657,7 +646,7 @@ static struct lim_channel_status *sap_get_channel_status
  *
  * Return: none
  */
-static void sap_clear_channel_status(tpAniSirGlobal p_mac)
+static void sap_clear_channel_status(struct mac_context *p_mac)
 {
 	csr_clear_channel_status(p_mac);
 }
@@ -685,7 +674,7 @@ static uint32_t sap_weight_channel_noise_floor(struct sap_context *sap_ctx,
 	    ACS_WEIGHT_CFG_TO_LOCAL(sap_ctx->auto_channel_select_weight,
 				    softap_nf_weight_cfg);
 
-	if (channel_stat == NULL || channel_stat->channelfreq == 0) {
+	if (!channel_stat || channel_stat->channelfreq == 0) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_DEBUG,
 			  "In %s, sanity check failed return max weight",
 			  __func__);
@@ -702,8 +691,6 @@ static uint32_t sap_weight_channel_noise_floor(struct sap_context *sap_ctx,
 
 	if (noise_floor_weight > softap_nf_weight_local)
 		noise_floor_weight = softap_nf_weight_local;
-	else if (noise_floor_weight < 0)
-		noise_floor_weight = 0;
 
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 		  "In %s, nf=%d, nfwc=%d, nfwl=%d, nfw=%d",
@@ -739,7 +726,7 @@ static uint32_t sap_weight_channel_free(struct sap_context *sap_ctx,
 	    ACS_WEIGHT_CFG_TO_LOCAL(sap_ctx->auto_channel_select_weight,
 				    softap_channel_free_weight_cfg);
 
-	if (channel_stat == NULL || channel_stat->channelfreq == 0) {
+	if (!channel_stat || channel_stat->channelfreq == 0) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_DEBUG,
 			  "In %s, sanity check failed return max weight",
 			  __func__);
@@ -800,7 +787,7 @@ static uint32_t sap_weight_channel_txpwr_range(struct sap_context *sap_ctx,
 	    ACS_WEIGHT_CFG_TO_LOCAL(sap_ctx->auto_channel_select_weight,
 				    softap_txpwr_range_weight_cfg);
 
-	if (channel_stat == NULL || channel_stat->channelfreq == 0) {
+	if (!channel_stat || channel_stat->channelfreq == 0) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_DEBUG,
 			  "In %s, sanity check failed return max weight",
 			  __func__);
@@ -852,7 +839,7 @@ static uint32_t sap_weight_channel_txpwr_tput(struct sap_context *sap_ctx,
 	    ACS_WEIGHT_CFG_TO_LOCAL(sap_ctx->auto_channel_select_weight,
 				    softap_txpwr_tput_weight_cfg);
 
-	if (channel_stat == NULL || channel_stat->channelfreq == 0) {
+	if (!channel_stat || channel_stat->channelfreq == 0) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_DEBUG,
 			  "In %s, sanity check failed return max weight",
 			  __func__);
@@ -910,7 +897,7 @@ static bool sap_check_channels_same_band(uint16_t ch_num1, uint16_t ch_num2)
 	     ch_num2 <= SIR_11B_CHANNEL_END) ||
 	    (ch_num1 >= SIR_11A_CHANNEL_BEGIN &&
 	     ch_num2 >= SIR_11A_CHANNEL_BEGIN))
-	    return true;
+		return true;
 
 	return false;
 }
@@ -938,7 +925,7 @@ static void sap_update_rssi_bsscount(tSapSpectChInfo *pSpectCh, int32_t offset,
 	int32_t rssi, rsssi_effect;
 
 	pExtSpectCh = (pSpectCh + offset);
-	if (pExtSpectCh != NULL &&
+	if (pExtSpectCh &&
 	    pExtSpectCh >= spectch_start &&
 	    pExtSpectCh < spectch_end) {
 		if (!sap_check_channels_same_band(pSpectCh->chNum,
@@ -1017,7 +1004,7 @@ static void sap_upd_chan_spec_params(tSirProbeRespBeacon *pBeaconStruct,
 				     uint16_t *centerFreq,
 				     uint16_t *centerFreq_2)
 {
-	if (NULL == pBeaconStruct) {
+	if (!pBeaconStruct) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			  FL("pBeaconStruct is NULL"));
 		return;
@@ -1115,7 +1102,7 @@ static void sap_interference_rssi_count_5G(tSapSpectChInfo *spect_ch,
 	uint16_t num_ch;
 	int32_t offset = 0;
 
-	if (NULL == spect_ch) {
+	if (!spect_ch) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			  FL("spect_ch is NULL"));
 		return;
@@ -1204,7 +1191,7 @@ static void sap_interference_rssi_count(tSapSpectChInfo *spect_ch,
 	tSapSpectChInfo *spectch_start,
 	tSapSpectChInfo *spectch_end)
 {
-	if (NULL == spect_ch) {
+	if (!spect_ch) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			  "%s: spect_ch is NULL", __func__);
 		return;
@@ -1376,7 +1363,7 @@ static bool ch_in_pcl(struct sap_context *sap_ctx, uint8_t channel)
 /**
  * sap_compute_spect_weight() - Compute spectrum weight
  * @pSpectInfoParams: Pointer to the tSpectInfoParams structure
- * @halHandle: Pointer to HAL handle
+ * @mac_handle: Opaque handle to the global MAC context
  * @pResult: Pointer to tScanResultHandle
  * @sap_ctx: Context of the SAP
  *
@@ -1385,14 +1372,13 @@ static bool ch_in_pcl(struct sap_context *sap_ctx, uint8_t channel)
  * and number of BSS
  */
 static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
-				     tHalHandle halHandle,
-				     tScanResultHandle pResult,
+				     mac_handle_t mac_handle,
+				     qdf_list_t *scan_list,
 				     struct sap_context *sap_ctx)
 {
 	int8_t rssi = 0;
 	uint8_t chn_num = 0;
 	uint8_t channel_id = 0;
-	tCsrScanResultInfo *pScanResult;
 	tSapSpectChInfo *pSpectCh = pSpectInfoParams->pSpectCh;
 	uint32_t operatingBand;
 	uint16_t channelWidth;
@@ -1402,19 +1388,18 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 	bool found;
 	uint16_t centerFreq_2 = 0;
 	uint16_t vhtSupport;
-	uint32_t ieLen = 0;
-	tSirProbeRespBeacon *pBeaconStruct;
-	tpAniSirGlobal pMac = (tpAniSirGlobal) halHandle;
+	tSirProbeRespBeacon *bcn_struct;
+	struct mac_context *mac = MAC_CONTEXT(mac_handle);
 	tSapSpectChInfo *spectch_start = pSpectInfoParams->pSpectCh;
 	tSapSpectChInfo *spectch_end = pSpectInfoParams->pSpectCh +
 		pSpectInfoParams->numSpectChans;
+	qdf_list_node_t *cur_lst = NULL, *next_lst = NULL;
+	struct scan_cache_node *cur_node = NULL;
 
-	pBeaconStruct = qdf_mem_malloc(sizeof(tSirProbeRespBeacon));
-	if (NULL == pBeaconStruct) {
-		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
-			  "Unable to allocate memory in sap_compute_spect_weight");
+	bcn_struct = qdf_mem_malloc(sizeof(tSirProbeRespBeacon));
+	if (!bcn_struct)
 		return;
-	}
+
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 		  "In %s, Computing spectral weight", __func__);
 
@@ -1423,9 +1408,14 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 	 */
 	SET_ACS_BAND(operatingBand, sap_ctx);
 
-	pScanResult = sme_scan_result_get_first(halHandle, pResult);
+	if (scan_list)
+		qdf_list_peek_front(scan_list, &cur_lst);
+	while (cur_lst) {
+		uint32_t ie_len = 0;
+		uint8_t *ie_ptr;
 
-	while (pScanResult) {
+		cur_node = qdf_container_of(cur_lst, struct scan_cache_node,
+					    node);
 		pSpectCh = pSpectInfoParams->pSpectCh;
 		/* Defining the default values, so that any value will hold the default values */
 		channelWidth = eHT_CHANNEL_WIDTH_20MHZ;
@@ -1433,19 +1423,15 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 		vhtSupport = 0;
 		centerFreq = 0;
 
+		ie_len = util_scan_entry_ie_len(cur_node->entry);
+		ie_ptr = util_scan_entry_ie_data(cur_node->entry);
+		qdf_mem_zero((uint8_t *)bcn_struct,
+			     sizeof(tSirProbeRespBeacon));
 
-		ieLen = GET_IE_LEN_IN_BSS(
-				pScanResult->BssDescriptor.length);
-		qdf_mem_zero((uint8_t *) pBeaconStruct,
-				   sizeof(tSirProbeRespBeacon));
-
-
-		if ((sir_parse_beacon_ie
-		     (pMac, pBeaconStruct, (uint8_t *)
-		      (pScanResult->BssDescriptor.ieFields),
-		      ieLen)) == QDF_STATUS_SUCCESS)
+		if ((sir_parse_beacon_ie(mac, bcn_struct, ie_ptr, ie_len)) ==
+		     QDF_STATUS_SUCCESS)
 			sap_upd_chan_spec_params(
-				pBeaconStruct,
+				bcn_struct,
 				&channelWidth,
 				&secondaryChannelOffset,
 				&vhtSupport, &centerFreq,
@@ -1455,22 +1441,14 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 		for (chn_num = 0; chn_num < pSpectInfoParams->numSpectChans;
 		     chn_num++) {
 
-			/*
-			 * If the Beacon has channel ID, use it other wise we
-			 * will rely on the channelIdSelf
-			 */
-			if (pScanResult->BssDescriptor.channelId == 0)
-				channel_id =
-				      pScanResult->BssDescriptor.channelIdSelf;
-			else
-				channel_id =
-				      pScanResult->BssDescriptor.channelId;
+			channel_id =
+				util_scan_entry_channel_num(cur_node->entry);
 
 			if (pSpectCh && (channel_id == pSpectCh->chNum)) {
 				if (pSpectCh->rssiAgr <
-				    pScanResult->BssDescriptor.rssi)
+				    cur_node->entry->rssi_raw)
 					pSpectCh->rssiAgr =
-						pScanResult->BssDescriptor.rssi;
+						cur_node->entry->rssi_raw;
 
 				++pSpectCh->bssCount;   /* Increment the count of BSS */
 
@@ -1516,13 +1494,11 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 
 				QDF_TRACE(QDF_MODULE_ID_SAP,
 					  QDF_TRACE_LEVEL_INFO_HIGH,
-					  "In %s, bssdes.ch_self=%d, bssdes.ch_ID=%d, bssdes.rssi=%d, SpectCh.bssCount=%d, pScanResult=%pK, ChannelWidth %d, secondaryChanOffset %d, center frequency %d",
+					  "In %s, channel_id=%d, bssdes.rssi=%d, SpectCh.bssCount=%d, ChannelWidth %d, secondaryChanOffset %d, center frequency %d",
 					  __func__,
-					  pScanResult->BssDescriptor.
-					  channelIdSelf,
-					  pScanResult->BssDescriptor.channelId,
-					  pScanResult->BssDescriptor.rssi,
-					  pSpectCh->bssCount, pScanResult,
+					  channel_id,
+					  cur_node->entry->rssi_raw,
+					  pSpectCh->bssCount,
 					  pSpectCh->channelWidth,
 					  secondaryChannelOffset, centerFreq);
 				pSpectCh++;
@@ -1532,8 +1508,12 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 			}
 		}
 
-		pScanResult = sme_scan_result_get_next(halHandle, pResult);
+		qdf_list_peek_next(scan_list, cur_lst, &next_lst);
+		cur_lst = next_lst;
+		next_lst = NULL;
 	}
+
+	qdf_mem_free(bcn_struct);
 
 	/* Calculate the weights for all channels in the spectrum pSpectCh */
 	pSpectCh = pSpectInfoParams->pSpectCh;
@@ -1584,7 +1564,7 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 				SAPDFS_NORMALISE_1000 *
 				(sapweight_rssi_count(sap_ctx, rssi,
 				pSpectCh->bssCount) + sap_weight_channel_status(
-				sap_ctx, sap_get_channel_status(pMac,
+				sap_ctx, sap_get_channel_status(mac,
 							 pSpectCh->chNum)));
 		else {
 			pSpectCh->weight = SAP_ACS_WEIGHT_MAX;
@@ -1610,8 +1590,7 @@ debug_info:
 		/* ------ Debug Info ------ */
 		pSpectCh++;
 	}
-	sap_clear_channel_status(pMac);
-	qdf_mem_free(pBeaconStruct);
+	sap_clear_channel_status(mac);
 }
 
 /*==========================================================================
@@ -1750,11 +1729,9 @@ static void sap_sort_chl_weight_ht80(tSapChSelSpectInfo *pSpectInfoParams)
 	chan_bonding_bitmap *channel_bitmap;
 
 	channel_bitmap = qdf_mem_malloc(sizeof(chan_bonding_bitmap));
-	if (NULL == channel_bitmap) {
-		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_DEBUG,
-			"%s: Failed to allocate memory", __func__);
+	if (!channel_bitmap)
 		return;
-	}
+
 	pSpectInfo = pSpectInfoParams->pSpectCh;
 	/* for each HT80 channel, calculate the combined weight of the
 	   four 20MHz weight */
@@ -2410,24 +2387,15 @@ static bool sap_is_ch_non_overlap(struct sap_context *sap_ctx, uint16_t ch)
 	return false;
 }
 
-/**
- * sap_select_channel() - select SAP channel
- * @hal: Pointer to HAL handle
- * @sap_ctx: Sap context
- * @scan_result: Pointer to tScanResultHandle
- *
- * Runs a algorithm to select the best channel to operate in based on BSS
- * rssi and bss count on each channel
- *
- * Returns: channel number if success, 0 otherwise
- */
-uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
-			   tScanResultHandle scan_result)
+uint8_t sap_select_channel(mac_handle_t mac_handle,
+			   struct sap_context *sap_ctx,
+			   qdf_list_t *scan_list)
 {
 	/* DFS param object holding all the data req by the algo */
 	tSapChSelSpectInfo spect_info_obj = { NULL, 0 };
 	tSapChSelSpectInfo *spect_info = &spect_info_obj;
 	uint8_t best_ch_num = SAP_CHANNEL_NOT_SELECTED;
+	uint32_t best_ch_weight = SAP_ACS_WEIGHT_MAX;
 	uint32_t ht40plus2gendch = 0;
 	v_REGDOMAIN_t domain;
 	uint8_t country[CDS_COUNTRY_CODE_LEN + 1];
@@ -2435,9 +2403,9 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	uint8_t count;
 	uint32_t start_ch_num, end_ch_num, tmp_ch_num, operating_band = 0;
 #endif
-	tpAniSirGlobal mac_ctx;
+	struct mac_context *mac_ctx;
 
-	mac_ctx = PMAC_STRUCT(hal);
+	mac_ctx = MAC_CONTEXT(mac_handle);
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 		  "In %s, Running SAP Ch Select", __func__);
 
@@ -2445,7 +2413,7 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	 * If ACS weight is not enabled on noise_floor/channel_free/tx_power,
 	 * then skip acs process if no bss found.
 	 */
-	if (NULL == scan_result &&
+	if ((!scan_list || !qdf_list_size(scan_list)) &&
 	    !(sap_ctx->auto_channel_select_weight & 0xffff00)) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 			  FL("No external AP present"));
@@ -2458,17 +2426,17 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	}
 
 	/* Initialize the structure pointed by spect_info */
-	if (sap_chan_sel_init(hal, spect_info, sap_ctx) != true) {
+	if (sap_chan_sel_init(mac_handle, spect_info, sap_ctx) != true) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			  FL("Ch Select initialization failed"));
 		return SAP_CHANNEL_NOT_SELECTED;
 	}
 	/* Compute the weight of the entire spectrum in the operating band */
-	sap_compute_spect_weight(spect_info, hal, scan_result, sap_ctx);
+	sap_compute_spect_weight(spect_info, mac_handle, scan_list, sap_ctx);
 
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 	/* process avoid channel IE to collect all channels to avoid */
-	sap_process_avoid_ie(hal, sap_ctx, scan_result, spect_info);
+	sap_process_avoid_ie(mac_handle, sap_ctx, scan_list, spect_info);
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
 
 	wlan_reg_read_current_country(mac_ctx->psoc, country);
@@ -2477,9 +2445,6 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	start_ch_num = sap_ctx->acs_cfg->start_ch;
 	end_ch_num = sap_ctx->acs_cfg->end_ch;
 	SET_ACS_BAND(operating_band, sap_ctx);
-
-	sap_ctx->acsBestChannelInfo.channelNum = 0;
-	sap_ctx->acsBestChannelInfo.weight = SAP_ACS_WEIGHT_MAX;
 
 	/* Sort the ch lst as per the computed weights, lesser weight first. */
 	sap_sort_chl_weight_all(sap_ctx, spect_info, operating_band, domain);
@@ -2512,9 +2477,8 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 			}
 #endif
 
-			sap_ctx->acsBestChannelInfo.channelNum = best_ch_num;
-			sap_ctx->acsBestChannelInfo.weight =
-					spect_info->pSpectCh[count].weight_copy;
+			best_ch_weight =
+				spect_info->pSpectCh[count].weight_copy;
 		}
 
 		if (best_ch_num == SAP_CHANNEL_NOT_SELECTED)
@@ -2547,8 +2511,7 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 			continue;
 		}
 
-		if (spect_info->pSpectCh[count].weight_copy >
-				sap_ctx->acsBestChannelInfo.weight)
+		if (spect_info->pSpectCh[count].weight_copy > best_ch_weight)
 			continue;
 
 		tmp_ch_num = spect_info->pSpectCh[count].chNum;
@@ -2562,7 +2525,7 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	}
 #else
 	/* Sort the ch lst as per the computed weights, lesser weight first. */
-	sap_sort_chl_weight_all(sap_ctx, hal, spect_info);
+	sap_sort_chl_weight_all(sap_ctx, mac_handle, spect_info);
 	/* Get the first channel in sorted array as best 20M Channel */
 	best_ch_num = (uint8_t) spect_info->pSpectCh[0].chNum;
 	/* Select Best Channel from Channel List if Configured */
@@ -2577,8 +2540,7 @@ uint8_t sap_select_channel(tHalHandle hal, struct sap_context *sap_ctx,
 	 */
 	for (count = 0; count < spect_info->numSpectChans; count++) {
 		if (!ch_in_pcl(sap_ctx, spect_info->pSpectCh[count].chNum) ||
-		    (spect_info->pSpectCh[count].weight !=
-				sap_ctx->acsBestChannelInfo.weight))
+		    (spect_info->pSpectCh[count].weight != best_ch_weight))
 			continue;
 
 		if (sap_select_preferred_channel_from_channel_list(
@@ -2641,7 +2603,7 @@ sap_ch_sel_end:
 
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 		  FL("Running SAP Ch select Completed, Ch=%d"), best_ch_num);
-	host_log_acs_best_chan(best_ch_num, sap_ctx->acsBestChannelInfo.weight);
+	host_log_acs_best_chan(best_ch_num, best_ch_weight);
 
 	if (best_ch_num > 0 && best_ch_num <= 252)
 		return best_ch_num;

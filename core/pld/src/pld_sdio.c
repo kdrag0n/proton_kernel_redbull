@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -85,7 +85,7 @@ static int pld_sdio_probe(struct sdio_func *sdio_func,
 	}
 
 	dev = &sdio_func->dev;
-	ret = pld_add_dev(pld_context, dev, PLD_BUS_TYPE_SDIO);
+	ret = pld_add_dev(pld_context, dev, NULL, PLD_BUS_TYPE_SDIO);
 	if (ret)
 		goto out;
 
@@ -369,7 +369,7 @@ int pld_sdio_get_fw_files_for_target(struct pld_fw_files *pfw_files,
 	int ret = 0;
 	struct cnss_fw_files cnss_fw_files;
 
-	if (pfw_files == NULL)
+	if (!pfw_files)
 		return -ENODEV;
 
 	memset(pfw_files, 0, sizeof(*pfw_files));

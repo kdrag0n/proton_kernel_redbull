@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -56,9 +56,6 @@ struct hdd_context;
 
 #define SA_QUERY_FRAME_RSP "\x08\x01"
 #define SA_QUERY_FRAME_RSP_SIZE 2
-
-#define HDD_P2P_WILDCARD_SSID "DIRECT-"
-#define HDD_P2P_WILDCARD_SSID_LEN 7
 
 #define WNM_BSS_ACTION_FRAME "\x0a\x07"
 #define WNM_BSS_ACTION_FRAME_SIZE 2
@@ -125,19 +122,15 @@ struct hdd_context;
 
 #ifdef FEATURE_WLAN_TDLS
 #define WLAN_IS_TDLS_SETUP_ACTION(action) \
-	((SIR_MAC_TDLS_SETUP_REQ <= action) && \
-	(SIR_MAC_TDLS_SETUP_CNF >= action))
+	((TDLS_SETUP_REQUEST <= action) && \
+	(TDLS_SETUP_CONFIRM >= action))
 #if !defined(TDLS_MGMT_VERSION2)
 #define TDLS_MGMT_VERSION2 0
 #endif
 
 #endif
 
-#ifdef WLAN_FEATURE_LINK_LAYER_STATS
-void wlan_hdd_clear_link_layer_stats(struct hdd_adapter *adapter);
-#else
-static inline void wlan_hdd_clear_link_layer_stats(struct hdd_adapter *adapter) {}
-#endif
+#define HDD_SET_BIT(__param, __val)    ((__param) |= (1 << (__val)))
 
 #define MAX_CHANNEL (NUM_24GHZ_CHANNELS + NUM_5GHZ_CHANNELS)
 #define MAX_SCAN_SSID 10
@@ -154,7 +147,9 @@ static inline void wlan_hdd_clear_link_layer_stats(struct hdd_adapter *adapter) 
 #define USE_CFG80211_DEL_STA_V2
 #endif
 
-#define OL_TXRX_INVALID_TDLS_PEER_ID 0xff
+#define TWT_SETUP_WAKE_INTVL_MANTISSA_MAX 0xFFFF
+#define TWT_SETUP_WAKE_DURATION_MAX       0xFFFF
+#define TWT_SETUP_WAKE_INTVL_EXP_MAX      31
 
 /**
  * enum eDFS_CAC_STATUS: CAC status
@@ -223,7 +218,10 @@ typedef enum {
 #define CFG_PROPAGATION_DELAY_MAX              (63)
 #define CFG_PROPAGATION_DELAY_BASE             (64)
 #define CFG_AGG_RETRY_MIN                      (5)
-#define MGMT_RETRY_MAX                         (31)
+
+#define PCL_CHANNEL_SUPPORT_GO			BIT(0)
+#define PCL_CHANNEL_SUPPORT_CLI			BIT(1)
+#define PCL_CHANNEL_EXCLUDE_IN_GO_NEG		BIT(3)
 
 struct cfg80211_bss *
 wlan_hdd_cfg80211_update_bss_db(struct hdd_adapter *adapter,
@@ -266,23 +264,37 @@ wlan_hdd_cfg80211_roam_metrics_handover(struct hdd_adapter *adapter,
 					struct csr_roam_info *roam_info);
 #endif
 
-struct hdd_context *hdd_cfg80211_wiphy_alloc(int priv_size);
-
-int wlan_hdd_cfg80211_tdls_scan(struct wiphy *wiphy,
-				struct cfg80211_scan_request *request,
-				uint8_t source);
+/**
+ * hdd_cfg80211_wiphy_alloc() - Allocate wiphy
+ *
+ * Allocate wiphy and hdd context.
+ *
+ * Return: hdd context on success and NULL on failure.
+ */
+struct hdd_context *hdd_cfg80211_wiphy_alloc(void);
 
 int wlan_hdd_cfg80211_scan(struct wiphy *wiphy,
 			   struct cfg80211_scan_request *request);
 
 int wlan_hdd_cfg80211_init(struct device *dev,
-			   struct wiphy *wiphy, struct hdd_config *pCfg);
+			   struct wiphy *wiphy, struct hdd_config *config);
 
 void wlan_hdd_cfg80211_deinit(struct wiphy *wiphy);
 
 void wlan_hdd_update_wiphy(struct hdd_context *hdd_ctx);
 
-void wlan_hdd_update_11n_mode(struct hdd_config *cfg);
+void wlan_hdd_update_11n_mode(struct hdd_context *hdd_ctx);
+
+/**
+ * wlan_hdd_update_wiphy_supported_band() - Updates wiphy band info when
+ * receive FW ready event
+ * @hdd_ctx: HDD context
+ *
+ * Updates wiphy band info
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS wlan_hdd_update_wiphy_supported_band(struct hdd_context *hdd_ctx);
 
 int wlan_hdd_cfg80211_register(struct wiphy *wiphy);
 
@@ -303,14 +315,8 @@ void wlan_hdd_cfg80211_deregister_frames(struct hdd_adapter *adapter);
 void hdd_reg_notifier(struct wiphy *wiphy,
 				 struct regulatory_request *request);
 
-extern void hdd_conn_set_connection_state(struct hdd_adapter *adapter,
-					  eConnectionState connState);
 QDF_STATUS wlan_hdd_validate_operation_channel(struct hdd_adapter *adapter,
 					       int channel);
-#ifdef FEATURE_WLAN_TDLS
-int wlan_hdd_cfg80211_send_tdls_discover_req(struct wiphy *wiphy,
-					     struct net_device *dev, u8 *peer);
-#endif
 
 void hdd_select_cbmode(struct hdd_adapter *adapter, uint8_t operationChannel,
 		       struct ch_params *ch_params);
@@ -362,15 +368,6 @@ int wlan_hdd_send_hang_reason_event(struct hdd_context *hdd_ctx,
 int wlan_hdd_send_avoid_freq_for_dnbs(struct hdd_context *hdd_ctx,
 				      uint8_t op_chan);
 
-#ifdef FEATURE_WLAN_EXTSCAN
-void wlan_hdd_cfg80211_extscan_callback(void *ctx,
-					const uint16_t evType, void *pMsg);
-#else
-static inline void wlan_hdd_cfg80211_extscan_callback(void *ctx,
-					const uint16_t evType, void *pMsg)
-{
-}
-#endif /* FEATURE_WLAN_EXTSCAN */
 /**
  * wlan_hdd_rso_cmd_status_cb() - HDD callback to read RSO command status
  * @hdd_handle: opaque handle for the hdd context
@@ -383,9 +380,6 @@ static inline void wlan_hdd_cfg80211_extscan_callback(void *ctx,
  */
 void wlan_hdd_rso_cmd_status_cb(hdd_handle_t hdd_handle,
 				struct rso_cmd_status *rso_status);
-
-void hdd_rssi_threshold_breached(void *hddctx,
-				 struct rssi_breach_event *data);
 
 /*
  * wlan_hdd_cfg80211_unlink_bss :to inform nl80211
@@ -419,18 +413,27 @@ static inline int wlan_hdd_send_roam_auth_event(struct hdd_adapter *adapter,
 #endif
 
 int wlan_hdd_cfg80211_update_apies(struct hdd_adapter *adapter);
-int wlan_hdd_request_pre_cac(uint8_t channel);
+int wlan_hdd_request_pre_cac(struct hdd_context *hdd_ctx, uint8_t channel);
 int wlan_hdd_sap_cfg_dfs_override(struct hdd_adapter *adapter);
-
-enum policy_mgr_con_mode wlan_hdd_convert_nl_iftype_to_hdd_type(
-					enum nl80211_iftype type);
 
 int wlan_hdd_enable_dfs_chan_scan(struct hdd_context *hdd_ctx,
 				  bool enable_dfs_channels);
 
+/**
+ * wlan_hdd_cfg80211_update_band() - Update band of operation
+ * @hdd_ctx: The global HDD context
+ * @wiphy: The wiphy being configured
+ * @new_band: The new bad of operation
+ *
+ * This function is called from the supplicant through a
+ * private ioctl to change the band value
+ *
+ * Return: 0 on success, else a negative errno if the operation could
+ *         not be completed
+ */
 int wlan_hdd_cfg80211_update_band(struct hdd_context *hdd_ctx,
 				  struct wiphy *wiphy,
-				  enum band_info eBand);
+				  enum band_info new_band);
 
 /**
  * wlan_hdd_try_disconnect() - try disconnnect from previous connection
@@ -521,15 +524,6 @@ enum hdd_rate_info_bw {
  */
 void hdd_set_rate_bw(struct rate_info *info, enum hdd_rate_info_bw hdd_bw);
 
-/**
- * hdd_lost_link_info_cb() - callback function to get lost link information
- * @hdd_handle: Opaque handle for the HDD context
- * @lost_link_info: lost link information
- *
- * Return: none
- */
-void hdd_lost_link_info_cb(hdd_handle_t hdd_handle,
-			   struct sir_lost_link_info *lost_link_info);
 /*
  * hdd_get_sap_operating_band:  Get current operating channel
  * for sap.
@@ -611,6 +605,7 @@ void hdd_bt_activity_cb(hdd_handle_t hdd_handle, uint32_t bt_activity);
  *                                      context for offload operations.
  * @adapter: Adapter context
  * @kck_ptr: KCK buffer pointer
+ * @kck_len: KCK length
  * @kek_ptr: KEK buffer pointer
  * @kek_len: KEK length
  * @replay_ctr: Pointer to 64 bit long replay counter
@@ -629,6 +624,15 @@ void wlan_hdd_save_gtk_offload_params(struct hdd_adapter *adapter,
 				      uint8_t *replay_ctr, bool big_endian)
 {}
 #endif
+
+
+/**
+ * wlan_hdd_flush_pmksa_cache() - flush pmksa cache for adapter
+ * @adapter: Adapter context
+ *
+ * Return: qdf status
+ */
+QDF_STATUS wlan_hdd_flush_pmksa_cache(struct hdd_adapter *adapter);
 
 /*
  * wlan_hdd_send_mode_change_event() - API to send hw mode change event to
@@ -674,4 +678,18 @@ void hdd_store_sar_config(struct hdd_context *hdd_ctx,
  * Return: None
  */
 void wlan_hdd_free_sar_config(struct hdd_context *hdd_ctx);
+
+/*
+ * wlan_hdd_send_sta_authorized_event: Function to send station authorized
+ * event to user space in case of SAP
+ * @adapter: Pointer to the adapter
+ * @hdd_ctx: HDD Context
+ * @mac_addr: MAC address of the STA for whic the Authorized event needs to
+ * be sent
+ * This api is used to send station authorized event to user space
+ */
+QDF_STATUS wlan_hdd_send_sta_authorized_event(
+					struct hdd_adapter *adapter,
+					struct hdd_context *hdd_ctx,
+					const struct qdf_mac_addr *mac_addr);
 #endif

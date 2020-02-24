@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -70,23 +70,29 @@
 #include <stdarg.h>             /* va_list */
 #include <qdf_types.h>          /* qdf_vprint */
 
-#define ol_txrx_log(level, args...) \
-		QDF_TRACE(QDF_MODULE_ID_TXRX, level, ## args)
-#define ol_txrx_logfl(level, format, args...) \
-		ol_txrx_log(level, FL(format), ## args)
+#define ol_txrx_alert(params...) \
+	QDF_TRACE_FATAL(QDF_MODULE_ID_TXRX, params)
+#define ol_txrx_err(params...) \
+	QDF_TRACE_ERROR(QDF_MODULE_ID_TXRX, params)
+#define ol_txrx_warn(params...) \
+	QDF_TRACE_WARN(QDF_MODULE_ID_TXRX, params)
+#define ol_txrx_info(params...) \
+	QDF_TRACE_INFO(QDF_MODULE_ID_TXRX, params)
+#define ol_txrx_info_high(params...) \
+	QDF_TRACE_INFO(QDF_MODULE_ID_TXRX, params)
+#define ol_txrx_dbg(params...) \
+	QDF_TRACE_DEBUG(QDF_MODULE_ID_TXRX, params)
 
-#define ol_txrx_alert(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_FATAL, format, ## args)
-#define ol_txrx_err(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_ERROR, format, ## args)
-#define ol_txrx_warn(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_WARN, format, ## args)
-#define ol_txrx_info(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_INFO, format, ## args)
-#define ol_txrx_info_high(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_INFO_HIGH, format, ## args)
-#define ol_txrx_dbg(format, args...) \
-		ol_txrx_logfl(QDF_TRACE_LEVEL_DEBUG, format, ## args)
+#define txrx_nofl_alert(params...) \
+	QDF_TRACE_FATAL_NO_FL(QDF_MODULE_ID_TXRX, params)
+#define txrx_nofl_err(params...) \
+	QDF_TRACE_ERROR_NO_FL(QDF_MODULE_ID_TXRX, params)
+#define txrx_nofl_warn(params...) \
+	QDF_TRACE_WARN_NO_FL(QDF_MODULE_ID_TXRX, params)
+#define txrx_nofl_info(params...) \
+	QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_TXRX, params)
+#define txrx_nofl_dbg(params...) \
+	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_TXRX, params)
 
 /*
  * define PN check failure message print rate
@@ -95,14 +101,20 @@
 #define TXRX_PN_CHECK_FAILURE_PRINT_PERIOD_MS  1000
 
 #else
-#define ol_txrx_log(level, args...)
-#define ol_txrx_logfl(level, format, args...)
+
 #define ol_txrx_alert(format, args...)
 #define ol_txrx_err(format, args...)
 #define ol_txrx_warn(format, args...)
 #define ol_txrx_info(format, args...)
 #define ol_txrx_info_high(format, args...)
 #define ol_txrx_dbg(format, args...)
+
+#define txrx_nofl_alert(params...)
+#define txrx_nofl_err(params...)
+#define txrx_nofl_warn(params...)
+#define txrx_nofl_info(params...)
+#define txrx_nofl_dbg(params...)
+
 #endif /* TXRX_PRINT_ENABLE */
 
 /*--- tx credit debug printouts ---*/
@@ -327,7 +339,7 @@ static inline int ol_txrx_ieee80211_hdrsize(const void *data)
 		     IEEE80211_FC0_TYPE_CTL);
 	if ((wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) ==
 	    IEEE80211_FC1_DIR_DSTODS)
-		size += IEEE80211_ADDR_LEN;
+		size += QDF_MAC_ADDR_SIZE;
 	if (IEEE80211_QOS_HAS_SEQ(wh)) {
 		size += sizeof(uint16_t);
 		/* Qos frame with Order bit set indicates an HTC frame */
@@ -603,7 +615,7 @@ NOT_IP_TCP:
 		else							\
 			err_type = OL_RX_ERR_UNKNOWN;			\
 									\
-		if (vdev != NULL && peer != NULL) {			\
+		if (vdev && peer) {			\
 			OL_RX_ERR_STATISTICS_1(pdev, vdev, peer,	\
 					       rx_mpdu_desc, err_type); \
 		} else {						\
@@ -640,7 +652,7 @@ NOT_IP_TCP:
 				dest_addr = (uint8_t *) &(frm->i_addr3[0]); \
 			} \
 		} \
-		if (qdf_unlikely(IEEE80211_IS_BROADCAST(dest_addr))) { \
+		if (qdf_unlikely(QDF_IS_ADDR_BROADCAST(dest_addr))) { \
 			OL_TXRX_PEER_STATS_UPDATE_BASE(peer, tx_or_rx,	\
 						       bcast, msdu);	\
 		} else if (qdf_unlikely(IEEE80211_IS_MULTICAST(dest_addr))) { \

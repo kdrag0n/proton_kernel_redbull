@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2014-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -64,7 +64,6 @@
 #define IPA_UC_TX_BUF_FRAG_HDR_OFFSET  64
 #define IPA_UC_TX_BUF_TSO_HDR_SIZE     6
 #define IPA_UC_TX_BUF_PADDR_HI_MASK    0x0000001F
-#define IPA_UC_TX_BUF_PADDR_HI_OFFSET  32
 #else
 #define IPA_UC_TX_BUF_FRAG_DESC_OFFSET 16
 #define IPA_UC_TX_BUF_FRAG_HDR_OFFSET  32
@@ -161,7 +160,7 @@ static int htt_tx_frag_desc_attach(struct htt_pdev_t *pdev,
 		pdev->frag_descs.size, desc_pool_elems,
 		qdf_get_dma_mem_context((&pdev->frag_descs), memctx), false);
 	if ((0 == pdev->frag_descs.desc_pages.num_pages) ||
-		(NULL == pdev->frag_descs.desc_pages.dma_pages)) {
+		(!pdev->frag_descs.desc_pages.dma_pages)) {
 		ol_txrx_err("FRAG descriptor alloc fail");
 		return -ENOBUFS;
 	}
@@ -344,7 +343,7 @@ int htt_tx_attach(struct htt_pdev_t *pdev, int desc_pool_elems)
 				  qdf_get_dma_mem_context((&pdev->tx_descs),
 							  memctx), true);
 	if ((0 == pdev->tx_descs.desc_pages.num_pages) ||
-	    (NULL == pdev->tx_descs.desc_pages.cacheable_pages)) {
+	    (!pdev->tx_descs.desc_pages.cacheable_pages)) {
 		ol_txrx_err("HTT desc alloc fail");
 		goto out_fail;
 	}
@@ -512,7 +511,7 @@ int htt_tx_attach(struct htt_pdev_t *pdev, int desc_pool_elems)
 		pdev->tx_descs.size, pdev->tx_descs.pool_elems,
 		qdf_get_dma_mem_context((&pdev->tx_descs), memctx), false);
 	if ((0 == pdev->tx_descs.desc_pages.num_pages) ||
-		(NULL == pdev->tx_descs.desc_pages.dma_pages)) {
+		(!pdev->tx_descs.desc_pages.dma_pages)) {
 		ol_txrx_err("HTT desc alloc fail");
 		goto out_fail;
 	}
@@ -739,7 +738,7 @@ void htt_tx_sched(htt_pdev_handle pdev)
 	int packet_len;
 
 	HTT_TX_NBUF_QUEUE_REMOVE(pdev, msdu);
-	while (msdu != NULL) {
+	while (msdu) {
 		int not_accepted;
 		/* packet length includes HTT tx desc frag added above */
 		packet_len = qdf_nbuf_len(msdu);
@@ -838,7 +837,7 @@ htt_tx_resume_handler(void *context) { }
 qdf_nbuf_t
 htt_tx_send_batch(htt_pdev_handle pdev, qdf_nbuf_t head_msdu, int num_msdus)
 {
-	qdf_print("*** %s currently only applies for HL systems\n", __func__);
+	qdf_print("Not apply to LL");
 	qdf_assert(0);
 	return head_msdu;
 
@@ -1063,17 +1062,16 @@ static int htt_tx_ipa_uc_wdi_tx_buf_alloc(struct htt_pdev_t *pdev,
 	unsigned int  tx_buffer_count_pwr2;
 	qdf_dma_addr_t buffer_paddr;
 	uint32_t *header_ptr;
-	qdf_dma_addr_t *ring_vaddr;
+	target_paddr_t *ring_vaddr;
 	uint16_t idx;
 	qdf_mem_info_t *mem_map_table = NULL, *mem_info = NULL;
 	qdf_shared_mem_t *shared_tx_buffer;
 
-	ring_vaddr = (qdf_dma_addr_t *)pdev->ipa_uc_tx_rsc.tx_comp_ring->vaddr;
+	ring_vaddr = (target_paddr_t *)pdev->ipa_uc_tx_rsc.tx_comp_ring->vaddr;
 	if (qdf_mem_smmu_s1_enabled(pdev->osdev)) {
 		mem_map_table = qdf_mem_map_table_alloc(uc_tx_buf_cnt);
 		if (!mem_map_table) {
-			qdf_print("%s: Failed to allocate memory for mem map table\n",
-				  __func__);
+			qdf_print("Failed to allocate memory");
 			return 0;
 		}
 		mem_info = mem_map_table;
@@ -1191,8 +1189,7 @@ static void htt_tx_buf_pool_free(struct htt_pdev_t *pdev)
 		mem_map_table = qdf_mem_map_table_alloc(
 					pdev->ipa_uc_tx_rsc.alloc_tx_buf_cnt);
 		if (!mem_map_table) {
-			qdf_print("%s: Failed to allocate memory for mem map table\n",
-				  __func__);
+			qdf_print("Failed to allocate memory");
 			return;
 		}
 		mem_info = mem_map_table;
@@ -1238,8 +1235,7 @@ static int htt_tx_ipa_uc_wdi_tx_buf_alloc(struct htt_pdev_t *pdev,
 	if (qdf_mem_smmu_s1_enabled(pdev->osdev)) {
 		mem_map_table = qdf_mem_map_table_alloc(uc_tx_buf_cnt);
 		if (!mem_map_table) {
-			qdf_print("%s: Failed to allocate memory for mem map table\n",
-				  __func__);
+			qdf_print("Failed to allocate memory");
 			return 0;
 		}
 		mem_info = mem_map_table;
@@ -1251,8 +1247,8 @@ static int htt_tx_ipa_uc_wdi_tx_buf_alloc(struct htt_pdev_t *pdev,
 		shared_tx_buffer = qdf_mem_shared_mem_alloc(pdev->osdev,
 							    uc_tx_buf_sz);
 		if (!shared_tx_buffer || !shared_tx_buffer->vaddr) {
-			qdf_print("%s: TX BUF alloc fail, loop index: %d",
-				  __func__, tx_buffer_count);
+			qdf_print("TX BUF alloc fail, loop index: %d",
+				  tx_buffer_count);
 			goto pwr2;
 		}
 
@@ -1338,8 +1334,7 @@ static void htt_tx_buf_pool_free(struct htt_pdev_t *pdev)
 		mem_map_table = qdf_mem_map_table_alloc(
 					pdev->ipa_uc_tx_rsc.alloc_tx_buf_cnt);
 		if (!mem_map_table) {
-			qdf_print("%s: Failed to allocate memory for mem map table\n",
-				  __func__);
+			qdf_print("Failed to allocate memory");
 			return;
 		}
 		mem_info = mem_map_table;
@@ -1390,8 +1385,7 @@ int htt_tx_ipa_uc_attach(struct htt_pdev_t *pdev,
 	pdev->ipa_uc_tx_rsc.tx_ce_idx =
 		qdf_mem_shared_mem_alloc(pdev->osdev, 4);
 	if (!pdev->ipa_uc_tx_rsc.tx_ce_idx) {
-		qdf_print("%s: Unable to allocate memory for IPA tx ce idx\n",
-			  __func__);
+		qdf_print("Unable to allocate memory for IPA tx ce idx");
 		return -ENOBUFS;
 	}
 
@@ -1402,7 +1396,7 @@ int htt_tx_ipa_uc_attach(struct htt_pdev_t *pdev,
 					 tx_comp_ring_size);
 	if (!pdev->ipa_uc_tx_rsc.tx_comp_ring ||
 	    !pdev->ipa_uc_tx_rsc.tx_comp_ring->vaddr) {
-		qdf_print("%s: TX COMP ring alloc fail", __func__);
+		qdf_print("TX COMP ring alloc fail");
 		return_code = -ENOBUFS;
 		goto free_tx_ce_idx;
 	}
@@ -1412,7 +1406,6 @@ int htt_tx_ipa_uc_attach(struct htt_pdev_t *pdev,
 		qdf_mem_malloc(uc_tx_buf_cnt *
 			sizeof(*pdev->ipa_uc_tx_rsc.tx_buf_pool_strg));
 	if (!pdev->ipa_uc_tx_rsc.tx_buf_pool_strg) {
-		qdf_print("%s: TX BUF POOL vaddr storage alloc fail", __func__);
 		return_code = -ENOBUFS;
 		goto free_tx_comp_base;
 	}
@@ -1568,10 +1561,12 @@ int htt_get_channel_freq(enum extension_header_type type,
  *
  * Return: none
  */
+#ifdef WLAN_FEATURE_DSRC
 static
 void htt_fill_ocb_ext_header(qdf_nbuf_t msdu,
-	struct htt_tx_msdu_desc_ext_t *local_desc_ext,
-	enum extension_header_type type, void *ext_header_data)
+			     struct htt_tx_msdu_desc_ext_t *local_desc_ext,
+			     enum extension_header_type type,
+			     void *ext_header_data)
 {
 	struct ocb_tx_ctrl_hdr_t *tx_ctrl =
 		(struct ocb_tx_ctrl_hdr_t *)ext_header_data;
@@ -1606,6 +1601,15 @@ void htt_fill_ocb_ext_header(qdf_nbuf_t msdu,
 			sizeof(struct htt_tx_msdu_desc_ext_t));
 	QDF_NBUF_CB_TX_EXTRA_FRAG_FLAGS_EXT_HEADER(msdu) = 1;
 }
+#else
+static
+void htt_fill_ocb_ext_header(qdf_nbuf_t msdu,
+			     struct htt_tx_msdu_desc_ext_t *local_desc_ext,
+			     enum extension_header_type type,
+			     void *ext_header_data)
+{
+}
+#endif
 
 /**
  * htt_fill_wisa_ext_header() - fill WiSA extension header
@@ -1721,6 +1725,7 @@ htt_tx_desc_init(htt_pdev_handle pdev,
 	bool desc_ext_required = (type != EXT_HEADER_NOT_PRESENT);
 	int channel_freq;
 	void *qdf_ctx = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
+	qdf_dma_dir_t dir;
 	QDF_STATUS status;
 
 	if (qdf_unlikely(!qdf_ctx)) {
@@ -1850,7 +1855,9 @@ htt_tx_desc_init(htt_pdev_handle pdev,
 					0);
 
 	if (QDF_NBUF_CB_PADDR(msdu) == 0) {
-		status = qdf_nbuf_map_single(qdf_ctx, msdu, QDF_DMA_TO_DEVICE);
+		dir = QDF_NBUF_CB_TX_DMA_BI_MAP(msdu) ?
+			QDF_DMA_BIDIRECTIONAL : QDF_DMA_TO_DEVICE;
+		status = qdf_nbuf_map_single(qdf_ctx, msdu, dir);
 		if (qdf_unlikely(status != QDF_STATUS_SUCCESS)) {
 			QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
 				"%s: nbuf map failed", __func__);

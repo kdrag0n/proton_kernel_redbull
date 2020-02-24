@@ -27,6 +27,7 @@
 #include "wlan_osif_priv.h"
 #include "qdf_trace.h"
 #include "wlan_hdd_main.h"
+#include "osif_sync.h"
 #include "wlan_hdd_bcn_recv.h"
 #include <linux/limits.h>
 #include <wlan_hdd_object_manager.h>
@@ -225,7 +226,7 @@ static int hdd_handle_beacon_reporting_start_op(struct hdd_context *hdd_ctx,
 	}
 	/* Handle beacon receive start indication */
 	qdf_status = sme_handle_bcn_recv_start(hdd_ctx->mac_handle,
-					       adapter->session_id, nth_value,
+					       adapter->vdev_id, nth_value,
 					       do_not_resume);
 	if (QDF_IS_STATUS_ERROR(qdf_status)) {
 		hdd_err("bcn rcv start failed with status=%d", qdf_status);
@@ -257,7 +258,7 @@ static int hdd_handle_beacon_reporting_stop_op(struct hdd_context *hdd_ctx,
 	int errno;
 
 	/* Reset bcn recv start flag */
-	sme_stop_beacon_report(hdd_ctx->mac_handle, adapter->session_id);
+	sme_stop_beacon_report(hdd_ctx->mac_handle, adapter->vdev_id);
 
 	/* Deregister beacon report callback */
 	qdf_status = sme_register_bcn_report_pe_cb(hdd_ctx->mac_handle, NULL);
@@ -379,7 +380,7 @@ static int __wlan_hdd_cfg80211_bcn_rcv_op(struct wiphy *wiphy,
 		hdd_debug("Beacon Report: Period: %d", nth_value);
 
 		if (sme_is_beacon_report_started(hdd_ctx->mac_handle,
-						 adapter->session_id)) {
+						 adapter->vdev_id)) {
 			hdd_debug("Start cmd already in progress, issue the stop to FW, before new start");
 			if (hdd_handle_beacon_reporting_stop_op(hdd_ctx,
 								adapter)) {
@@ -399,7 +400,7 @@ static int __wlan_hdd_cfg80211_bcn_rcv_op(struct wiphy *wiphy,
 		break;
 	case QCA_WLAN_VENDOR_BEACON_REPORTING_OP_STOP:
 		if (sme_is_beacon_report_started(hdd_ctx->mac_handle,
-						 adapter->session_id)) {
+						 adapter->vdev_id)) {
 			errno = hdd_handle_beacon_reporting_stop_op(hdd_ctx,
 								    adapter);
 			if (errno) {
@@ -454,14 +455,14 @@ void hdd_beacon_recv_pause_indication(hdd_handle_t hdd_handle,
 
 	do_not_resume =
 		sme_is_beacon_reporting_do_not_resume(hdd_ctx->mac_handle,
-						      adapter->session_id);
+						      adapter->vdev_id);
 
 	if (is_disconnected) {
 		abort_reason =
 		     QCA_WLAN_VENDOR_BEACON_REPORTING_PAUSE_REASON_DISCONNECTED;
 		/* Deregister callbacks and Reset bcn recv start flag */
 		if (sme_is_beacon_report_started(hdd_ctx->mac_handle,
-						 adapter->session_id))
+						 adapter->vdev_id))
 			hdd_handle_beacon_reporting_stop_op(hdd_ctx,
 							    adapter);
 	} else {
@@ -512,7 +513,7 @@ void hdd_beacon_recv_pause_indication(hdd_handle_t hdd_handle,
 	 * the QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_AUTO_RESUMES shall not be
 	 * set by the driver.
 	 */
-	if (!is_disconnected || !do_not_resume)
+	if (!is_disconnected && !do_not_resume)
 		if (nla_put_flag(vendor_event,
 			QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_AUTO_RESUMES)) {
 			hdd_err("QCA_WLAN_VENDOR_ATTR put fail");
@@ -528,12 +529,16 @@ int wlan_hdd_cfg80211_bcn_rcv_op(struct wiphy *wiphy,
 				 const void *data, int data_len)
 {
 	int errno;
+	struct osif_vdev_sync *vdev_sync;
 
-	cds_ssr_protect(__func__);
+	errno = osif_vdev_sync_op_start(wdev->netdev, &vdev_sync);
+	if (errno)
+		return errno;
+
 	errno = __wlan_hdd_cfg80211_bcn_rcv_op(wiphy, wdev,
 					       data, data_len);
 
-	cds_ssr_unprotect(__func__);
+	osif_vdev_sync_op_stop(vdev_sync);
 
 	return errno;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,7 +31,7 @@
 #include "cds_api.h"
 #include "wni_cfg.h"
 
-#include "cfg_api.h"
+#include "cfg_ucfg_api.h"
 #include "lim_api.h"
 #include "utils_api.h"
 #include "sch_api.h"
@@ -45,21 +45,13 @@
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 #include "host_diag_core_log.h"
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
-#include "wlan_mlme_main.h"
-#include "wma.h"
-/**
- * Number of bytes of variation in beacon length from the last beacon
- * to trigger reprogramming of rx delay register
- */
-#define SCH_BEACON_LEN_DELTA       3
 
-/* calculate 2^cw - 1 */
-#define CW_GET(cw) (((cw) == 0) ? 1 : ((1 << (cw)) - 1))
+#include "wma.h"
 
 static void
-ap_beacon_process_5_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
+ap_beacon_process_5_ghz(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 			tpSchBeaconStruct bcn_struct,
-			tpUpdateBeaconParams bcn_prm, tpPESession session,
+			tpUpdateBeaconParams bcn_prm, struct pe_session *session,
 			uint32_t phy_mode)
 {
 	tpSirMacMgmtHdr mac_hdr = WMA_GET_RX_MAC_HEADER(rx_pkt_info);
@@ -100,9 +92,9 @@ ap_beacon_process_5_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
 }
 
 static void
-ap_beacon_process_24_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
+ap_beacon_process_24_ghz(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 			 tpSchBeaconStruct bcn_struct,
-			 tpUpdateBeaconParams bcn_prm, tpPESession session,
+			 tpUpdateBeaconParams bcn_prm, struct pe_session *session,
 			 uint32_t phy_mode)
 {
 	tpSirMacMgmtHdr mac_hdr = WMA_GET_RX_MAC_HEADER(rx_pkt_info);
@@ -113,13 +105,13 @@ ap_beacon_process_24_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
 		if (bcn_struct->channelNumber != session->currentOperChannel)
 			return;
 
-		tmp_exp = (!bcn_struct->erpPresent
-			    && !bcn_struct->HTInfo.present)
+		tmp_exp = (!bcn_struct->erpPresent &&
+			   !bcn_struct->HTInfo.present) ||
 			    /* if erp not present then  11B AP overlapping */
-			    || (!mac_ctx->roam.configParam.ignore_peer_erp_info &&
-					bcn_struct->erpPresent &&
-					(bcn_struct->erpIEInfo.useProtection
-				    || bcn_struct->erpIEInfo.nonErpPresent));
+			  (!mac_ctx->mlme_cfg->sta.ignore_peer_erp_info &&
+			   bcn_struct->erpPresent &&
+			   (bcn_struct->erpIEInfo.useProtection ||
+			    bcn_struct->erpIEInfo.nonErpPresent));
 		if (!tmp_exp)
 			return;
 #ifdef FEATURE_WLAN_ESE
@@ -142,12 +134,12 @@ ap_beacon_process_24_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
 	if (bcn_struct->channelNumber != session->currentOperChannel)
 		return;
 
-	tmp_exp = (!bcn_struct->erpPresent && !bcn_struct->HTInfo.present)
+	tmp_exp = (!bcn_struct->erpPresent && !bcn_struct->HTInfo.present) ||
 		    /* if erp not present then  11B AP overlapping */
-		    || (!mac_ctx->roam.configParam.ignore_peer_erp_info &&
-				bcn_struct->erpPresent &&
-				(bcn_struct->erpIEInfo.useProtection
-			    || bcn_struct->erpIEInfo.nonErpPresent));
+		   (!mac_ctx->mlme_cfg->sta.ignore_peer_erp_info &&
+		    bcn_struct->erpPresent &&
+		    (bcn_struct->erpIEInfo.useProtection ||
+		     bcn_struct->erpIEInfo.nonErpPresent));
 	if (tmp_exp) {
 #ifdef FEATURE_WLAN_ESE
 		if (session->isESEconnection) {
@@ -191,7 +183,7 @@ ap_beacon_process_24_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
 	 * already been set to legacy in the previous blocks.
 	 */
 	if ((eSIR_HT_OP_MODE_OVERLAP_LEGACY == bcn_struct->HTInfo.opMode) &&
-		!mac_ctx->roam.configParam.ignore_peer_ht_opmode) {
+		!mac_ctx->mlme_cfg->sap_protection_cfg.ignore_peer_ht_opmode) {
 		if (eSIR_HT_OP_MODE_OVERLAP_LEGACY == mac_ctx->lim.gHTOperMode
 		    || eSIR_HT_OP_MODE_MIXED == mac_ctx->lim.gHTOperMode)
 			return;
@@ -226,9 +218,9 @@ ap_beacon_process_24_ghz(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
  * Return: void
  */
 static void
-ap_beacon_process(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
+ap_beacon_process(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 		  tpSchBeaconStruct bcn_struct,
-		  tpUpdateBeaconParams bcn_prm, tpPESession session)
+		  tpUpdateBeaconParams bcn_prm, struct pe_session *session)
 {
 	uint32_t phy_mode;
 	enum band_info rf_band = BAND_UNKNOWN;
@@ -279,16 +271,16 @@ ap_beacon_process(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
  *
 
  */
-static void __sch_beacon_process_no_session(tpAniSirGlobal pMac,
+static void __sch_beacon_process_no_session(struct mac_context *mac,
 					    tpSchBeaconStruct pBeacon,
 					    uint8_t *pRxPacketInfo)
 {
-	tpPESession psessionEntry = NULL;
+	struct pe_session *pe_session = NULL;
 
-	psessionEntry = lim_is_ibss_session_active(pMac);
-	if (psessionEntry != NULL) {
-		lim_handle_ibss_coalescing(pMac, pBeacon, pRxPacketInfo,
-					   psessionEntry);
+	pe_session = lim_is_ibss_session_active(mac);
+	if (pe_session) {
+		lim_handle_ibss_coalescing(mac, pBeacon, pRxPacketInfo,
+					   pe_session);
 	}
 	return;
 }
@@ -331,7 +323,7 @@ static tSirMacHTChannelWidth get_operating_channel_width(tpDphHashNode stads)
  * @bcn:            beacon struct
  * @rx_pkt_info:    received packet info
  * @session:        pe session pointer
- * @bssIdx:         bss index
+ * @bss_idx:         bss index
  * @beaconParams:   update beacon params
  * @sendProbeReq:   out flag to indicate if probe rsp is to be sent
  * @pMh:            mac header
@@ -341,15 +333,15 @@ static tSirMacHTChannelWidth get_operating_channel_width(tpDphHashNode stads)
  * Return: success of failure of operation
  */
 static bool
-sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
+sch_bcn_process_sta(struct mac_context *mac_ctx,
 			       tpSchBeaconStruct bcn,
 			       uint8_t *rx_pkt_info,
-			       tpPESession session, uint8_t *bssIdx,
+			       struct pe_session *session, uint8_t *bss_idx,
 			       tUpdateBeaconParams *beaconParams,
 			       uint8_t *sendProbeReq, tpSirMacMgmtHdr pMh)
 {
 	uint32_t bi;
-	tpDphHashNode pStaDs = NULL;
+	tpDphHashNode sta = NULL;
 	QDF_STATUS status;
 
 	/*
@@ -378,11 +370,11 @@ sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
 	}
 
 	lim_detect_change_in_ap_capabilities(mac_ctx, bcn, session);
-	if (lim_get_sta_hash_bssidx(mac_ctx, DPH_STA_HASH_INDEX_PEER, bssIdx,
+	if (lim_get_sta_hash_bssidx(mac_ctx, DPH_STA_HASH_INDEX_PEER, bss_idx,
 				    session) != QDF_STATUS_SUCCESS)
 		return false;
 
-	beaconParams->bssIdx = *bssIdx;
+	beaconParams->bss_idx = *bss_idx;
 	qdf_mem_copy((uint8_t *) &session->lastBeaconTimeStamp,
 			(uint8_t *) bcn->timeStamp, sizeof(uint64_t));
 	session->currentBssBeaconCnt++;
@@ -409,20 +401,23 @@ sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
 	}
 
 	if (bcn->cfPresent) {
-		cfg_set_int(mac_ctx, WNI_CFG_CFP_PERIOD,
-			    bcn->cfParamSet.cfpPeriod);
-		lim_send_cf_params(mac_ctx, *bssIdx,
-				   bcn->cfParamSet.cfpCount,
-				   bcn->cfParamSet.cfpPeriod);
+		if (!cfg_in_range(CFG_CFP_PERIOD, bcn->cfParamSet.cfpPeriod)) {
+			pe_err("Error in setting CFG item CFP Period");
+			return false;
+		}
+		mac_ctx->mlme_cfg->rates.cfp_period = bcn->cfParamSet.cfpPeriod;
 	}
 
 	/* No need to send DTIM Period and Count to HAL/SMAC */
 	/* SMAC already parses TIM bit. */
-	if (bcn->timPresent)
-		cfg_set_int(mac_ctx, WNI_CFG_DTIM_PERIOD, bcn->tim.dtimPeriod);
+	if (bcn->timPresent) {
+		if (cfg_in_range(CFG_DTIM_PERIOD, bcn->tim.dtimPeriod))
+			mac_ctx->mlme_cfg->sap_cfg.dtim_interval =
+						bcn->tim.dtimPeriod;
+	}
 
 	if (mac_ctx->lim.gLimProtectionControl !=
-			WNI_CFG_FORCE_POLICY_PROTECTION_DISABLE)
+	    MLME_FORCE_POLICY_PROTECTION_DISABLE)
 		lim_decide_sta_protection(mac_ctx, bcn, beaconParams, session);
 
 	if (bcn->erpPresent) {
@@ -435,7 +430,7 @@ sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
 	}
 	lim_update_short_slot(mac_ctx, bcn, beaconParams, session);
 
-	pStaDs = dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
+	sta = dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
 				    &session->dph.dphHashTable);
 	if ((bcn->wmeEdcaPresent && session->limWmeEnabled) ||
 	    (bcn->edcaPresent && session->limQosEnabled)) {
@@ -446,13 +441,13 @@ sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
 							 session);
 			if (QDF_IS_STATUS_ERROR(status)) {
 				pe_err("EDCA parameter processing error");
-			} else if (pStaDs != NULL) {
+			} else if (sta) {
 				/* If needed, downgrade the EDCA parameters */
 				lim_set_active_edca_params(mac_ctx,
 					session->gLimEdcaParams, session);
 				lim_send_edca_params(mac_ctx,
 					session->gLimEdcaParamsActive,
-					pStaDs->bssId, false);
+					sta->bssId, false);
 			} else {
 				pe_err("Self Entry missing in Hash Table");
 			}
@@ -473,15 +468,15 @@ sch_bcn_process_sta(tpAniSirGlobal mac_ctx,
  * @mac_ctx: pointer to Global Mac structure
  * @sta_ds: pointer to tpDphHashNode
  * @beacon: pointer to tpSchBeaconStruct
- * @session_entry: pointer to tpPESession
+ * @session_entry: pointer to struct pe_session *
  * @mgmt_hdr: pointer to tpSirMacMgmtHdr
  *
  * function to update NSS
  *
  * Return: none
  */
-static void update_nss(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
-		       tpSchBeaconStruct beacon, tpPESession session_entry,
+static void update_nss(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
+		       tpSchBeaconStruct beacon, struct pe_session *session_entry,
 		       tpSirMacMgmtHdr mgmt_hdr)
 {
 	if (sta_ds->vhtSupportedRxNss != (beacon->OperatingMode.rxNSS + 1)) {
@@ -499,8 +494,8 @@ static void update_nss(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
 
 #ifdef WLAN_FEATURE_11AX_BSS_COLOR
 static void
-sch_bcn_update_he_ies(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
-				tpPESession session, tpSchBeaconStruct bcn,
+sch_bcn_update_he_ies(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
+				struct pe_session *session, tpSchBeaconStruct bcn,
 				tpSirMacMgmtHdr mac_hdr)
 {
 	uint8_t session_bss_col_disabled_flag;
@@ -536,8 +531,8 @@ sch_bcn_update_he_ies(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
 }
 #else
 static void
-sch_bcn_update_he_ies(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
-				tpPESession session, tpSchBeaconStruct bcn,
+sch_bcn_update_he_ies(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
+				struct pe_session *session, tpSchBeaconStruct bcn,
 				tpSirMacMgmtHdr mac_hdr)
 {
 	return;
@@ -545,8 +540,8 @@ sch_bcn_update_he_ies(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
 #endif
 
 static void
-sch_bcn_update_opmode_change(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
-				tpPESession session, tpSchBeaconStruct bcn,
+sch_bcn_update_opmode_change(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
+				struct pe_session *session, tpSchBeaconStruct bcn,
 				tpSirMacMgmtHdr mac_hdr, uint8_t cb_mode)
 {
 	bool skip_opmode_update = false;
@@ -707,7 +702,7 @@ sch_bcn_update_opmode_change(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
  * @bcn:            beacon struct
  * @rx_pkt_info:    received packet info
  * @session:        pe session pointer
- * @bssIdx:         bss index
+ * @bss_idx:         bss index
  * @beaconParams:   update beacon params
  * @sendProbeReq:   out flag to indicate if probe rsp is to be sent
  * @pMh:            mac header
@@ -717,14 +712,15 @@ sch_bcn_update_opmode_change(tpAniSirGlobal mac_ctx, tpDphHashNode sta_ds,
  * Return: void
  */
 static void
-sch_bcn_process_sta_ibss(tpAniSirGlobal mac_ctx,
+sch_bcn_process_sta_ibss(struct mac_context *mac_ctx,
 				    tpSchBeaconStruct bcn,
 				    uint8_t *rx_pkt_info,
-				    tpPESession session, uint8_t *bssIdx,
+				    struct pe_session *session,
+				    uint8_t *bss_idx,
 				    tUpdateBeaconParams *beaconParams,
 				    uint8_t *sendProbeReq, tpSirMacMgmtHdr pMh)
 {
-	tpDphHashNode pStaDs = NULL;
+	tpDphHashNode sta = NULL;
 	uint16_t aid;
 	uint8_t cb_mode;
 
@@ -737,14 +733,14 @@ sch_bcn_process_sta_ibss(tpAniSirGlobal mac_ctx,
 	} else
 		cb_mode = mac_ctx->roam.configParam.channelBondingMode5GHz;
 	/* check for VHT capability */
-	pStaDs = dph_lookup_hash_entry(mac_ctx, pMh->sa, &aid,
+	sta = dph_lookup_hash_entry(mac_ctx, pMh->sa, &aid,
 			&session->dph.dphHashTable);
-	if ((NULL == pStaDs) || ((NULL != pStaDs) &&
-					(STA_INVALID_IDX == pStaDs->staIndex)))
+	if ((!sta) || ((sta) &&
+					(STA_INVALID_IDX == sta->staIndex)))
 		return;
-	sch_bcn_update_opmode_change(mac_ctx, pStaDs, session, bcn, pMh,
+	sch_bcn_update_opmode_change(mac_ctx, sta, session, bcn, pMh,
 				     cb_mode);
-	sch_bcn_update_he_ies(mac_ctx, pStaDs, session, bcn, pMh);
+	sch_bcn_update_he_ies(mac_ctx, sta, session, bcn, pMh);
 	return;
 }
 
@@ -812,12 +808,12 @@ static void get_local_power_constraint_beacon(
  *
  * Return: void
  */
-static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
+static void __sch_beacon_process_for_session(struct mac_context *mac_ctx,
 					     tpSchBeaconStruct bcn,
 					     uint8_t *rx_pkt_info,
-					     tpPESession session)
+					     struct pe_session *session)
 {
-	uint8_t bssIdx = 0;
+	uint8_t bss_idx = 0;
 	tUpdateBeaconParams beaconParams;
 	uint8_t sendProbeReq = false;
 	tpSirMacMgmtHdr pMh = WMA_GET_RX_MAC_HEADER(rx_pkt_info);
@@ -831,7 +827,7 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 		lim_handle_ibss_coalescing(mac_ctx, bcn, rx_pkt_info, session);
 	} else if (LIM_IS_STA_ROLE(session)) {
 		if (false == sch_bcn_process_sta(mac_ctx, bcn,
-				rx_pkt_info, session, &bssIdx,
+				rx_pkt_info, session, &bss_idx,
 				&beaconParams, &sendProbeReq, pMh))
 			return;
 	}
@@ -844,7 +840,7 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 	   bcn->VHTOperation.present)) && session->htCapability &&
 	   bcn->HTInfo.present && !LIM_IS_IBSS_ROLE(session))
 		lim_update_sta_run_time_ht_switch_chnl_params(mac_ctx,
-						&bcn->HTInfo, bssIdx, session);
+						&bcn->HTInfo, bss_idx, session);
 
 	if ((LIM_IS_STA_ROLE(session) && !wma_is_csa_offload_enabled())
 	    || LIM_IS_IBSS_ROLE(session)) {
@@ -869,15 +865,15 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 	if (LIM_IS_STA_ROLE(session)
 	    || LIM_IS_IBSS_ROLE(session))
 		sch_bcn_process_sta_ibss(mac_ctx, bcn,
-					rx_pkt_info, session, &bssIdx,
+					rx_pkt_info, session, &bss_idx,
 					&beaconParams, &sendProbeReq, pMh);
 	/* Obtain the Max Tx power for the current regulatory  */
-	regMax = cfg_get_regulatory_max_transmit_power(mac_ctx,
-					session->currentOperChannel);
+	regMax = lim_get_regulatory_max_transmit_power(
+				mac_ctx, session->currentOperChannel);
 
 	local_constraint = regMax;
 
-	if (mac_ctx->roam.configParam.allow_tpc_from_ap) {
+	if (mac_ctx->mlme_cfg->sta.allow_tpc_from_ap) {
 		get_local_power_constraint_beacon(bcn, &local_constraint);
 		pe_debug("ESE localPowerConstraint = %d,",
 				local_constraint);
@@ -894,7 +890,7 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 
 	tx_pwr_attr.reg_max = regMax;
 	tx_pwr_attr.ap_tx_power = local_constraint;
-	tx_pwr_attr.ini_tx_power = mac_ctx->roam.configParam.nTxPowerCap;
+	tx_pwr_attr.ini_tx_power = mac_ctx->mlme_cfg->power.max_tx_power;
 	tx_pwr_attr.frequency =
 			wlan_reg_get_channel_freq(mac_ctx->pdev,
 						  session->currentOperChannel);
@@ -929,7 +925,7 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 	if (sendProbeReq)
 		lim_send_probe_req_mgmt_frame(mac_ctx, &session->ssId,
 			session->bssId, session->currentOperChannel,
-			session->selfMacAddr, session->dot11mode, NULL, NULL);
+			session->self_mac_addr, session->dot11mode, NULL, NULL);
 
 	if ((false == mac_ctx->sap.SapDfsInfo.is_dfs_cac_timer_running)
 	    && beaconParams.paramChangeBitmap) {
@@ -940,17 +936,18 @@ static void __sch_beacon_process_for_session(tpAniSirGlobal mac_ctx,
 		lim_send_beacon_params(mac_ctx, &beaconParams, session);
 	}
 
-	if ((session->pePersona == QDF_P2P_CLIENT_MODE) &&
-		session->send_p2p_conf_frame) {
+	if ((session->opmode == QDF_P2P_CLIENT_MODE) &&
+	    session->send_p2p_conf_frame) {
 		lim_p2p_oper_chan_change_confirm_action_frame(mac_ctx,
-				session->bssId, session);
+							      session->bssId,
+							      session);
 		session->send_p2p_conf_frame = false;
 	}
 }
 
 #ifdef WLAN_FEATURE_11AX_BSS_COLOR
-static void ap_update_bss_color_info(tpAniSirGlobal mac_ctx,
-						tpPESession session,
+static void ap_update_bss_color_info(struct mac_context *mac_ctx,
+						struct pe_session *session,
 						uint8_t bss_color)
 {
 	if (!session)
@@ -966,7 +963,7 @@ static void ap_update_bss_color_info(tpAniSirGlobal mac_ctx,
 					qdf_get_system_timestamp();
 }
 
-static uint8_t ap_get_new_bss_color(tpAniSirGlobal mac_ctx, tpPESession session)
+static uint8_t ap_get_new_bss_color(struct mac_context *mac_ctx, struct pe_session *session)
 {
 	int i;
 	uint8_t new_bss_color;
@@ -997,8 +994,8 @@ static uint8_t ap_get_new_bss_color(tpAniSirGlobal mac_ctx, tpPESession session)
 	return new_bss_color;
 }
 
-static void sch_check_bss_color_ie(tpAniSirGlobal mac_ctx,
-					tpPESession ap_session,
+static void sch_check_bss_color_ie(struct mac_context *mac_ctx,
+					struct pe_session *ap_session,
 					tSchBeaconStruct *bcn,
 					tUpdateBeaconParams *bcn_prm)
 {
@@ -1032,20 +1029,20 @@ static void sch_check_bss_color_ie(tpAniSirGlobal mac_ctx,
 }
 
 #else
-static void  sch_check_bss_color_ie(tpAniSirGlobal mac_ctx,
-					tpPESession ap_session,
+static void  sch_check_bss_color_ie(struct mac_context *mac_ctx,
+					struct pe_session *ap_session,
 					tSchBeaconStruct *bcn,
 					tUpdateBeaconParams *bcn_prm)
 {
 }
 #endif
 
-void sch_beacon_process_for_ap(tpAniSirGlobal mac_ctx,
+void sch_beacon_process_for_ap(struct mac_context *mac_ctx,
 				uint8_t session_id,
 				uint8_t *rx_pkt_info,
 				tSchBeaconStruct *bcn)
 {
-	tpPESession ap_session;
+	struct pe_session *ap_session;
 	tUpdateBeaconParams bcn_prm;
 
 	if (!bcn || !rx_pkt_info) {
@@ -1064,14 +1061,14 @@ void sch_beacon_process_for_ap(tpAniSirGlobal mac_ctx,
 	qdf_mem_zero(&bcn_prm, sizeof(tUpdateBeaconParams));
 	bcn_prm.paramChangeBitmap = 0;
 
-	bcn_prm.bssIdx = ap_session->bssIdx;
+	bcn_prm.bss_idx = ap_session->bss_idx;
 
 	if (!ap_session->is_session_obss_color_collision_det_enabled)
 		sch_check_bss_color_ie(mac_ctx, ap_session,
 					bcn, &bcn_prm);
 
 	if ((ap_session->gLimProtectionControl !=
-	     WNI_CFG_FORCE_POLICY_PROTECTION_DISABLE) &&
+	     MLME_FORCE_POLICY_PROTECTION_DISABLE) &&
 	    !ap_session->is_session_obss_offload_enabled)
 		ap_beacon_process(mac_ctx, rx_pkt_info,
 					bcn, &bcn_prm, ap_session);
@@ -1100,9 +1097,9 @@ void sch_beacon_process_for_ap(tpAniSirGlobal mac_ctx,
  * Return: None
  */
 static
-void sch_send_beacon_report(struct sAniSirGlobal *mac_ctx,
+void sch_send_beacon_report(struct mac_context *mac_ctx,
 			    struct sSirProbeRespBeacon *beacon_struct,
-			    struct sPESession *session)
+			    struct pe_session *session)
 {
 	struct wlan_beacon_report beacon_report;
 
@@ -1132,7 +1129,7 @@ void sch_send_beacon_report(struct sAniSirGlobal *mac_ctx,
 				qdf_do_div(qdf_get_monotonic_boottime(),
 					   QDF_MC_TIMER_TO_MS_UNIT);
 
-		beacon_report.vdev_id = session->smeSessionId;
+		beacon_report.vdev_id = session->vdev_id;
 
 		/* Send report to upper layer */
 		mac_ctx->lim.sme_bcn_rcv_callback(mac_ctx->hdd_handle,
@@ -1142,9 +1139,9 @@ void sch_send_beacon_report(struct sAniSirGlobal *mac_ctx,
 
 #else
 static inline
-void sch_send_beacon_report(struct sAniSirGlobal *mac_ctx,
+void sch_send_beacon_report(struct mac_context *mac_ctx,
 			    struct sSirProbeRespBeacon *beacon_struct,
-			    struct sPESession *session)
+			    struct pe_session *session)
 {
 }
 #endif
@@ -1158,8 +1155,8 @@ void sch_send_beacon_report(struct sAniSirGlobal *mac_ctx,
  * Return: None
  */
 void
-sch_beacon_process(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
-		   tpPESession session)
+sch_beacon_process(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
+		   struct pe_session *session)
 {
 	static tSchBeaconStruct bcn;
 
@@ -1194,101 +1191,96 @@ sch_beacon_process(tpAniSirGlobal mac_ctx, uint8_t *rx_pkt_info,
  * @return status of operation
  */
 QDF_STATUS
-sch_beacon_edca_process(tpAniSirGlobal pMac, tSirMacEdcaParamSetIE *edca,
-			tpPESession session)
+sch_beacon_edca_process(struct mac_context *mac, tSirMacEdcaParamSetIE *edca,
+			struct pe_session *session)
 {
 	uint8_t i;
-	struct wlan_objmgr_vdev *vdev;
-	struct vdev_mlme_priv_obj *vdev_mlme;
-	bool follow_ap_edca = false;
+	bool follow_ap_edca;
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 	host_log_qos_edca_pkt_type *log_ptr = NULL;
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
+
+	if (!(mac->mlme_cfg)) {
+		pe_err("invalid mlme cfg");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	follow_ap_edca = mlme_get_follow_ap_edca_flag(session->vdev);
 
 	pe_debug("Updating parameter set count: Old %d ---> new %d",
 		session->gLimEdcaParamSetCount, edca->qosInfo.count);
 
 	session->gLimEdcaParamSetCount = edca->qosInfo.count;
-	session->gLimEdcaParams[EDCA_AC_BE] = edca->acbe;
-	session->gLimEdcaParams[EDCA_AC_BK] = edca->acbk;
-	session->gLimEdcaParams[EDCA_AC_VI] = edca->acvi;
-	session->gLimEdcaParams[EDCA_AC_VO] = edca->acvo;
+	session->gLimEdcaParams[QCA_WLAN_AC_BE] = edca->acbe;
+	session->gLimEdcaParams[QCA_WLAN_AC_BK] = edca->acbk;
+	session->gLimEdcaParams[QCA_WLAN_AC_VI] = edca->acvi;
+	session->gLimEdcaParams[QCA_WLAN_AC_VO] = edca->acvo;
 
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(pMac->psoc,
-						    session->smeSessionId,
-						    WLAN_LEGACY_MAC_ID);
-	if (vdev) {
-		vdev_mlme = wlan_vdev_mlme_get_priv_obj(vdev);
-		if (vdev_mlme)
-			follow_ap_edca = vdev_mlme->follow_ap_edca;
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
-	}
+	if (mac->mlme_cfg->edca_params.enable_edca_params && !follow_ap_edca) {
+		session->gLimEdcaParams[QCA_WLAN_AC_VO].aci.aifsn =
+			mac->mlme_cfg->edca_params.edca_ac_vo.vo_aifs;
+		session->gLimEdcaParams[QCA_WLAN_AC_VI].aci.aifsn =
+			mac->mlme_cfg->edca_params.edca_ac_vi.vi_aifs;
+		session->gLimEdcaParams[QCA_WLAN_AC_BK].aci.aifsn =
+			mac->mlme_cfg->edca_params.edca_ac_bk.bk_aifs;
+		session->gLimEdcaParams[QCA_WLAN_AC_BE].aci.aifsn =
+			mac->mlme_cfg->edca_params.edca_ac_be.be_aifs;
 
-	if (pMac->roam.configParam.enable_edca_params && !follow_ap_edca) {
-		session->gLimEdcaParams[EDCA_AC_VO].aci.aifsn =
-			pMac->roam.configParam.edca_vo_aifs;
-		session->gLimEdcaParams[EDCA_AC_VI].aci.aifsn =
-			pMac->roam.configParam.edca_vi_aifs;
-		session->gLimEdcaParams[EDCA_AC_BK].aci.aifsn =
-			pMac->roam.configParam.edca_bk_aifs;
-		session->gLimEdcaParams[EDCA_AC_BE].aci.aifsn =
-			pMac->roam.configParam.edca_be_aifs;
+		session->gLimEdcaParams[QCA_WLAN_AC_VO].cw.min =
+			mac->mlme_cfg->edca_params.edca_ac_vo.vo_cwmin;
+		session->gLimEdcaParams[QCA_WLAN_AC_VI].cw.min =
+			mac->mlme_cfg->edca_params.edca_ac_vi.vi_cwmin;
+		session->gLimEdcaParams[QCA_WLAN_AC_BK].cw.min =
+			mac->mlme_cfg->edca_params.edca_ac_bk.bk_cwmin;
+		session->gLimEdcaParams[QCA_WLAN_AC_BE].cw.min =
+			mac->mlme_cfg->edca_params.edca_ac_be.be_cwmin;
 
-		session->gLimEdcaParams[EDCA_AC_VO].cw.min =
-			pMac->roam.configParam.edca_vo_cwmin;
-		session->gLimEdcaParams[EDCA_AC_VI].cw.min =
-			pMac->roam.configParam.edca_vi_cwmin;
-		session->gLimEdcaParams[EDCA_AC_BK].cw.min =
-			pMac->roam.configParam.edca_bk_cwmin;
-		session->gLimEdcaParams[EDCA_AC_BE].cw.min =
-			pMac->roam.configParam.edca_be_cwmin;
-
-		session->gLimEdcaParams[EDCA_AC_VO].cw.max =
-			pMac->roam.configParam.edca_vo_cwmax;
-		session->gLimEdcaParams[EDCA_AC_VI].cw.max =
-			pMac->roam.configParam.edca_vi_cwmax;
-		session->gLimEdcaParams[EDCA_AC_BK].cw.max =
-			pMac->roam.configParam.edca_bk_cwmax;
-		session->gLimEdcaParams[EDCA_AC_BE].cw.max =
-			pMac->roam.configParam.edca_be_cwmax;
+		session->gLimEdcaParams[QCA_WLAN_AC_VO].cw.max =
+			mac->mlme_cfg->edca_params.edca_ac_vo.vo_cwmax;
+		session->gLimEdcaParams[QCA_WLAN_AC_VI].cw.max =
+			mac->mlme_cfg->edca_params.edca_ac_vi.vi_cwmax;
+		session->gLimEdcaParams[QCA_WLAN_AC_BK].cw.max =
+			mac->mlme_cfg->edca_params.edca_ac_bk.bk_cwmax;
+		session->gLimEdcaParams[QCA_WLAN_AC_BE].cw.max =
+			mac->mlme_cfg->edca_params.edca_ac_be.be_cwmax;
 	}
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 	WLAN_HOST_DIAG_LOG_ALLOC(log_ptr, host_log_qos_edca_pkt_type,
 				 LOG_WLAN_QOS_EDCA_C);
 	if (log_ptr) {
-		log_ptr->aci_be = session->gLimEdcaParams[EDCA_AC_BE].aci.aci;
+		log_ptr->aci_be = session->gLimEdcaParams[QCA_WLAN_AC_BE].aci.aci;
 		log_ptr->cw_be =
-			session->gLimEdcaParams[EDCA_AC_BE].cw.max << 4
-				| session->gLimEdcaParams[EDCA_AC_BE].cw.min;
+			session->gLimEdcaParams[QCA_WLAN_AC_BE].cw.max << 4
+				| session->gLimEdcaParams[QCA_WLAN_AC_BE].cw.min;
 		log_ptr->txoplimit_be =
-			session->gLimEdcaParams[EDCA_AC_BE].txoplimit;
+			session->gLimEdcaParams[QCA_WLAN_AC_BE].txoplimit;
 		log_ptr->aci_bk =
-			session->gLimEdcaParams[EDCA_AC_BK].aci.aci;
+			session->gLimEdcaParams[QCA_WLAN_AC_BK].aci.aci;
 		log_ptr->cw_bk =
-			session->gLimEdcaParams[EDCA_AC_BK].cw.max << 4
-				| session->gLimEdcaParams[EDCA_AC_BK].cw.min;
+			session->gLimEdcaParams[QCA_WLAN_AC_BK].cw.max << 4
+				| session->gLimEdcaParams[QCA_WLAN_AC_BK].cw.min;
 		log_ptr->txoplimit_bk =
-			session->gLimEdcaParams[EDCA_AC_BK].txoplimit;
+			session->gLimEdcaParams[QCA_WLAN_AC_BK].txoplimit;
 		log_ptr->aci_vi =
-			session->gLimEdcaParams[EDCA_AC_VI].aci.aci;
+			session->gLimEdcaParams[QCA_WLAN_AC_VI].aci.aci;
 		log_ptr->cw_vi =
-			session->gLimEdcaParams[EDCA_AC_VI].cw.max << 4
-				| session->gLimEdcaParams[EDCA_AC_VI].cw.min;
+			session->gLimEdcaParams[QCA_WLAN_AC_VI].cw.max << 4
+				| session->gLimEdcaParams[QCA_WLAN_AC_VI].cw.min;
 		log_ptr->txoplimit_vi =
-			session->gLimEdcaParams[EDCA_AC_VI].txoplimit;
+			session->gLimEdcaParams[QCA_WLAN_AC_VI].txoplimit;
 		log_ptr->aci_vo =
-			session->gLimEdcaParams[EDCA_AC_VO].aci.aci;
+			session->gLimEdcaParams[QCA_WLAN_AC_VO].aci.aci;
 		log_ptr->cw_vo =
-			session->gLimEdcaParams[EDCA_AC_VO].cw.max << 4
-				| session->gLimEdcaParams[EDCA_AC_VO].cw.min;
+			session->gLimEdcaParams[QCA_WLAN_AC_VO].cw.max << 4
+				| session->gLimEdcaParams[QCA_WLAN_AC_VO].cw.min;
 		log_ptr->txoplimit_vo =
-			session->gLimEdcaParams[EDCA_AC_VO].txoplimit;
+			session->gLimEdcaParams[QCA_WLAN_AC_VO].txoplimit;
 	}
 	WLAN_HOST_DIAG_LOG_REPORT(log_ptr);
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
-	pe_debug("Edsa param enabled in ini %d. Updating Local EDCA Params(gLimEdcaParams) to: ",
-		pMac->roam.configParam.enable_edca_params);
-	for (i = 0; i < MAX_NUM_AC; i++) {
+	pe_debug("Edca param enabled in ini %d. Updating Local EDCA Params(gLimEdcaParams) to: ",
+		 mac->mlme_cfg->edca_params.enable_edca_params);
+	for (i = 0; i < QCA_WLAN_AC_ALL; i++) {
 		pe_debug("AC[%d]:  AIFSN: %d, ACM %d, CWmin %d, CWmax %d, TxOp %d",
 		       i, session->gLimEdcaParams[i].aci.aifsn,
 		       session->gLimEdcaParams[i].aci.acm,
@@ -1299,8 +1291,8 @@ sch_beacon_edca_process(tpAniSirGlobal pMac, tSirMacEdcaParamSetIE *edca,
 	return QDF_STATUS_SUCCESS;
 }
 
-void lim_enable_obss_detection_config(tpAniSirGlobal mac_ctx,
-				      tpPESession session)
+void lim_enable_obss_detection_config(struct mac_context *mac_ctx,
+				      struct pe_session *session)
 {
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
@@ -1310,13 +1302,13 @@ void lim_enable_obss_detection_config(tpAniSirGlobal mac_ctx,
 	}
 
 	if (session->gLimProtectionControl ==
-	    WNI_CFG_FORCE_POLICY_PROTECTION_DISABLE) {
+	    MLME_FORCE_POLICY_PROTECTION_DISABLE) {
 		pe_err("protectiond disabled, force policy, session %d",
 		       session->smeSessionId);
 		return;
 	}
 
-	if (mac_ctx->lim.global_obss_offload_enabled) {
+	if (mac_ctx->mlme_cfg->obss_ht40.obss_detection_offload_enabled) {
 		status = lim_obss_send_detection_cfg(mac_ctx, session, true);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			pe_err("vdev %d: offload enable failed, trying legacy",
@@ -1330,7 +1322,7 @@ void lim_enable_obss_detection_config(tpAniSirGlobal mac_ctx,
 		}
 	}
 
-	if (!mac_ctx->lim.global_obss_offload_enabled ||
+	if (!mac_ctx->mlme_cfg->obss_ht40.obss_detection_offload_enabled ||
 	    QDF_IS_STATUS_ERROR(status)) {
 		status = qdf_mc_timer_start(&session->
 					    protection_fields_reset_timer,
@@ -1344,8 +1336,8 @@ void lim_enable_obss_detection_config(tpAniSirGlobal mac_ctx,
 	}
 }
 
-QDF_STATUS lim_obss_generate_detection_config(tpAniSirGlobal mac_ctx,
-					      tpPESession session,
+QDF_STATUS lim_obss_generate_detection_config(struct mac_context *mac_ctx,
+					      struct pe_session *session,
 					      struct obss_detection_cfg *cfg)
 {
 	uint32_t phy_mode;
@@ -1438,11 +1430,11 @@ QDF_STATUS lim_obss_generate_detection_config(tpAniSirGlobal mac_ctx,
 		}
 
 		/* INI related settings */
-		if (mac_ctx->roam.configParam.ignore_peer_erp_info)
+		if (mac_ctx->mlme_cfg->sta.ignore_peer_erp_info)
 			cfg->obss_11b_sta_detect_mode =
 				OBSS_OFFLOAD_DETECTION_DISABLED;
 
-		if (mac_ctx->roam.configParam.ignore_peer_ht_opmode)
+		if (mac_ctx->mlme_cfg->sap_protection_cfg.ignore_peer_ht_opmode)
 			cfg->obss_ht_legacy_detect_mode =
 				OBSS_OFFLOAD_DETECTION_DISABLED;
 	}
@@ -1491,8 +1483,8 @@ QDF_STATUS lim_obss_generate_detection_config(tpAniSirGlobal mac_ctx,
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS lim_obss_send_detection_cfg(tpAniSirGlobal mac_ctx,
-				       tpPESession session, bool force)
+QDF_STATUS lim_obss_send_detection_cfg(struct mac_context *mac_ctx,
+				       struct pe_session *session, bool force)
 {
 	QDF_STATUS status;
 	struct obss_detection_cfg obss_cfg;
@@ -1511,7 +1503,7 @@ QDF_STATUS lim_obss_send_detection_cfg(tpAniSirGlobal mac_ctx,
 	}
 
 	if (session->gLimProtectionControl ==
-	    WNI_CFG_FORCE_POLICY_PROTECTION_DISABLE) {
+	    MLME_FORCE_POLICY_PROTECTION_DISABLE) {
 		pe_debug("protectiond disabled, force from policy, session %d",
 		       session->smeSessionId);
 		/* Send success */
@@ -1531,10 +1523,8 @@ QDF_STATUS lim_obss_send_detection_cfg(tpAniSirGlobal mac_ctx,
 	    || force) {
 		struct scheduler_msg msg = {0};
 		req_param = qdf_mem_malloc(sizeof(*req_param));
-		if (!req_param) {
-			pe_err("Failed to allocate memory");
+		if (!req_param)
 			return QDF_STATUS_E_NOMEM;
-		}
 		qdf_mem_copy(&session->obss_offload_cfg, &obss_cfg,
 				sizeof(obss_cfg));
 		req_param->vdev_id = session->smeSessionId;
@@ -1561,7 +1551,6 @@ QDF_STATUS lim_obss_send_detection_cfg(tpAniSirGlobal mac_ctx,
 						QDF_MODULE_ID_WMA,
 						QDF_MODULE_ID_WMA, &msg);
 		if (QDF_IS_STATUS_ERROR(status)) {
-			pe_err("Failed to post WMA_OBSS_DETECTION_REQ to WMA");
 			qdf_mem_free(req_param);
 			return status;
 		}
@@ -1572,7 +1561,7 @@ QDF_STATUS lim_obss_send_detection_cfg(tpAniSirGlobal mac_ctx,
 	return status;
 }
 
-QDF_STATUS lim_process_obss_detection_ind(tpAniSirGlobal mac_ctx,
+QDF_STATUS lim_process_obss_detection_ind(struct mac_context *mac_ctx,
 					  struct wmi_obss_detect_info
 					  *obss_detection)
 {
@@ -1581,15 +1570,15 @@ QDF_STATUS lim_process_obss_detection_ind(tpAniSirGlobal mac_ctx,
 	uint32_t reason;
 	struct obss_detection_cfg *obss_cfg;
 	bool enable;
-	tpPESession session;
+	struct pe_session *session;
 	tUpdateBeaconParams bcn_prm;
 	enum band_info rf_band = BAND_UNKNOWN;
 	struct obss_detection_cfg *cur_detect;
 
-	pe_debug("obss detect ind id %d, reason %d, msk 0x%x, " MAC_ADDRESS_STR,
+	pe_debug("obss detect ind id %d, reason %d, msk 0x%x, " QDF_MAC_ADDR_STR,
 		 obss_detection->vdev_id, obss_detection->reason,
 		 obss_detection->matched_detection_masks,
-		 MAC_ADDR_ARRAY(obss_detection->matched_bssid_addr));
+		 QDF_MAC_ADDR_ARRAY(obss_detection->matched_bssid_addr));
 
 	session = pe_find_session_by_sme_session_id(mac_ctx,
 						    obss_detection->vdev_id);

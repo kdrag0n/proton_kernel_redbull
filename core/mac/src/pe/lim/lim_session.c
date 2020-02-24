@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,49 +37,85 @@
 
 #include "sch_api.h"
 #include "lim_send_messages.h"
+#include "cfg_ucfg_api.h"
 
+#ifdef WLAN_ALLOCATE_GLOBAL_BUFFERS_DYNAMICALLY
+static struct sDphHashNode *g_dph_node_array;
 
+QDF_STATUS pe_allocate_dph_node_array_buffer(void)
+{
+	uint32_t buf_size;
+
+	buf_size = WLAN_MAX_VDEVS * (SIR_SAP_MAX_NUM_PEERS + 1) *
+		sizeof(struct sDphHashNode);
+	g_dph_node_array = qdf_mem_malloc(buf_size);
+	if (!g_dph_node_array)
+		return QDF_STATUS_E_NOMEM;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+void pe_free_dph_node_array_buffer(void)
+{
+	qdf_mem_free(g_dph_node_array);
+	g_dph_node_array = NULL;
+}
+
+static inline
+struct sDphHashNode *pe_get_session_dph_node_array(uint8_t session_id)
+{
+	return &g_dph_node_array[session_id * (SIR_SAP_MAX_NUM_PEERS + 1)];
+}
+
+#else /* WLAN_ALLOCATE_GLOBAL_BUFFERS_DYNAMICALLY */
 static struct sDphHashNode
-	g_dph_node_array[SIR_MAX_SUPPORTED_BSS][SIR_SAP_MAX_NUM_PEERS + 1];
+	g_dph_node_array[WLAN_MAX_VDEVS][SIR_SAP_MAX_NUM_PEERS + 1];
+
+static inline
+struct sDphHashNode *pe_get_session_dph_node_array(uint8_t session_id)
+{
+	return g_dph_node_array[session_id];
+}
+#endif /* WLAN_ALLOCATE_GLOBAL_BUFFERS_DYNAMICALLY */
 
 /*--------------------------------------------------------------------------
 
    \brief pe_init_beacon_params() - Initialize the beaconParams structure
 
-   \param tpPESession          - pointer to the session context or NULL if session can not be created.
+   \param struct pe_session *         - pointer to the session context or NULL if session can not be created.
    \return void
    \sa
 
    --------------------------------------------------------------------------*/
 
-static void pe_init_beacon_params(tpAniSirGlobal pMac,
-				  tpPESession psessionEntry)
+static void pe_init_beacon_params(struct mac_context *mac,
+				  struct pe_session *pe_session)
 {
-	psessionEntry->beaconParams.beaconInterval = 0;
-	psessionEntry->beaconParams.fShortPreamble = 0;
-	psessionEntry->beaconParams.llaCoexist = 0;
-	psessionEntry->beaconParams.llbCoexist = 0;
-	psessionEntry->beaconParams.llgCoexist = 0;
-	psessionEntry->beaconParams.ht20Coexist = 0;
-	psessionEntry->beaconParams.llnNonGFCoexist = 0;
-	psessionEntry->beaconParams.fRIFSMode = 0;
-	psessionEntry->beaconParams.fLsigTXOPProtectionFullSupport = 0;
-	psessionEntry->beaconParams.gHTObssMode = 0;
+	pe_session->beaconParams.beaconInterval = 0;
+	pe_session->beaconParams.fShortPreamble = 0;
+	pe_session->beaconParams.llaCoexist = 0;
+	pe_session->beaconParams.llbCoexist = 0;
+	pe_session->beaconParams.llgCoexist = 0;
+	pe_session->beaconParams.ht20Coexist = 0;
+	pe_session->beaconParams.llnNonGFCoexist = 0;
+	pe_session->beaconParams.fRIFSMode = 0;
+	pe_session->beaconParams.fLsigTXOPProtectionFullSupport = 0;
+	pe_session->beaconParams.gHTObssMode = 0;
 
 	/* Number of legacy STAs associated */
-	qdf_mem_zero((void *)&psessionEntry->gLim11bParams,
+	qdf_mem_zero((void *)&pe_session->gLim11bParams,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLim11aParams,
+	qdf_mem_zero((void *)&pe_session->gLim11aParams,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLim11gParams,
+	qdf_mem_zero((void *)&pe_session->gLim11gParams,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLimNonGfParams,
+	qdf_mem_zero((void *)&pe_session->gLimNonGfParams,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLimHt20Params,
+	qdf_mem_zero((void *)&pe_session->gLimHt20Params,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLimLsigTxopParams,
+	qdf_mem_zero((void *)&pe_session->gLimLsigTxopParams,
 		    sizeof(tLimProtStaParams));
-	qdf_mem_zero((void *)&psessionEntry->gLimOlbcParams,
+	qdf_mem_zero((void *)&pe_session->gLimOlbcParams,
 		    sizeof(tLimProtStaParams));
 }
 
@@ -87,7 +123,7 @@ static void pe_init_beacon_params(tpAniSirGlobal pMac,
  * pe_reset_protection_callback() - resets protection structs so that when an AP
  * causing use of protection goes away, corresponding protection bit can be
  * reset
- * @ptr:        pointer to pSessionEntry
+ * @ptr:        pointer to pe_session
  *
  * This function resets protection structs so that when an AP causing use of
  * protection goes away, corresponding protection bit can be reset. This allowes
@@ -97,8 +133,8 @@ static void pe_init_beacon_params(tpAniSirGlobal pMac,
  */
 static void pe_reset_protection_callback(void *ptr)
 {
-	tpPESession pe_session_entry = (tpPESession)ptr;
-	tpAniSirGlobal mac_ctx = (tpAniSirGlobal)pe_session_entry->mac_ctx;
+	struct pe_session *pe_session_entry = (struct pe_session *)ptr;
+	struct mac_context *mac_ctx = pe_session_entry->mac_ctx;
 	int8_t i = 0;
 	tUpdateBeaconParams beacon_params;
 	uint16_t current_protection_state = 0;
@@ -174,10 +210,10 @@ static void pe_reset_protection_callback(void *ptr)
 
 	qdf_mem_zero(&beacon_params, sizeof(tUpdateBeaconParams));
 	/* index 0, is self node, peers start from 1 */
-	for (i = 1 ; i <= mac_ctx->lim.gLimAssocStaLimit ; i++) {
+	for (i = 1 ; i <= mac_ctx->mlme_cfg->sap_cfg.assoc_sta_limit ; i++) {
 		station_hash_node = dph_get_hash_entry(mac_ctx, i,
 					&pe_session_entry->dph.dphHashTable);
-		if (NULL == station_hash_node)
+		if (!station_hash_node)
 			continue;
 		lim_decide_ap_protection(mac_ctx, station_hash_node->staAddr,
 		&beacon_params, pe_session_entry);
@@ -192,7 +228,7 @@ static void pe_reset_protection_callback(void *ptr)
 		pe_debug("protection changed, update beacon template");
 		/* update beacon fix params and send update to FW */
 		qdf_mem_zero(&beacon_params, sizeof(tUpdateBeaconParams));
-		beacon_params.bssIdx = pe_session_entry->bssIdx;
+		beacon_params.bss_idx = pe_session_entry->bss_idx;
 		beacon_params.fShortPreamble =
 				pe_session_entry->beaconParams.fShortPreamble;
 		beacon_params.beaconInterval =
@@ -240,7 +276,7 @@ restart_timer:
  *
  * Return: void
  */
-void pe_delete_fils_info(tpPESession session)
+void pe_delete_fils_info(struct pe_session *session)
 {
 	struct pe_fils_session *fils_info;
 
@@ -284,7 +320,7 @@ void pe_delete_fils_info(tpPESession session)
  *
  * Return: void
  */
-static void pe_init_fils_info(tpPESession session)
+static void pe_init_fils_info(struct pe_session *session)
 {
 	struct pe_fils_session *fils_info;
 
@@ -295,11 +331,8 @@ static void pe_init_fils_info(tpPESession session)
 	}
 	session->fils_info = qdf_mem_malloc(sizeof(struct pe_fils_session));
 	fils_info = session->fils_info;
-	if (!fils_info) {
-		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			  FL("fils info not found"));
+	if (!fils_info)
 		return;
-	}
 	fils_info->keyname_nai_data = NULL;
 	fils_info->fils_erp_reauth_pkt = NULL;
 	fils_info->fils_rrk = NULL;
@@ -311,8 +344,8 @@ static void pe_init_fils_info(tpPESession session)
 	fils_info->auth_info.domain_name = NULL;
 }
 #else
-static void pe_delete_fils_info(tpPESession session) { }
-static void pe_init_fils_info(tpPESession session) { }
+static void pe_delete_fils_info(struct pe_session *session) { }
+static void pe_init_fils_info(struct pe_session *session) { }
 #endif
 
 /**
@@ -328,7 +361,7 @@ static void pe_init_fils_info(tpPESession session) { }
  */
 #ifdef FEATURE_WLAN_TDLS
 static inline uint8_t
-lim_get_peer_idxpool_size(uint16_t num_sta, tSirBssType bss_type)
+lim_get_peer_idxpool_size(uint16_t num_sta, enum bss_type bss_type)
 {
 	/*
 	 * In station role, index 1 is reserved for peer
@@ -343,19 +376,19 @@ lim_get_peer_idxpool_size(uint16_t num_sta, tSirBssType bss_type)
 }
 #else
 static inline uint8_t
-lim_get_peer_idxpool_size(uint16_t num_sta, tSirBssType bss_type)
+lim_get_peer_idxpool_size(uint16_t num_sta, enum bss_type bss_type)
 {
 	return num_sta + 1;
 }
 #endif
 
-void lim_set_bcn_probe_filter(tpAniSirGlobal mac_ctx,
-				tpPESession session,
+void lim_set_bcn_probe_filter(struct mac_context *mac_ctx,
+				struct pe_session *session,
 				tSirMacSSid *ibss_ssid,
 				uint8_t sap_channel)
 {
 	struct mgmt_beacon_probe_filter *filter;
-	tSirBssType bss_type;
+	enum bss_type bss_type;
 	uint8_t session_id;
 	tSirMacAddr *bssid;
 
@@ -368,7 +401,7 @@ void lim_set_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 	session_id = session->peSessionId;
 	bssid = &session->bssId;
 
-	if (session_id >= SIR_MAX_SUPPORTED_BSS) {
+	if (session_id >= WLAN_MAX_VDEVS) {
 		pe_err("Invalid session_id %d of type %d",
 			session_id, bss_type);
 		return;
@@ -379,8 +412,8 @@ void lim_set_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 	if (eSIR_INFRASTRUCTURE_MODE == bss_type) {
 		filter->num_sta_sessions++;
 		sir_copy_mac_addr(filter->sta_bssid[session_id], *bssid);
-		pe_debug("Set filter for STA Session %d bssid "MAC_ADDRESS_STR,
-			session_id, MAC_ADDR_ARRAY(*bssid));
+		pe_debug("Set filter for STA Session %d bssid "QDF_MAC_ADDR_STR,
+			session_id, QDF_MAC_ADDR_ARRAY(*bssid));
 	} else if (eSIR_IBSS_MODE == bss_type) {
 		if (!ibss_ssid) {
 			pe_err("IBSS Type with NULL SSID");
@@ -388,7 +421,7 @@ void lim_set_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 		}
 		filter->num_ibss_sessions++;
 		filter->ibss_ssid[session_id].length = ibss_ssid->length;
-		qdf_mem_copy(&filter->ibss_ssid[session_id].length,
+		qdf_mem_copy(&filter->ibss_ssid[session_id].ssId,
 			     ibss_ssid->ssId,
 			     ibss_ssid->length);
 		pe_debug("Set filter for IBSS session %d ssid %s",
@@ -410,11 +443,11 @@ done:
 		filter->num_sap_sessions);
 }
 
-void lim_reset_bcn_probe_filter(tpAniSirGlobal mac_ctx,
-				tpPESession session)
+void lim_reset_bcn_probe_filter(struct mac_context *mac_ctx,
+				struct pe_session *session)
 {
 	struct mgmt_beacon_probe_filter *filter;
-	tSirBssType bss_type;
+	enum bss_type bss_type;
 	uint8_t session_id;
 
 	if (!session) {
@@ -425,7 +458,7 @@ void lim_reset_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 	bss_type = session->bssType;
 	session_id = session->peSessionId;
 
-	if (session_id >= SIR_MAX_SUPPORTED_BSS) {
+	if (session_id >= WLAN_MAX_VDEVS) {
 		pe_err("Invalid session_id %d of type %d",
 			session_id, bss_type);
 		return;
@@ -444,7 +477,7 @@ void lim_reset_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 			filter->num_ibss_sessions--;
 		filter->ibss_ssid[session_id].length = 0;
 		qdf_mem_zero(&filter->ibss_ssid[session_id].ssId,
-			    SIR_MAC_MAX_SSID_LENGTH);
+			    WLAN_SSID_MAX_LEN);
 		pe_debug("Cleared IBSS Filter for session %d", session_id);
 	} else if (eSIR_INFRA_AP_MODE == bss_type) {
 		if (filter->num_sap_sessions)
@@ -458,11 +491,11 @@ void lim_reset_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 		filter->num_sap_sessions);
 }
 
-void lim_update_bcn_probe_filter(tpAniSirGlobal mac_ctx,
-					tpPESession session)
+void lim_update_bcn_probe_filter(struct mac_context *mac_ctx,
+					struct pe_session *session)
 {
 	struct mgmt_beacon_probe_filter *filter;
-	tSirBssType bss_type;
+	enum bss_type bss_type;
 	uint8_t session_id;
 
 	if (!session) {
@@ -473,7 +506,7 @@ void lim_update_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 	bss_type = session->bssType;
 	session_id = session->peSessionId;
 
-	if (session_id >= SIR_MAX_SUPPORTED_BSS) {
+	if (session_id >= WLAN_MAX_VDEVS) {
 		pe_err("Invalid session_id %d of type %d",
 			session_id, bss_type);
 		return;
@@ -495,79 +528,60 @@ void lim_update_bcn_probe_filter(tpAniSirGlobal mac_ctx,
 		filter->num_sap_sessions);
 }
 
-/**
- * pe_create_session() creates a new PE session given the BSSID
- * @param pMac:        pointer to global adapter context
- * @param bssid:       BSSID of the new session
- * @param sessionId:   session ID is returned here, if session is created.
- * @param bssType:     station or a
- *
- * This function returns the session context and the session ID if the session
- * corresponding to the passed BSSID is found in the PE session table.
- *
- * Return: tpPESession:   pointer to the session context or NULL if session
- *                        can not be created.
- */
-
-tpPESession
-pe_create_session(tpAniSirGlobal pMac, uint8_t *bssid, uint8_t *sessionId,
-		  uint16_t numSta, tSirBssType bssType)
+struct pe_session *pe_create_session(struct mac_context *mac,
+			      uint8_t *bssid,
+			      uint8_t *sessionId,
+			      uint16_t numSta, enum bss_type bssType,
+			      uint8_t sme_session_id)
 {
 	QDF_STATUS status;
 	uint8_t i;
-	tpPESession session_ptr;
+	struct pe_session *session_ptr;
+	struct wlan_objmgr_vdev *vdev;
 
-	for (i = 0; i < pMac->lim.maxBssId; i++) {
+	for (i = 0; i < mac->lim.maxBssId; i++) {
 		/* Find first free room in session table */
-		if (pMac->lim.gpSession[i].valid == true)
+		if (mac->lim.gpSession[i].valid == true)
 			continue;
 		break;
 	}
 
-	if (i == pMac->lim.maxBssId) {
+	if (i == mac->lim.maxBssId) {
 		pe_err("Session can't be created. Reached max sessions");
 		return NULL;
 	}
 
-	session_ptr = &pMac->lim.gpSession[i];
-	qdf_mem_zero((void *)session_ptr, sizeof(tPESession));
+	session_ptr = &mac->lim.gpSession[i];
+	qdf_mem_zero((void *)session_ptr, sizeof(struct pe_session));
 	/* Allocate space for Station Table for this session. */
 	session_ptr->dph.dphHashTable.pHashTable =
 		qdf_mem_malloc(sizeof(tpDphHashNode) * (numSta + 1));
-	if (NULL == session_ptr->dph.dphHashTable.pHashTable) {
-		pe_err("memory allocate failed!");
+	if (!session_ptr->dph.dphHashTable.pHashTable)
 		return NULL;
-	}
 
-	session_ptr->dph.dphHashTable.pDphNodeArray = g_dph_node_array[i];
+	session_ptr->dph.dphHashTable.pDphNodeArray =
+					pe_get_session_dph_node_array(i);
 	session_ptr->dph.dphHashTable.size = numSta + 1;
-	dph_hash_table_class_init(pMac, &session_ptr->dph.dphHashTable);
+	dph_hash_table_init(mac, &session_ptr->dph.dphHashTable);
 	session_ptr->gpLimPeerIdxpool = qdf_mem_malloc(
 		sizeof(*(session_ptr->gpLimPeerIdxpool)) *
 		lim_get_peer_idxpool_size(numSta, bssType));
-	if (NULL == session_ptr->gpLimPeerIdxpool) {
-		pe_err("memory allocate failed!");
-		qdf_mem_free(session_ptr->dph.dphHashTable.pHashTable);
-		qdf_mem_zero(session_ptr->dph.dphHashTable.pDphNodeArray,
-			sizeof(struct sDphHashNode) *
-			(SIR_SAP_MAX_NUM_PEERS + 1));
-		session_ptr->dph.dphHashTable.pHashTable = NULL;
-		session_ptr->dph.dphHashTable.pDphNodeArray = NULL;
-		return NULL;
-	}
+	if (!session_ptr->gpLimPeerIdxpool)
+		goto free_dp_hash_table;
+
 	session_ptr->freePeerIdxHead = 0;
 	session_ptr->freePeerIdxTail = 0;
 	session_ptr->gLimNumOfCurrentSTAs = 0;
 	/* Copy the BSSID to the session table */
 	sir_copy_mac_addr(session_ptr->bssId, bssid);
 	if (bssType == eSIR_MONITOR_MODE)
-		sir_copy_mac_addr(pMac->lim.gpSession[i].selfMacAddr, bssid);
+		sir_copy_mac_addr(mac->lim.gpSession[i].self_mac_addr, bssid);
 	session_ptr->valid = true;
 	/* Initialize the SME and MLM states to IDLE */
 	session_ptr->limMlmState = eLIM_MLM_IDLE_STATE;
 	session_ptr->limSmeState = eLIM_SME_IDLE_STATE;
 	session_ptr->limCurrentAuthType = eSIR_OPEN_SYSTEM;
-	pe_init_beacon_params(pMac, &pMac->lim.gpSession[i]);
+	pe_init_beacon_params(mac, &mac->lim.gpSession[i]);
 	session_ptr->is11Rconnection = false;
 #ifdef FEATURE_WLAN_ESE
 	session_ptr->isESEconnection = false;
@@ -591,12 +605,12 @@ pe_create_session(tpAniSirGlobal pMac, uint8_t *bssid, uint8_t *sessionId,
 	lim_update_tdls_set_state_for_fw(session_ptr, true);
 	session_ptr->fWaitForProbeRsp = 0;
 	session_ptr->fIgnoreCapsChange = 0;
-	session_ptr->ignore_assoc_disallowed = pMac->ignore_assoc_disallowed;
+	session_ptr->ignore_assoc_disallowed = mac->ignore_assoc_disallowed;
 	session_ptr->is_session_obss_color_collision_det_enabled =
-		pMac->lim.global_obss_color_collision_det_offload;
+		mac->mlme_cfg->obss_ht40.obss_color_collision_offload_enabled;
 
-	pe_debug("Create a new PE session: %d BSSID: "MAC_ADDRESS_STR" Max No of STA: %d",
-		*sessionId, MAC_ADDR_ARRAY(bssid), numSta);
+	pe_debug("Create a new PE session: %d BSSID: "QDF_MAC_ADDR_STR" Max No of STA: %d",
+		*sessionId, QDF_MAC_ADDR_ARRAY(bssid), numSta);
 
 	if (eSIR_INFRA_AP_MODE == bssType || eSIR_IBSS_MODE == bssType) {
 		session_ptr->pSchProbeRspTemplate =
@@ -605,68 +619,88 @@ pe_create_session(tpAniSirGlobal pMac, uint8_t *bssid, uint8_t *sessionId,
 			qdf_mem_malloc(SIR_MAX_BEACON_SIZE);
 		session_ptr->pSchBeaconFrameEnd =
 			qdf_mem_malloc(SIR_MAX_BEACON_SIZE);
-		if ((NULL == session_ptr->pSchProbeRspTemplate)
-		    || (NULL == session_ptr->pSchBeaconFrameBegin)
-		    || (NULL == session_ptr->pSchBeaconFrameEnd)) {
-			pe_err("memory allocate failed!");
-			qdf_mem_free(session_ptr->dph.dphHashTable.pHashTable);
-			qdf_mem_zero(
-				session_ptr->dph.dphHashTable.pDphNodeArray,
-				sizeof(struct sDphHashNode) *
-				(SIR_SAP_MAX_NUM_PEERS + 1));
-			qdf_mem_free(session_ptr->gpLimPeerIdxpool);
-			qdf_mem_free(session_ptr->pSchProbeRspTemplate);
-			qdf_mem_free(session_ptr->pSchBeaconFrameBegin);
-			qdf_mem_free(session_ptr->pSchBeaconFrameEnd);
-
-			session_ptr->dph.dphHashTable.pHashTable = NULL;
-			session_ptr->dph.dphHashTable.pDphNodeArray = NULL;
-			session_ptr->gpLimPeerIdxpool = NULL;
-			session_ptr->pSchProbeRspTemplate = NULL;
-			session_ptr->pSchBeaconFrameBegin = NULL;
-			session_ptr->pSchBeaconFrameEnd = NULL;
-			return NULL;
+		if ((!session_ptr->pSchProbeRspTemplate)
+		    || (!session_ptr->pSchBeaconFrameBegin)
+		    || (!session_ptr->pSchBeaconFrameEnd)) {
+			goto free_session_attrs;
 		}
 	}
+
+	/*
+	 * Get vdev object from soc which automatically increments
+	 * reference count.
+	 */
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(mac->psoc,
+						    sme_session_id,
+						    WLAN_LEGACY_MAC_ID);
+	if (!vdev) {
+		pe_err("vdev is NULL for vdev_id: %u", sme_session_id);
+		goto free_session_attrs;
+	}
+	session_ptr->vdev = vdev;
+	session_ptr->smeSessionId = sme_session_id;
+	session_ptr->mac_ctx = mac;
+
 	if (eSIR_INFRASTRUCTURE_MODE == bssType)
-		lim_ft_open(pMac, &pMac->lim.gpSession[i]);
+		lim_ft_open(mac, &mac->lim.gpSession[i]);
 
 	if (eSIR_MONITOR_MODE == bssType)
-		lim_ft_open(pMac, &pMac->lim.gpSession[i]);
+		lim_ft_open(mac, &mac->lim.gpSession[i]);
 
 	if (eSIR_INFRA_AP_MODE == bssType) {
 		session_ptr->old_protection_state = 0;
 		session_ptr->is_session_obss_offload_enabled = false;
 		session_ptr->is_obss_reset_timer_initialized = false;
-		session_ptr->mac_ctx = (void *)pMac;
 
 		status = qdf_mc_timer_init(&session_ptr->
 					   protection_fields_reset_timer,
 					   QDF_TIMER_TYPE_SW,
 					   pe_reset_protection_callback,
-					   (void *)&pMac->lim.gpSession[i]);
+					   (void *)&mac->lim.gpSession[i]);
 
 		if (QDF_IS_STATUS_ERROR(status))
 			pe_err("cannot create protection fields reset timer");
 		else
 			session_ptr->is_obss_reset_timer_initialized = true;
 
-		status = qdf_mc_timer_init(&session_ptr->ap_ecsa_timer,
-					   QDF_TIMER_TYPE_WAKE_APPS,
-					   lim_process_ap_ecsa_timeout,
-					   (void *)&pMac->lim.gpSession[i]);
-		if (status != QDF_STATUS_SUCCESS)
-			pe_err("cannot create ap_ecsa_timer");
 		qdf_wake_lock_create(&session_ptr->ap_ecsa_wakelock,
 				     "ap_ecsa_wakelock");
 		qdf_runtime_lock_init(&session_ptr->ap_ecsa_runtime_lock);
+		status = qdf_mc_timer_init(&session_ptr->ap_ecsa_timer,
+					   QDF_TIMER_TYPE_WAKE_APPS,
+					   lim_process_ap_ecsa_timeout,
+					   (void *)&mac->lim.gpSession[i]);
+		if (status != QDF_STATUS_SUCCESS)
+			pe_err("cannot create ap_ecsa_timer");
 	}
 	pe_init_fils_info(session_ptr);
 	session_ptr->ht_client_cnt = 0;
 	/* following is invalid value since seq number is 12 bit */
 	session_ptr->prev_auth_seq_num = 0xFFFF;
 
-	return &pMac->lim.gpSession[i];
+	return &mac->lim.gpSession[i];
+
+free_session_attrs:
+	qdf_mem_free(session_ptr->gpLimPeerIdxpool);
+	qdf_mem_free(session_ptr->pSchProbeRspTemplate);
+	qdf_mem_free(session_ptr->pSchBeaconFrameBegin);
+	qdf_mem_free(session_ptr->pSchBeaconFrameEnd);
+
+	session_ptr->gpLimPeerIdxpool = NULL;
+	session_ptr->pSchProbeRspTemplate = NULL;
+	session_ptr->pSchBeaconFrameBegin = NULL;
+	session_ptr->pSchBeaconFrameEnd = NULL;
+
+free_dp_hash_table:
+	qdf_mem_free(session_ptr->dph.dphHashTable.pHashTable);
+	qdf_mem_zero(session_ptr->dph.dphHashTable.pDphNodeArray,
+		     sizeof(struct sDphHashNode) * (SIR_SAP_MAX_NUM_PEERS + 1));
+
+	session_ptr->dph.dphHashTable.pHashTable = NULL;
+	session_ptr->dph.dphHashTable.pDphNodeArray = NULL;
+	session_ptr->valid = false;
+
+	return NULL;
 }
 
 /*--------------------------------------------------------------------------
@@ -675,26 +709,26 @@ pe_create_session(tpAniSirGlobal pMac, uint8_t *bssid, uint8_t *sessionId,
    This function returns the session context and the session ID if the session
    corresponding to the given BSSID is found in the PE session table.
 
-   \param pMac                   - pointer to global adapter context
+   \param mac                   - pointer to global adapter context
    \param bssid                   - BSSID of the session
    \param sessionId             -session ID is returned here, if session is found.
 
-   \return tpPESession          - pointer to the session context or NULL if session is not found.
+   \return struct pe_session *         - pointer to the session context or NULL if session is not found.
 
    \sa
    --------------------------------------------------------------------------*/
-tpPESession pe_find_session_by_bssid(tpAniSirGlobal pMac, uint8_t *bssid,
+struct pe_session *pe_find_session_by_bssid(struct mac_context *mac, uint8_t *bssid,
 				     uint8_t *sessionId)
 {
 	uint8_t i;
 
-	for (i = 0; i < pMac->lim.maxBssId; i++) {
+	for (i = 0; i < mac->lim.maxBssId; i++) {
 		/* If BSSID matches return corresponding tables address */
-		if ((pMac->lim.gpSession[i].valid)
-		    && (sir_compare_mac_addr(pMac->lim.gpSession[i].bssId,
+		if ((mac->lim.gpSession[i].valid)
+		    && (sir_compare_mac_addr(mac->lim.gpSession[i].bssId,
 					    bssid))) {
 			*sessionId = i;
-			return &pMac->lim.gpSession[i];
+			return &mac->lim.gpSession[i];
 		}
 	}
 
@@ -702,28 +736,28 @@ tpPESession pe_find_session_by_bssid(tpAniSirGlobal pMac, uint8_t *bssid,
 
 }
 
-/*--------------------------------------------------------------------------
-   \brief pe_find_session_by_bss_idx() - looks up the PE session given the bssIdx.
-
-   This function returns the session context  if the session
-   corresponding to the given bssIdx is found in the PE session table.
-   \param pMac                   - pointer to global adapter context
-   \param bssIdx                   - bss index of the session
-   \return tpPESession          - pointer to the session context or NULL if session is not found.
-   \sa
-   --------------------------------------------------------------------------*/
-tpPESession pe_find_session_by_bss_idx(tpAniSirGlobal pMac, uint8_t bssIdx)
+/**
+ * pe_find_session_by_bss_idx() - looks up the PE session given the bss_idx.
+ *
+ * This function returns the session context  if the session
+ * corresponding to the given bss_idx is found in the PE session table.
+ * @mac:             pointer to global adapter context
+ * @bss_idx:         bss index of the session
+ *
+ * Return: pointer to the session context or NULL if session is not found.
+ */
+struct pe_session *pe_find_session_by_bss_idx(struct mac_context *mac,
+					      uint8_t bss_idx)
 {
 	uint8_t i;
 
-	for (i = 0; i < pMac->lim.maxBssId; i++) {
+	for (i = 0; i < mac->lim.maxBssId; i++) {
 		/* If BSSID matches return corresponding tables address */
-		if ((pMac->lim.gpSession[i].valid)
-		    && (pMac->lim.gpSession[i].bssIdx == bssIdx)) {
-			return &pMac->lim.gpSession[i];
-		}
+		if ((mac->lim.gpSession[i].valid) &&
+		    (mac->lim.gpSession[i].bss_idx == bss_idx))
+			return &mac->lim.gpSession[i];
 	}
-	pe_debug("Session lookup fails for bssIdx: %d", bssIdx);
+	pe_debug("Session lookup fails for bss_idx: %d", bss_idx);
 	return NULL;
 }
 
@@ -733,23 +767,23 @@ tpPESession pe_find_session_by_bss_idx(tpAniSirGlobal pMac, uint8_t bssIdx)
    This function returns the session context  if the session
    corresponding to the given session ID is found in the PE session table.
 
-   \param pMac                   - pointer to global adapter context
+   \param mac                   - pointer to global adapter context
    \param sessionId             -session ID for which session context needs to be looked up.
 
-   \return tpPESession          - pointer to the session context or NULL if session is not found.
+   \return struct pe_session *         - pointer to the session context or NULL if session is not found.
 
    \sa
    --------------------------------------------------------------------------*/
-tpPESession pe_find_session_by_session_id(tpAniSirGlobal pMac,
+struct pe_session *pe_find_session_by_session_id(struct mac_context *mac,
 					  uint8_t sessionId)
 {
-	if (sessionId >= pMac->lim.maxBssId) {
+	if (sessionId >= mac->lim.maxBssId) {
 		pe_err("Invalid sessionId: %d", sessionId);
 		return NULL;
 	}
 
-	if (pMac->lim.gpSession[sessionId].valid)
-		return &pMac->lim.gpSession[sessionId];
+	if (mac->lim.gpSession[sessionId].valid)
+		return &mac->lim.gpSession[sessionId];
 
 	return NULL;
 }
@@ -765,14 +799,14 @@ tpPESession pe_find_session_by_session_id(tpAniSirGlobal pMac,
  *
  * Return: session pointer
  */
-tpPESession
-pe_find_session_by_sta_id(tpAniSirGlobal mac_ctx,
+struct pe_session *
+pe_find_session_by_sta_id(struct mac_context *mac_ctx,
 			  uint8_t staid,
 			  uint8_t *session_id)
 {
 	uint8_t i, j;
-	tpPESession session_ptr;
-	dphHashTableClass *dph_ptr;
+	struct pe_session *session_ptr;
+	struct dph_hash_table *dph_ptr;
 
 	for (i = 0; i < mac_ctx->lim.maxBssId; i++) {
 		if (!mac_ctx->lim.gpSession[i].valid)
@@ -802,29 +836,35 @@ pe_find_session_by_sta_id(tpAniSirGlobal mac_ctx,
  *
  * Return: void
  */
-void pe_delete_session(tpAniSirGlobal mac_ctx, tpPESession session)
+void pe_delete_session(struct mac_context *mac_ctx, struct pe_session *session)
 {
 	uint16_t i = 0;
 	uint16_t n;
 	TX_TIMER *timer_ptr;
+	struct wlan_objmgr_vdev *vdev;
 
 	if (!session || (session && !session->valid)) {
 		pe_err("session is not valid");
 		return;
 	}
 
-	pe_debug("Trying to delete PE session: %d Opmode: %d BssIdx: %d BSSID: "MAC_ADDRESS_STR,
+	pe_debug("Trying to delete PE session: %d Opmode: %d BssIdx: %d BSSID: "QDF_MAC_ADDR_STR,
 		session->peSessionId, session->operMode,
-		session->bssIdx,
-		MAC_ADDR_ARRAY(session->bssId));
+		session->bss_idx,
+		QDF_MAC_ADDR_ARRAY(session->bssId));
 
 	lim_reset_bcn_probe_filter(mac_ctx, session);
 
 	/* Restore default failure timeout */
 	if (session->defaultAuthFailureTimeout) {
 		pe_debug("Restore default failure timeout");
-		cfg_set_int(mac_ctx, WNI_CFG_AUTHENTICATE_FAILURE_TIMEOUT,
-				session->defaultAuthFailureTimeout);
+		if (cfg_in_range(CFG_AUTH_FAILURE_TIMEOUT,
+				 session->defaultAuthFailureTimeout))
+			mac_ctx->mlme_cfg->timeouts.auth_failure_timeout =
+				session->defaultAuthFailureTimeout;
+		else
+			mac_ctx->mlme_cfg->timeouts.auth_failure_timeout =
+				cfg_default(CFG_AUTH_FAILURE_TIMEOUT);
 	}
 
 	for (n = 0; n < (mac_ctx->lim.maxStation + 1); n++) {
@@ -847,66 +887,66 @@ void pe_delete_session(tpAniSirGlobal mac_ctx, tpPESession session)
 
 	/* Delete FT related information */
 	lim_ft_cleanup(mac_ctx, session);
-	if (session->pLimStartBssReq != NULL) {
+	if (session->pLimStartBssReq) {
 		qdf_mem_free(session->pLimStartBssReq);
 		session->pLimStartBssReq = NULL;
 	}
 
-	if (session->pLimJoinReq != NULL) {
-		qdf_mem_free(session->pLimJoinReq);
-		session->pLimJoinReq = NULL;
+	if (session->lim_join_req) {
+		qdf_mem_free(session->lim_join_req);
+		session->lim_join_req = NULL;
 	}
 
-	if (session->pLimReAssocReq != NULL) {
+	if (session->pLimReAssocReq) {
 		qdf_mem_free(session->pLimReAssocReq);
 		session->pLimReAssocReq = NULL;
 	}
 
-	if (session->pLimMlmJoinReq != NULL) {
+	if (session->pLimMlmJoinReq) {
 		qdf_mem_free(session->pLimMlmJoinReq);
 		session->pLimMlmJoinReq = NULL;
 	}
 
-	if (session->dph.dphHashTable.pHashTable != NULL) {
+	if (session->dph.dphHashTable.pHashTable) {
 		qdf_mem_free(session->dph.dphHashTable.pHashTable);
 		session->dph.dphHashTable.pHashTable = NULL;
 	}
 
-	if (session->dph.dphHashTable.pDphNodeArray != NULL) {
+	if (session->dph.dphHashTable.pDphNodeArray) {
 		qdf_mem_zero(session->dph.dphHashTable.pDphNodeArray,
 			sizeof(struct sDphHashNode) *
 			(SIR_SAP_MAX_NUM_PEERS + 1));
 		session->dph.dphHashTable.pDphNodeArray = NULL;
 	}
 
-	if (session->gpLimPeerIdxpool != NULL) {
+	if (session->gpLimPeerIdxpool) {
 		qdf_mem_free(session->gpLimPeerIdxpool);
 		session->gpLimPeerIdxpool = NULL;
 	}
 
-	if (session->beacon != NULL) {
+	if (session->beacon) {
 		qdf_mem_free(session->beacon);
 		session->beacon = NULL;
 		session->bcnLen = 0;
 	}
 
-	if (session->assocReq != NULL) {
+	if (session->assocReq) {
 		qdf_mem_free(session->assocReq);
 		session->assocReq = NULL;
 		session->assocReqLen = 0;
 	}
 
-	if (session->assocRsp != NULL) {
+	if (session->assocRsp) {
 		qdf_mem_free(session->assocRsp);
 		session->assocRsp = NULL;
 		session->assocRspLen = 0;
 	}
 
-	if (session->parsedAssocReq != NULL) {
+	if (session->parsedAssocReq) {
 		tpSirAssocReq tmp_ptr = NULL;
 		/* Cleanup the individual allocation first */
 		for (i = 0; i < session->dph.dphHashTable.size; i++) {
-			if (session->parsedAssocReq[i] == NULL)
+			if (!session->parsedAssocReq[i])
 				continue;
 			tmp_ptr = ((tpSirAssocReq)
 				  (session->parsedAssocReq[i]));
@@ -922,55 +962,58 @@ void pe_delete_session(tpAniSirGlobal mac_ctx, tpPESession session)
 		qdf_mem_free(session->parsedAssocReq);
 		session->parsedAssocReq = NULL;
 	}
-	if (NULL != session->limAssocResponseData) {
+	if (session->limAssocResponseData) {
 		qdf_mem_free(session->limAssocResponseData);
 		session->limAssocResponseData = NULL;
 	}
-	if (NULL != session->pLimMlmReassocRetryReq) {
+	if (session->pLimMlmReassocRetryReq) {
 		qdf_mem_free(session->pLimMlmReassocRetryReq);
 		session->pLimMlmReassocRetryReq = NULL;
 	}
-	if (NULL != session->pLimMlmReassocReq) {
+	if (session->pLimMlmReassocReq) {
 		qdf_mem_free(session->pLimMlmReassocReq);
 		session->pLimMlmReassocReq = NULL;
 	}
 
-	if (NULL != session->pSchProbeRspTemplate) {
+	if (session->pSchProbeRspTemplate) {
 		qdf_mem_free(session->pSchProbeRspTemplate);
 		session->pSchProbeRspTemplate = NULL;
 	}
 
-	if (NULL != session->pSchBeaconFrameBegin) {
+	if (session->pSchBeaconFrameBegin) {
 		qdf_mem_free(session->pSchBeaconFrameBegin);
 		session->pSchBeaconFrameBegin = NULL;
 	}
 
-	if (NULL != session->pSchBeaconFrameEnd) {
+	if (session->pSchBeaconFrameEnd) {
 		qdf_mem_free(session->pSchBeaconFrameEnd);
 		session->pSchBeaconFrameEnd = NULL;
 	}
 
 	/* Must free the buffer before peSession invalid */
-	if (NULL != session->addIeParams.probeRespData_buff) {
-		qdf_mem_free(session->addIeParams.probeRespData_buff);
-		session->addIeParams.probeRespData_buff = NULL;
-		session->addIeParams.probeRespDataLen = 0;
+	if (session->add_ie_params.probeRespData_buff) {
+		qdf_mem_free(session->add_ie_params.probeRespData_buff);
+		session->add_ie_params.probeRespData_buff = NULL;
+		session->add_ie_params.probeRespDataLen = 0;
 	}
-	if (NULL != session->addIeParams.assocRespData_buff) {
-		qdf_mem_free(session->addIeParams.assocRespData_buff);
-		session->addIeParams.assocRespData_buff = NULL;
-		session->addIeParams.assocRespDataLen = 0;
+	if (session->add_ie_params.assocRespData_buff) {
+		qdf_mem_free(session->add_ie_params.assocRespData_buff);
+		session->add_ie_params.assocRespData_buff = NULL;
+		session->add_ie_params.assocRespDataLen = 0;
 	}
-	if (NULL != session->addIeParams.probeRespBCNData_buff) {
-		qdf_mem_free(session->addIeParams.probeRespBCNData_buff);
-		session->addIeParams.probeRespBCNData_buff = NULL;
-		session->addIeParams.probeRespBCNDataLen = 0;
+	if (session->add_ie_params.probeRespBCNData_buff) {
+		qdf_mem_free(session->add_ie_params.probeRespBCNData_buff);
+		session->add_ie_params.probeRespBCNData_buff = NULL;
+		session->add_ie_params.probeRespBCNDataLen = 0;
 	}
 	pe_delete_fils_info(session);
 	session->valid = false;
 
+	session->mac_ctx = NULL;
+
 	qdf_mem_zero(session->WEPKeyMaterial,
 		     sizeof(session->WEPKeyMaterial));
+
 	if (session->access_policy_vendor_ie)
 		qdf_mem_free(session->access_policy_vendor_ie);
 
@@ -979,7 +1022,10 @@ void pe_delete_session(tpAniSirGlobal mac_ctx, tpPESession session)
 	if (LIM_IS_AP_ROLE(session))
 		lim_check_and_reset_protection_params(mac_ctx);
 
-	return;
+	vdev = session->vdev;
+	session->vdev = NULL;
+	if (vdev)
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
 }
 
 /*--------------------------------------------------------------------------
@@ -988,37 +1034,37 @@ void pe_delete_session(tpAniSirGlobal mac_ctx, tpPESession session)
    This function returns the session context and the session ID if the session
    corresponding to the given station address is found in the PE session table.
 
-   \param pMac                   - pointer to global adapter context
+   \param mac                   - pointer to global adapter context
    \param sa                       - Peer STA Address of the session
    \param sessionId             -session ID is returned here, if session is found.
 
-   \return tpPESession          - pointer to the session context or NULL if session is not found.
+   \return struct pe_session *         - pointer to the session context or NULL if session is not found.
 
    \sa
    --------------------------------------------------------------------------*/
 
-tpPESession pe_find_session_by_peer_sta(tpAniSirGlobal pMac, uint8_t *sa,
+struct pe_session *pe_find_session_by_peer_sta(struct mac_context *mac, uint8_t *sa,
 					uint8_t *sessionId)
 {
 	uint8_t i;
 	tpDphHashNode pSta;
 	uint16_t aid;
 
-	for (i = 0; i < pMac->lim.maxBssId; i++) {
-		if ((pMac->lim.gpSession[i].valid)) {
+	for (i = 0; i < mac->lim.maxBssId; i++) {
+		if ((mac->lim.gpSession[i].valid)) {
 			pSta =
-				dph_lookup_hash_entry(pMac, sa, &aid,
-						      &pMac->lim.gpSession[i].dph.
+				dph_lookup_hash_entry(mac, sa, &aid,
+						      &mac->lim.gpSession[i].dph.
 						      dphHashTable);
-			if (pSta != NULL) {
+			if (pSta) {
 				*sessionId = i;
-				return &pMac->lim.gpSession[i];
+				return &mac->lim.gpSession[i];
 			}
 		}
 	}
 
 	pe_debug("Session lookup fails for Peer StaId:");
-	lim_print_mac_addr(pMac, sa, LOGD);
+	lim_print_mac_addr(mac, sa, LOGD);
 	return NULL;
 }
 
@@ -1032,7 +1078,7 @@ tpPESession pe_find_session_by_peer_sta(tpAniSirGlobal pMac, uint8_t *sa,
  *
  * Return: pe session entry for given sme session if found else NULL
  */
-tpPESession pe_find_session_by_sme_session_id(tpAniSirGlobal mac_ctx,
+struct pe_session *pe_find_session_by_sme_session_id(struct mac_context *mac_ctx,
 					      uint8_t sme_session_id)
 {
 	uint8_t i;
@@ -1041,6 +1087,31 @@ tpPESession pe_find_session_by_sme_session_id(tpAniSirGlobal mac_ctx,
 		if ((mac_ctx->lim.gpSession[i].valid) &&
 		     (mac_ctx->lim.gpSession[i].smeSessionId ==
 			sme_session_id)) {
+			return &mac_ctx->lim.gpSession[i];
+		}
+	}
+	return NULL;
+}
+
+/**
+ * pe_find_session_by_scan_id() - looks up the PE session for given scan id
+ * @mac_ctx:   pointer to global adapter context
+ * @scan_id:   scan id
+ *
+ * looks up the PE session for given scan id
+ *
+ * Return: pe session entry for given scan id if found else NULL
+ */
+struct pe_session *pe_find_session_by_scan_id(struct mac_context *mac_ctx,
+				       uint32_t scan_id)
+{
+	uint8_t i;
+
+	for (i = 0; i < mac_ctx->lim.maxBssId; i++) {
+		if ((mac_ctx->lim.gpSession[i].valid) &&
+		    (mac_ctx->lim.gpSession[i].ftPEContext.pFTPreAuthReq) &&
+		    (mac_ctx->lim.gpSession[i].ftPEContext.pFTPreAuthReq
+		     ->scan_id == scan_id)) {
 			return &mac_ctx->lim.gpSession[i];
 		}
 	}
@@ -1057,7 +1128,7 @@ tpPESession pe_find_session_by_sme_session_id(tpAniSirGlobal mac_ctx,
  * Return: 0 if there are no active sessions else return number of active
  *          sessions
  */
-uint8_t pe_get_active_session_count(tpAniSirGlobal mac_ctx)
+uint8_t pe_get_active_session_count(struct mac_context *mac_ctx)
 {
 	uint8_t i, active_session_count = 0;
 

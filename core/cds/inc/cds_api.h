@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -36,6 +36,7 @@
 #include <qdf_lock.h>
 #include "qdf_platform.h"
 #include "qdf_cpuhp.h"
+#include <wlan_cmn.h>
 #include "reg_services_public_struct.h"
 #include <cds_reg_service.h>
 #include <cds_packet.h>
@@ -72,65 +73,20 @@ enum cds_driver_state {
 	CDS_DRIVER_STATE_MODULE_STOPPING        = BIT(6),
 };
 
+/**
+ * struce cds_vdev_dp_stats - vdev stats populated from DP
+ * @tx_retries: packet number of successfully transmitted after more
+ *              than one retransmission attempt
+ */
+struct cds_vdev_dp_stats {
+	uint32_t tx_retries;
+};
+
 #define __CDS_IS_DRIVER_STATE(_state, _mask) (((_state) & (_mask)) == (_mask))
-
-/**
- * enum cds_fw_state - Firmware state
- * @CDS_FW_STATE_UNINITIALIZED: Firmware is in uninitialized state.
- */
-enum cds_fw_state {
-	CDS_FW_STATE_UNINITIALIZED = 0,
-};
-
-#define __CDS_IS_FW_STATE(_state, _mask) (((_state) & (_mask)) == (_mask))
-
-/**
- * struct cds_sme_cbacks - list of sme functions registered with
- * CDS
- * @sme_get_valid_channels: gets the valid channel list for current reg domain
- * @sme_get_nss_for_vdev: gets the nss allowed for the vdev type
- */
-struct cds_sme_cbacks {
-	QDF_STATUS (*sme_get_valid_channels)(void*, uint8_t *, uint32_t *);
-	void (*sme_get_nss_for_vdev)(void*, enum QDF_OPMODE,
-				     uint8_t *, uint8_t *);
-};
 
 void cds_set_driver_state(enum cds_driver_state);
 void cds_clear_driver_state(enum cds_driver_state);
 enum cds_driver_state cds_get_driver_state(void);
-
-/**
- * cds_set_fw_state() - Set current firmware state
- * @state:	Firmware state to be set to.
- *
- * This API sets firmware state to state. This API only sets the state and
- * doesn't clear states, please make sure to use cds_clear_firmware_state
- * to clear any state if required.
- *
- * Return: None
- */
-void cds_set_fw_state(enum cds_fw_state);
-
-/**
- * cds_clear_fw_state() - Clear current fw state
- * @state:	Driver state to be cleared.
- *
- * This API clears fw state. This API only clears the state, please make
- * sure to use cds_set_fw_state to set any new states.
- *
- * Return: None
- */
-void cds_clear_fw_state(enum cds_fw_state);
-
-/**
- * cds_get_fw_state() - Get current firmware state
- *
- * This API returns current firmware state stored in global context.
- *
- * Return: Firmware state enum
- */
-enum cds_fw_state cds_get_fw_state(void);
 
 /**
  * cds_is_driver_loading() - Is driver load in progress
@@ -191,18 +147,6 @@ static inline bool cds_is_load_or_unload_in_progress(void)
 
 	return __CDS_IS_DRIVER_STATE(state, CDS_DRIVER_STATE_LOADING) ||
 		__CDS_IS_DRIVER_STATE(state, CDS_DRIVER_STATE_UNLOADING);
-}
-
-/**
- * cds_is_module_stop_in_progress() - Is module stopping
- *
- * Return: true if module stop is in progress.
- */
-static inline bool cds_is_module_stop_in_progress(void)
-{
-	enum cds_driver_state state = cds_get_driver_state();
-
-	return __CDS_IS_DRIVER_STATE(state, CDS_DRIVER_STATE_MODULE_STOPPING);
 }
 
 /**
@@ -410,8 +354,6 @@ bool cds_is_packet_log_enabled(void)
 bool cds_is_packet_log_enabled(void);
 #endif
 
-uint64_t cds_get_monotonic_boottime(void);
-
 /**
  * cds_get_recovery_reason() - get self recovery reason
  * @reason: cds hang reason
@@ -571,6 +513,23 @@ uint32_t cds_get_arp_stats_gw_ip(void *context);
 uint32_t cds_get_connectivity_stats_pkt_bitmap(void *context);
 void cds_incr_arp_stats_tx_tgt_delivered(void);
 void cds_incr_arp_stats_tx_tgt_acked(void);
+
+#ifdef FEATURE_ALIGN_STATS_FROM_DP
+/**
+ * cds_dp_get_vdev_stats() - get vdev stats from DP
+ * @vdev_id: vdev id
+ * @stats: structure of counters which CP is interested in
+ *
+ * Return: if get vdev stats from DP success, return true otherwise false
+ */
+bool cds_dp_get_vdev_stats(uint8_t vdev_id, struct cds_vdev_dp_stats *stats);
+#else
+static inline bool
+cds_dp_get_vdev_stats(uint8_t vdev_id, struct cds_vdev_dp_stats *stats)
+{
+	return false;
+}
+#endif
 
 /**
  * cds_smmu_mem_map_setup() - Check SMMU S1 stage enable

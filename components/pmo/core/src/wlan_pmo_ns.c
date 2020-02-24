@@ -54,7 +54,7 @@ static void pmo_core_fill_ns_addr(struct pmo_ns_offload_params *request,
 					ns_req->ipv6_addr[i][15];
 		request->slot_idx = i;
 		qdf_mem_copy(&request->target_ipv6_addr[i],
-			&ns_req->ipv6_addr[i][0], PMO_MAC_IPV6_ADDR_LEN);
+			&ns_req->ipv6_addr[i][0], QDF_IPV6_ADDR_SIZE);
 
 		request->target_ipv6_addr_valid[i] =
 			PMO_IPV6_ADDR_VALID;
@@ -94,7 +94,7 @@ static QDF_STATUS pmo_core_cache_ns_in_vdev_priv(
 	/* set number of ns offload address count */
 	request.num_ns_offload_count = ns_req->count;
 
-	peer = wlan_vdev_get_bsspeer(vdev);
+	peer = wlan_objmgr_vdev_try_get_bsspeer(vdev, WLAN_PMO_ID);
 	if (!peer) {
 		pmo_err("peer is null");
 		status = QDF_STATUS_E_INVAL;
@@ -107,6 +107,7 @@ static QDF_STATUS pmo_core_cache_ns_in_vdev_priv(
 	qdf_mem_copy(&request.bssid,
 		wlan_peer_get_macaddr(peer),
 		QDF_MAC_ADDR_SIZE);
+	wlan_objmgr_peer_release_ref(peer, WLAN_PMO_ID);
 	/* cache ns request */
 	qdf_spin_lock_bh(&vdev_ctx->pmo_vdev_lock);
 	qdf_mem_copy(&vdev_ctx->vdev_ns_req, &request,
@@ -241,7 +242,7 @@ static QDF_STATUS pmo_core_ns_offload_sanity(struct wlan_objmgr_vdev *vdev)
 		return QDF_STATUS_E_INVAL;
 	}
 
-	if (!wlan_vdev_is_up(vdev))
+	if (wlan_vdev_is_up(vdev) != QDF_STATUS_SUCCESS)
 		return QDF_STATUS_E_INVAL;
 
 	return QDF_STATUS_SUCCESS;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -75,11 +75,11 @@ void hdd_ipa_set_tx_flow_info(void)
 		case QDF_STA_MODE:
 			sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 			if (eConnectionState_Associated ==
-			    sta_ctx->conn_info.connState) {
+			    sta_ctx->conn_info.conn_state) {
 				staChannel =
-					sta_ctx->conn_info.operationChannel;
+					sta_ctx->conn_info.channel;
 				qdf_copy_macaddr(&staBssid,
-						 &sta_ctx->conn_info.bssId);
+						 &sta_ctx->conn_info.bssid);
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
 				targetChannel = staChannel;
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */
@@ -88,11 +88,11 @@ void hdd_ipa_set_tx_flow_info(void)
 		case QDF_P2P_CLIENT_MODE:
 			sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 			if (eConnectionState_Associated ==
-			    sta_ctx->conn_info.connState) {
+			    sta_ctx->conn_info.conn_state) {
 				p2pChannel =
-					sta_ctx->conn_info.operationChannel;
+					sta_ctx->conn_info.channel;
 				qdf_copy_macaddr(&p2pBssid,
-						&sta_ctx->conn_info.bssId);
+						&sta_ctx->conn_info.bssid);
 				p2pMode = "CLI";
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
 				targetChannel = p2pChannel;
@@ -149,25 +149,26 @@ void hdd_ipa_set_tx_flow_info(void)
 				if (ucfg_ipa_uc_is_enabled() &&
 				    (QDF_SAP_MODE == adapter->device_mode)) {
 					adapter->tx_flow_low_watermark =
-					hdd_ctx->config->TxFlowLowWaterMark +
+					hdd_ctx->config->tx_flow_low_watermark +
 					WLAN_TFC_IPAUC_TX_DESC_RESERVE;
 				} else {
 					adapter->tx_flow_low_watermark =
 						hdd_ctx->config->
-							TxFlowLowWaterMark;
+							tx_flow_low_watermark;
 				}
-				adapter->tx_flow_high_watermark_offset =
-				   hdd_ctx->config->TxFlowHighWaterMarkOffset;
+				adapter->tx_flow_hi_watermark_offset =
+				   hdd_ctx->config->tx_flow_hi_watermark_offset;
 				cdp_fc_ll_set_tx_pause_q_depth(soc,
-					adapter->session_id,
-					hdd_ctx->config->TxFlowMaxQueueDepth);
+						adapter->vdev_id,
+						hdd_ctx->config->
+						tx_flow_max_queue_depth);
 				hdd_info("MODE %d,CH %d,LWM %d,HWM %d,TXQDEP %d",
 				    adapter->device_mode,
 				    targetChannel,
 				    adapter->tx_flow_low_watermark,
 				    adapter->tx_flow_low_watermark +
-				    adapter->tx_flow_high_watermark_offset,
-				    hdd_ctx->config->TxFlowMaxQueueDepth);
+				    adapter->tx_flow_hi_watermark_offset,
+				    hdd_ctx->config->tx_flow_max_queue_depth);
 				preAdapterChannel = targetChannel;
 				preAdapterContext = adapter;
 			} else {
@@ -182,22 +183,22 @@ void hdd_ipa_set_tx_flow_info(void)
 					/* Current adapter */
 					adapter->tx_flow_low_watermark = 0;
 					adapter->
-					tx_flow_high_watermark_offset = 0;
+					tx_flow_hi_watermark_offset = 0;
 					cdp_fc_ll_set_tx_pause_q_depth(soc,
-						adapter->session_id,
+						adapter->vdev_id,
 						hdd_ctx->config->
-						TxHbwFlowMaxQueueDepth);
+						tx_hbw_flow_max_queue_depth);
 					hdd_info("SCC: MODE %s(%d), CH %d, LWM %d, HWM %d, TXQDEP %d",
-					       hdd_device_mode_to_string(
+					       qdf_opmode_str(
 							adapter->device_mode),
 					       adapter->device_mode,
 					       targetChannel,
 					       adapter->tx_flow_low_watermark,
 					       adapter->tx_flow_low_watermark +
 					       adapter->
-					       tx_flow_high_watermark_offset,
+					       tx_flow_hi_watermark_offset,
 					       hdd_ctx->config->
-					       TxHbwFlowMaxQueueDepth);
+					       tx_hbw_flow_max_queue_depth);
 
 					if (!preAdapterContext) {
 						hdd_err("SCC: Previous adapter context NULL");
@@ -208,15 +209,14 @@ void hdd_ipa_set_tx_flow_info(void)
 					preAdapterContext->
 					tx_flow_low_watermark = 0;
 					preAdapterContext->
-					tx_flow_high_watermark_offset = 0;
+					tx_flow_hi_watermark_offset = 0;
 					cdp_fc_ll_set_tx_pause_q_depth(soc,
 						preAdapterContext->session_id,
 						hdd_ctx->config->
-						TxHbwFlowMaxQueueDepth);
+						tx_hbw_flow_max_queue_depth);
 					hdd_info("SCC: MODE %s(%d), CH %d, LWM %d, HWM %d, TXQDEP %d",
-					       hdd_device_mode_to_string(
-						preAdapterContext->device_mode
-							  ),
+					       qdf_opmode_str(
+						preAdapterContext->device_mode),
 					       preAdapterContext->device_mode,
 					       targetChannel,
 					       preAdapterContext->
@@ -224,9 +224,9 @@ void hdd_ipa_set_tx_flow_info(void)
 					       preAdapterContext->
 					       tx_flow_low_watermark +
 					       preAdapterContext->
-					       tx_flow_high_watermark_offset,
+					       tx_flow_hi_watermark_offset,
 					       hdd_ctx->config->
-					       TxHbwFlowMaxQueueDepth);
+					       tx_hbw_flow_max_queue_depth);
 				}
 				/*
 				 * MCC, each adapter will have dedicated
@@ -254,17 +254,17 @@ void hdd_ipa_set_tx_flow_info(void)
 					}
 					adapter5->tx_flow_low_watermark =
 						hdd_ctx->config->
-						TxHbwFlowLowWaterMark;
+						tx_hbw_flow_low_watermark;
 					adapter5->
-					tx_flow_high_watermark_offset =
+					tx_flow_hi_watermark_offset =
 						hdd_ctx->config->
-						TxHbwFlowHighWaterMarkOffset;
+						tx_hbw_flow_hi_watermark_offset;
 					cdp_fc_ll_set_tx_pause_q_depth(soc,
 						adapter5->session_id,
 						hdd_ctx->config->
-						TxHbwFlowMaxQueueDepth);
+						tx_hbw_flow_max_queue_depth);
 					hdd_info("MCC: MODE %s(%d), CH %d, LWM %d, HWM %d, TXQDEP %d",
-					    hdd_device_mode_to_string(
+					    qdf_opmode_str(
 						    adapter5->device_mode),
 					    adapter5->device_mode,
 					    channel5,
@@ -272,9 +272,9 @@ void hdd_ipa_set_tx_flow_info(void)
 					    adapter5->
 					    tx_flow_low_watermark +
 					    adapter5->
-					    tx_flow_high_watermark_offset,
+					    tx_flow_hi_watermark_offset,
 					    hdd_ctx->config->
-					    TxHbwFlowMaxQueueDepth);
+					    tx_hbw_flow_max_queue_depth);
 
 					if (!adapter2_4) {
 						hdd_err("MCC: 2.4GHz adapter context NULL");
@@ -282,17 +282,17 @@ void hdd_ipa_set_tx_flow_info(void)
 					}
 					adapter2_4->tx_flow_low_watermark =
 						hdd_ctx->config->
-						TxLbwFlowLowWaterMark;
+						tx_lbw_flow_low_watermark;
 					adapter2_4->
-					tx_flow_high_watermark_offset =
+					tx_flow_hi_watermark_offset =
 						hdd_ctx->config->
-						TxLbwFlowHighWaterMarkOffset;
+						tx_lbw_flow_hi_watermark_offset;
 					cdp_fc_ll_set_tx_pause_q_depth(soc,
 						adapter2_4->session_id,
 						hdd_ctx->config->
-						TxLbwFlowMaxQueueDepth);
+						tx_lbw_flow_max_queue_depth);
 					hdd_info("MCC: MODE %s(%d), CH %d, LWM %d, HWM %d, TXQDEP %d",
-						hdd_device_mode_to_string(
+						qdf_opmode_str(
 						    adapter2_4->device_mode),
 						adapter2_4->device_mode,
 						channel24,
@@ -301,9 +301,9 @@ void hdd_ipa_set_tx_flow_info(void)
 						adapter2_4->
 						tx_flow_low_watermark +
 						adapter2_4->
-						tx_flow_high_watermark_offset,
+						tx_flow_hi_watermark_offset,
 						hdd_ctx->config->
-						TxLbwFlowMaxQueueDepth);
+						tx_lbw_flow_max_queue_depth);
 
 				}
 			}
@@ -350,9 +350,24 @@ static void hdd_ipa_set_wake_up_idle(bool wake_up_idle)
 #endif
 
 #ifdef QCA_CONFIG_SMP
+
+/**
+ * hdd_ipa_aggregated_rx_ind() - Submit aggregated packets to the stack
+ * @skb: skb to be submitted to the stack
+ *
+ * For CONFIG_SMP systems, simply call netif_rx_ni.
+ * For non CONFIG_SMP systems call netif_rx till
+ * IPA_WLAN_RX_SOFTIRQ_THRESH. When threshold is reached call netif_rx_ni.
+ * In this manner, UDP/TCP packets are sent in an aggregated way to the stack.
+ * For IP/ICMP packets, simply call netif_rx_ni.
+ *
+ * Return: return value from the netif_rx_ni/netif_rx api.
+ */
 static int hdd_ipa_aggregated_rx_ind(qdf_nbuf_t skb)
 {
-	return netif_rx_ni(skb);
+	int ret;
+	ret =  netif_rx_ni(skb);
+	return ret;
 }
 #else
 static int hdd_ipa_aggregated_rx_ind(qdf_nbuf_t skb)
@@ -388,7 +403,7 @@ void hdd_ipa_send_nbuf_to_network(qdf_nbuf_t nbuf, qdf_netdev_t dev)
 	struct hdd_adapter *adapter = (struct hdd_adapter *) netdev_priv(dev);
 	int result;
 	unsigned int cpu_index;
-	uint8_t staid;
+	uint8_t sta_id;
 	uint32_t enabled;
 
 	if (hdd_validate_adapter(adapter)) {
@@ -401,15 +416,30 @@ void hdd_ipa_send_nbuf_to_network(qdf_nbuf_t nbuf, qdf_netdev_t dev)
 		return;
 	}
 
-	if (adapter->device_mode == QDF_SAP_MODE) {
+	if ((adapter->device_mode == QDF_SAP_MODE) &&
+	    (qdf_nbuf_is_ipv4_dhcp_pkt(nbuf) == true)) {
 		/* Send DHCP Indication to FW */
 		struct qdf_mac_addr *src_mac =
 			(struct qdf_mac_addr *)(nbuf->data +
 			QDF_NBUF_SRC_MAC_OFFSET);
 		if (QDF_STATUS_SUCCESS ==
-			hdd_softap_get_sta_id(adapter, src_mac, &staid))
-			hdd_inspect_dhcp_packet(adapter, staid, nbuf, QDF_RX);
+			hdd_softap_get_sta_id(adapter, src_mac, &sta_id))
+			hdd_inspect_dhcp_packet(adapter, sta_id, nbuf, QDF_RX);
 	}
+
+	qdf_dp_trace_set_track(nbuf, QDF_RX);
+
+	hdd_event_eapol_log(nbuf, QDF_RX);
+	qdf_dp_trace_log_pkt(adapter->vdev_id,
+			     nbuf, QDF_RX, QDF_TRACE_DEFAULT_PDEV_ID);
+	DPTRACE(qdf_dp_trace(nbuf,
+			     QDF_DP_TRACE_RX_HDD_PACKET_PTR_RECORD,
+			     QDF_TRACE_DEFAULT_PDEV_ID,
+			     qdf_nbuf_data_addr(nbuf),
+			     sizeof(qdf_nbuf_data(nbuf)), QDF_RX));
+	DPTRACE(qdf_dp_trace_data_pkt(nbuf, QDF_TRACE_DEFAULT_PDEV_ID,
+				      QDF_DP_TRACE_RX_PACKET_RECORD, 0,
+				      QDF_RX));
 
 	/*
 	 * Set PF_WAKE_UP_IDLE flag in the task structure
@@ -431,24 +461,9 @@ void hdd_ipa_send_nbuf_to_network(qdf_nbuf_t nbuf, qdf_netdev_t dev)
 	 * Update STA RX exception packet stats.
 	 * For SAP as part of IPA HW stats are updated.
 	 */
-	if (adapter->device_mode == QDF_STA_MODE) {
-		++adapter->stats.rx_packets;
-		adapter->stats.rx_bytes += nbuf->len;
-	}
 
-	qdf_dp_trace_set_track(nbuf, QDF_RX);
-
-	hdd_event_eapol_log(nbuf, QDF_RX);
-	qdf_dp_trace_log_pkt(adapter->session_id,
-			     nbuf, QDF_RX, QDF_TRACE_DEFAULT_PDEV_ID);
-	DPTRACE(qdf_dp_trace(nbuf,
-			     QDF_DP_TRACE_RX_HDD_PACKET_PTR_RECORD,
-			     QDF_TRACE_DEFAULT_PDEV_ID,
-			     qdf_nbuf_data_addr(nbuf),
-			     sizeof(qdf_nbuf_data(nbuf)), QDF_RX));
-	DPTRACE(qdf_dp_trace_data_pkt(nbuf, QDF_TRACE_DEFAULT_PDEV_ID,
-				      QDF_DP_TRACE_RX_PACKET_RECORD, 0,
-				      QDF_RX));
+	++adapter->stats.rx_packets;
+	adapter->stats.rx_bytes += nbuf->len;
 
 	result = hdd_ipa_aggregated_rx_ind(nbuf);
 	if (result == NET_RX_SUCCESS)

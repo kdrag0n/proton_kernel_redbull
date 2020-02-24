@@ -79,7 +79,7 @@ static QDF_STATUS pmo_core_do_enable_gtk_offload(
 		return QDF_STATUS_E_INVAL;
 	}
 
-	if (!wlan_vdev_is_up(vdev))
+	if (wlan_vdev_is_up(vdev) != QDF_STATUS_SUCCESS)
 		return QDF_STATUS_E_INVAL;
 
 	vdev_id = pmo_vdev_get_id(vdev);
@@ -122,7 +122,7 @@ static QDF_STATUS pmo_core_is_gtk_enabled_in_fwr(
 		return QDF_STATUS_E_INVAL;
 	}
 
-	if (!wlan_vdev_is_up(vdev))
+	if (wlan_vdev_is_up(vdev) != QDF_STATUS_SUCCESS)
 		return QDF_STATUS_E_INVAL;
 
 	status = pmo_get_vdev_bss_peer_mac_addr(vdev,
@@ -137,7 +137,7 @@ static QDF_STATUS pmo_core_is_gtk_enabled_in_fwr(
 		pmo_err("cache request mac:%pM, peer mac:%pM are not same",
 			vdev_ctx->vdev_gtk_req.bssid.bytes,
 			peer_bssid.bytes);
-		 return QDF_STATUS_E_INVAL;
+		return QDF_STATUS_E_INVAL;
 	}
 
 	if (vdev_ctx->vdev_gtk_req.flags != PMO_GTK_OFFLOAD_ENABLE) {

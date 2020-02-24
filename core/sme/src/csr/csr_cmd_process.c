@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -35,7 +35,7 @@
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS csr_msg_processor(tpAniSirGlobal mac_ctx, void *msg_buf)
+QDF_STATUS csr_msg_processor(struct mac_context *mac_ctx, void *msg_buf)
 {
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	tSirSmeRsp *sme_rsp = (tSirSmeRsp *) msg_buf;
@@ -69,6 +69,17 @@ QDF_STATUS csr_msg_processor(tpAniSirGlobal mac_ctx, void *msg_buf)
 			break;
 		}
 
+		if (sme_rsp->messageType ==
+		    eWNI_SME_UPPER_LAYER_ASSOC_CNF) {
+			tSirSmeAssocIndToUpperLayerCnf *upper_layer_assoc_cnf =
+				(tSirSmeAssocIndToUpperLayerCnf *)msg_buf;
+			if (upper_layer_assoc_cnf->ies) {
+				qdf_mem_free(upper_layer_assoc_cnf->ies);
+				sme_debug("free ies");
+			}
+			break;
+		}
+
 		/*
 		 * For all other messages, we ignore it
 		 * To work-around an issue where checking for set/remove
@@ -87,7 +98,7 @@ QDF_STATUS csr_msg_processor(tpAniSirGlobal mac_ctx, void *msg_buf)
 				sme_rsp->messageType) {
 			tAniGetRssiReq *pGetRssiReq =
 				(tAniGetRssiReq *) msg_buf;
-			if (NULL == pGetRssiReq->rssiCallback) {
+			if (!pGetRssiReq->rssiCallback) {
 				sme_err("rssiCallback is NULL");
 				return status;
 			}
@@ -95,9 +106,6 @@ QDF_STATUS csr_msg_processor(tpAniSirGlobal mac_ctx, void *msg_buf)
 					pGetRssiReq->lastRSSI,
 					pGetRssiReq->staId,
 					pGetRssiReq->pDevContext);
-		} else if (sme_rsp->messageType ==
-			   eWNI_SME_PURGE_ALL_PDEV_CMDS_REQ) {
-			csr_purge_pdev_all_ser_cmd_list_sync(mac_ctx, msg_buf);
 		} else {
 			sme_err("Message 0x%04X is not handled by CSR state is %d session Id %d",
 				sme_rsp->messageType, cur_state,
@@ -120,23 +128,3 @@ QDF_STATUS csr_msg_processor(tpAniSirGlobal mac_ctx, void *msg_buf)
 	} /* switch */
 	return status;
 }
-
-bool csr_check_ps_ready(void *pv)
-{
-	tpAniSirGlobal pMac = PMAC_STRUCT(pv);
-
-	if (pMac->roam.sPendingCommands < 0) {
-		QDF_ASSERT(pMac->roam.sPendingCommands >= 0);
-		return 0;
-	}
-	return pMac->roam.sPendingCommands == 0;
-}
-
-bool csr_check_ps_offload_ready(void *pv, uint32_t sessionId)
-{
-	tpAniSirGlobal pMac = PMAC_STRUCT(pv);
-
-	QDF_ASSERT(pMac->roam.sPendingCommands >= 0);
-	return pMac->roam.sPendingCommands == 0;
-}
-

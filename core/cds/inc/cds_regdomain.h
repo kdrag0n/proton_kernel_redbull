@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2014-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -62,10 +62,11 @@
 #ifndef __CDS_REGDOMAIN_H
 #define __CDS_REGDOMAIN_H
 
+#include <wlan_cmn.h>
 #include <reg_services_public_struct.h>
 
 #define MIN_TX_PWR_CAP    8
-#define MAX_TX_PWR_CAP    30
+#define MAX_TX_PWR_CAP    24
 
 #define CTRY_DEFAULT          0
 #define CTRY_FLAG             0x8000
@@ -437,20 +438,6 @@ enum reg_domain {
 	MKKC = 0x0A50,
 	ETSIC = 0x0C30,
 
-};
-
-/**
- * enum ctl_val: CTL value
- * @FCC: FCC
- * @MKK: MKK
- * @ETSI: ETSI
- * @NO_CTL: no CTL
- */
-enum ctl_val {
-	FCC = 0x10,
-	MKK = 0x40,
-	ETSI = 0x30,
-	NO_CTL = 0xff
 };
 
 /**

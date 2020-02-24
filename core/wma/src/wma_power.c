@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -32,7 +32,6 @@
 #include "ani_global.h"
 #include "wmi_unified.h"
 #include "wni_cfg.h"
-#include "cfg_api.h"
 
 #include "qdf_nbuf.h"
 #include "qdf_types.h"
@@ -52,27 +51,27 @@
 #include "ol_fw.h"
 
 #include "wma_internal.h"
+#include "wlan_pmo_ucfg_api.h"
 
 /**
  * wma_unified_modem_power_state() - set modem power state to fw
  * @wmi_handle: wmi handle
  * @param_value: parameter value
  *
- * Return: 0 for success or error code
+ * Return: QDF_STATUS
  */
-static int
+static QDF_STATUS
 wma_unified_modem_power_state(wmi_unified_t wmi_handle, uint32_t param_value)
 {
-	int ret;
+	QDF_STATUS status;
 	wmi_modem_power_state_cmd_param *cmd;
 	wmi_buf_t buf;
 	uint16_t len = sizeof(*cmd);
 
 	buf = wmi_buf_alloc(wmi_handle, len);
-	if (!buf) {
-		WMA_LOGE("%s:wmi_buf_alloc failed", __func__);
+	if (!buf)
 		return -ENOMEM;
-	}
+
 	cmd = (wmi_modem_power_state_cmd_param *) wmi_buf_data(buf);
 	WMITLV_SET_HDR(&cmd->tlv_header,
 		       WMITLV_TAG_STRUC_wmi_modem_power_state_cmd_param,
@@ -81,13 +80,12 @@ wma_unified_modem_power_state(wmi_unified_t wmi_handle, uint32_t param_value)
 	cmd->modem_power_state = param_value;
 	WMA_LOGD("%s: Setting cmd->modem_power_state = %u", __func__,
 		 param_value);
-	ret = wmi_unified_cmd_send(wmi_handle, buf, len,
-				     WMI_MODEM_POWER_STATE_CMDID);
-	if (ret != EOK) {
-		WMA_LOGE("Failed to send notify cmd ret = %d", ret);
+	status = wmi_unified_cmd_send(wmi_handle, buf, len,
+				      WMI_MODEM_POWER_STATE_CMDID);
+	if (QDF_IS_STATUS_ERROR(status))
 		wmi_buf_free(buf);
-	}
-	return ret;
+
+	return status;
 }
 
 /**
@@ -109,7 +107,7 @@ QDF_STATUS wma_unified_set_sta_ps_param(wmi_unified_t wmi_handle,
 	QDF_STATUS status;
 
 	wma = cds_get_context(QDF_MODULE_ID_WMA);
-	if (NULL == wma) {
+	if (!wma) {
 		WMA_LOGE("%s: wma is NULL", __func__);
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -312,14 +310,8 @@ void wma_update_edca_params_for_ac(tSirMacEdcaParamRecord *edca_param,
 				   struct wmi_host_wme_vparams *wmm_param,
 				   int ac, bool mu_edca_param)
 {
-#define WMA_WMM_EXPO_TO_VAL(val)        ((1 << (val)) - 1)
-	if (mu_edca_param) {
-		wmm_param->cwmin = edca_param->cw.min;
-		wmm_param->cwmax = edca_param->cw.max;
-	} else {
-		wmm_param->cwmin = WMA_WMM_EXPO_TO_VAL(edca_param->cw.min);
-		wmm_param->cwmax = WMA_WMM_EXPO_TO_VAL(edca_param->cw.max);
-	}
+	wmm_param->cwmin = WMA_WMM_EXPO_TO_VAL(edca_param->cw.min);
+	wmm_param->cwmax = WMA_WMM_EXPO_TO_VAL(edca_param->cw.max);
 	wmm_param->aifs = edca_param->aci.aifsn;
 	if (mu_edca_param)
 		wmm_param->mu_edca_timer = edca_param->mu_edca_timer;
@@ -432,7 +424,7 @@ void wma_set_max_tx_power(WMA_HANDLE handle,
 
 	vdev = wma_find_vdev_by_addr(wma_handle, tx_pwr_params->bssId.bytes,
 				     &vdev_id);
-	if (vdev == NULL) {
+	if (!vdev) {
 		/* not in SAP array. Try the station/p2p array */
 		vdev = wma_find_vdev_by_bssid(wma_handle,
 					      tx_pwr_params->bssId.bytes,
@@ -555,7 +547,7 @@ static QDF_STATUS wma_set_force_sleep(tp_wma_handle wma,
 	QDF_STATUS ret;
 	uint32_t cfg_data_val = 0;
 	/* get mac to access CFG data base */
-	struct sAniSirGlobal *mac = cds_get_context(QDF_MODULE_ID_PE);
+	struct mac_context *mac = cds_get_context(QDF_MODULE_ID_PE);
 	uint32_t rx_wake_policy;
 	uint32_t tx_wake_threshold;
 	uint32_t pspoll_count;
@@ -564,47 +556,32 @@ static QDF_STATUS wma_set_force_sleep(tp_wma_handle wma,
 
 	WMA_LOGD("Set Force Sleep vdevId %d val %d", vdev_id, enable);
 
-	if (NULL == mac) {
+	if (!mac) {
 		WMA_LOGE("%s: Unable to get PE context", __func__);
 		return QDF_STATUS_E_NOMEM;
 	}
 
-	/* Set Tx/Rx Data InActivity Timeout   */
-	if (wlan_cfg_get_int(mac, WNI_CFG_PS_DATA_INACTIVITY_TIMEOUT,
-			     &cfg_data_val) != QDF_STATUS_SUCCESS) {
-		QDF_TRACE(QDF_MODULE_ID_WMA, QDF_TRACE_LEVEL_ERROR,
-			  "Failed to get WNI_CFG_PS_DATA_INACTIVITY_TIMEOUT");
-		cfg_data_val = POWERSAVE_DEFAULT_INACTIVITY_TIME;
-	}
-	inactivity_time = (uint32_t) cfg_data_val;
+	inactivity_time = mac->mlme_cfg->timeouts.ps_data_inactivity_timeout;
 
 	if (enable) {
 		/* override normal configuration and force station asleep */
 		rx_wake_policy = WMI_STA_PS_RX_WAKE_POLICY_POLL_UAPSD;
 		tx_wake_threshold = WMI_STA_PS_TX_WAKE_THRESHOLD_NEVER;
 
-		if (wlan_cfg_get_int(mac, WNI_CFG_MAX_PS_POLL,
-				     &cfg_data_val) != QDF_STATUS_SUCCESS) {
-			QDF_TRACE(QDF_MODULE_ID_WMA, QDF_TRACE_LEVEL_ERROR,
-				  "Failed to get value for WNI_CFG_MAX_PS_POLL");
-		}
-		if (cfg_data_val)
-			pspoll_count = (uint32_t) cfg_data_val;
+		if (ucfg_pmo_get_max_ps_poll(mac->psoc))
+			pspoll_count =
+				(uint32_t)ucfg_pmo_get_max_ps_poll(mac->psoc);
 		else
 			pspoll_count = WMA_DEFAULT_MAX_PSPOLL_BEFORE_WAKE;
 
 		psmode = WMI_STA_PS_MODE_ENABLED;
 	} else {
 		/* Ps Poll Wake Policy */
-		if (wlan_cfg_get_int(mac, WNI_CFG_MAX_PS_POLL,
-				     &cfg_data_val) != QDF_STATUS_SUCCESS) {
-			QDF_TRACE(QDF_MODULE_ID_WMA, QDF_TRACE_LEVEL_ERROR,
-				  "Failed to get value for WNI_CFG_MAX_PS_POLL");
-		}
-		if (cfg_data_val) {
+		if (ucfg_pmo_get_max_ps_poll(mac->psoc)) {
 			/* Ps Poll is enabled */
 			rx_wake_policy = WMI_STA_PS_RX_WAKE_POLICY_POLL_UAPSD;
-			pspoll_count = (uint32_t) cfg_data_val;
+			pspoll_count =
+				(uint32_t)ucfg_pmo_get_max_ps_poll(mac->psoc);
 			tx_wake_threshold = WMI_STA_PS_TX_WAKE_THRESHOLD_NEVER;
 		} else {
 			rx_wake_policy = WMI_STA_PS_RX_WAKE_POLICY_WAKE;
@@ -693,13 +670,7 @@ static QDF_STATUS wma_set_force_sleep(tp_wma_handle wma,
 	}
 
 	/* Set Listen Interval */
-	if (wlan_cfg_get_int(mac, WNI_CFG_LISTEN_INTERVAL,
-			     &cfg_data_val) != QDF_STATUS_SUCCESS) {
-		QDF_TRACE(QDF_MODULE_ID_WMA, QDF_TRACE_LEVEL_ERROR,
-			  "Failed to get value for WNI_CFG_LISTEN_INTERVAL");
-		cfg_data_val = POWERSAVE_DEFAULT_LISTEN_INTERVAL;
-	}
-
+	cfg_data_val = mac->mlme_cfg->sap_cfg.listen_interval;
 	ret = wma_vdev_set_param(wma->wmi_handle, vdev_id,
 					      WMI_VDEV_PARAM_LISTEN_INTERVAL,
 					      cfg_data_val);
@@ -1008,7 +979,7 @@ void wma_disable_uapsd_mode(tp_wma_handle wma,
  */
 static QDF_STATUS wma_set_sta_uapsd_auto_trig_cmd(wmi_unified_t wmi_handle,
 					uint32_t vdevid,
-					uint8_t peer_addr[IEEE80211_ADDR_LEN],
+					uint8_t peer_addr[QDF_MAC_ADDR_SIZE],
 					struct sta_uapsd_params *trig_param,
 					uint32_t num_ac)
 {
@@ -1020,7 +991,7 @@ static QDF_STATUS wma_set_sta_uapsd_auto_trig_cmd(wmi_unified_t wmi_handle,
 	cmd.num_ac = num_ac;
 
 	qdf_mem_copy((uint8_t *) cmd.peer_addr, (uint8_t *) peer_addr,
-		     sizeof(uint8_t) * IEEE80211_ADDR_LEN);
+		     sizeof(uint8_t) * QDF_MAC_ADDR_SIZE);
 	ret = wmi_unified_set_sta_uapsd_auto_trig_cmd(wmi_handle,
 				   &cmd);
 	if (QDF_IS_STATUS_ERROR(ret))
@@ -1232,7 +1203,7 @@ int wma_pdev_temperature_evt_handler(void *handle, uint8_t *event,
  * Return: QDF_STATUS_SUCCESS for success or error code.
  */
 QDF_STATUS wma_process_tx_power_limits(WMA_HANDLE handle,
-				       tSirTxPowerLimit *ptxlim)
+				       struct tx_power_limit *ptxlim)
 {
 	tp_wma_handle wma = (tp_wma_handle) handle;
 	int32_t ret = 0;
@@ -1279,6 +1250,7 @@ QDF_STATUS wma_process_tx_power_limits(WMA_HANDLE handle,
 	return QDF_STATUS_SUCCESS;
 }
 
+#ifdef CONFIG_WMI_BCN_OFFLOAD
 /**
  * wma_add_p2p_ie() - add p2p IE
  * @frm: ptr where p2p ie needs to add
@@ -1447,13 +1419,10 @@ void wma_update_noa(struct beacon_info *beacon,
 void wma_update_probe_resp_noa(tp_wma_handle wma_handle,
 			       struct p2p_sub_element_noa *noa_ie)
 {
-	tSirP2PNoaAttr *noa_attr =
-		(tSirP2PNoaAttr *) qdf_mem_malloc(sizeof(tSirP2PNoaAttr));
+	tSirP2PNoaAttr *noa_attr = qdf_mem_malloc(sizeof(tSirP2PNoaAttr));
 	WMA_LOGD("Received update NoA event");
-	if (!noa_attr) {
-		WMA_LOGE("Failed to allocate memory for tSirP2PNoaAttr");
+	if (!noa_attr)
 		return;
-	}
 
 	qdf_mem_zero(noa_attr, sizeof(tSirP2PNoaAttr));
 
@@ -1485,84 +1454,36 @@ void wma_update_probe_resp_noa(tp_wma_handle wma_handle,
 	wma_send_msg(wma_handle, SIR_HAL_P2P_NOA_ATTR_IND, (void *)noa_attr, 0);
 }
 
-/**
- * wma_p2p_noa_event_handler() - p2p noa event handler
- * @handle: wma handle
- * @event: event data
- * @len: length
- *
- * Return: 0 for success or error code.
- */
-int wma_p2p_noa_event_handler(void *handle, uint8_t *event,
-			      uint32_t len)
+#else
+static inline uint8_t *wma_add_p2p_ie(uint8_t *frm)
 {
-	tp_wma_handle wma = (tp_wma_handle) handle;
-	WMI_P2P_NOA_EVENTID_param_tlvs *param_buf;
-	wmi_p2p_noa_event_fixed_param *p2p_noa_event;
-	uint8_t vdev_id, i;
-	wmi_p2p_noa_info *p2p_noa_info;
-	struct p2p_sub_element_noa noa_ie;
-	uint8_t *buf_ptr;
-	uint32_t descriptors;
-
-	param_buf = (WMI_P2P_NOA_EVENTID_param_tlvs *) event;
-	if (!param_buf) {
-		WMA_LOGE("Invalid P2P NoA event buffer");
-		return -EINVAL;
-	}
-
-	p2p_noa_event = param_buf->fixed_param;
-	buf_ptr = (uint8_t *) p2p_noa_event;
-	buf_ptr += sizeof(wmi_p2p_noa_event_fixed_param);
-	p2p_noa_info = (wmi_p2p_noa_info *) (buf_ptr);
-	vdev_id = p2p_noa_event->vdev_id;
-
-	if (WMI_UNIFIED_NOA_ATTR_IS_MODIFIED(p2p_noa_info)) {
-
-		qdf_mem_zero(&noa_ie, sizeof(noa_ie));
-		noa_ie.index =
-			(uint8_t) WMI_UNIFIED_NOA_ATTR_INDEX_GET(p2p_noa_info);
-		noa_ie.oppPS =
-			(uint8_t) WMI_UNIFIED_NOA_ATTR_OPP_PS_GET(p2p_noa_info);
-		noa_ie.ctwindow =
-			(uint8_t) WMI_UNIFIED_NOA_ATTR_CTWIN_GET(p2p_noa_info);
-		descriptors = WMI_UNIFIED_NOA_ATTR_NUM_DESC_GET(p2p_noa_info);
-		noa_ie.num_descriptors = (uint8_t) descriptors;
-
-		if (noa_ie.num_descriptors > WMA_MAX_NOA_DESCRIPTORS) {
-			WMA_LOGD("Sizing down the no of desc %d to max",
-					noa_ie.num_descriptors);
-			noa_ie.num_descriptors = WMA_MAX_NOA_DESCRIPTORS;
-		}
-		WMA_LOGD("%s: index %u, oppPs %u, ctwindow %u, num_desc = %u",
-			 __func__, noa_ie.index,
-			 noa_ie.oppPS, noa_ie.ctwindow, noa_ie.num_descriptors);
-		for (i = 0; i < noa_ie.num_descriptors; i++) {
-			noa_ie.noa_descriptors[i].type_count =
-				(uint8_t) p2p_noa_info->noa_descriptors[i].
-				type_count;
-			noa_ie.noa_descriptors[i].duration =
-				p2p_noa_info->noa_descriptors[i].duration;
-			noa_ie.noa_descriptors[i].interval =
-				p2p_noa_info->noa_descriptors[i].interval;
-			noa_ie.noa_descriptors[i].start_time =
-				p2p_noa_info->noa_descriptors[i].start_time;
-			WMA_LOGI("%s: NoA descriptor[%d] type_count %u, duration %u, interval %u, start_time = %u",
-				 __func__, i,
-				 noa_ie.noa_descriptors[i].type_count,
-				 noa_ie.noa_descriptors[i].duration,
-				 noa_ie.noa_descriptors[i].interval,
-				 noa_ie.noa_descriptors[i].start_time);
-		}
-
-		/* Send a msg to LIM to update the NoA IE in probe response
-		 * frames transmitted by the host
-		 */
-		wma_update_probe_resp_noa(wma, &noa_ie);
-	}
-
 	return 0;
 }
+
+static inline void
+wma_update_beacon_noa_ie(struct beacon_info *bcn,
+			 uint16_t new_noa_sub_ie_len)
+{
+}
+
+static inline void
+wma_p2p_create_sub_ie_noa(uint8_t *buf,
+			  struct p2p_sub_element_noa *noa,
+			  uint16_t *new_noa_sub_ie_len)
+{
+}
+
+void wma_update_noa(struct beacon_info *beacon,
+		    struct p2p_sub_element_noa *noa_ie)
+{
+}
+
+void wma_update_probe_resp_noa(tp_wma_handle wma_handle,
+			       struct p2p_sub_element_noa *noa_ie)
+{
+}
+
+#endif
 
 /**
  * wma_process_set_mimops_req() - Set the received MiMo PS state to firmware
@@ -1582,11 +1503,9 @@ void wma_process_set_mimops_req(tp_wma_handle wma_handle,
 	else if (mimops->htMIMOPSState == eSIR_HT_MIMO_PS_NO_LIMIT)
 		mimops->htMIMOPSState = WMI_PEER_MIMO_PS_NONE;
 
-	WMA_LOGD("%s: htMIMOPSState = %d, sessionId = %d peerMac <%02x:%02x:%02x:%02x:%02x:%02x>",
-		 __func__,
-		 mimops->htMIMOPSState, mimops->sessionId, mimops->peerMac[0],
-		 mimops->peerMac[1], mimops->peerMac[2], mimops->peerMac[3],
-		 mimops->peerMac[4], mimops->peerMac[5]);
+	wma_debug("htMIMOPSState = %d, sessionId = %d peerMac <"QDF_MAC_ADDR_STR">",
+		 mimops->htMIMOPSState, mimops->sessionId,
+		 QDF_MAC_ADDR_ARRAY(mimops->peerMac));
 
 	wma_set_peer_param(wma_handle, mimops->peerMac,
 			   WMI_PEER_MIMO_PS_STATE, mimops->htMIMOPSState,
@@ -1623,19 +1542,19 @@ QDF_STATUS wma_set_mimops(tp_wma_handle wma, uint8_t vdev_id, int value)
 QDF_STATUS wma_notify_modem_power_state(void *wma_ptr,
 					tSirModemPowerStateInd *pReq)
 {
-	int32_t ret;
+	QDF_STATUS status;
 	tp_wma_handle wma = (tp_wma_handle) wma_ptr;
 
 	WMA_LOGD("%s: WMA notify Modem Power State %d", __func__, pReq->param);
 
-	ret = wma_unified_modem_power_state(wma->wmi_handle, pReq->param);
-	if (ret) {
-		WMA_LOGE("%s: Fail to notify Modem Power State %d",
-			 __func__, pReq->param);
-		return QDF_STATUS_E_FAILURE;
+	status = wma_unified_modem_power_state(wma->wmi_handle, pReq->param);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		wma_err("Failed to notify Modem Power State %d", pReq->param);
+		return status;
 	}
 
 	WMA_LOGD("Successfully notify Modem Power State %d", pReq->param);
+
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -1692,6 +1611,7 @@ QDF_STATUS wma_set_smps_params(tp_wma_handle wma, uint8_t vdev_id,
 	return ret;
 }
 
+#ifdef FEATURE_TX_POWER
 /**
  * wma_set_tx_power_scale() - set tx power scale
  * @vdev_id: vdev id
@@ -1705,7 +1625,7 @@ QDF_STATUS wma_set_tx_power_scale(uint8_t vdev_id, int value)
 	tp_wma_handle wma_handle =
 			(tp_wma_handle)cds_get_context(QDF_MODULE_ID_WMA);
 
-	if (NULL == wma_handle) {
+	if (!wma_handle) {
 		WMA_LOGE("%s: wma_handle is NULL", __func__);
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -1736,7 +1656,7 @@ QDF_STATUS wma_set_tx_power_scale_decr_db(uint8_t vdev_id, int value)
 	tp_wma_handle wma_handle =
 			(tp_wma_handle)cds_get_context(QDF_MODULE_ID_WMA);
 
-	if (NULL == wma_handle) {
+	if (!wma_handle) {
 		WMA_LOGE("%s: wma_handle is NULL", __func__);
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -1753,3 +1673,5 @@ QDF_STATUS wma_set_tx_power_scale_decr_db(uint8_t vdev_id, int value)
 
 	return ret;
 }
+#endif /* FEATURE_TX_POWER */
+

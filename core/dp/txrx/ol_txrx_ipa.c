@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -307,6 +307,7 @@ static inline void ol_txrx_setup_mcc_sys_pipes(
 		qdf_ipa_wdi_conn_in_params_t *pipe_in)
 {
 	int i = 0;
+
 	/* Setup MCC sys pipe */
 	QDF_IPA_WDI_CONN_IN_PARAMS_NUM_SYS_PIPE_NEEDED(pipe_in) =
 			OL_TXRX_IPA_MAX_IFACE;
@@ -481,6 +482,7 @@ static inline void ol_txrx_ipa_wdi_rx_params(
  * @p_rx_pipe_handle: pointer to Rx pipe handle
  * @is_smmu_enabled: Is SMMU enabled or not
  * @sys_in: parameters to setup sys pipe in mcc mode
+ * @over_gsi: is ipa ver gsi fw
  *
  * Return: QDF_STATUS
  */
@@ -489,7 +491,8 @@ QDF_STATUS ol_txrx_ipa_setup(struct cdp_pdev *ppdev, void *ipa_i2w_cb,
 			     uint32_t ipa_desc_size, void *ipa_priv,
 			     bool is_rm_enabled, uint32_t *p_tx_pipe_handle,
 			     uint32_t *p_rx_pipe_handle, bool is_smmu_enabled,
-			     qdf_ipa_sys_connect_params_t *sys_in)
+			     qdf_ipa_sys_connect_params_t *sys_in,
+			     bool over_gsi)
 {
 	ol_txrx_pdev_handle pdev = (ol_txrx_pdev_handle)ppdev;
 	struct ol_txrx_ipa_resources *ipa_res = &pdev->ipa_resource;
@@ -909,6 +912,12 @@ static inline void ol_txrx_ipa_tx_params(
 {
 	qdf_device_t osdev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
 
+	if (!osdev) {
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
+			  "%s: qdf device is null!", __func__);
+		return;
+	}
+
 	QDF_IPA_PIPE_IN_DL_COMP_RING_BASE_PA(pipe_in) =
 		qdf_mem_get_dma_addr(osdev,
 				&ipa_res->tx_comp_ring->mem_info);
@@ -936,6 +945,14 @@ static inline void ol_txrx_ipa_rx_params(
 					struct ol_txrx_ipa_resources *ipa_res,
 					qdf_ipa_wdi_in_params_t *pipe_in)
 {
+	qdf_device_t osdev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
+
+	if (!osdev) {
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
+			  "%s: qdf device is null!", __func__);
+		return;
+	}
+
 	QDF_IPA_PIPE_IN_UL_RDY_RING_BASE_PA(pipe_in) =
 		ipa_res->rx_rdy_ring->mem_info.pa;
 	QDF_IPA_PIPE_IN_UL_RDY_RING_SIZE(pipe_in) =
@@ -943,7 +960,7 @@ static inline void ol_txrx_ipa_rx_params(
 	QDF_IPA_PIPE_IN_UL_RDY_RING_RP_PA(pipe_in) =
 		ipa_res->rx_proc_done_idx->mem_info.pa;
 	OL_TXRX_IPA_WDI2_SET(pipe_in, ipa_res,
-			     cds_get_context(QDF_MODULE_ID_QDF_DEVICE));
+			     osdev);
 }
 
 /**
@@ -974,6 +991,12 @@ QDF_STATUS ol_txrx_ipa_setup(struct cdp_pdev *ppdev, void *ipa_i2w_cb,
 	uint32_t tx_comp_db_dmaaddr = 0, rx_rdy_db_dmaaddr = 0;
 
 	int ret;
+
+	if (!osdev) {
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
+			  "%s: qdf device is null!", __func__);
+		return QDF_STATUS_E_NOENT;
+	}
 
 	qdf_mem_zero(&pipe_in, sizeof(pipe_in));
 	qdf_mem_zero(&pipe_out, sizeof(pipe_out));
@@ -1132,11 +1155,9 @@ static QDF_STATUS ol_txrx_ipa_remove_header(char *name)
 		  hdrlookup.hdl);
 	len = sizeof(qdf_ipa_ioc_del_hdr_t) + sizeof(qdf_ipa_hdr_del_t) * 1;
 	ipa_hdr = (qdf_ipa_ioc_del_hdr_t *)qdf_mem_malloc(len);
-	if (ipa_hdr == NULL) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
-			  "ipa_hdr allocation failed");
+	if (!ipa_hdr)
 		return QDF_STATUS_E_FAILURE;
-	}
+
 	QDF_IPA_IOC_DEL_HDR_NUM_HDRS(ipa_hdr) = 1;
 	QDF_IPA_IOC_DEL_HDR_COMMIT(ipa_hdr) = 0;
 	QDF_IPA_IOC_DEL_HDR_HDL(ipa_hdr) = QDF_IPA_IOC_GET_HDR_HDL(&hdrlookup);
@@ -1175,8 +1196,6 @@ static int ol_txrx_ipa_add_header_info(char *ifname, uint8_t *mac_addr,
 	ipa_hdr = qdf_mem_malloc(sizeof(qdf_ipa_ioc_add_hdr_t)
 				 + sizeof(qdf_ipa_hdr_add_t));
 	if (!ipa_hdr) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
-			    "%s: ipa_hdr allocation failed", ifname);
 		ret = -ENOMEM;
 		goto end;
 	}
@@ -1284,20 +1303,14 @@ static int ol_txrx_ipa_register_interface(char *ifname,
 	/* Allocate TX properties for TOS categories, 1 each for IPv4 & IPv6 */
 	tx_prop =
 		qdf_mem_malloc(sizeof(qdf_ipa_ioc_tx_intf_prop_t) * num_prop);
-	if (!tx_prop) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
-			  "tx_prop allocation failed");
+	if (!tx_prop)
 		goto register_interface_fail;
-	}
 
 	/* Allocate RX properties, 1 each for IPv4 & IPv6 */
 	rx_prop =
 		qdf_mem_malloc(sizeof(qdf_ipa_ioc_rx_intf_prop_t) * num_prop);
-	if (!rx_prop) {
-		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
-			  "rx_prop allocation failed");
+	if (!rx_prop)
 		goto register_interface_fail;
-	}
 
 	qdf_mem_zero(&tx_intf, sizeof(tx_intf));
 	qdf_mem_zero(&rx_intf, sizeof(rx_intf));

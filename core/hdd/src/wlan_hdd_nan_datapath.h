@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -25,7 +25,6 @@
 #define __WLAN_HDD_NAN_DATAPATH_H
 
 struct hdd_context;
-struct hdd_tgt_cfg;
 struct hdd_config;
 struct hdd_adapter;
 struct wireless_dev;
@@ -37,19 +36,16 @@ struct wireless_dev;
 
 #define NDP_BROADCAST_STAID           (0)
 
-#ifdef WLAN_FEATURE_NAN_DATAPATH
+#ifdef WLAN_FEATURE_NAN
+
+#define MAX_NDI_ADAPTERS 2
+
 #define WLAN_HDD_IS_NDI(adapter) ((adapter)->device_mode == QDF_NDI_MODE)
 
 #define WLAN_HDD_IS_NDI_CONNECTED(adapter) ( \
 	eConnectionState_NdiConnected ==\
-		(adapter)->session.station.conn_info.connState)
-#else
-#define WLAN_HDD_IS_NDI(adapter)	(false)
-#define WLAN_HDD_IS_NDI_CONNECTED(adapter) (false)
-#endif /* WLAN_FEATURE_NAN_DATAPATH */
+		(adapter)->session.station.conn_info.conn_state)
 
-#ifdef WLAN_FEATURE_NAN_DATAPATH
-void hdd_ndp_print_ini_config(struct hdd_context *hdd_ctx);
 void hdd_nan_datapath_target_config(struct hdd_context *hdd_ctx,
 						struct wma_tgt_cfg *cfg);
 void hdd_ndp_event_handler(struct hdd_adapter *adapter,
@@ -61,9 +57,9 @@ int wlan_hdd_cfg80211_process_ndp_cmd(struct wiphy *wiphy,
 int hdd_init_nan_data_mode(struct hdd_adapter *adapter);
 void hdd_ndp_session_end_handler(struct hdd_adapter *adapter);
 #else
-static inline void hdd_ndp_print_ini_config(struct hdd_context *hdd_ctx)
-{
-}
+#define WLAN_HDD_IS_NDI(adapter)	(false)
+#define WLAN_HDD_IS_NDI_CONNECTED(adapter) (false)
+
 static inline void hdd_nan_datapath_target_config(struct hdd_context *hdd_ctx,
 						struct wma_tgt_cfg *cfg)
 {
@@ -87,7 +83,7 @@ static inline int hdd_init_nan_data_mode(struct hdd_adapter *adapter)
 static inline void hdd_ndp_session_end_handler(struct hdd_adapter *adapter)
 {
 }
-#endif /* WLAN_FEATURE_NAN_DATAPATH */
+#endif /* WLAN_FEATURE_NAN */
 
 enum nan_datapath_state;
 struct nan_datapath_inf_create_rsp;
@@ -99,7 +95,6 @@ void hdd_ndi_close(uint8_t vdev_id);
 void hdd_ndi_drv_ndi_create_rsp_handler(uint8_t vdev_id,
 			       struct nan_datapath_inf_create_rsp *ndi_rsp);
 void hdd_ndi_drv_ndi_delete_rsp_handler(uint8_t vdev_id);
-int hdd_ndp_get_peer_idx(uint8_t vdev_id, struct qdf_mac_addr *addr);
 int hdd_ndp_new_peer_handler(uint8_t vdev_id, uint16_t sta_id,
 			struct qdf_mac_addr *peer_mac_addr, bool fist_peer);
 void hdd_ndp_peer_departed_handler(uint8_t vdev_id, uint16_t sta_id,

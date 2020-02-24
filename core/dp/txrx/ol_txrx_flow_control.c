@@ -83,6 +83,72 @@ ol_tx_deregister_global_mgmt_pool(struct ol_txrx_pdev_t *pdev)
 }
 #endif
 
+bool ol_txrx_fwd_desc_thresh_check(struct cdp_vdev *vdev)
+{
+	struct ol_txrx_vdev_t *txrx_vdev = (struct ol_txrx_vdev_t *)vdev;
+	struct ol_tx_flow_pool_t *pool;
+	bool enough_desc_flag;
+
+	if (!txrx_vdev)
+		return false;
+
+	pool = txrx_vdev->pool;
+
+	if (!pool)
+		return false;
+
+	qdf_spin_lock_bh(&pool->flow_pool_lock);
+	enough_desc_flag = (pool->avail_desc < (pool->stop_th +
+				OL_TX_NON_FWD_RESERVE))
+		? false : true;
+	qdf_spin_unlock_bh(&pool->flow_pool_lock);
+	return enough_desc_flag;
+}
+
+/**
+ * ol_tx_set_desc_global_pool_size() - set global pool size
+ * @num_msdu_desc: total number of descriptors
+ *
+ * Return: none
+ */
+void ol_tx_set_desc_global_pool_size(uint32_t num_msdu_desc)
+{
+	struct ol_txrx_pdev_t *pdev = cds_get_context(QDF_MODULE_ID_TXRX);
+
+	if (!pdev) {
+		qdf_print("pdev is NULL");
+		return;
+	}
+	pdev->num_msdu_desc = num_msdu_desc;
+	if (!ol_tx_get_is_mgmt_over_wmi_enabled())
+		pdev->num_msdu_desc += TX_FLOW_MGMT_POOL_SIZE;
+	ol_txrx_info_high("Global pool size: %d\n", pdev->num_msdu_desc);
+}
+
+/**
+ * ol_tx_get_total_free_desc() - get total free descriptors
+ * @pdev: pdev handle
+ *
+ * Return: total free descriptors
+ */
+uint32_t ol_tx_get_total_free_desc(struct ol_txrx_pdev_t *pdev)
+{
+	struct ol_tx_flow_pool_t *pool = NULL;
+	uint32_t free_desc;
+
+	free_desc = pdev->tx_desc.num_free;
+	qdf_spin_lock_bh(&pdev->tx_desc.flow_pool_list_lock);
+	TAILQ_FOREACH(pool, &pdev->tx_desc.flow_pool_list,
+		      flow_pool_list_elem) {
+		qdf_spin_lock_bh(&pool->flow_pool_lock);
+		free_desc += pool->avail_desc;
+		qdf_spin_unlock_bh(&pool->flow_pool_lock);
+	}
+	qdf_spin_unlock_bh(&pdev->tx_desc.flow_pool_list_lock);
+
+	return free_desc;
+}
+
 /**
  * ol_tx_register_flow_control() - Register fw based tx flow control
  * @pdev: pdev handle
@@ -150,14 +216,12 @@ static int ol_tx_delete_flow_pool(struct ol_tx_flow_pool_t *pool, bool force)
 	struct ol_tx_desc_t *tx_desc = NULL;
 
 	if (!pool) {
-		ol_txrx_err(
-		   "%s: pool is NULL\n", __func__);
+		ol_txrx_err("pool is NULL");
 		QDF_ASSERT(0);
 		return -ENOMEM;
 	}
 	if (!pdev) {
-		ol_txrx_err(
-		   "%s: pdev is NULL\n", __func__);
+		ol_txrx_err("pdev is NULL");
 		QDF_ASSERT(0);
 		return -ENOMEM;
 	}
@@ -186,9 +250,8 @@ static int ol_tx_delete_flow_pool(struct ol_tx_flow_pool_t *pool, bool force)
 		ol_tx_inc_pool_ref(pool);
 
 		pdev->tx_desc.num_invalid_bin++;
-		ol_txrx_info(
-			"%s: invalid pool created %d\n",
-			 __func__, pdev->tx_desc.num_invalid_bin);
+		ol_txrx_info("invalid pool created %d",
+			     pdev->tx_desc.num_invalid_bin);
 		if (pdev->tx_desc.num_invalid_bin > MAX_INVALID_BIN)
 			ASSERT(0);
 
@@ -270,7 +333,6 @@ QDF_STATUS ol_tx_dec_pool_ref(struct ol_tx_flow_pool_t *pool, bool force)
  *
  * Returns: String corresponding to flow pool status
  */
-#ifdef WLAN_DEBUG
 static const char *ol_tx_flow_pool_status_to_str
 					(enum flow_pool_status status)
 {
@@ -284,7 +346,6 @@ static const char *ol_tx_flow_pool_status_to_str
 		return "unknown";
 	}
 }
-#endif
 
 /**
  * ol_tx_dump_flow_pool_info() - dump global_pool and flow_pool info
@@ -306,18 +367,16 @@ void ol_tx_dump_flow_pool_info(void *ctx)
 		return;
 	}
 
-	ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-		"Global total %d :: avail %d invalid flow_pool %d ",
-		pdev->tx_desc.pool_size,
-		pdev->tx_desc.num_free,
-		pdev->tx_desc.num_invalid_bin);
+	txrx_nofl_info("Global total %d :: avail %d invalid flow_pool %d ",
+		       pdev->tx_desc.pool_size,
+		       pdev->tx_desc.num_free,
+		       pdev->tx_desc.num_invalid_bin);
 
-	ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-		"maps %d pool unmaps %d pool resize %d pkt drops %d",
-		pdev->pool_stats.pool_map_count,
-		pdev->pool_stats.pool_unmap_count,
-		pdev->pool_stats.pool_resize_count,
-		pdev->pool_stats.pkt_drop_no_pool);
+	txrx_nofl_info("maps %d pool unmaps %d pool resize %d pkt drops %d",
+		       pdev->pool_stats.pool_map_count,
+		       pdev->pool_stats.pool_unmap_count,
+		       pdev->pool_stats.pool_resize_count,
+		       pdev->pool_stats.pkt_drop_no_pool);
 	/*
 	 * Nested spin lock.
 	 * Always take in below order.
@@ -335,22 +394,20 @@ void ol_tx_dump_flow_pool_info(void *ctx)
 		if (pool_prev)
 			ol_tx_dec_pool_ref(pool_prev, false);
 
-		ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-			"flow_pool_id %d ::", tmp_pool.flow_pool_id);
-		ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-			"status %s flow_id %d flow_type %d",
-			ol_tx_flow_pool_status_to_str(tmp_pool.status),
-			tmp_pool.member_flow_id, tmp_pool.flow_type);
-		ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-			"total %d :: available %d :: deficient %d :: overflow %d :: pkt dropped (no desc) %d",
-			tmp_pool.flow_pool_size, tmp_pool.avail_desc,
-			tmp_pool.deficient_desc,
-			tmp_pool.overflow_desc,
-			tmp_pool.pkt_drop_no_desc);
-		ol_txrx_log(QDF_TRACE_LEVEL_INFO_LOW,
-			"thresh: start %d stop %d prio start %d prio stop %d",
-			 tmp_pool.start_th, tmp_pool.stop_th,
-			 tmp_pool.start_priority_th, tmp_pool.stop_priority_th);
+		txrx_nofl_info("flow_pool_id %d ::", tmp_pool.flow_pool_id);
+		txrx_nofl_info("status %s flow_id %d flow_type %d",
+			       ol_tx_flow_pool_status_to_str
+					(tmp_pool.status),
+			       tmp_pool.member_flow_id, tmp_pool.flow_type);
+		txrx_nofl_info("total %d :: available %d :: deficient %d :: overflow %d :: pkt dropped (no desc) %d",
+			       tmp_pool.flow_pool_size, tmp_pool.avail_desc,
+			       tmp_pool.deficient_desc,
+			       tmp_pool.overflow_desc,
+			       tmp_pool.pkt_drop_no_desc);
+		txrx_nofl_info("thresh: start %d stop %d prio start %d prio stop %d",
+			       tmp_pool.start_th, tmp_pool.stop_th,
+			       tmp_pool.start_priority_th,
+			       tmp_pool.stop_priority_th);
 		pool_prev = pool;
 		qdf_spin_lock_bh(&pdev->tx_desc.flow_pool_list_lock);
 	}
@@ -372,8 +429,7 @@ void ol_tx_clear_flow_pool_stats(void)
 	struct ol_txrx_pdev_t *pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 
 	if (!pdev) {
-		ol_txrx_err("%s: pdev is null\n",
-						 __func__);
+		ol_txrx_err("pdev is null");
 		return;
 	}
 	qdf_mem_zero(&pdev->pool_stats, sizeof(pdev->pool_stats));
@@ -450,8 +506,7 @@ ol_tx_distribute_descs_to_deficient_pools(struct ol_tx_flow_pool_t *src_pool)
 	uint16_t desc_move_count = 0;
 
 	if (!pdev) {
-		ol_txrx_err(
-		   "%s: pdev is NULL\n", __func__);
+		ol_txrx_err("pdev is NULL");
 		return -EINVAL;
 	}
 	qdf_spin_lock_bh(&pdev->tx_desc.flow_pool_list_lock);
@@ -511,19 +566,16 @@ struct ol_tx_flow_pool_t *ol_tx_create_flow_pool(uint8_t flow_pool_id,
 	uint32_t start_threshold;
 
 	if (!pdev) {
-		ol_txrx_err(
-		   "%s: pdev is NULL\n", __func__);
+		ol_txrx_err("pdev is NULL");
 		return NULL;
 	}
 	stop_threshold = ol_cfg_get_tx_flow_stop_queue_th(pdev->ctrl_pdev);
 	start_threshold = stop_threshold +
 		ol_cfg_get_tx_flow_start_queue_offset(pdev->ctrl_pdev);
 	pool = qdf_mem_malloc(sizeof(*pool));
-	if (!pool) {
-		ol_txrx_err(
-		   "%s: malloc failed\n", __func__);
+	if (!pool)
 		return NULL;
-	}
+
 	pool->flow_pool_id = flow_pool_id;
 	pool->flow_pool_size = flow_pool_size;
 	pool->status = FLOW_POOL_ACTIVE_UNPAUSED;
@@ -584,8 +636,7 @@ int ol_tx_free_invalid_flow_pool(struct ol_tx_flow_pool_t *pool)
 	struct ol_txrx_pdev_t *pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 
 	if ((!pdev) || (!pool) || (pool->status != FLOW_POOL_INVALID)) {
-		ol_txrx_err(
-		   "%s: Invalid pool/pdev\n", __func__);
+		ol_txrx_err("Invalid pool/pdev");
 		return -EINVAL;
 	}
 
@@ -597,9 +648,8 @@ int ol_tx_free_invalid_flow_pool(struct ol_tx_flow_pool_t *pool)
 	qdf_spin_unlock_bh(&pool->flow_pool_lock);
 
 	pdev->tx_desc.num_invalid_bin--;
-	ol_txrx_info(
-		"%s: invalid pool deleted %d\n",
-		 __func__, pdev->tx_desc.num_invalid_bin);
+	ol_txrx_info("invalid pool deleted %d",
+		     pdev->tx_desc.num_invalid_bin);
 
 	return ol_tx_dec_pool_ref(pool, false);
 }
@@ -655,9 +705,7 @@ static void ol_tx_flow_pool_vdev_map(struct ol_tx_flow_pool_t *pool,
 
 	vdev = (struct ol_txrx_vdev_t *)ol_txrx_get_vdev_from_vdev_id(vdev_id);
 	if (!vdev) {
-		ol_txrx_err(
-		   "%s: invalid vdev_id %d\n",
-		   __func__, vdev_id);
+		ol_txrx_err("invalid vdev_id %d", vdev_id);
 		return;
 	}
 
@@ -681,9 +729,7 @@ static void ol_tx_flow_pool_vdev_unmap(struct ol_tx_flow_pool_t *pool,
 
 	vdev = (struct ol_txrx_vdev_t *)ol_txrx_get_vdev_from_vdev_id(vdev_id);
 	if (!vdev) {
-		ol_txrx_err(
-		   "%s: invalid vdev_id %d\n",
-		   __func__, vdev_id);
+		ol_txrx_err("invalid vdev_id %d", vdev_id);
 		return;
 	}
 
@@ -713,13 +759,11 @@ void ol_tx_flow_pool_map_handler(uint8_t flow_id, uint8_t flow_type,
 	uint8_t pool_create = 0;
 	enum htt_flow_type type = flow_type;
 
-	ol_txrx_dbg(
-		"%s: flow_id %d flow_type %d flow_pool_id %d flow_pool_size %d\n",
-		__func__, flow_id, flow_type, flow_pool_id, flow_pool_size);
+	ol_txrx_dbg("flow_id %d flow_type %d flow_pool_id %d flow_pool_size %d",
+		    flow_id, flow_type, flow_pool_id, flow_pool_size);
 
 	if (qdf_unlikely(!pdev)) {
-		ol_txrx_err(
-			"%s: pdev is NULL", __func__);
+		ol_txrx_err("pdev is NULL");
 		return;
 	}
 	pdev->pool_stats.pool_map_count++;
@@ -727,10 +771,9 @@ void ol_tx_flow_pool_map_handler(uint8_t flow_id, uint8_t flow_type,
 	pool = ol_tx_get_flow_pool(flow_pool_id);
 	if (!pool) {
 		pool = ol_tx_create_flow_pool(flow_pool_id, flow_pool_size);
-		if (pool == NULL) {
-			ol_txrx_err(
-				   "%s: creation of flow_pool %d size %d failed\n",
-				   __func__, flow_pool_id, flow_pool_size);
+		if (!pool) {
+			ol_txrx_err("creation of flow_pool %d size %d failed",
+				    flow_pool_id, flow_pool_size);
 			return;
 		}
 		pool_create = 1;
@@ -750,9 +793,7 @@ void ol_tx_flow_pool_map_handler(uint8_t flow_id, uint8_t flow_type,
 	default:
 		if (pool_create)
 			ol_tx_dec_pool_ref(pool, false);
-		ol_txrx_err(
-		   "%s: flow type %d not supported !!!\n",
-		   __func__, type);
+		ol_txrx_err("flow type %d not supported", type);
 		break;
 	}
 }
@@ -775,22 +816,18 @@ void ol_tx_flow_pool_unmap_handler(uint8_t flow_id, uint8_t flow_type,
 	struct ol_tx_flow_pool_t *pool;
 	enum htt_flow_type type = flow_type;
 
-	ol_txrx_dbg(
-		"%s: flow_id %d flow_type %d flow_pool_id %d\n",
-		__func__, flow_id, flow_type, flow_pool_id);
+	ol_txrx_dbg("flow_id %d flow_type %d flow_pool_id %d",
+		    flow_id, flow_type, flow_pool_id);
 
 	if (qdf_unlikely(!pdev)) {
-		ol_txrx_err(
-			"%s: pdev is NULL", __func__);
+		ol_txrx_err("pdev is NULL");
 		return;
 	}
 	pdev->pool_stats.pool_unmap_count++;
 
 	pool = ol_tx_get_flow_pool(flow_pool_id);
 	if (!pool) {
-		ol_txrx_info(
-		   "%s: flow_pool not available flow_pool_id %d\n",
-		   __func__, type);
+		ol_txrx_info("flow_pool not available flow_pool_id %d", type);
 		return;
 	}
 
@@ -800,9 +837,7 @@ void ol_tx_flow_pool_unmap_handler(uint8_t flow_id, uint8_t flow_type,
 		ol_tx_flow_pool_vdev_unmap(pool, flow_id);
 		break;
 	default:
-		ol_txrx_info(
-		   "%s: flow type %d not supported !!!\n",
-		   __func__, type);
+		ol_txrx_info("flow type %d not supported", type);
 		return;
 	}
 
@@ -835,8 +870,7 @@ int ol_tx_distribute_descs_to_deficient_pools_from_global_pool(void)
 	uint8_t free_invalid_pool = 0;
 
 	if (!pdev) {
-		ol_txrx_err(
-		   "%s: pdev is NULL\n", __func__);
+		ol_txrx_err("pdev is NULL");
 		return -EINVAL;
 	}
 
@@ -1130,20 +1164,19 @@ void ol_tx_flow_pool_resize_handler(uint8_t flow_pool_id,
 	struct ol_txrx_pdev_t *pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 	struct ol_tx_flow_pool_t *pool;
 
-	ol_txrx_dbg("%s: flow_pool_id %d flow_pool_size %d\n",
-		    __func__, flow_pool_id, flow_pool_size);
+	ol_txrx_dbg("flow_pool_id %d flow_pool_size %d",
+		    flow_pool_id, flow_pool_size);
 
 	if (qdf_unlikely(!pdev)) {
-		ol_txrx_err(
-			"%s: pdev is NULL", __func__);
+		ol_txrx_err("pdev is NULL");
 		return;
 	}
 	pdev->pool_stats.pool_resize_count++;
 
 	pool = ol_tx_get_flow_pool(flow_pool_id);
 	if (!pool) {
-		ol_txrx_err("%s: resize for flow_pool %d size %d failed\n",
-			    __func__, flow_pool_id, flow_pool_size);
+		ol_txrx_err("resize for flow_pool %d size %d failed",
+			    flow_pool_id, flow_pool_size);
 		return;
 	}
 
@@ -1152,3 +1185,112 @@ void ol_tx_flow_pool_resize_handler(uint8_t flow_pool_id,
 	ol_tx_dec_pool_ref(pool, false);
 }
 #endif
+
+/**
+ * ol_txrx_map_to_netif_reason_type() - map to netif_reason_type
+ * @reason: network queue pause reason
+ *
+ * Return: netif_reason_type
+ */
+static enum netif_reason_type
+ol_txrx_map_to_netif_reason_type(uint32_t reason)
+{
+	switch (reason) {
+	case OL_TXQ_PAUSE_REASON_FW:
+		return WLAN_FW_PAUSE;
+	case OL_TXQ_PAUSE_REASON_PEER_UNAUTHORIZED:
+		return WLAN_PEER_UNAUTHORISED;
+	case OL_TXQ_PAUSE_REASON_TX_ABORT:
+		return WLAN_TX_ABORT;
+	case OL_TXQ_PAUSE_REASON_VDEV_STOP:
+		return WLAN_VDEV_STOP;
+	case OL_TXQ_PAUSE_REASON_THERMAL_MITIGATION:
+		return WLAN_THERMAL_MITIGATION;
+	default:
+		ol_txrx_err("reason not supported %d", reason);
+		return WLAN_REASON_TYPE_MAX;
+	}
+}
+
+/*
+ * ol_txrx_vdev_pause() - pause vdev network queues
+ * @vdev: vdev handle
+ * @reason: network queue pause reason
+ *
+ * Return: none
+ */
+void ol_txrx_vdev_pause(struct cdp_vdev *pvdev, uint32_t reason)
+{
+	struct ol_txrx_vdev_t *vdev = (struct ol_txrx_vdev_t *)pvdev;
+	struct ol_txrx_pdev_t *pdev = vdev->pdev;
+	enum netif_reason_type netif_reason;
+
+	if (qdf_unlikely((!pdev) || (!pdev->pause_cb))) {
+		ol_txrx_err("invalid pdev");
+		return;
+	}
+
+	netif_reason = ol_txrx_map_to_netif_reason_type(reason);
+	if (netif_reason == WLAN_REASON_TYPE_MAX)
+		return;
+
+	pdev->pause_cb(vdev->vdev_id, WLAN_STOP_ALL_NETIF_QUEUE, netif_reason);
+}
+
+/**
+ * ol_txrx_vdev_unpause() - unpause vdev network queues
+ * @vdev: vdev handle
+ * @reason: network queue pause reason
+ *
+ * Return: none
+ */
+void ol_txrx_vdev_unpause(struct cdp_vdev *pvdev, uint32_t reason)
+{
+	struct ol_txrx_vdev_t *vdev = (struct ol_txrx_vdev_t *)pvdev;
+	struct ol_txrx_pdev_t *pdev = vdev->pdev;
+	enum netif_reason_type netif_reason;
+
+	if (qdf_unlikely((!pdev) || (!pdev->pause_cb))) {
+		ol_txrx_err("invalid pdev");
+		return;
+	}
+
+	netif_reason = ol_txrx_map_to_netif_reason_type(reason);
+	if (netif_reason == WLAN_REASON_TYPE_MAX)
+		return;
+
+	pdev->pause_cb(vdev->vdev_id, WLAN_WAKE_ALL_NETIF_QUEUE,
+			netif_reason);
+}
+
+/**
+ * ol_txrx_pdev_pause() - pause network queues for each vdev
+ * @pdev: pdev handle
+ * @reason: network queue pause reason
+ *
+ * Return: none
+ */
+void ol_txrx_pdev_pause(struct ol_txrx_pdev_t *pdev, uint32_t reason)
+{
+	struct ol_txrx_vdev_t *vdev = NULL, *tmp;
+
+	TAILQ_FOREACH_SAFE(vdev, &pdev->vdev_list, vdev_list_elem, tmp) {
+		ol_txrx_vdev_pause((struct cdp_vdev *)vdev, reason);
+	}
+}
+
+/**
+ * ol_txrx_pdev_unpause() - unpause network queues for each vdev
+ * @pdev: pdev handle
+ * @reason: network queue pause reason
+ *
+ * Return: none
+ */
+void ol_txrx_pdev_unpause(struct ol_txrx_pdev_t *pdev, uint32_t reason)
+{
+	struct ol_txrx_vdev_t *vdev = NULL, *tmp;
+
+	TAILQ_FOREACH_SAFE(vdev, &pdev->vdev_list, vdev_list_elem, tmp) {
+		ol_txrx_vdev_unpause((struct cdp_vdev *)vdev, reason);
+	}
+}

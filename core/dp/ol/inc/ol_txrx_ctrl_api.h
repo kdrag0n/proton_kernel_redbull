@@ -154,6 +154,22 @@ void ol_txrx_tx_release(ol_txrx_peer_handle peer,
 			u_int32_t tid_mask,
 			int max_frms);
 
+#else
+static inline void
+ol_txrx_peer_tid_unpause(ol_txrx_peer_handle data_peer, int tid)
+{
+}
+
+static inline void
+ol_txrx_tx_release(ol_txrx_peer_handle peer,
+		   u_int32_t tid_mask,
+		   int max_frms)
+{
+}
+
+#endif /* CONFIG_HL_SUPPORT */
+
+#ifdef QCA_SUPPORT_TX_THROTTLE
 /**
  * @brief Suspend all tx data per thermal event/timer for the
  *  specified physical device
@@ -174,19 +190,7 @@ ol_txrx_throttle_pause(ol_txrx_pdev_handle data_pdev);
  */
 void
 ol_txrx_throttle_unpause(ol_txrx_pdev_handle data_pdev);
-
 #else
-static inline void
-ol_txrx_peer_tid_unpause(ol_txrx_peer_handle data_peer, int tid)
-{
-}
-
-static inline void
-ol_txrx_tx_release(ol_txrx_peer_handle peer,
-		   u_int32_t tid_mask,
-		   int max_frms)
-{
-}
 
 static inline void
 ol_txrx_throttle_pause(ol_txrx_pdev_handle data_pdev)
@@ -197,8 +201,7 @@ static inline void
 ol_txrx_throttle_unpause(ol_txrx_pdev_handle data_pdev)
 {
 }
-
-#endif /* CONFIG_HL_SUPPORT */
+#endif
 
 /**
  * @brief notify tx data SW that a peer's transmissions are suspended.
@@ -230,8 +233,7 @@ static inline void ol_txrx_peer_pause(struct ol_txrx_peer_t *data_peer)
  *
  * @param data_pdev - the physical device being paused
  */
-#if defined(QCA_LL_LEGACY_TX_FLOW_CONTROL) || \
-		defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(CONFIG_HL_SUPPORT)
+#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(CONFIG_HL_SUPPORT)
 
 void ol_txrx_pdev_pause(struct ol_txrx_pdev_t *data_pdev, uint32_t reason);
 #else
@@ -249,8 +251,7 @@ void ol_txrx_pdev_pause(struct ol_txrx_pdev_t *data_pdev, uint32_t reason)
  *
  * @param data_pdev - the physical device being unpaused
  */
-#if defined(QCA_LL_LEGACY_TX_FLOW_CONTROL) || \
-		defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(CONFIG_HL_SUPPORT)
+#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(CONFIG_HL_SUPPORT)
 
 void ol_txrx_pdev_unpause(struct ol_txrx_pdev_t *pdev, uint32_t reason);
 #else

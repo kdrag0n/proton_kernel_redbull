@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -35,17 +35,12 @@
 
 /* Preprocessor definitions and constants */
 
-/* max length of command string in hostapd ioctl */
-#define HOSTAPD_IOCTL_COMMAND_STRLEN_MAX   8192
-
 struct hdd_adapter *hdd_wlan_create_ap_dev(struct hdd_context *hdd_ctx,
 				      tSirMacAddr macAddr,
 				      unsigned char name_assign_type,
 				      uint8_t *name);
 
-QDF_STATUS hdd_unregister_hostapd(struct hdd_adapter *adapter, bool rtnl_held);
-
-eCsrAuthType
+enum csr_akm_type
 hdd_translate_rsn_to_csr_auth_type(uint8_t auth_suite[4]);
 
 int hdd_softap_set_channel_change(struct net_device *dev,
@@ -114,18 +109,18 @@ hdd_translate_rsn_to_csr_encryption_type(uint8_t cipher_suite[4]);
 eCsrEncryptionType
 hdd_translate_rsn_to_csr_encryption_type(uint8_t cipher_suite[4]);
 
-eCsrAuthType
+enum csr_akm_type
 hdd_translate_wpa_to_csr_auth_type(uint8_t auth_suite[4]);
 
 eCsrEncryptionType
 hdd_translate_wpa_to_csr_encryption_type(uint8_t cipher_suite[4]);
 
 QDF_STATUS hdd_softap_sta_deauth(struct hdd_adapter *adapter,
-		struct csr_del_sta_params *pDelStaParams);
+				 struct csr_del_sta_params *param);
 void hdd_softap_sta_disassoc(struct hdd_adapter *adapter,
-			     struct csr_del_sta_params *pDelStaParams);
+			     struct csr_del_sta_params *param);
 
-QDF_STATUS hdd_hostapd_sap_event_cb(tpSap_Event pSapEvent,
+QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 				    void *context);
 /**
  * hdd_init_ap_mode() - to init the AP adaptor

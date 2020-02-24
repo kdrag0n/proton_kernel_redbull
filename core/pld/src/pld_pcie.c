@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -59,7 +59,7 @@ static int pld_pcie_probe(struct pci_dev *pdev,
 		goto out;
 	}
 
-	ret = pld_add_dev(pld_context, &pdev->dev, PLD_BUS_TYPE_PCIE);
+	ret = pld_add_dev(pld_context, &pdev->dev, NULL, PLD_BUS_TYPE_PCIE);
 	if (ret)
 		goto out;
 
@@ -94,6 +94,49 @@ static void pld_pcie_remove(struct pci_dev *pdev)
 }
 
 #ifdef CONFIG_PLD_PCIE_CNSS
+/**
+ * pld_pcie_idle_restart_cb() - Perform idle restart
+ * @pdev: PCIE device
+ * @id: PCIE device ID
+ *
+ * This function will be called if there is an idle restart request
+ *
+ * Return: int
+ */
+static int pld_pcie_idle_restart_cb(struct pci_dev *pdev,
+				    const struct pci_device_id *id)
+{
+	struct pld_context *pld_context;
+
+	pld_context = pld_get_global_context();
+	if (pld_context->ops->idle_restart)
+		return pld_context->ops->idle_restart(&pdev->dev,
+						      PLD_BUS_TYPE_PCIE);
+
+	return -ENODEV;
+}
+
+/**
+ * pld_pcie_idle_shutdown_cb() - Perform idle shutdown
+ * @pdev: PCIE device
+ * @id: PCIE device ID
+ *
+ * This function will be called if there is an idle shutdown request
+ *
+ * Return: int
+ */
+static int pld_pcie_idle_shutdown_cb(struct pci_dev *pdev)
+{
+	struct pld_context *pld_context;
+
+	pld_context = pld_get_global_context();
+	if (pld_context->ops->shutdown)
+		return pld_context->ops->idle_shutdown(&pdev->dev,
+						       PLD_BUS_TYPE_PCIE);
+
+	return -ENODEV;
+}
+
 /**
  * pld_pcie_reinit() - SSR re-initialize function for PCIE device
  * @pdev: PCIE device
@@ -192,7 +235,10 @@ static void pld_pcie_uevent(struct pci_dev *pdev, uint32_t status)
 
 	switch (status) {
 	case CNSS_RECOVERY:
-		data.uevent = PLD_RECOVERY;
+		data.uevent = PLD_FW_RECOVERY_START;
+		break;
+	case CNSS_FW_DOWN:
+		data.uevent = PLD_FW_DOWN;
 		break;
 	default:
 		goto out;
@@ -457,6 +503,8 @@ struct cnss_wlan_driver pld_pcie_ops = {
 	.id_table   = pld_pcie_id_table,
 	.probe      = pld_pcie_probe,
 	.remove     = pld_pcie_remove,
+	.idle_restart  = pld_pcie_idle_restart_cb,
+	.idle_shutdown = pld_pcie_idle_shutdown_cb,
 	.reinit     = pld_pcie_reinit,
 	.shutdown   = pld_pcie_shutdown,
 	.crash_shutdown = pld_pcie_crash_shutdown,
@@ -573,6 +621,13 @@ int pld_pcie_wlan_enable(struct device *dev, struct pld_wlan_enable_cfg *config,
 	cfg.num_shadow_reg_v2_cfg = config->num_shadow_reg_v2_cfg;
 	cfg.shadow_reg_v2_cfg = (struct cnss_shadow_reg_v2_cfg *)
 		config->shadow_reg_v2_cfg;
+	cfg.rri_over_ddr_cfg_valid = config->rri_over_ddr_cfg_valid;
+	if (config->rri_over_ddr_cfg_valid) {
+		cfg.rri_over_ddr_cfg.base_addr_low =
+			 config->rri_over_ddr_cfg.base_addr_low;
+		cfg.rri_over_ddr_cfg.base_addr_high =
+			 config->rri_over_ddr_cfg.base_addr_high;
+	}
 
 	switch (mode) {
 	case PLD_FTM:
@@ -622,7 +677,7 @@ int pld_pcie_get_fw_files_for_target(struct device *dev,
 	int ret = 0;
 	struct cnss_fw_files cnss_fw_files;
 
-	if (pfw_files == NULL)
+	if (!pfw_files)
 		return -ENODEV;
 
 	memset(pfw_files, 0, sizeof(*pfw_files));
@@ -632,20 +687,20 @@ int pld_pcie_get_fw_files_for_target(struct device *dev,
 	if (ret)
 		return ret;
 
-	strlcpy(pfw_files->image_file, cnss_fw_files.image_file,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->board_data, cnss_fw_files.board_data,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->otp_data, cnss_fw_files.otp_data,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->utf_file, cnss_fw_files.utf_file,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->utf_board_data, cnss_fw_files.utf_board_data,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->epping_file, cnss_fw_files.epping_file,
-		PLD_MAX_FILE_NAME);
-	strlcpy(pfw_files->evicted_data, cnss_fw_files.evicted_data,
-		PLD_MAX_FILE_NAME);
+	scnprintf(pfw_files->image_file, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.image_file);
+	scnprintf(pfw_files->board_data, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.board_data);
+	scnprintf(pfw_files->otp_data, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.otp_data);
+	scnprintf(pfw_files->utf_file, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.utf_file);
+	scnprintf(pfw_files->utf_board_data, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.utf_board_data);
+	scnprintf(pfw_files->epping_file, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.epping_file);
+	scnprintf(pfw_files->evicted_data, PLD_MAX_FILE_NAME, PREFIX "%s",
+		  cnss_fw_files.evicted_data);
 
 	return 0;
 }
@@ -665,7 +720,7 @@ int pld_pcie_get_platform_cap(struct device *dev, struct pld_platform_cap *cap)
 	int ret = 0;
 	struct cnss_platform_cap cnss_cap;
 
-	if (cap == NULL)
+	if (!cap)
 		return -ENODEV;
 
 	ret = cnss_get_platform_cap(dev, &cnss_cap);
@@ -691,7 +746,7 @@ int pld_pcie_get_soc_info(struct device *dev, struct pld_soc_info *info)
 	int ret = 0;
 	struct cnss_soc_info cnss_info = {0};
 
-	if (info == NULL)
+	if (!info)
 		return -ENODEV;
 
 	ret = cnss_get_soc_info(dev, &cnss_info);
@@ -707,6 +762,14 @@ int pld_pcie_get_soc_info(struct device *dev, struct pld_soc_info *info)
 	info->fw_version = cnss_info.fw_version;
 	strlcpy(info->fw_build_timestamp, cnss_info.fw_build_timestamp,
 		sizeof(info->fw_build_timestamp));
+	info->device_version.family_number =
+		cnss_info.device_version.family_number;
+	info->device_version.device_number =
+		cnss_info.device_version.device_number;
+	info->device_version.major_version =
+		cnss_info.device_version.major_version;
+	info->device_version.minor_version =
+		cnss_info.device_version.minor_version;
 
 	return 0;
 }

@@ -16,7 +16,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if !defined(__CDS_SCHED_H)
+#ifndef __CDS_SCHED_H
 #define __CDS_SCHED_H
 
 /**=========================================================================
@@ -42,20 +42,10 @@
 #include "cds_config.h"
 #include "qdf_cpuhp.h"
 
-#define TX_POST_EVENT               0x001
-#define TX_SUSPEND_EVENT            0x002
-#define MC_POST_EVENT               0x001
 #define MC_SUSPEND_EVENT            0x002
 #define RX_POST_EVENT               0x001
 #define RX_SUSPEND_EVENT            0x002
-#define TX_SHUTDOWN_EVENT           0x010
-#define MC_SHUTDOWN_EVENT           0x010
 #define RX_SHUTDOWN_EVENT           0x010
-#define WD_POST_EVENT               0x001
-#define WD_SHUTDOWN_EVENT           0x002
-#define WD_CHIP_RESET_EVENT         0x004
-#define WD_WLAN_SHUTDOWN_EVENT      0x008
-#define WD_WLAN_REINIT_EVENT        0x010
 
 #ifdef QCA_CONFIG_SMP
 /*
@@ -125,9 +115,6 @@ typedef struct _cds_sched_context {
 	/* Spinlock to synchronize between tasklet and thread */
 	spinlock_t ol_rx_queue_lock;
 
-	/* Rx queue length */
-	unsigned int ol_rx_queue_len;
-
 	/* Lock to synchronize free buffer queue access */
 	spinlock_t cds_ol_rx_pkt_freeq_lock;
 
@@ -148,10 +135,6 @@ typedef struct _cds_sched_context {
 
 	/* high throughput required */
 	bool high_throughput_required;
-
-	/* affinity requied during uplink traffic*/
-	bool rx_affinity_required;
-	uint8_t conf_rx_thread_ul_cpu_mask;
 #endif
 } cds_sched_context, *p_cds_sched_context;
 
@@ -173,8 +156,6 @@ struct cds_log_complete {
 	bool recovery_needed;
 };
 
-/* forward-declare hdd_context_s as it is used ina function type */
-struct hdd_context_s;
 struct cds_context {
 	/* Scheduler Context */
 	cds_sched_context qdf_sched;
@@ -186,7 +167,6 @@ struct cds_context {
 	void *mac_context;
 
 	uint32_t driver_state;
-	unsigned long fw_state;
 
 	qdf_event_t wma_complete_event;
 
@@ -226,7 +206,7 @@ struct cds_context {
 	bool enable_fatal_event;
 	struct cds_config_info *cds_cfg;
 
-	struct ol_tx_sched_wrr_ac_specs_t ac_specs[TX_WMM_AC_NUM];
+	struct ol_tx_sched_wrr_ac_specs_t ac_specs[QCA_WLAN_AC_ALL];
 	qdf_work_t cds_recovery_work;
 	qdf_workqueue_t *cds_recovery_wq;
 	enum qdf_hang_reason recovery_reason;
@@ -238,25 +218,6 @@ struct cds_context {
 #ifdef QCA_CONFIG_SMP
 int cds_sched_handle_cpu_hot_plug(void);
 int cds_sched_handle_throughput_req(bool high_tput_required);
-
-/**
- * cds_sched_handle_rx_thread_affinity_req - rx thread affinity req handler
- * @high_tput_required: high throughput is required or not
- *
- * rx thread affinity handler will find online cores and
- * will assign proper core based on perf requirement
- *
- * Return: None
- */
-void cds_sched_handle_rx_thread_affinity_req(bool high_throughput);
-
-/**
- * cds_set_rx_thread_ul_cpu_mask() - Rx_thread affinity for UL from INI
- * @cpu_affinity_mask: CPU affinity bitmap
- *
- * Return:None
- */
-void cds_set_rx_thread_ul_cpu_mask(uint8_t cpu_affinity_mask);
 
 /**
  * cds_set_rx_thread_cpu_mask() - Rx_thread affinity from INI
@@ -335,11 +296,13 @@ void cds_free_ol_rx_pkt(p_cds_sched_context pSchedContext,
    -------------------------------------------------------------------------*/
 void cds_free_ol_rx_pkt_freeq(p_cds_sched_context pSchedContext);
 #else
-static inline void
-cds_set_rx_thread_ul_cpu_mask(uint8_t cpu_affinity_mask) {}
-
-static inline void
-cds_sched_handle_rx_thread_affinity_req(bool high_throughput) {}
+/**
+ * cds_set_rx_thread_cpu_mask() - Rx_thread affinity from INI
+ * @cpu_affinity_mask: CPU affinity bitmap
+ *
+ * Return:None
+ */
+static inline void cds_set_rx_thread_cpu_mask(uint8_t cpu_affinity_mask) {}
 
 /**
  * cds_drop_rxpkt_by_staid() - api to drop pending rx packets for a sta
@@ -497,18 +460,7 @@ p_cds_sched_context get_cds_sched_ctxt(void);
 void qdf_timer_module_init(void);
 void qdf_timer_module_deinit(void);
 void cds_ssr_protect_init(void);
-void cds_ssr_protect(const char *caller_func);
-void cds_ssr_unprotect(const char *caller_func);
-bool cds_wait_for_external_threads_completion(const char *caller_func);
-void cds_print_external_threads(void);
 int cds_get_gfp_flags(void);
-
-/**
- * cds_return_external_threads_count() - return active external thread calls
- *
- * Return: total number of active extrenal threads in driver
- */
-int cds_return_external_threads_count(void);
 
 /**
  * cds_shutdown_notifier_register() - Register for shutdown notification
@@ -556,4 +508,4 @@ void cds_shutdown_notifier_call(void);
  */
 void cds_resume_rx_thread(void);
 
-#endif /* #if !defined __CDS_SCHED_H */
+#endif /* #ifndef __CDS_SCHED_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -36,6 +36,7 @@
 #include <qdf_mc_timer.h>
 #include <qdf_list.h>
 #include <qdf_defer.h>
+#include "qdf_delayed_work.h"
 #include <qdf_event.h>
 #include "wlan_ipa_public_struct.h"
 
@@ -70,7 +71,9 @@
 
 #define WLAN_IPA_MAX_PENDING_EVENT_COUNT    20
 
-#define IPA_WLAN_RX_SOFTIRQ_THRESH 16
+#define IPA_WLAN_RX_SOFTIRQ_THRESH 32
+
+#define WLAN_IPA_UC_BW_MONITOR_LEVEL        3
 
 /**
  * enum - IPA UC operation message
@@ -141,6 +144,18 @@ enum wlan_ipa_forward_type {
 };
 
 /**
+ * enum wlan_ipa_bw_level -ipa bandwidth level
+ * @WLAN_IPA_BW_LEVEL_LOW: vote for low bandwidth
+ * @WLAN_IPA_BW_LEVEL_MEDIUM: vote for medium bandwidth
+ * @WLAN_IPA_BW_LEVEL_HIGH: vote for high bandwidth
+ */
+enum wlan_ipa_bw_level {
+	WLAN_IPA_BW_LEVEL_LOW,
+	WLAN_IPA_BW_LEVEL_MEDIUM,
+	WLAN_IPA_BW_LEVEL_HIGH,
+};
+
+/**
  * struct llc_snap_hdr - LLC snap header
  * @dsap: Destination service access point
  * @ssap: Source service access point
@@ -170,7 +185,11 @@ struct wlan_ipa_tx_hdr {
  * @reserved1: Reserved not used
  * @reserved2: Reserved not used
  */
-#if defined (QCA_WIFI_3_0) || defined (CONFIG_LITHIUM)
+#if defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390)
+struct frag_header {
+	uint8_t reserved[0];
+};
+#elif defined(QCA_WIFI_3_0)
 struct frag_header {
 	uint16_t length;
 	uint32_t reserved1;
@@ -190,11 +209,18 @@ struct frag_header {
  * @vdev_id:  vdev id
  * @reserved: Reserved not used
  */
+
+#if defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390)
+struct ipa_header {
+	uint8_t reserved[0];
+};
+#else
 struct ipa_header {
 	uint32_t
 		vdev_id:8,	/* vdev_id field is LSB of IPA DESC */
 		reserved:24;
 } qdf_packed;
+#endif
 
 /**
  * struct wlan_ipa_uc_tx_hdr - full tx header registered to IPA hardware
@@ -576,7 +602,7 @@ struct wlan_ipa_priv {
 	struct uc_rm_work_struct uc_rm_work;
 	struct uc_op_work_struct uc_op_work[WLAN_IPA_UC_OPCODE_MAX];
 	qdf_wake_lock_t wake_lock;
-	qdf_delayed_work_t wake_lock_work;
+	struct qdf_delayed_work wake_lock_work;
 	bool wake_lock_released;
 
 	qdf_atomic_t tx_ref_cnt;
@@ -584,14 +610,28 @@ struct wlan_ipa_priv {
 	qdf_work_t pm_work;
 	qdf_spinlock_t pm_lock;
 	bool suspended;
-
 	qdf_spinlock_t q_lock;
-
-	qdf_spinlock_t pipes_down_lock;
+	qdf_spinlock_t enable_disable_lock;
+	/* Flag to indicate wait on pending TX completions */
+	qdf_atomic_t waiting_on_pending_tx;
+	/* Timer ticks to keep track of time after which pipes are disabled */
+	uint64_t pending_tx_start_ticks;
+	/* Indicates if cdp_ipa_disable_autonomy is called for IPA pipes */
+	qdf_atomic_t autonomy_disabled;
+	/* Indicates if cdp_disable_ipa_pipes has been called for IPA pipes */
+	qdf_atomic_t pipes_disabled;
+	/*
+	 * IPA pipes are considered "down" when both autonomy_disabled and
+	 * ipa_pipes_disabled are set
+	 */
+	bool ipa_pipes_down;
+	/* Flag for mutual exclusion during IPA disable pipes */
 	bool pipes_down_in_progress;
-
+	/* Flag for mutual exclusion during IPA enable pipes */
+	bool pipes_enable_in_progress;
 	qdf_list_node_t pend_desc_head;
-	qdf_list_t tx_desc_list;
+	struct wlan_ipa_tx_desc *tx_desc_pool;
+	qdf_list_t tx_desc_free_list;
 
 	struct wlan_ipa_stats stats;
 
@@ -609,7 +649,6 @@ struct wlan_ipa_priv {
 	struct ipa_uc_stas_map assoc_stas_map[WLAN_IPA_MAX_STA_COUNT];
 	qdf_list_t pending_event;
 	qdf_mutex_t event_lock;
-	bool ipa_pipes_down;
 	uint32_t ipa_tx_packets_diff;
 	uint32_t ipa_rx_packets_diff;
 	uint32_t ipa_p_tx_packets;
@@ -627,6 +666,7 @@ struct wlan_ipa_priv {
 	qdf_ipa_wdi_in_params_t prod_pipe_in;
 	bool uc_loaded;
 	bool wdi_enabled;
+	bool over_gsi;
 	qdf_mc_timer_t rt_debug_fill_timer;
 	qdf_mutex_t rt_debug_lock;
 	qdf_mutex_t ipa_lock;
@@ -653,6 +693,8 @@ struct wlan_ipa_priv {
 
 	uint32_t wdi_version;
 	bool is_smmu_enabled;	/* IPA caps returned from ipa_wdi_init */
+	qdf_atomic_t stats_quota;
+	uint8_t curr_bw_level;
 };
 
 #define WLAN_IPA_WLAN_FRAG_HEADER        sizeof(struct frag_header)

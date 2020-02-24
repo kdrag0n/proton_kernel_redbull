@@ -146,6 +146,10 @@ static inline int pld_snoc_is_fw_rejuvenate(void)
 {
 	return 0;
 }
+
+static inline void pld_snoc_block_shutdown(bool status)
+{
+}
 #else
 int pld_snoc_register_driver(void);
 void pld_snoc_unregister_driver(void);
@@ -284,14 +288,10 @@ static inline int pld_snoc_is_fw_rejuvenate(void)
 {
 	return icnss_is_rejuvenate();
 }
-static inline int pld_snoc_idle_restart(struct device *dev)
-{
-	return icnss_idle_restart(dev);
-}
 
-static inline int pld_snoc_idle_shutdown(struct device *dev)
+static inline void pld_snoc_block_shutdown(bool status)
 {
-	return icnss_idle_shutdown(dev);
+	icnss_block_shutdown(status);
 }
 #endif
 #endif

@@ -21,6 +21,8 @@
 
 #include "wlan_ipa_ucfg_api.h"
 #include "wlan_ipa_main.h"
+#include "cfg_ucfg_api.h"
+
 
 bool ucfg_ipa_is_present(void)
 {
@@ -47,11 +49,6 @@ void ucfg_ipa_set_dp_handle(struct wlan_objmgr_psoc *psoc,
 				     void *dp_soc)
 {
 	return ipa_set_dp_handle(psoc, dp_soc);
-}
-
-void ucfg_ipa_update_config(struct wlan_ipa_config *config)
-{
-	ipa_config_update(config);
 }
 
 QDF_STATUS ucfg_ipa_set_perf_level(struct wlan_objmgr_pdev *pdev,
@@ -151,6 +148,11 @@ QDF_STATUS ucfg_ipa_uc_ol_deinit(struct wlan_objmgr_pdev *pdev)
 	return ipa_uc_ol_deinit(pdev);
 }
 
+bool ucfg_ipa_is_tx_pending(struct wlan_objmgr_pdev *pdev)
+{
+	return ipa_is_tx_pending(pdev);
+}
+
 QDF_STATUS ucfg_ipa_send_mcc_scc_msg(struct wlan_objmgr_pdev *pdev,
 				     bool mcc_mode)
 {
@@ -203,4 +205,20 @@ void ucfg_ipa_uc_ssr_cleanup(struct wlan_objmgr_pdev *pdev)
 void ucfg_ipa_fw_rejuvenate_send_msg(struct wlan_objmgr_pdev *pdev)
 {
 	return ipa_fw_rejuvenate_send_msg(pdev);
+}
+
+void ucfg_ipa_component_config_update(struct wlan_objmgr_psoc *psoc)
+{
+	ipa_component_config_update(psoc);
+}
+
+uint32_t ucfg_ipa_get_tx_buf_count(void)
+{
+	return ipa_get_tx_buf_count();
+}
+
+void ucfg_ipa_update_tx_stats(struct wlan_objmgr_pdev *pdev, uint64_t sta_tx,
+			      uint64_t ap_tx)
+{
+	ipa_update_tx_stats(pdev, sta_tx, ap_tx);
 }

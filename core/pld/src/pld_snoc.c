@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -29,48 +29,6 @@
 #include "pld_snoc.h"
 
 #ifdef CONFIG_PLD_SNOC_ICNSS
-
-/**
- * pld_snoc_idle_restart_cb() - Perform idle restart
- * @pdev: platform device
- *
- * This function will be called if there is an idle restart request
- *
- * Return: int
- */
-static int pld_snoc_idle_restart_cb(struct device *dev)
-{
-	struct pld_context *pld_context;
-
-	pld_context = pld_get_global_context();
-	if (pld_context->ops->idle_restart)
-		return pld_context->ops->idle_restart(dev,
-						      PLD_BUS_TYPE_SNOC);
-
-	return -ENODEV;
-}
-
-/**
- * pld_snoc_idle_shutdown_cb() - Perform idle shutdown
- * @pdev: PCIE device
- * @id: PCIE device ID
- *
- * This function will be called if there is an idle shutdown request
- *
- * Return: int
- */
-static int pld_snoc_idle_shutdown_cb(struct device *dev)
-{
-	struct pld_context *pld_context;
-
-	pld_context = pld_get_global_context();
-	if (pld_context->ops->shutdown)
-		return pld_context->ops->idle_shutdown(dev,
-						       PLD_BUS_TYPE_SNOC);
-
-	return -ENODEV;
-}
-
 /**
  * pld_snoc_probe() - Probe function for platform driver
  * @dev: device
@@ -91,7 +49,7 @@ static int pld_snoc_probe(struct device *dev)
 		goto out;
 	}
 
-	ret = pld_add_dev(pld_context, dev, PLD_BUS_TYPE_SNOC);
+	ret = pld_add_dev(pld_context, dev, NULL, PLD_BUS_TYPE_SNOC);
 	if (ret)
 		goto out;
 
@@ -287,10 +245,10 @@ static int pld_snoc_uevent(struct device *dev,
 
 	switch (uevent->uevent) {
 	case ICNSS_UEVENT_FW_CRASHED:
-		data.uevent = PLD_RECOVERY;
+		data.uevent = PLD_FW_CRASHED;
 		break;
 	case ICNSS_UEVENT_FW_DOWN:
-		if (uevent->data == NULL)
+		if (!uevent->data)
 			return -EINVAL;
 		uevent_data = (struct icnss_uevent_fw_down_data *)uevent->data;
 		data.uevent = PLD_FW_DOWN;
@@ -323,8 +281,6 @@ struct icnss_driver_ops pld_snoc_ops = {
 	.suspend_noirq = pld_snoc_suspend_noirq,
 	.resume_noirq = pld_snoc_resume_noirq,
 	.uevent = pld_snoc_uevent,
-	.idle_restart  = pld_snoc_idle_restart_cb,
-	.idle_shutdown = pld_snoc_idle_shutdown_cb,
 };
 
 /**
@@ -425,15 +381,15 @@ int pld_snoc_wlan_disable(struct device *dev, enum pld_driver_mode mode)
  */
 int pld_snoc_get_soc_info(struct device *dev, struct pld_soc_info *info)
 {
-	int ret = 0;
-	struct icnss_soc_info icnss_info;
+	int errno;
+	struct icnss_soc_info icnss_info = {0};
 
-	if (info == NULL || !dev)
+	if (!info || !dev)
 		return -ENODEV;
 
-	ret = icnss_get_soc_info(dev, &icnss_info);
-	if (0 != ret)
-		return ret;
+	errno = icnss_get_soc_info(dev, &icnss_info);
+	if (errno)
+		return errno;
 
 	info->v_addr = icnss_info.v_addr;
 	info->p_addr = icnss_info.p_addr;

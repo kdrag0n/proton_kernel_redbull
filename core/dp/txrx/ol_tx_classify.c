@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -42,8 +42,6 @@
  * For now, the following #defines set up these host-specific or
  * target-specific aliases.
  */
-
-#if defined(CONFIG_HL_SUPPORT)
 
 #define OL_TX_CLASSIFY_EXTENSION(vdev, tx_desc, netbuf, msdu_info, txq)
 #define OL_TX_CLASSIFY_MGMT_EXTENSION(vdev, tx_desc, netbuf, msdu_info, txq)
@@ -163,7 +161,7 @@ ol_tx_set_ether_type(
 			/* dot11 encapsulated frame */
 			struct ieee80211_qosframe *whqos =
 					(struct ieee80211_qosframe *)datap;
-			if (whqos->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS) {
+			if (whqos->i_fc[0] & QDF_IEEE80211_FC0_SUBTYPE_QOS) {
 				tx_msdu_info->htt.info.l3_hdr_offset =
 					sizeof(struct ieee80211_qosframe);
 			} else {
@@ -191,13 +189,13 @@ ol_tx_set_ether_type(
 		}
 	} else if (tx_msdu_info->htt.info.l2_hdr_type ==
 					htt_pkt_type_ethernet) {
-		ptr = (datap + ETHERNET_ADDR_LEN * 2);
+		ptr = (datap + QDF_MAC_ADDR_SIZE * 2);
 		typeorlength = (ptr[0] << 8) | ptr[1];
 		/*ETHERNET_HDR_LEN;*/
 		l3_data_ptr = datap + sizeof(struct ethernet_hdr_t);
 
 		if (typeorlength == ETHERTYPE_VLAN) {
-			ptr = (datap + ETHERNET_ADDR_LEN * 2
+			ptr = (datap + QDF_MAC_ADDR_SIZE * 2
 					+ ETHERTYPE_VLAN_LEN);
 			typeorlength = (ptr[0] << 8) | ptr[1];
 			l3_data_ptr += ETHERTYPE_VLAN_LEN;
@@ -265,7 +263,7 @@ ol_tx_tid_by_raw_type(
 		/* dot11 encapsulated frame */
 		struct ieee80211_qosframe *whqos =
 					(struct ieee80211_qosframe *)datap;
-		if (whqos->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS)
+		if (whqos->i_fc[0] & QDF_IEEE80211_FC0_SUBTYPE_QOS)
 			tid = whqos->i_qos[0] & IEEE80211_QOS_TID;
 		else
 			tid = HTT_NON_QOS_TID;
@@ -332,7 +330,7 @@ ol_tx_tid(
 	return tid;
 }
 
-#if defined(CONFIG_HL_SUPPORT) && defined(FEATURE_WLAN_TDLS)
+#if defined(FEATURE_WLAN_TDLS)
 static inline
 struct ol_txrx_peer_t *ol_tx_tdls_peer_find(struct ol_txrx_pdev_t *pdev,
 						struct ol_txrx_vdev_t *vdev,
@@ -371,8 +369,6 @@ static struct ol_txrx_peer_t *ol_tx_tdls_peer_find(struct ol_txrx_pdev_t *pdev,
 
 	return peer;
 }
-
-
 #endif
 
 struct ol_tx_frms_queue_t *
@@ -391,7 +387,7 @@ ol_tx_classify(
 
 	TX_SCHED_DEBUG_PRINT("Enter %s\n", __func__);
 	dest_addr = ol_tx_dest_addr_find(pdev, tx_nbuf);
-	if (unlikely(NULL == dest_addr)) {
+	if (unlikely(!dest_addr)) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX,
 				QDF_TRACE_LEVEL_ERROR,
 				"Error: dest_addr is NULL.\n");
@@ -414,14 +410,9 @@ ol_tx_classify(
 			if (!peer) {
 				QDF_TRACE(QDF_MODULE_ID_TXRX,
 					  QDF_TRACE_LEVEL_ERROR,
-					  "Error: STA %pK (%02x:%02x:%02x:%02x:%02x:%02x) trying to send bcast DA tx data frame w/o association\n",
+					  "Error: STA %pK ("QDF_MAC_ADDR_STR") trying to send bcast DA tx data frame w/o association\n",
 					  vdev,
-					  vdev->mac_addr.raw[0],
-					  vdev->mac_addr.raw[1],
-					  vdev->mac_addr.raw[2],
-					  vdev->mac_addr.raw[3],
-					  vdev->mac_addr.raw[4],
-					  vdev->mac_addr.raw[5]);
+					  QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
 				return NULL; /* error */
 			} else if ((peer->security[
 				OL_TXRX_PEER_SECURITY_MULTICAST].sec_type
@@ -466,14 +457,9 @@ ol_tx_classify(
 			if (!peer) {
 				QDF_TRACE(QDF_MODULE_ID_TXRX,
 					  QDF_TRACE_LEVEL_ERROR,
-					  "Error: vdev %pK (%02x:%02x:%02x:%02x:%02x:%02x) trying to send bcast/mcast, but no self-peer found\n",
+					  "Error: vdev %pK ("QDF_MAC_ADDR_STR") trying to send bcast/mcast, but no self-peer found\n",
 					  vdev,
-					  vdev->mac_addr.raw[0],
-					  vdev->mac_addr.raw[1],
-					  vdev->mac_addr.raw[2],
-					  vdev->mac_addr.raw[3],
-					  vdev->mac_addr.raw[4],
-					  vdev->mac_addr.raw[5]);
+					  QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
 				return NULL; /* error */
 			}
 		}
@@ -533,11 +519,9 @@ ol_tx_classify(
 			 */
 			QDF_TRACE(QDF_MODULE_ID_TXRX,
 				  QDF_TRACE_LEVEL_ERROR,
-				  "Error: vdev %pK (%02x:%02x:%02x:%02x:%02x:%02x) trying to send unicast tx data frame to an unknown peer\n",
+				  "Error: vdev %pK ("QDF_MAC_ADDR_STR") trying to send unicast tx data frame to an unknown peer\n",
 				  vdev,
-				  vdev->mac_addr.raw[0], vdev->mac_addr.raw[1],
-				  vdev->mac_addr.raw[2], vdev->mac_addr.raw[3],
-				  vdev->mac_addr.raw[4], vdev->mac_addr.raw[5]);
+				  QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
 			return NULL; /* error */
 		}
 		TX_SCHED_DEBUG_PRINT("Peer found\n");
@@ -576,9 +560,8 @@ ol_tx_classify(
 		 */
 		if (tx_msdu_info->htt.info.peer_id == HTT_INVALID_PEER_ID) {
 			if (peer) {
-				ol_txrx_info(
-					   "%s: remove the peer for invalid peer_id %pK\n",
-					   __func__, peer);
+				ol_txrx_info("remove the peer for invalid peer_id %pK",
+					     peer);
 				/* remove the peer reference added above */
 				ol_txrx_peer_release_ref
 						(peer,
@@ -601,9 +584,7 @@ ol_tx_classify(
 	if (IEEE80211_IS_MULTICAST(dest_addr) && vdev->opmode !=
 				wlan_op_mode_sta && tx_msdu_info->peer !=
 								NULL) {
-		ol_txrx_dbg(
-			   "%s: remove the peer reference %pK\n",
-			   __func__, peer);
+		ol_txrx_dbg("remove the peer reference %pK", peer);
 		/* remove the peer reference added above */
 		ol_txrx_peer_release_ref(tx_msdu_info->peer,
 					 PEER_DEBUG_ID_OL_INTERNAL);
@@ -636,7 +617,7 @@ ol_tx_classify_mgmt(
 
 	TX_SCHED_DEBUG_PRINT("Enter %s\n", __func__);
 	dest_addr = ol_tx_dest_addr_find(pdev, tx_nbuf);
-	if (unlikely(NULL == dest_addr)) {
+	if (unlikely(!dest_addr)) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX,
 				QDF_TRACE_LEVEL_ERROR,
 				"Error: dest_addr is NULL.\n");
@@ -683,7 +664,7 @@ ol_tx_classify_mgmt(
 
 				qdf_mem_copy(
 					&local_mac_addr_aligned.raw[0],
-					dest_addr, OL_TXRX_MAC_ADDR_LEN);
+					dest_addr, QDF_MAC_ADDR_SIZE);
 				mac_addr = &local_mac_addr_aligned;
 				if (ol_txrx_peer_find_mac_addr_cmp
 						(mac_addr,
@@ -888,4 +869,3 @@ ol_tx_classify_mgmt_extension(
 	return QDF_STATUS_SUCCESS;
 }
 #endif
-#endif /* defined(CONFIG_HL_SUPPORT) */

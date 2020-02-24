@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -41,10 +41,10 @@
  *
  * Return: QDF_STATUS_SUCCESS on success; error number otherwise
  */
-static QDF_STATUS lim_add_ndi_peer(tpAniSirGlobal mac_ctx,
+static QDF_STATUS lim_add_ndi_peer(struct mac_context *mac_ctx,
 	uint32_t vdev_id, struct qdf_mac_addr peer_mac_addr)
 {
-	tpPESession session;
+	struct pe_session *session;
 	tpDphHashNode sta_ds;
 	uint16_t assoc_id, peer_idx;
 	QDF_STATUS status;
@@ -58,7 +58,7 @@ static QDF_STATUS lim_add_ndi_peer(tpAniSirGlobal mac_ctx,
 
 	session = pe_find_session_by_sme_session_id(mac_ctx,
 						vdev_id);
-	if (session == NULL) {
+	if (!session) {
 		/* couldn't find session */
 		pe_err("Session not found for vdev_id: %d", vdev_id);
 		return QDF_STATUS_E_FAILURE;
@@ -68,12 +68,12 @@ static QDF_STATUS lim_add_ndi_peer(tpAniSirGlobal mac_ctx,
 				peer_mac_addr.bytes,
 				&assoc_id, &session->dph.dphHashTable);
 	/* peer exists, don't do anything */
-	if (sta_ds != NULL) {
+	if (sta_ds) {
 		pe_err("NDI Peer already exists!!");
 		return QDF_STATUS_SUCCESS;
 	}
-	pe_info("Need to create NDI Peer :" MAC_ADDRESS_STR,
-		MAC_ADDR_ARRAY(peer_mac_addr.bytes));
+	pe_info("Need to create NDI Peer :" QDF_MAC_ADDR_STR,
+		QDF_MAC_ADDR_ARRAY(peer_mac_addr.bytes));
 
 	peer_idx = lim_assign_peer_idx(mac_ctx, session);
 	if (!peer_idx) {
@@ -83,7 +83,7 @@ static QDF_STATUS lim_add_ndi_peer(tpAniSirGlobal mac_ctx,
 
 	sta_ds = dph_add_hash_entry(mac_ctx, peer_mac_addr.bytes, peer_idx,
 			&session->dph.dphHashTable);
-	if (sta_ds == NULL) {
+	if (!sta_ds) {
 		pe_err("Couldn't add dph entry");
 		/* couldn't add dph entry */
 		return QDF_STATUS_E_FAILURE;
@@ -105,7 +105,7 @@ static QDF_STATUS lim_add_ndi_peer(tpAniSirGlobal mac_ctx,
 QDF_STATUS lim_add_ndi_peer_converged(uint32_t vdev_id,
 				struct qdf_mac_addr peer_mac_addr)
 {
-	tpAniSirGlobal mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
+	struct mac_context *mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
 
 	if (!mac_ctx)
 		return QDF_STATUS_E_NULL_VALUE;
@@ -122,10 +122,10 @@ QDF_STATUS lim_add_ndi_peer_converged(uint32_t vdev_id,
  *
  * Return: None
  */
-static void lim_ndp_delete_peer_by_addr(tpAniSirGlobal mac_ctx, uint8_t vdev_id,
+static void lim_ndp_delete_peer_by_addr(struct mac_context *mac_ctx, uint8_t vdev_id,
 					struct qdf_mac_addr peer_ndi_mac_addr)
 {
-	tpPESession session;
+	struct pe_session *session;
 	tpDphHashNode sta_ds;
 	uint16_t peer_idx;
 	uint8_t zero_mac_addr[QDF_MAC_ADDR_SIZE] = { 0, 0, 0, 0, 0, 0 };
@@ -136,8 +136,8 @@ static void lim_ndp_delete_peer_by_addr(tpAniSirGlobal mac_ctx, uint8_t vdev_id,
 		return;
 	}
 
-	pe_info("deleting peer: "MAC_ADDRESS_STR" confirm rejected",
-		MAC_ADDR_ARRAY(peer_ndi_mac_addr.bytes));
+	pe_info("deleting peer: "QDF_MAC_ADDR_STR" confirm rejected",
+		QDF_MAC_ADDR_ARRAY(peer_ndi_mac_addr.bytes));
 
 	session = pe_find_session_by_sme_session_id(mac_ctx, vdev_id);
 	if (!session || (session->bssType != eSIR_NDI_MODE)) {
@@ -167,7 +167,7 @@ static void lim_ndp_delete_peer_by_addr(tpAniSirGlobal mac_ctx, uint8_t vdev_id,
 void lim_ndp_delete_peers_by_addr_converged(uint8_t vdev_id,
 					struct qdf_mac_addr peer_ndi_mac_addr)
 {
-	tpAniSirGlobal mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
+	struct mac_context *mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
 
 	if (!mac_ctx)
 		return;
@@ -184,27 +184,25 @@ void lim_ndp_delete_peers_by_addr_converged(uint8_t vdev_id,
  *
  * Return: None
  */
-static void lim_ndp_delete_peers(tpAniSirGlobal mac_ctx,
+static void lim_ndp_delete_peers(struct mac_context *mac_ctx,
 				struct peer_ndp_map *ndp_map, uint8_t num_peers)
 {
 	tpDphHashNode sta_ds = NULL;
 	uint16_t deleted_num = 0;
 	int i, j;
-	tpPESession session;
+	struct pe_session *session;
 	struct qdf_mac_addr *deleted_peers;
 	uint16_t peer_idx;
 	bool found;
 
 	deleted_peers = qdf_mem_malloc(num_peers * sizeof(*deleted_peers));
-	if (!deleted_peers) {
-		pe_err("Memory allocation failed");
+	if (!deleted_peers)
 		return;
-	}
 
 	for (i = 0; i < num_peers; i++) {
-		pe_info("ndp_map[%d]: MAC: " MAC_ADDRESS_STR " num_active %d",
+		pe_info("ndp_map[%d]: MAC: " QDF_MAC_ADDR_STR " num_active %d",
 			i,
-			MAC_ADDR_ARRAY(ndp_map[i].peer_ndi_mac_addr.bytes),
+			QDF_MAC_ADDR_ARRAY(ndp_map[i].peer_ndi_mac_addr.bytes),
 			ndp_map[i].num_active_ndp_sessions);
 
 		/* Do not delete a peer with active NDPs */
@@ -259,7 +257,7 @@ static void lim_ndp_delete_peers(tpAniSirGlobal mac_ctx,
 void lim_ndp_delete_peers_converged(struct peer_nan_datapath_map *ndp_map,
 				    uint8_t num_peers)
 {
-	tpAniSirGlobal mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
+	struct mac_context *mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
 
 	if (!mac_ctx)
 		return;
@@ -276,9 +274,9 @@ void lim_ndp_delete_peers_converged(struct peer_nan_datapath_map *ndp_map,
  *
  * Return: None
  */
-void lim_process_ndi_del_sta_rsp(tpAniSirGlobal mac_ctx,
+void lim_process_ndi_del_sta_rsp(struct mac_context *mac_ctx,
 				 struct scheduler_msg *lim_msg,
-				 tpPESession pe_session)
+				 struct pe_session *pe_session)
 {
 	tpDphHashNode sta_ds;
 	tpDeleteStaParams del_sta_params = (tpDeleteStaParams) lim_msg->bodyptr;
@@ -307,9 +305,9 @@ void lim_process_ndi_del_sta_rsp(tpAniSirGlobal mac_ctx,
 		pe_err("DEL STA failed!");
 		goto skip_event;
 	}
-	pe_info("Deleted STA AssocID %d staId %d MAC " MAC_ADDRESS_STR,
+	pe_info("Deleted STA AssocID %d staId %d MAC " QDF_MAC_ADDR_STR,
 		sta_ds->assocId, sta_ds->staIndex,
-		MAC_ADDR_ARRAY(sta_ds->staAddr));
+		QDF_MAC_ADDR_ARRAY(sta_ds->staAddr));
 
 	/*
 	 * Copy peer info in del peer indication before
@@ -330,7 +328,8 @@ void lim_process_ndi_del_sta_rsp(tpAniSirGlobal mac_ctx,
 		pe_err("Failed to get vdev from id");
 		goto skip_event;
 	}
-	ucfg_nan_event_handler(psoc, vdev, NDP_PEER_DEPARTED, &peer_ind);
+	ucfg_nan_datapath_event_handler(psoc, vdev, NDP_PEER_DEPARTED,
+					&peer_ind);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
 
 skip_event:
@@ -346,14 +345,14 @@ skip_event:
  *
  * Return: None
  */
-void lim_process_ndi_mlm_add_bss_rsp(tpAniSirGlobal mac_ctx,
+void lim_process_ndi_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 				     struct scheduler_msg *lim_msgq,
-				     tpPESession session_entry)
+				     struct pe_session *session_entry)
 {
 	tLimMlmStartCnf mlm_start_cnf;
 	tpAddBssParams add_bss_params = (tpAddBssParams) lim_msgq->bodyptr;
 
-	if (NULL == add_bss_params) {
+	if (!add_bss_params) {
 		pe_err("Invalid body pointer in message");
 		goto end;
 	}
@@ -364,7 +363,7 @@ void lim_process_ndi_mlm_add_bss_rsp(tpAniSirGlobal mac_ctx,
 		MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
 			session_entry->peSessionId,
 			session_entry->limMlmState));
-		session_entry->bssIdx = (uint8_t) add_bss_params->bssIdx;
+		session_entry->bss_idx = (uint8_t)add_bss_params->bss_idx;
 		session_entry->limSystemRole = eLIM_NDI_ROLE;
 		session_entry->statypeForBss = STA_ENTRY_SELF;
 		session_entry->staId = add_bss_params->staContext.staIdx;
@@ -380,8 +379,7 @@ void lim_process_ndi_mlm_add_bss_rsp(tpAniSirGlobal mac_ctx,
 		mlm_start_cnf.resultCode = eSIR_SME_HAL_SEND_MESSAGE_FAIL;
 	}
 	mlm_start_cnf.sessionId = session_entry->peSessionId;
-	lim_post_sme_message(mac_ctx, LIM_MLM_START_CNF,
-				(uint32_t *) &mlm_start_cnf);
+	lim_send_start_bss_confirm(mac_ctx, &mlm_start_cnf);
 end:
 	qdf_mem_free(lim_msgq->bodyptr);
 	lim_msgq->bodyptr = NULL;
@@ -395,14 +393,14 @@ end:
  *
  * Return: None
  */
-void lim_ndi_del_bss_rsp(tpAniSirGlobal  mac_ctx,
-			void *msg, tpPESession session_entry)
+void lim_ndi_del_bss_rsp(struct mac_context * mac_ctx,
+			void *msg, struct pe_session *session_entry)
 {
 	tSirResultCodes rc = eSIR_SME_SUCCESS;
 	tpDeleteBssParams del_bss = (tpDeleteBssParams) msg;
 
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
-	if (del_bss == NULL) {
+	if (!del_bss) {
 		pe_err("NDI: DEL_BSS_RSP with no body!");
 		rc = eSIR_SME_STOP_BSS_FAILURE;
 		goto end;
@@ -416,14 +414,14 @@ void lim_ndi_del_bss_rsp(tpAniSirGlobal  mac_ctx,
 
 	if (del_bss->status != QDF_STATUS_SUCCESS) {
 		pe_err("NDI: DEL_BSS_RSP error (%x) Bss %d",
-			del_bss->status, del_bss->bssIdx);
+			del_bss->status, del_bss->bss_idx);
 		rc = eSIR_SME_STOP_BSS_FAILURE;
 		goto end;
 	}
 
 	if (lim_set_link_state(mac_ctx, eSIR_LINK_IDLE_STATE,
-			session_entry->selfMacAddr,
-			session_entry->selfMacAddr, NULL, NULL)
+			session_entry->self_mac_addr,
+			session_entry->self_mac_addr, NULL, NULL)
 			!= QDF_STATUS_SUCCESS) {
 		pe_err("NDI: DEL_BSS_RSP setLinkState failed");
 		goto end;
@@ -435,17 +433,16 @@ end:
 	if (del_bss)
 		qdf_mem_free(del_bss);
 	/* Delete PE session once BSS is deleted */
-	if (NULL != session_entry) {
+	if (session_entry) {
 		lim_send_sme_rsp(mac_ctx, eWNI_SME_STOP_BSS_RSP,
-			rc, session_entry->smeSessionId,
-			session_entry->transactionId);
+			rc, session_entry->smeSessionId);
 		pe_delete_session(mac_ctx, session_entry);
 		session_entry = NULL;
 	}
 }
 
-static QDF_STATUS lim_send_sme_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx,
-						tpPESession session,
+static QDF_STATUS lim_send_sme_ndp_add_sta_rsp(struct mac_context *mac_ctx,
+						struct pe_session *session,
 						tAddStaParams *add_sta_rsp)
 {
 	struct nan_datapath_peer_ind *new_peer_ind;
@@ -472,7 +469,6 @@ static QDF_STATUS lim_send_sme_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx,
 
 	new_peer_ind = qdf_mem_malloc(sizeof(*new_peer_ind));
 	if (!new_peer_ind) {
-		pe_err("Failed to allocate memory");
 		wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -481,7 +477,7 @@ static QDF_STATUS lim_send_sme_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx,
 		     sizeof(tSirMacAddr));
 	new_peer_ind->sta_id = add_sta_rsp->staIdx;
 
-	ucfg_nan_event_handler(psoc, vdev, NDP_NEW_PEER, new_peer_ind);
+	ucfg_nan_datapath_event_handler(psoc, vdev, NDP_NEW_PEER, new_peer_ind);
 	qdf_mem_free(new_peer_ind);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
 	return QDF_STATUS_SUCCESS;
@@ -495,13 +491,13 @@ static QDF_STATUS lim_send_sme_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx,
  *
  * Return: None
  */
-void lim_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx, tpPESession session,
+void lim_ndp_add_sta_rsp(struct mac_context *mac_ctx, struct pe_session *session,
 			 tAddStaParams *add_sta_rsp)
 {
 	tpDphHashNode sta_ds;
 	uint16_t peer_idx;
 
-	if (NULL == add_sta_rsp) {
+	if (!add_sta_rsp) {
 		pe_err("Invalid add_sta_rsp");
 		qdf_mem_free(add_sta_rsp);
 		return;
@@ -510,10 +506,10 @@ void lim_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx, tpPESession session,
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
 	sta_ds = dph_lookup_hash_entry(mac_ctx, add_sta_rsp->staMac, &peer_idx,
 				    &session->dph.dphHashTable);
-	if (sta_ds == NULL) {
+	if (!sta_ds) {
 		pe_err("NAN: ADD_STA_RSP for unknown MAC addr "
-			MAC_ADDRESS_STR,
-			MAC_ADDR_ARRAY(add_sta_rsp->staMac));
+			QDF_MAC_ADDR_STR,
+			QDF_MAC_ADDR_ARRAY(add_sta_rsp->staMac));
 		qdf_mem_free(add_sta_rsp);
 		return;
 	}
@@ -527,7 +523,7 @@ void lim_ndp_add_sta_rsp(tpAniSirGlobal mac_ctx, tpPESession session,
 		qdf_mem_free(add_sta_rsp);
 		return;
 	}
-	sta_ds->bssId = add_sta_rsp->bssIdx;
+	sta_ds->bssId = add_sta_rsp->bss_idx;
 	sta_ds->staIndex = add_sta_rsp->staIdx;
 	sta_ds->valid = 1;
 	sta_ds->mlmStaContext.mlmState = eLIM_MLM_LINK_ESTABLISHED_STATE;

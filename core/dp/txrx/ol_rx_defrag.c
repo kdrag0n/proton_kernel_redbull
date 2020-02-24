@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -60,15 +60,15 @@
 #include <qdf_time.h>           /* qdf_system_time */
 
 #define DEFRAG_IEEE80211_ADDR_EQ(a1, a2) \
-	(!qdf_mem_cmp(a1, a2, IEEE80211_ADDR_LEN))
+	(!qdf_mem_cmp(a1, a2, QDF_MAC_ADDR_SIZE))
 
 #define DEFRAG_IEEE80211_ADDR_COPY(dst, src) \
-	qdf_mem_copy(dst, src, IEEE80211_ADDR_LEN)
+	qdf_mem_copy(dst, src, QDF_MAC_ADDR_SIZE)
 
 #define DEFRAG_IEEE80211_QOS_HAS_SEQ(wh) \
 	(((wh)->i_fc[0] & \
-	  (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_QOS)) == \
-	 (IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS))
+	  (IEEE80211_FC0_TYPE_MASK | QDF_IEEE80211_FC0_SUBTYPE_QOS)) == \
+	 (IEEE80211_FC0_TYPE_DATA | QDF_IEEE80211_FC0_SUBTYPE_QOS))
 
 #define DEFRAG_IEEE80211_QOS_GET_TID(_x) \
 	((_x)->i_qos[0] & IEEE80211_QOS_TID)
@@ -176,7 +176,7 @@ ol_rx_frag_restructure(
 	const struct ol_rx_defrag_cipher *f_type,
 	int rx_desc_len)
 {
-	if ((ind_old_position == NULL) || (rx_desc_old_position == NULL)) {
+	if ((!ind_old_position) || (!rx_desc_old_position)) {
 		ol_txrx_err("ind_old_position,rx_desc_old_position is NULL\n");
 		ASSERT(0);
 		return;
@@ -583,14 +583,14 @@ void ol_rx_defrag_waitlist_remove(struct ol_txrx_peer_t *peer, unsigned int tid)
 	struct ol_txrx_pdev_t *pdev = peer->vdev->pdev;
 	struct ol_rx_reorder_t *rx_reorder = &peer->tids_rx_reorder[tid];
 
-	if (rx_reorder->defrag_waitlist_elem.tqe_next != NULL) {
+	if (rx_reorder->defrag_waitlist_elem.tqe_next) {
 
 		TAILQ_REMOVE(&pdev->rx.defrag.waitlist, rx_reorder,
 			     defrag_waitlist_elem);
 
 		rx_reorder->defrag_waitlist_elem.tqe_next = NULL;
 		rx_reorder->defrag_waitlist_elem.tqe_prev = NULL;
-	} else if (rx_reorder->defrag_waitlist_elem.tqe_next != NULL) {
+	} else if (rx_reorder->defrag_waitlist_elem.tqe_next) {
 		ol_txrx_alert("waitlist->tqe_prv = NULL\n");
 		QDF_ASSERT(0);
 		rx_reorder->defrag_waitlist_elem.tqe_next = NULL;
@@ -675,7 +675,7 @@ ol_rx_defrag(ol_txrx_pdev_handle pdev,
 				ol_rx_frames_free(htt_pdev, frag_list);
 			}
 			ol_rx_frames_free(htt_pdev, tmp_next);
-			ol_txrx_err("ol_rx_defrag: PN Check failed\n");
+			ol_txrx_err("PN Check failed");
 			return;
 		}
 		/* remove FCS from each fragment */
@@ -702,7 +702,7 @@ ol_rx_defrag(ol_txrx_pdev_handle pdev,
 			if (!ol_rx_frag_tkip_decap(pdev, cur, hdr_space)) {
 				/* TKIP decap failed, discard frags */
 				ol_rx_frames_free(htt_pdev, frag_list);
-				ol_txrx_err("\n ol_rx_defrag: TKIP decap failed\n");
+				ol_txrx_err("TKIP decap failed");
 				return;
 			}
 			cur = tmp_next;
@@ -715,13 +715,13 @@ ol_rx_defrag(ol_txrx_pdev_handle pdev,
 			if (!ol_rx_frag_ccmp_demic(pdev, cur, hdr_space)) {
 				/* CCMP demic failed, discard frags */
 				ol_rx_frames_free(htt_pdev, frag_list);
-				ol_txrx_err("\n ol_rx_defrag: CCMP demic failed\n");
+				ol_txrx_err("CCMP demic failed");
 				return;
 			}
 			if (!ol_rx_frag_ccmp_decap(pdev, cur, hdr_space)) {
 				/* CCMP decap failed, discard frags */
 				ol_rx_frames_free(htt_pdev, frag_list);
-				ol_txrx_err("\n ol_rx_defrag: CCMP decap failed\n");
+				ol_txrx_err("CCMP decap failed");
 				return;
 			}
 			cur = tmp_next;
@@ -736,7 +736,7 @@ ol_rx_defrag(ol_txrx_pdev_handle pdev,
 			if (!ol_rx_frag_wep_decap(pdev, cur, hdr_space)) {
 				/* wep decap failed, discard frags */
 				ol_rx_frames_free(htt_pdev, frag_list);
-				ol_txrx_err("\n ol_rx_defrag: wep decap failed\n");
+				ol_txrx_err("wep decap failed");
 				return;
 			}
 			cur = tmp_next;
@@ -760,7 +760,7 @@ ol_rx_defrag(ol_txrx_pdev_handle pdev,
 			ol_rx_err(pdev->ctrl_pdev,
 				  vdev->vdev_id, peer->mac_addr.raw, tid, 0,
 				  OL_RX_DEFRAG_ERR, msdu, NULL, 0);
-			ol_txrx_err("\n ol_rx_defrag: TKIP demic failed\n");
+			ol_txrx_err("TKIP demic failed");
 			return;
 		}
 	}
@@ -949,31 +949,31 @@ void ol_rx_defrag_michdr(const struct ieee80211_frame *wh0, uint8_t hdr[])
 	switch (wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) {
 	case IEEE80211_FC1_DIR_NODS:
 		DEFRAG_IEEE80211_ADDR_COPY(hdr, wh->i_addr1);   /* DA */
-		DEFRAG_IEEE80211_ADDR_COPY(hdr + IEEE80211_ADDR_LEN,
+		DEFRAG_IEEE80211_ADDR_COPY(hdr + QDF_MAC_ADDR_SIZE,
 					   wh->i_addr2);
 		break;
 	case IEEE80211_FC1_DIR_TODS:
 		DEFRAG_IEEE80211_ADDR_COPY(hdr, wh->i_addr3);   /* DA */
-		DEFRAG_IEEE80211_ADDR_COPY(hdr + IEEE80211_ADDR_LEN,
+		DEFRAG_IEEE80211_ADDR_COPY(hdr + QDF_MAC_ADDR_SIZE,
 					   wh->i_addr2);
 		break;
 	case IEEE80211_FC1_DIR_FROMDS:
 		DEFRAG_IEEE80211_ADDR_COPY(hdr, wh->i_addr1);   /* DA */
-		DEFRAG_IEEE80211_ADDR_COPY(hdr + IEEE80211_ADDR_LEN,
+		DEFRAG_IEEE80211_ADDR_COPY(hdr + QDF_MAC_ADDR_SIZE,
 					   wh->i_addr3);
 		break;
 	case IEEE80211_FC1_DIR_DSTODS:
 		DEFRAG_IEEE80211_ADDR_COPY(hdr, wh->i_addr3);   /* DA */
-		DEFRAG_IEEE80211_ADDR_COPY(hdr + IEEE80211_ADDR_LEN,
+		DEFRAG_IEEE80211_ADDR_COPY(hdr + QDF_MAC_ADDR_SIZE,
 					   wh->i_addr4);
 		break;
 	}
 	/*
-	 * Bit 7 is IEEE80211_FC0_SUBTYPE_QOS for data frame, but
+	 * Bit 7 is QDF_IEEE80211_FC0_SUBTYPE_QOS for data frame, but
 	 * it could also be set for deauth, disassoc, action, etc. for
 	 * a mgt type frame. It comes into picture for MFP.
 	 */
-	if (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS) {
+	if (wh->i_fc[0] & QDF_IEEE80211_FC0_SUBTYPE_QOS) {
 		const struct ieee80211_qosframe *qwh =
 			(const struct ieee80211_qosframe *)wh;
 		hdr[12] = qwh->i_qos[0] & IEEE80211_QOS_TID;
@@ -1040,7 +1040,7 @@ ol_rx_defrag_mic(ol_txrx_pdev_handle pdev,
 			break;
 
 		wbuf = qdf_nbuf_next(wbuf);
-		if (wbuf == NULL)
+		if (!wbuf)
 			return OL_RX_DEFRAG_ERR;
 
 		rx_desc_len = ol_rx_get_desc_len(htt_pdev, wbuf,
@@ -1122,7 +1122,7 @@ uint16_t ol_rx_frag_hdrsize(const void *data)
 	uint16_t size = sizeof(struct ieee80211_frame);
 
 	if ((wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) == IEEE80211_FC1_DIR_DSTODS)
-		size += IEEE80211_ADDR_LEN;
+		size += QDF_MAC_ADDR_SIZE;
 
 	if (DEFRAG_IEEE80211_QOS_HAS_SEQ(wh)) {
 		size += sizeof(uint16_t);
@@ -1202,18 +1202,18 @@ void ol_rx_defrag_nwifi_to_8023(ol_txrx_pdev_handle pdev, qdf_nbuf_t msdu)
 	switch (wh.i_fc[1] & IEEE80211_FC1_DIR_MASK) {
 	case IEEE80211_FC1_DIR_NODS:
 		qdf_mem_copy(eth_hdr->dest_addr, wh.i_addr1,
-			     IEEE80211_ADDR_LEN);
-		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr2, IEEE80211_ADDR_LEN);
+			     QDF_MAC_ADDR_SIZE);
+		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr2, QDF_MAC_ADDR_SIZE);
 		break;
 	case IEEE80211_FC1_DIR_TODS:
 		qdf_mem_copy(eth_hdr->dest_addr, wh.i_addr3,
-			     IEEE80211_ADDR_LEN);
-		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr2, IEEE80211_ADDR_LEN);
+			     QDF_MAC_ADDR_SIZE);
+		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr2, QDF_MAC_ADDR_SIZE);
 		break;
 	case IEEE80211_FC1_DIR_FROMDS:
 		qdf_mem_copy(eth_hdr->dest_addr, wh.i_addr1,
-			     IEEE80211_ADDR_LEN);
-		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr3, IEEE80211_ADDR_LEN);
+			     QDF_MAC_ADDR_SIZE);
+		qdf_mem_copy(eth_hdr->src_addr, wh.i_addr3, QDF_MAC_ADDR_SIZE);
 		break;
 	case IEEE80211_FC1_DIR_DSTODS:
 		break;
@@ -1272,7 +1272,7 @@ ol_rx_defrag_qos_decap(ol_txrx_pdev_handle pdev,
 		 * adding this explicit check is okay.
 		 */
 		if (wh)
-			wh->i_fc[0] &= ~IEEE80211_FC0_SUBTYPE_QOS;
+			wh->i_fc[0] &= ~QDF_IEEE80211_FC0_SUBTYPE_QOS;
 
 		ol_rx_defrag_push_rx_desc(nbuf, rx_desc_old_position,
 					  ind_old_position, rx_desc_len);

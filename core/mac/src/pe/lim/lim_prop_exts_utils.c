@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,7 +34,6 @@
 #include "sir_common.h"
 #include "sir_debug.h"
 #include "utils_api.h"
-#include "cfg_api.h"
 #include "lim_api.h"
 #include "lim_types.h"
 #include "lim_utils.h"
@@ -46,8 +45,6 @@
 #include "lim_session.h"
 #include "wma.h"
 #include "wlan_utility.h"
-
-#define LIM_GET_NOISE_MAX_TRY 5
 
 #ifdef FEATURE_WLAN_ESE
 /**
@@ -62,7 +59,7 @@
 static void get_local_power_constraint_probe_response(
 		tpSirProbeRespBeacon beacon_struct,
 		int8_t *local_constraint,
-		tpPESession session)
+		struct pe_session *session)
 {
 	if (beacon_struct->eseTxPwr.present)
 		*local_constraint =
@@ -77,11 +74,11 @@ static void get_local_power_constraint_probe_response(
  *
  * Return: None
  */
-static void get_ese_version_ie_probe_response(tpAniSirGlobal mac_ctx,
+static void get_ese_version_ie_probe_response(struct mac_context *mac_ctx,
 					tpSirProbeRespBeacon beacon_struct,
-					tpPESession session)
+					struct pe_session *session)
 {
-	if (mac_ctx->roam.configParam.isEseIniFeatureEnabled)
+	if (mac_ctx->mlme_cfg->lfr.ese_enabled)
 		session->is_ese_version_ie_present =
 			beacon_struct->is_ese_ver_ie_present;
 }
@@ -89,20 +86,20 @@ static void get_ese_version_ie_probe_response(tpAniSirGlobal mac_ctx,
 static void get_local_power_constraint_probe_response(
 		tpSirProbeRespBeacon beacon_struct,
 		int8_t *local_constraint,
-		tpPESession session)
+		struct pe_session *session)
 {
 
 }
 
-static inline void get_ese_version_ie_probe_response(tpAniSirGlobal mac_ctx,
+static inline void get_ese_version_ie_probe_response(struct mac_context *mac_ctx,
 					tpSirProbeRespBeacon beacon_struct,
-					tpPESession session)
+					struct pe_session *session)
 {
 }
 #endif
 
 #ifdef WLAN_FEATURE_11AX
-static void lim_extract_he_op(tpPESession session,
+static void lim_extract_he_op(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct)
 {
 	if (session->he_capable && beacon_struct->he_op.present) {
@@ -113,7 +110,7 @@ static void lim_extract_he_op(tpPESession session,
 	}
 }
 
-static bool lim_check_he_80_mcs11_supp(tpPESession session,
+static bool lim_check_he_80_mcs11_supp(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct) {
 	uint8_t rx_mcs_map;
 	uint8_t tx_mcs_map;
@@ -132,7 +129,7 @@ static bool lim_check_he_80_mcs11_supp(tpPESession session,
 	return false;
 }
 
-static void lim_check_he_ldpc_cap(tpPESession session,
+static void lim_check_he_ldpc_cap(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct)
 {
 	if (session->he_capable && beacon_struct->he_cap.present) {
@@ -145,25 +142,25 @@ static void lim_check_he_ldpc_cap(tpPESession session,
 		session->he_capable = false;
 		pe_err("LDPC check failed for HE operation");
 		if (session->vhtCapability) {
-			session->dot11mode = WNI_CFG_DOT11_MODE_11AC;
+			session->dot11mode = MLME_DOT11_MODE_11AC;
 			pe_debug("Update dot11mode to 11ac");
 		} else {
-			session->dot11mode = WNI_CFG_DOT11_MODE_11N;
+			session->dot11mode = MLME_DOT11_MODE_11N;
 			pe_debug("Update dot11mode to 11N");
 		}
 	}
 }
 #else
-static inline void lim_extract_he_op(tpPESession session,
+static inline void lim_extract_he_op(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct)
 {}
-static void lim_check_he_ldpc_cap(tpPESession session,
+static void lim_check_he_ldpc_cap(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct)
 {}
 #endif
 
-static void lim_objmgr_update_vdev_nss(struct wlan_objmgr_psoc *psoc,
-				       uint8_t vdev_id, uint8_t nss)
+void lim_objmgr_update_vdev_nss(struct wlan_objmgr_psoc *psoc,
+				uint8_t vdev_id, uint8_t nss)
 {
 	struct wlan_objmgr_vdev *vdev;
 
@@ -200,8 +197,8 @@ static bool lim_extract_adaptive_11r_cap(uint8_t *ie, uint16_t ie_len)
 	if (!adaptive_ie)
 		return false;
 
-	if (adaptive_ie[1] < (OUI_LENGTH + 1) ||
-	    adaptive_ie[1] > MAX_ADAPTIVE_11R_IE_LEN)
+	if ((adaptive_ie[1] < (OUI_LENGTH + 1)) ||
+	    (adaptive_ie[1] > MAX_ADAPTIVE_11R_IE_LEN))
 		return false;
 
 	data = *(adaptive_ie + OUI_LENGTH + 2);
@@ -218,13 +215,11 @@ static inline bool lim_extract_adaptive_11r_cap(uint8_t *ie, uint16_t ie_len)
 #endif
 
 void
-lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
-	uint16_t ie_len, uint8_t *qos_cap, uint16_t *prop_cap, uint8_t *uapsd,
-	int8_t *local_constraint, tpPESession session)
+lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
+			  uint16_t ie_len, uint8_t *qos_cap, uint8_t *uapsd,
+			  int8_t *local_constraint, struct pe_session *session)
 {
 	tSirProbeRespBeacon *beacon_struct;
-	uint32_t enable_txbf_20mhz;
-	QDF_STATUS cfg_get_status = QDF_STATUS_E_FAILURE;
 	uint8_t ap_bcon_ch_width;
 	bool new_ch_width_dfn = false;
 	tDot11fIEVHTOperation *vht_op;
@@ -234,15 +229,12 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
 	struct s_ext_cap *ext_cap;
 
 	beacon_struct = qdf_mem_malloc(sizeof(tSirProbeRespBeacon));
-	if (NULL == beacon_struct) {
-		pe_err("Unable to allocate memory");
+	if (!beacon_struct)
 		return;
-	}
 
 	*qos_cap = 0;
-	*prop_cap = 0;
 	*uapsd = 0;
-	pe_debug("In lim_extract_ap_capability: The IE's being received:");
+	pe_debug("The IE's being received:");
 	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
 			   p_ie, ie_len);
 	if (sir_parse_beacon_ie(mac_ctx, beacon_struct, p_ie,
@@ -259,8 +251,6 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
 	if (LIM_BSS_CAPS_GET(WME, *qos_cap)
 			&& beacon_struct->wsmCapablePresent)
 		LIM_BSS_CAPS_SET(WSM, *qos_cap);
-	if (beacon_struct->propIEinfo.capabilityPresent)
-		*prop_cap = beacon_struct->propIEinfo.capability;
 	if (beacon_struct->HTCaps.present)
 		mac_ctx->lim.htCapabilityPresentInBeacon = 1;
 	else
@@ -290,11 +280,7 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
 
 	if (session->vhtCapabilityPresentInBeacon == 1 &&
 			!session->htSupportedChannelWidthSet) {
-		cfg_get_status = wlan_cfg_get_int(mac_ctx,
-				WNI_CFG_VHT_ENABLE_TXBF_20MHZ,
-				&enable_txbf_20mhz);
-		if ((QDF_IS_STATUS_SUCCESS(cfg_get_status)) &&
-				(false == enable_txbf_20mhz))
+		if (!mac_ctx->mlme_cfg->vht_caps.vht_cap_info.enable_txbf_20mhz)
 			session->vht_config.su_beam_formee = 0;
 	} else if (session->vhtCapabilityPresentInBeacon &&
 			vht_op->chanWidth) {
@@ -326,7 +312,7 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
 		 * in 2x2 80MHz mode instead of connecting in 160MHz mode.
 		 */
 		if ((vht_ch_wd > WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ) &&
-				mac_ctx->sta_prefer_80MHz_over_160MHz) {
+		    mac_ctx->mlme_cfg->sta.sta_prefer_80mhz_over_160mhz) {
 			if (!(IS_VHT_NSS_1x1(beacon_struct->VHTCaps.txMCSMap))
 					&&
 			   (!IS_VHT_NSS_1x1(beacon_struct->VHTCaps.rxMCSMap)))
@@ -415,7 +401,7 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
 	if (beacon_struct->wmeEdcaPresent)
 		*uapsd = beacon_struct->edcaParams.qosInfo.uapsd;
 
-	if (mac_ctx->roam.configParam.allow_tpc_from_ap) {
+	if (mac_ctx->mlme_cfg->sta.allow_tpc_from_ap) {
 		if (beacon_struct->powerConstraintPresent) {
 			*local_constraint -=
 				beacon_struct->localPowerConstraint.
@@ -470,7 +456,7 @@ lim_extract_ap_capability(tpAniSirGlobal mac_ctx, uint8_t *p_ie,
  *
  ***NOTE:
  *
- * @param  pMac - Pointer to Global MAC structure
+ * @param  mac - Pointer to Global MAC structure
  * @return The corresponding HT enumeration
  */
 ePhyChanBondState lim_get_htcb_state(ePhyChanBondState aniCBMode)

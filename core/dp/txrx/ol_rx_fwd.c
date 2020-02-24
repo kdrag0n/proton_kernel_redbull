@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2014-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,7 +43,7 @@
 static inline void ol_ap_fwd_check(struct ol_txrx_vdev_t *vdev, qdf_nbuf_t msdu)
 {
 	struct ieee80211_frame *mac_header;
-	unsigned char tmp_addr[IEEE80211_ADDR_LEN];
+	unsigned char tmp_addr[QDF_MAC_ADDR_SIZE];
 	unsigned char type;
 	unsigned char subtype;
 	unsigned char fromds;
@@ -69,9 +69,8 @@ static inline void ol_ap_fwd_check(struct ol_txrx_vdev_t *vdev, qdf_nbuf_t msdu)
 	    ((tods != 1) || (fromds != 0)) ||
 	    qdf_mem_cmp
 		     (mac_header->i_addr3, vdev->mac_addr.raw,
-		     IEEE80211_ADDR_LEN)) {
-		ol_txrx_dbg("Exit: %s | Unnecessary to adjust mac header\n",
-			   __func__);
+		     QDF_MAC_ADDR_SIZE)) {
+		ol_txrx_dbg("Exit | Unnecessary to adjust mac header");
 	} else {
 		/* Flip the ToDs bit to FromDs */
 		mac_header->i_fc[1] &= 0xfe;
@@ -191,7 +190,8 @@ ol_rx_fwd_check(struct ol_txrx_vdev_t *vdev,
 						 QDF_NBUF_TX_EXT_TID_INVALID);
 			}
 
-			if (!ol_txrx_fwd_desc_thresh_check(vdev)) {
+			if (!ol_txrx_fwd_desc_thresh_check(
+						(struct cdp_vdev *)vdev)) {
 				/* Drop the packet*/
 				htt_rx_msdu_desc_free(pdev->htt_pdev, msdu);
 				TXRX_STATS_MSDU_LIST_INCR(

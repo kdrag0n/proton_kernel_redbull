@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -23,7 +23,6 @@
 
 unsigned int vow_config;
 
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 /**
  * ol_tx_set_flow_control_parameters() - set flow control parameters
  * @cfg_ctx: cfg context
@@ -41,9 +40,24 @@ void ol_tx_set_flow_control_parameters(struct cdp_cfg *cfg_pdev,
 	cfg_ctx->tx_flow_stop_queue_th =
 					cfg_param->tx_flow_stop_queue_th;
 }
-#endif
 
 #ifdef CONFIG_HL_SUPPORT
+
+#ifdef CONFIG_CREDIT_REP_THROUGH_CREDIT_UPDATE
+static inline
+void ol_pdev_cfg_credit_update(struct txrx_pdev_cfg_t *cfg_ctx)
+{
+	cfg_ctx->tx_free_at_download = 1;
+	cfg_ctx->credit_update_enabled = 1;
+}
+#else
+static inline
+void ol_pdev_cfg_credit_update(struct txrx_pdev_cfg_t *cfg_ctx)
+{
+	cfg_ctx->tx_free_at_download = 0;
+	cfg_ctx->credit_update_enabled = 0;
+}
+#endif /* CONFIG_CREDIT_REP_THROUGH_CREDIT_UPDATE */
 
 /**
  * ol_pdev_cfg_param_update() - assign download size of tx frame for txrx
@@ -58,10 +72,10 @@ void ol_pdev_cfg_param_update(struct txrx_pdev_cfg_t *cfg_ctx)
 	cfg_ctx->is_high_latency = 1;
 	/* 802.1Q and SNAP / LLC headers are accounted for elsewhere */
 	cfg_ctx->tx_download_size = 1500;
-	cfg_ctx->tx_free_at_download = 0;
+	ol_pdev_cfg_credit_update(cfg_ctx);
 }
-#else
 
+#else /* CONFIG_HL_SUPPORT */
 static inline
 void ol_pdev_cfg_param_update(struct txrx_pdev_cfg_t *cfg_ctx)
 {
@@ -72,6 +86,22 @@ void ol_pdev_cfg_param_update(struct txrx_pdev_cfg_t *cfg_ctx)
 	cfg_ctx->tx_download_size = 16;
 }
 #endif
+
+#ifdef CONFIG_RX_PN_CHECK_OFFLOAD
+static inline
+void ol_pdev_cfg_rx_pn_check(struct txrx_pdev_cfg_t *cfg_ctx)
+{
+	/* Do not do pn check on host */
+	cfg_ctx->rx_pn_check = 0;
+}
+#else
+static inline
+void ol_pdev_cfg_rx_pn_check(struct txrx_pdev_cfg_t *cfg_ctx)
+{
+	/* Do pn check on host */
+	cfg_ctx->rx_pn_check = 1;
+}
+#endif /* CONFIG_RX_PN_CHECK_OFFLOAD */
 
 #if CFG_TGT_DEFAULT_RX_SKIP_DEFRAG_TIMEOUT_DUP_DETECTION_CHECK
 static inline
@@ -99,15 +129,12 @@ struct cdp_cfg *ol_pdev_cfg_attach(qdf_device_t osdev, void *pcfg_param)
 	int i;
 
 	cfg_ctx = qdf_mem_malloc(sizeof(*cfg_ctx));
-	if (!cfg_ctx) {
-		printk(KERN_ERR "cfg ctx allocation failed\n");
+	if (!cfg_ctx)
 		return NULL;
-	}
 
 	ol_pdev_cfg_param_update(cfg_ctx);
+	ol_pdev_cfg_rx_pn_check(cfg_ctx);
 
-	/* temporarily disabled PN check for Riva/Pronto */
-	cfg_ctx->rx_pn_check = 1;
 	cfg_ctx->defrag_timeout_check = ol_defrag_timeout_check();
 	cfg_ctx->max_peer_id = 511;
 	cfg_ctx->max_vdev = CFG_TGT_NUM_VDEV;
@@ -116,7 +143,7 @@ struct cdp_cfg *ol_pdev_cfg_attach(qdf_device_t osdev, void *pcfg_param)
 	cfg_ctx->max_thruput_mbps = MAX_THROUGHPUT;
 	cfg_ctx->max_nbuf_frags = 1;
 	cfg_ctx->vow_config = vow_config;
-	cfg_ctx->target_tx_credit = CFG_TGT_NUM_MSDU_DESC;
+	cfg_ctx->target_tx_credit = TARGET_TX_CREDIT;
 	cfg_ctx->throttle_period_ms = 40;
 	cfg_ctx->dutycycle_level[0] = THROTTLE_DUTY_CYCLE_LEVEL0;
 	cfg_ctx->dutycycle_level[1] = THROTTLE_DUTY_CYCLE_LEVEL1;
@@ -139,10 +166,17 @@ struct cdp_cfg *ol_pdev_cfg_attach(qdf_device_t osdev, void *pcfg_param)
 	cfg_ctx->ip_tcp_udp_checksum_offload =
 		cfg_param->ip_tcp_udp_checksum_offload;
 	cfg_ctx->ce_classify_enabled = cfg_param->ce_classify_enabled;
+	cfg_ctx->gro_enable = cfg_param->gro_enable;
+	cfg_ctx->tso_enable = cfg_param->tso_enable;
+	cfg_ctx->lro_enable = cfg_param->lro_enable;
+	cfg_ctx->enable_data_stall_detection =
+		cfg_param->enable_data_stall_detection;
+	cfg_ctx->enable_flow_steering = cfg_param->enable_flow_steering;
+	cfg_ctx->disable_intra_bss_fwd = cfg_param->disable_intra_bss_fwd;
 
 	ol_tx_set_flow_control_parameters((struct cdp_cfg *)cfg_ctx, cfg_param);
 
-	for (i = 0; i < OL_TX_NUM_WMM_AC; i++) {
+	for (i = 0; i < QCA_WLAN_AC_ALL; i++) {
 		cfg_ctx->ac_specs[i].wrr_skip_weight =
 			cfg_param->ac_specs[i].wrr_skip_weight;
 		cfg_ctx->ac_specs[i].credit_threshold =
@@ -163,6 +197,13 @@ int ol_cfg_is_high_latency(struct cdp_cfg *cfg_pdev)
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)cfg_pdev;
 
 	return cfg->is_high_latency;
+}
+
+int ol_cfg_is_credit_update_enabled(struct cdp_cfg *cfg_pdev)
+{
+	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)cfg_pdev;
+
+	return cfg->credit_update_enabled;
 }
 
 int ol_cfg_max_peer_id(struct cdp_cfg *cfg_pdev)
@@ -366,7 +407,6 @@ int ol_cfg_is_rx_thread_enabled(struct cdp_cfg *cfg_pdev)
 	return cfg->enable_rxthread;
 }
 
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 /**
  * ol_cfg_get_tx_flow_stop_queue_th() - return stop queue threshold
  * @pdev : handle to the physical device
@@ -392,7 +432,6 @@ int ol_cfg_get_tx_flow_start_queue_offset(struct cdp_cfg *cfg_pdev)
 
 	return cfg->tx_flow_start_queue_offset;
 }
-#endif
 
 
 #ifdef IPA_OFFLOAD
@@ -464,7 +503,7 @@ int ol_cfg_get_wrr_skip_weight(struct cdp_cfg *pdev, int ac)
 {
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)pdev;
 
-	if (ac >= OL_TX_WMM_AC_BE && ac <= OL_TX_WMM_AC_VO)
+	if (ac >= QCA_WLAN_AC_BE && ac <= QCA_WLAN_AC_VO)
 		return cfg->ac_specs[ac].wrr_skip_weight;
 
 	return 0;
@@ -481,7 +520,7 @@ uint32_t ol_cfg_get_credit_threshold(struct cdp_cfg *pdev, int ac)
 {
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)pdev;
 
-	if (ac >= OL_TX_WMM_AC_BE && ac <= OL_TX_WMM_AC_VO)
+	if (ac >= QCA_WLAN_AC_BE && ac <= QCA_WLAN_AC_VO)
 		return cfg->ac_specs[ac].credit_threshold;
 
 	return 0;
@@ -498,7 +537,7 @@ uint16_t ol_cfg_get_send_limit(struct cdp_cfg *pdev, int ac)
 {
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)pdev;
 
-	if (ac >= OL_TX_WMM_AC_BE && ac <= OL_TX_WMM_AC_VO)
+	if (ac >= QCA_WLAN_AC_BE && ac <= QCA_WLAN_AC_VO)
 		return cfg->ac_specs[ac].send_limit;
 
 	return 0;
@@ -515,7 +554,7 @@ int ol_cfg_get_credit_reserve(struct cdp_cfg *pdev, int ac)
 {
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)pdev;
 
-	if (ac >= OL_TX_WMM_AC_BE && ac <= OL_TX_WMM_AC_VO)
+	if (ac >= QCA_WLAN_AC_BE && ac <= QCA_WLAN_AC_VO)
 		return cfg->ac_specs[ac].credit_reserve;
 
 	return 0;
@@ -532,7 +571,7 @@ int ol_cfg_get_discard_weight(struct cdp_cfg *pdev, int ac)
 {
 	struct txrx_pdev_cfg_t *cfg = (struct txrx_pdev_cfg_t *)pdev;
 
-	if (ac >= OL_TX_WMM_AC_BE && ac <= OL_TX_WMM_AC_VO)
+	if (ac >= QCA_WLAN_AC_BE && ac <= QCA_WLAN_AC_VO)
 		return cfg->ac_specs[ac].discard_weight;
 
 	return 0;

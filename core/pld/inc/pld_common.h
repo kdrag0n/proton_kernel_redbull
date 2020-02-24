@@ -24,7 +24,7 @@
 #include <linux/pm.h>
 #include <osapi_linux.h>
 
-#if IS_ENABLED(CONFIG_CNSS_UTILS)
+#ifdef CONFIG_CNSS_UTILS
 #include <net/cnss_utils.h>
 #endif
 
@@ -36,6 +36,8 @@
 #define PLD_EPPING_FILE              "epping.bin"
 #define PLD_EVICTED_FILE             ""
 
+#define TOTAL_DUMP_SIZE         0x00200000
+
 #ifdef CONFIG_WCNSS_MEM_PRE_ALLOC
 #include <net/cnss_prealloc.h>
 #endif
@@ -45,13 +47,19 @@
  * @PLD_BUS_TYPE_NONE: invalid bus type, only return in error cases
  * @PLD_BUS_TYPE_PCIE: PCIE bus
  * @PLD_BUS_TYPE_SNOC: SNOC bus
+ * @PLD_BUS_TYPE_SDIO: SDIO bus
+ * @PLD_BUS_TYPE_USB : USB bus
+ * @PLD_BUS_TYPE_SNOC_FW_SIM : SNOC FW SIM bus
+ * @PLD_BUS_TYPE_PCIE_FW_SIM : PCIE FW SIM bus
  */
 enum pld_bus_type {
 	PLD_BUS_TYPE_NONE = -1,
 	PLD_BUS_TYPE_PCIE = 0,
 	PLD_BUS_TYPE_SNOC,
 	PLD_BUS_TYPE_SDIO,
-	PLD_BUS_TYPE_USB
+	PLD_BUS_TYPE_USB,
+	PLD_BUS_TYPE_SNOC_FW_SIM,
+	PLD_BUS_TYPE_PCIE_FW_SIM,
 };
 
 #define PLD_MAX_FIRMWARE_SIZE (1 * 1024 * 1024)
@@ -59,15 +67,19 @@ enum pld_bus_type {
 /**
  * enum pld_bus_width_type - bus bandwidth
  * @PLD_BUS_WIDTH_NONE: don't vote for bus bandwidth
+ * @PLD_BUS_WIDTH_IDLE: vote for idle bandwidth
  * @PLD_BUS_WIDTH_LOW: vote for low bus bandwidth
  * @PLD_BUS_WIDTH_MEDIUM: vote for medium bus bandwidth
  * @PLD_BUS_WIDTH_HIGH: vote for high bus bandwidth
+ * @PLD_BUS_WIDTH_VERY_HIGH: vote for very high bus bandwidth
  */
 enum pld_bus_width_type {
 	PLD_BUS_WIDTH_NONE,
+	PLD_BUS_WIDTH_IDLE,
 	PLD_BUS_WIDTH_LOW,
 	PLD_BUS_WIDTH_MEDIUM,
-	PLD_BUS_WIDTH_HIGH
+	PLD_BUS_WIDTH_HIGH,
+	PLD_BUS_WIDTH_VERY_HIGH,
 };
 
 #define PLD_MAX_FILE_NAME NAME_MAX
@@ -119,13 +131,15 @@ struct pld_platform_cap {
 };
 
 /**
- * enum pld_uevent - WLAN FW status
- * @PLD_RECOVERY: driver is recovering
- * @PLD_FW_DOWN: FW is down
+ * enum pld_uevent - PLD uevent event types
+ * @PLD_FW_DOWN: firmware is down
+ * @PLD_FW_CRASHED: firmware has crashed
+ * @PLD_FW_RECOVERY_START: firmware is starting recovery
  */
 enum pld_uevent {
-	PLD_RECOVERY,
 	PLD_FW_DOWN,
+	PLD_FW_CRASHED,
+	PLD_FW_RECOVERY_START,
 };
 
 /**
@@ -202,6 +216,19 @@ struct pld_shadow_reg_v2_cfg {
 };
 
 /**
+ * struct pld_rri_over_ddr_cfg_s - rri_over_ddr configuration
+ * @base_addr_low: lower 32bit
+ * @base_addr_high: higher 32bit
+ *
+ * pld_rri_over_ddr_cfg_s is used in Genoa to pass rri_over_ddr configuration
+ * to firmware to update ring/write index in host DDR.
+ */
+struct pld_rri_over_ddr_cfg {
+	u32 base_addr_low;
+	u32 base_addr_high;
+};
+
+/**
  * struct pld_wlan_enable_cfg - WLAN FW configuration
  * @num_ce_tgt_cfg: number of CE target configuration
  * @ce_tgt_cfg: CE target configuration
@@ -211,6 +238,8 @@ struct pld_shadow_reg_v2_cfg {
  * @shadow_reg_cfg: shadow register configuration
  * @num_shadow_reg_v2_cfg: number of shadow register version 2 configuration
  * @shadow_reg_v2_cfg: shadow register version 2 configuration
+ * @rri_over_ddr_cfg_valid: valid flag for rri_over_ddr config
+ * @rri_over_ddr_cfg: rri over ddr config
  *
  * pld_wlan_enable_cfg stores WLAN FW configurations. It will be
  * passed to WLAN FW when WLAN host driver calls wlan_enable.
@@ -224,6 +253,8 @@ struct pld_wlan_enable_cfg {
 	struct pld_shadow_reg_cfg *shadow_reg_cfg;
 	u32 num_shadow_reg_v2_cfg;
 	struct pld_shadow_reg_v2_cfg *shadow_reg_v2_cfg;
+	bool rri_over_ddr_cfg_valid;
+	struct pld_rri_over_ddr_cfg rri_over_ddr_cfg;
 };
 
 /**
@@ -243,6 +274,23 @@ enum pld_driver_mode {
 	PLD_COLDBOOT_CALIBRATION = 7
 };
 
+/**
+ * struct pld_device_version - WLAN device version info
+ * @family_number: family number of WLAN SOC HW
+ * @device_number: device number of WLAN SOC HW
+ * @major_version: major version of WLAN SOC HW
+ * @minor_version: minor version of WLAN SOC HW
+ *
+ * pld_device_version is used to store WLAN device version info
+ */
+
+struct pld_device_version {
+	u32 family_number;
+	u32 device_number;
+	u32 major_version;
+	u32 minor_version;
+};
+
 #define PLD_MAX_TIMESTAMP_LEN 32
 
 /**
@@ -255,6 +303,7 @@ enum pld_driver_mode {
  * @soc_id: SOC ID
  * @fw_version: FW version
  * @fw_build_timestamp: FW build timestamp
+ * @device_version: WLAN device version info
  *
  * pld_soc_info is used to store WLAN SOC information.
  */
@@ -267,6 +316,7 @@ struct pld_soc_info {
 	u32 soc_id;
 	u32 fw_version;
 	char fw_build_timestamp[PLD_MAX_TIMESTAMP_LEN + 1];
+	struct pld_device_version device_version;
 };
 
 /**
@@ -283,6 +333,10 @@ enum pld_recovery_reason {
  * struct pld_driver_ops - driver callback functions
  * @probe: required operation, will be called when device is detected
  * @remove: required operation, will be called when device is removed
+ * @idle_shutdown: required operation, will be called when device is doing
+ *                 idle shutdown after interface inactivity timer has fired
+ * @idle_restart: required operation, will be called when device is doing
+ *                idle restart after idle shutdown
  * @shutdown: optional operation, will be called during SSR
  * @reinit: optional operation, will be called during SSR
  * @crash_shutdown: optional operation, will be called when a crash is
@@ -310,6 +364,10 @@ struct pld_driver_ops {
 		     void *bdev, void *id);
 	void (*remove)(struct device *dev,
 		       enum pld_bus_type bus_type);
+	int (*idle_shutdown)(struct device *dev,
+			      enum pld_bus_type bus_type);
+	int (*idle_restart)(struct device *dev,
+			     enum pld_bus_type bus_type);
 	void (*shutdown)(struct device *dev,
 			 enum pld_bus_type bus_type);
 	int (*reinit)(struct device *dev,
@@ -336,10 +394,6 @@ struct pld_driver_ops {
 			     enum pld_bus_type bus_type);
 	int (*resume_noirq)(struct device *dev,
 			    enum pld_bus_type bus_type);
-	int (*idle_shutdown)(struct device *dev,
-			     enum pld_bus_type bus_type);
-	int (*idle_restart)(struct device *dev,
-			    enum pld_bus_type bus_type);
 };
 
 int pld_init(void);
@@ -360,7 +414,7 @@ void pld_is_pci_link_down(struct device *dev);
 int pld_shadow_control(struct device *dev, bool enable);
 void pld_schedule_recovery_work(struct device *dev,
 				enum pld_recovery_reason reason);
-#if IS_ENABLED(CONFIG_CNSS_UTILS)
+#ifdef CONFIG_CNSS_UTILS
 /**
  * pld_set_wlan_unsafe_channel() - Set unsafe channel
  * @dev: device
@@ -530,6 +584,15 @@ static inline int pld_get_driver_load_cnt(struct device *dev)
 #endif
 int pld_wlan_pm_control(struct device *dev, bool vote);
 void *pld_get_virt_ramdump_mem(struct device *dev, unsigned long *size);
+
+/**
+ * pld_release_virt_ramdump_mem() - Release virtual ramdump memory
+ * @dev: device
+ * @address: buffer to virtual memory address
+ *
+ * Return: void
+ */
+void pld_release_virt_ramdump_mem(struct device *dev, void *address);
 void pld_device_crashed(struct device *dev);
 void pld_device_self_recovery(struct device *dev,
 			      enum pld_recovery_reason reason);
@@ -543,7 +606,9 @@ int pld_get_sha_hash(struct device *dev, const u8 *data,
 void *pld_get_fw_ptr(struct device *dev);
 int pld_auto_suspend(struct device *dev);
 int pld_auto_resume(struct device *dev);
-
+int pld_force_wake_request(struct device *dev);
+int pld_is_device_awake(struct device *dev);
+int pld_force_wake_release(struct device *dev);
 int pld_ce_request_irq(struct device *dev, unsigned int ce_id,
 		       irqreturn_t (*handler)(int, void *),
 		       unsigned long flags, const char *name, void *ctx);
@@ -555,6 +620,8 @@ int pld_get_ce_id(struct device *dev, int irq);
 int pld_get_irq(struct device *dev, int ce_id);
 void pld_lock_pm_sem(struct device *dev);
 void pld_release_pm_sem(struct device *dev);
+void pld_lock_reg_window(struct device *dev, unsigned long *flags);
+void pld_unlock_reg_window(struct device *dev, unsigned long *flags);
 int pld_power_on(struct device *dev);
 int pld_power_off(struct device *dev);
 int pld_athdiag_read(struct device *dev, uint32_t offset, uint32_t memtype,
@@ -574,10 +641,17 @@ int pld_get_user_msi_assignment(struct device *dev, char *user_name,
 int pld_get_msi_irq(struct device *dev, unsigned int vector);
 void pld_get_msi_address(struct device *dev, uint32_t *msi_addr_low,
 			 uint32_t *msi_addr_high);
+int pld_is_drv_connected(struct device *dev);
 unsigned int pld_socinfo_get_serial_number(struct device *dev);
 int pld_is_qmi_disable(struct device *dev);
 int pld_is_fw_down(struct device *dev);
 int pld_force_assert_target(struct device *dev);
+int pld_collect_rddm(struct device *dev);
+int pld_qmi_send_get(struct device *dev);
+int pld_qmi_send_put(struct device *dev);
+int pld_qmi_send(struct device *dev, int type, void *cmd,
+		 int cmd_len, void *cb_ctx,
+		 int (*cb)(void *ctx, void *event, int event_len));
 bool pld_is_fw_dump_skipped(struct device *dev);
 
 /**
@@ -602,6 +676,121 @@ int pld_is_pdr(struct device *dev);
  */
 int pld_is_fw_rejuvenate(struct device *dev);
 
+/**
+ * pld_have_platform_driver_support() - check if platform driver support
+ * @dev: device
+ *
+ * Return: true if platform driver support.
+ */
+bool pld_have_platform_driver_support(struct device *dev);
+
+/**
+ * pld_idle_shutdown - request idle shutdown callback from platform driver
+ * @dev: pointer to struct dev
+ * @shutdown_cb: pointer to hdd psoc idle shutdown callback handler
+ *
+ * Return: 0 for success and non-zero negative error code for failure
+ */
+int pld_idle_shutdown(struct device *dev,
+		      int (*shutdown_cb)(struct device *dev));
+
+/**
+ * pld_idle_restart - request idle restart callback from platform driver
+ * @dev: pointer to struct dev
+ * @restart_cb: pointer to hdd psoc idle restart callback handler
+ *
+ * Return: 0 for success and non-zero negative error code for failure
+ */
+int pld_idle_restart(struct device *dev,
+		     int (*restart_cb)(struct device *dev));
+/**
+ * pld_srng_request_irq() - Register IRQ for SRNG
+ * @dev: device
+ * @irq: IRQ number
+ * @handler: IRQ callback function
+ * @irqflags: IRQ flags
+ * @name: IRQ name
+ * @ctx: IRQ context
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_srng_request_irq(struct device *dev, int irq, irq_handler_t handler,
+			 unsigned long irqflags,
+			 const char *name,
+			 void *ctx);
+/**
+ * pld_srng_free_irq() - Free IRQ for SRNG
+ * @dev: device
+ * @irq: IRQ number
+ * @ctx: IRQ context
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_srng_free_irq(struct device *dev, int irq, void *ctx);
+
+/**
+ * pld_srng_enable_irq() - Enable IRQ for SRNG
+ * @dev: device
+ * @irq: IRQ number
+ *
+ * Return: void
+ */
+void pld_srng_enable_irq(struct device *dev, int irq);
+
+/**
+ * pld_disable_irq() - Disable IRQ for SRNG
+ * @dev: device
+ * @irq: IRQ number
+ *
+ * Return: void
+ */
+void pld_srng_disable_irq(struct device *dev, int irq);
+
+/**
+ * pld_pci_read_config_word() - Read PCI config
+ * @pdev: pci device
+ * @offset: Config space offset
+ * @val : Value
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_pci_read_config_word(struct pci_dev *pdev, int offset, uint16_t *val);
+
+/**
+ * pld_pci_write_config_word() - Write PCI config
+ * @pdev: pci device
+ * @offset: Config space offset
+ * @val : Value
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_pci_write_config_word(struct pci_dev *pdev, int offset, uint16_t val);
+
+/**
+ * pld_pci_read_config_dword() - Read PCI config
+ * @pdev: pci device
+ * @offset: Config space offset
+ * @val : Value
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_pci_read_config_dword(struct pci_dev *pdev, int offset, uint32_t *val);
+
+/**
+ * pld_pci_write_config_dword() - Write PCI config
+ * @pdev: pci device
+ * @offset: Config space offset
+ * @val : Value
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_pci_write_config_dword(struct pci_dev *pdev, int offset, uint32_t val);
 #if defined(CONFIG_WCNSS_MEM_PRE_ALLOC) && defined(FEATURE_SKB_PRE_ALLOC)
 
 /**
@@ -641,22 +830,58 @@ static inline int pld_nbuf_pre_alloc_free(struct sk_buff *skb)
 }
 #endif
 /**
- * pld_idle_shutdown - request idle shutdown callback from platform driver
- * @dev: pointer to struct dev
- * @shutdown_cb: pointer to hdd psoc idle shutdown callback handler
+ * pld_get_bus_type() - Bus type of the device
+ * @dev: device
  *
- * Return: 0 for success and non-zero negative error code for failure
+ * Return: PLD bus type
  */
-int pld_idle_shutdown(struct device *dev,
-		      int (*shutdown_cb)(struct device *dev));
+enum pld_bus_type pld_get_bus_type(struct device *dev);
 
-/**
- * pld_idle_restart - request idle restart callback from platform driver
- * @dev: pointer to struct dev
- * @restart_cb: pointer to hdd psoc idle restart callback handler
- *
- * Return: 0 for success and non-zero negative error code for failure
- */
-int pld_idle_restart(struct device *dev,
-		     int (*restart_cb)(struct device *dev));
+static inline int pfrm_request_irq(struct device *dev, unsigned int ce_id,
+				   irqreturn_t (*handler)(int, void *),
+				   unsigned long flags, const char *name,
+				   void *ctx)
+{
+	return pld_srng_request_irq(dev, ce_id, handler, flags, name, ctx);
+}
+
+static inline int pfrm_free_irq(struct device *dev, int irq, void *ctx)
+{
+	return pld_srng_free_irq(dev, irq, ctx);
+}
+
+static inline void pfrm_enable_irq(struct device *dev, int irq)
+{
+	pld_srng_enable_irq(dev, irq);
+}
+
+static inline void pfrm_disable_irq_nosync(struct device *dev, int irq)
+{
+	pld_srng_disable_irq(dev, irq);
+}
+
+static inline int pfrm_read_config_word(struct pci_dev *pdev, int offset,
+					uint16_t *val)
+{
+	return pld_pci_read_config_word(pdev, offset, val);
+}
+
+static inline int pfrm_write_config_word(struct pci_dev *pdev, int offset,
+					 uint16_t val)
+{
+	return pld_pci_write_config_word(pdev, offset, val);
+}
+
+static inline int pfrm_read_config_dword(struct pci_dev *pdev, int offset,
+					 uint32_t *val)
+{
+	return pld_pci_read_config_dword(pdev, offset, val);
+}
+
+static inline int pfrm_write_config_dword(struct pci_dev *pdev, int offset,
+					  uint32_t val)
+{
+	return pld_pci_write_config_dword(pdev, offset, val);
+}
+
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -251,6 +251,24 @@ QDF_STATUS
 pmo_unregister_get_beacon_interval_callback(struct wlan_objmgr_psoc *psoc);
 
 /**
+ * pmo_register_get_vdev_dp_handle(): API to register get vdev datapath handle
+ * @psoc: objmgr psoc handle
+ * @handler: get vdev datapath handle callback
+ *
+ * Return QDF_STATUS status - in case of success else return error
+ */
+QDF_STATUS pmo_register_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc,
+					   pmo_get_vdev_dp_handle handler);
+
+/**
+ * pmo_unregister_get_vdev_dp_handle(): API to unregister get vdev dp handle
+ * @psoc: objmgr psoc handle
+ *
+ * Return QDF_STATUS status - in case of success else return error
+ */
+QDF_STATUS pmo_unregister_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc);
+
+/**
  * pmo_register_is_device_in_low_pwr_mode(): API to get register device  power
  * save check notifier.
  * @psoc: objmgr psoc handle
@@ -270,26 +288,6 @@ QDF_STATUS pmo_register_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS
 pmo_unregister_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc);
-
-/**
- * pmo_register_get_cfg_int_callback(): API to register callback for getting
- * cfg integer from mlme
- * @psoc: objmgr psoc handle
- * @handler: get cfg integer callback notifier
- *
- * Return QDF_STATUS status - in case of success else return error
- */
-QDF_STATUS pmo_register_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc,
-					     pmo_get_cfg_int handler);
-
-/**
- * pmo_unregister_get_cfg_int_callback(): API to unregister callback that gets
- * cfg integer from mlme
- * @psoc: objmgr psoc handle
- *
- * Return QDF_STATUS status - in case of success else return error
- */
-QDF_STATUS pmo_unregister_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc);
 
 #else /* WLAN_POWER_MANAGEMENT_OFFLOAD */
 
@@ -404,6 +402,19 @@ pmo_unregister_get_pause_bitmap(struct wlan_objmgr_psoc *psoc)
 }
 
 static inline QDF_STATUS
+pmo_register_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc,
+				pmo_get_vdev_dp_handle handler)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+QDF_STATUS pmo_unregister_get_vdev_dp_handle(struct wlan_objmgr_psoc *psoc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
 pmo_register_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc,
 				       pmo_is_device_in_low_pwr_mode handler)
 {
@@ -412,19 +423,6 @@ pmo_register_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc,
 
 static inline QDF_STATUS
 pmo_unregister_is_device_in_low_pwr_mode(struct wlan_objmgr_psoc *psoc)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline QDF_STATUS
-pmo_register_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc,
-				  pmo_get_cfg_int handler)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline QDF_STATUS
-pmo_unregister_get_cfg_int_callback(struct wlan_objmgr_psoc *psoc)
 {
 	return QDF_STATUS_SUCCESS;
 }

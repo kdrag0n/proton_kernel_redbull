@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -30,6 +30,7 @@
 #endif
 #include "ol_txrx_ctrl_api.h"   /* txrx_pdev_cfg_param_t */
 #include <cdp_txrx_handle.h>
+#include "qca_vendor.h"
 
 /**
  * @brief format of data frames delivered to/from the WLAN driver by/to the OS
@@ -42,10 +43,16 @@ enum wlan_frm_fmt {
 };
 
 /* Max throughput */
-#ifdef SLUB_MEM_OPTIMIZE
+#ifdef QCS403_MEM_OPTIMIZE
 #define MAX_THROUGHPUT 400
 #else
 #define MAX_THROUGHPUT 800
+#endif
+
+#ifdef QCA_LL_TX_FLOW_CONTROL_V2
+#define TARGET_TX_CREDIT CFG_TGT_NUM_MSDU_DESC
+#else
+#define TARGET_TX_CREDIT 900
 #endif
 
 /* Throttle period Different level Duty Cycle values*/
@@ -91,19 +98,33 @@ struct txrx_pdev_cfg_t {
 	bool ip_tcp_udp_checksum_offload;
 	bool enable_rxthread;
 	bool ce_classify_enabled;
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 	uint32_t tx_flow_stop_queue_th;
 	uint32_t tx_flow_start_queue_offset;
-#endif
 	bool flow_steering_enabled;
-
-	struct ol_tx_sched_wrr_ac_specs_t ac_specs[TX_WMM_AC_NUM];
-
+	/*
+	 * To track if credit reporting through
+	 * HTT_T2H_MSG_TYPE_TX_CREDIT_UPDATE_IND is enabled/disabled.
+	 * In Genoa(QCN7605) credits are reported through
+	 * HTT_T2H_MSG_TYPE_TX_CREDIT_UPDATE_IND only.
+	 */
+	u8 credit_update_enabled;
+	struct ol_tx_sched_wrr_ac_specs_t ac_specs[QCA_WLAN_AC_ALL];
+	bool gro_enable;
+	bool tso_enable;
+	bool lro_enable;
+	bool enable_data_stall_detection;
+	bool enable_flow_steering;
+	bool disable_intra_bss_fwd;
+	/* IPA Micro controller data path offload TX buffer size */
+	uint32_t uc_tx_buffer_size;
+	/* IPA Micro controller data path offload RX indication ring count */
+	uint32_t uc_rx_indication_ring_count;
+	/* IPA Micro controller data path offload TX partition base */
+	uint32_t uc_tx_partition_base;
 	/* Flag to indicate whether new htt format is supported */
 	bool new_htt_format_enabled;
 };
 
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 /**
  * ol_tx_set_flow_control_parameters() - set flow control parameters
  * @cfg_ctx: cfg context
@@ -113,13 +134,6 @@ struct txrx_pdev_cfg_t {
  */
 void ol_tx_set_flow_control_parameters(struct cdp_cfg *cfg_ctx,
 				       struct txrx_pdev_cfg_param_t *cfg_param);
-#else
-static inline
-void ol_tx_set_flow_control_parameters(struct cdp_cfg *cfg_ctx,
-				       struct txrx_pdev_cfg_param_t *cfg_param)
-{
-}
-#endif
 
 /**
  * ol_pdev_cfg_attach - setup configuration parameters
@@ -146,6 +160,17 @@ struct cdp_cfg *ol_pdev_cfg_attach(qdf_device_t osdev, void *pcfg_param);
  * @return 1 -> high-latency -OR- 0 -> low-latency
  */
 int ol_cfg_is_high_latency(struct cdp_cfg *cfg_pdev);
+
+/**
+ * @brief Specify whether credit reporting through
+ * HTT_T2H_MSG_TYPE_TX_CREDIT_UPDATE_IND is enabled by default.
+ * In Genoa credits are reported only through
+ * HTT_T2H_MSG_TYPE_TX_CREDIT_UPDATE_IND
+ * @details
+ * @param pdev - handle to the physical device
+ * @return 1 -> enabled -OR- 0 -> disabled
+ */
+int ol_cfg_is_credit_update_enabled(struct cdp_cfg *cfg_pdev);
 
 /**
  * @brief Specify the range of peer IDs.
@@ -461,11 +486,9 @@ int ol_cfg_is_ip_tcp_udp_checksum_offload_enabled(struct cdp_cfg *cfg_pdev)
 }
 
 
-#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 int ol_cfg_get_tx_flow_stop_queue_th(struct cdp_cfg *cfg_pdev);
 
 int ol_cfg_get_tx_flow_start_queue_offset(struct cdp_cfg *cfg_pdev);
-#endif
 
 bool ol_cfg_is_ce_classify_enabled(struct cdp_cfg *cfg_pdev);
 

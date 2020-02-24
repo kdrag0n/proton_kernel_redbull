@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -89,6 +89,8 @@ static int wlan_hdd_gen_wlan_status_pack(struct wlan_status_data *data,
 	int i;
 	uint32_t chan_id;
 	struct svc_channel_info *chan_info;
+	bool lpass_support;
+	QDF_STATUS status;
 
 	if (!data) {
 		hdd_err("invalid data pointer");
@@ -105,11 +107,18 @@ static int wlan_hdd_gen_wlan_status_pack(struct wlan_status_data *data,
 		return -EINVAL;
 	}
 
-	if (wlan_hdd_validate_session_id(adapter->session_id))
+	if (wlan_hdd_validate_vdev_id(adapter->vdev_id))
 		return -EINVAL;
 
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
-	if (hdd_ctx->lpss_support && hdd_ctx->config->enable_lpass_support)
+
+	status = ucfg_mlme_get_lpass_support(hdd_ctx->psoc, &lpass_support);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("Failed to get LPASS support config");
+		return -EIO;
+	}
+
+	if (hdd_ctx->lpss_support && lpass_support)
 		data->lpss_support = 1;
 	else
 		data->lpss_support = 0;
@@ -126,22 +135,22 @@ static int wlan_hdd_gen_wlan_status_pack(struct wlan_status_data *data,
 
 	sme_get_country_code(hdd_ctx->mac_handle, data->country_code, &buflen);
 	data->is_on = is_on;
-	data->vdev_id = adapter->session_id;
+	data->vdev_id = adapter->vdev_id;
 	data->vdev_mode = adapter->device_mode;
 	if (sta_ctx) {
 		data->is_connected = is_connected;
 		data->rssi = adapter->rssi;
 		data->freq =
-			cds_chan_to_freq(sta_ctx->conn_info.operationChannel);
+			cds_chan_to_freq(sta_ctx->conn_info.channel);
 		if (WLAN_SVC_MAX_SSID_LEN >=
-		    sta_ctx->conn_info.SSID.SSID.length) {
-			data->ssid_len = sta_ctx->conn_info.SSID.SSID.length;
+		    sta_ctx->conn_info.ssid.SSID.length) {
+			data->ssid_len = sta_ctx->conn_info.ssid.SSID.length;
 			memcpy(data->ssid,
-			       sta_ctx->conn_info.SSID.SSID.ssId,
-			       sta_ctx->conn_info.SSID.SSID.length);
+			       sta_ctx->conn_info.ssid.SSID.ssId,
+			       sta_ctx->conn_info.ssid.SSID.length);
 		}
-		if (QDF_MAC_ADDR_SIZE >= sizeof(sta_ctx->conn_info.bssId))
-			memcpy(data->bssid, sta_ctx->conn_info.bssId.bytes,
+		if (QDF_MAC_ADDR_SIZE >= sizeof(sta_ctx->conn_info.bssid))
+			memcpy(data->bssid, sta_ctx->conn_info.bssid.bytes,
 			       QDF_MAC_ADDR_SIZE);
 	}
 	return 0;
@@ -301,7 +310,14 @@ void hdd_lpass_target_config(struct hdd_context *hdd_ctx,
 void hdd_lpass_populate_cds_config(struct cds_config_info *cds_config,
 				   struct hdd_context *hdd_ctx)
 {
-	cds_config->is_lpass_enabled = hdd_ctx->config->enable_lpass_support;
+	bool lpass_support = false;
+	QDF_STATUS status;
+
+	status = ucfg_mlme_get_lpass_support(hdd_ctx->psoc, &lpass_support);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to get LPASS support config");
+
+	cds_config->is_lpass_enabled = lpass_support;
 }
 
 /*
@@ -311,7 +327,14 @@ void hdd_lpass_populate_cds_config(struct cds_config_info *cds_config,
 void hdd_lpass_populate_pmo_config(struct pmo_psoc_cfg *pmo_config,
 				   struct hdd_context *hdd_ctx)
 {
-	pmo_config->lpass_enable = hdd_ctx->config->enable_lpass_support;
+	bool lpass_support = false;
+	QDF_STATUS status;
+
+	status = ucfg_mlme_get_lpass_support(hdd_ctx->psoc, &lpass_support);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to get LPASS support config");
+
+	pmo_config->lpass_enable = lpass_support;
 }
 
 /*
@@ -404,5 +427,12 @@ void hdd_lpass_notify_stop(struct hdd_context *hdd_ctx)
  */
 bool hdd_lpass_is_supported(struct hdd_context *hdd_ctx)
 {
-	return hdd_ctx->config->enable_lpass_support;
+	bool lpass_support = false;
+	QDF_STATUS status;
+
+	status = ucfg_mlme_get_lpass_support(hdd_ctx->psoc, &lpass_support);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_err("Failed to get LPASS support config");
+
+	return lpass_support;
 }
