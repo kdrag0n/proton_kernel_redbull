@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -29,12 +29,14 @@
 /* older kernels have a bug in kallsyms, so ensure module.h is included */
 #include <linux/module.h>
 #include <linux/kallsyms.h>
+#ifdef CONFIG_QCA_MINIDUMP
+#include <linux/minidump_tlv.h>
+#endif
 
 #if !defined(__printf)
 #define __printf(a, b)
 #endif
 
-#ifdef CONFIG_MCL
 /* QDF_TRACE is the macro invoked to add trace messages to code.  See the
  * documenation for qdf_trace_msg() for the parameters etc. for this function.
  *
@@ -45,10 +47,28 @@
  * This allows us to build 'performance' builds where we can measure performance
  * without being bogged down by all the tracing in the code
  */
-#if defined(WLAN_DEBUG) || defined(DEBUG)
+#if defined(QDF_TRACE_PRINT_ENABLE)
+#define qdf_trace(log_level, args...) \
+		do {	\
+			extern int qdf_dbg_mask; \
+			if (qdf_dbg_mask >= log_level) { \
+				printk(args); \
+				printk("\n"); \
+			} \
+		} while (0)
+#endif
+
+#if defined(WLAN_DEBUG) || defined(DEBUG) || defined(QDF_TRACE_PRINT_ENABLE)
 #define QDF_TRACE qdf_trace_msg
 #define QDF_VTRACE qdf_vtrace_msg
 #define QDF_TRACE_HEX_DUMP qdf_trace_hex_dump
+#else
+#define QDF_TRACE(arg ...)
+#define QDF_VTRACE(arg ...)
+#define QDF_TRACE_HEX_DUMP(arg ...)
+#endif
+
+#if defined(WLAN_DEBUG) || defined(DEBUG) || defined(QDF_TRACE_PRINT_ENABLE)
 #define QDF_MAX_LOGS_PER_SEC 2
 /**
  * __QDF_TRACE_RATE_LIMITED() - rate limited version of QDF_TRACE
@@ -71,27 +91,8 @@
 		} \
 	} while (0)
 #else
-#define QDF_TRACE(arg ...)
-#define QDF_VTRACE(arg ...)
-#define QDF_TRACE_HEX_DUMP(arg ...)
 #define __QDF_TRACE_RATE_LIMITED(arg ...)
 #endif
-#else /* CONFIG_MCL */
-
-#define qdf_trace(log_level, args...) \
-		do {	\
-			extern int qdf_dbg_mask; \
-			if (qdf_dbg_mask >= log_level) { \
-				printk(args); \
-				printk("\n"); \
-			} \
-		} while (0)
-
-#define QDF_TRACE qdf_trace_msg
-
-#define QDF_VTRACE qdf_vtrace_msg
-#define QDF_TRACE_HEX_DUMP qdf_trace_hex_dump
-#endif /* CONFIG_MCL */
 
 #define __QDF_TRACE_NO_FL(log_level, module_id, format, args...) \
 	QDF_TRACE(module_id, log_level, format, ## args)
@@ -187,6 +188,20 @@ static inline void __qdf_trace_noop(QDF_MODULE_ID module, char *format, ...) { }
 #define QDF_TRACE_DEBUG_RL_NO_FL(params...) __qdf_trace_noop(params)
 #endif
 
+#ifdef WLAN_LOG_ENTER
+#define QDF_TRACE_ENTER(params...) \
+	__QDF_TRACE_FL(QDF_TRACE_LEVEL_DEBUG, ## params)
+#else
+#define QDF_TRACE_ENTER(params...) __qdf_trace_noop(params)
+#endif
+
+#ifdef WLAN_LOG_EXIT
+#define QDF_TRACE_EXIT(params...) \
+	__QDF_TRACE_FL(QDF_TRACE_LEVEL_DEBUG, ## params)
+#else
+#define QDF_TRACE_EXIT(params...) __qdf_trace_noop(params)
+#endif
+
 #define QDF_ENABLE_TRACING
 #define qdf_scnprintf scnprintf
 
@@ -215,7 +230,7 @@ static inline void __qdf_trace_noop(QDF_MODULE_ID module, char *format, ...) { }
 /* This code will be used for compilation if tracing is to be compiled out */
 /* of the code so these functions/macros are 'do nothing' */
 static inline void qdf_trace_msg(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
-		   char *str_format, ...)
+				 const char *str_format, ...)
 {
 }
 
@@ -266,12 +281,13 @@ static inline void __qdf_bug(void)
 
 /**
  * QDF_DEBUG_PANIC() - In debug builds, panic, otherwise do nothing
- * @reason: An optional reason format string, followed by args
+ * @reason_fmt: a format string containing the reason for the panic
+ * @args: zero or more printf compatible logging arguments
  *
  * Return: None
  */
-#define QDF_DEBUG_PANIC(reason...) \
-	QDF_DEBUG_PANIC_FL(__func__, __LINE__, "" reason)
+#define QDF_DEBUG_PANIC(reason_fmt, args...) \
+	QDF_DEBUG_PANIC_FL(__func__, __LINE__, reason_fmt, ## args)
 
 /**
  * QDF_DEBUG_PANIC_FL() - In debug builds, panic, otherwise do nothing
@@ -324,4 +340,18 @@ static inline void __qdf_bug(void)
 #define __QDF_SYMBOL_LEN 1
 #endif
 
+#ifdef CONFIG_QCA_MINIDUMP
+static inline void
+__qdf_minidump_log(void *start_addr, size_t size, const char *name)
+{
+	if (fill_minidump_segments((uintptr_t)start_addr, size,
+	    QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD, (char *)name) < 0)
+		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_INFO,
+			"%s: failed to log %pK (%s)\n",
+			__func__, start_addr, name);
+}
+#else
+static inline void
+__qdf_minidump_log(void *start_addr, size_t size, const char *name) {}
+#endif
 #endif /* __I_QDF_TRACE_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -29,6 +29,9 @@
 #ifdef WLAN_SA_API_ENABLE
 #include "target_if_sa_api.h"
 #endif
+#ifdef WLAN_CFR_ENABLE
+#include "target_if_cfr.h"
+#endif
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
 #include "target_if_spectral.h"
 #endif
@@ -47,10 +50,7 @@
 #include "target_if_wifi_pos.h"
 #endif
 
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-#include "target_if_nan.h"
-#endif /* WLAN_FEATURE_NAN_CONVERGENCE */
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 #include "target_if_tdls.h"
 #endif
 #ifdef QCA_SUPPORT_SON
@@ -75,6 +75,13 @@
 #include "qdf_module.h"
 
 #include <target_if_cp_stats.h>
+#ifdef CRYPTO_SET_KEY_CONVERGED
+#include <target_if_crypto.h>
+#endif
+
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+#include <target_if_vdev_mgr_tx_ops.h>
+#endif
 
 static struct target_if_ctx *g_target_if_ctx;
 
@@ -133,11 +140,10 @@ static QDF_STATUS target_if_direct_buf_rx_deinit(void)
 }
 #endif /* DIRECT_BUF_RX_ENABLE */
 
-QDF_STATUS target_if_open(get_psoc_handle_callback psoc_hdl_cb)
+QDF_STATUS target_if_init(get_psoc_handle_callback psoc_hdl_cb)
 {
 	g_target_if_ctx = qdf_mem_malloc(sizeof(*g_target_if_ctx));
 	if (!g_target_if_ctx) {
-		target_if_err("Cannot allocate target if ctx");
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -154,7 +160,7 @@ QDF_STATUS target_if_open(get_psoc_handle_callback psoc_hdl_cb)
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS target_if_close(void)
+QDF_STATUS target_if_deinit(void)
 {
 	if (!g_target_if_ctx) {
 		QDF_ASSERT(0);
@@ -177,7 +183,8 @@ QDF_STATUS target_if_close(void)
 
 	return QDF_STATUS_SUCCESS;
 }
-qdf_export_symbol(target_if_close);
+
+qdf_export_symbol(target_if_deinit);
 
 QDF_STATUS target_if_store_pdev_target_if_ctx(
 		get_pdev_handle_callback pdev_hdl_cb)
@@ -213,6 +220,12 @@ static void target_if_sa_api_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 }
 #endif /* WLAN_SA_API_ENABLE */
+
+#ifndef WLAN_CFR_ENABLE
+static void target_if_cfr_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+{
+}
+#endif
 
 #ifdef WLAN_SUPPORT_FILS
 static void target_if_fd_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
@@ -252,20 +265,7 @@ static void target_if_son_tx_ops_register(
 }
 #endif
 
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-static void target_if_nan_tx_ops_register(
-				struct wlan_lmac_if_tx_ops *tx_ops)
-{
-	target_if_nan_register_tx_ops(tx_ops);
-}
-#else
-static void target_if_nan_tx_ops_register(
-				struct wlan_lmac_if_tx_ops *tx_ops)
-{
-}
-#endif /* WLAN_FEATURE_NAN_CONVERGENCE */
-
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 static void target_if_tdls_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 	target_if_tdls_register_tx_ops(tx_ops);
@@ -274,7 +274,7 @@ static void target_if_tdls_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 static void target_if_tdls_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 }
-#endif /* CONVERGED_TDLS_ENABLE */
+#endif /* FEATURE_WLAN_TDLS */
 
 #ifdef DFS_COMPONENT_ENABLE
 static void target_if_dfs_tx_ops_register(
@@ -328,6 +328,18 @@ static QDF_STATUS target_if_green_ap_tx_ops_register(
 	return QDF_STATUS_SUCCESS;
 }
 #endif /* WLAN_SUPPORT_GREEN_AP */
+#if defined(WLAN_CONV_CRYPTO_SUPPORTED) && defined(CRYPTO_SET_KEY_CONVERGED)
+static void target_if_crypto_tx_ops_register(
+				struct wlan_lmac_if_tx_ops *tx_ops)
+{
+	target_if_crypto_register_tx_ops(tx_ops);
+}
+#else
+static inline void target_if_crypto_tx_ops_register(
+				struct wlan_lmac_if_tx_ops *tx_ops)
+{
+}
+#endif
 
 static void target_if_target_tx_ops_register(
 		struct wlan_lmac_if_tx_ops *tx_ops)
@@ -353,9 +365,6 @@ static void target_if_target_tx_ops_register(
 	target_tx_ops->tgt_is_tgt_type_qca9888 =
 		target_is_tgt_type_qca9888;
 
-	target_tx_ops->tgt_is_tgt_type_adrastea =
-		target_is_tgt_type_adrastea;
-
 	target_tx_ops->tgt_get_tgt_type =
 		lmac_get_tgt_type;
 
@@ -372,12 +381,32 @@ target_if_cp_stats_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 	return target_if_cp_stats_register_tx_ops(tx_ops);
 }
 
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+static QDF_STATUS
+target_if_vdev_mgr_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+{
+	return target_if_vdev_mgr_register_tx_ops(tx_ops);
+}
+#else
+static QDF_STATUS
+target_if_vdev_mgr_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef QCA_WIFI_FTM
 static
 void target_if_ftm_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 	target_if_ftm_register_tx_ops(tx_ops);
 }
-
+#else
+static
+void target_if_ftm_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+{
+}
+#endif
 static
 QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 {
@@ -394,9 +423,9 @@ QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 
 	target_if_sa_api_tx_ops_register(tx_ops);
 
-	target_if_wifi_pos_tx_ops_register(tx_ops);
+	target_if_cfr_tx_ops_register(tx_ops);
 
-	target_if_nan_tx_ops_register(tx_ops);
+	target_if_wifi_pos_tx_ops_register(tx_ops);
 
 	target_if_dfs_tx_ops_register(tx_ops);
 
@@ -415,6 +444,10 @@ QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 	target_if_ftm_tx_ops_register(tx_ops);
 
 	target_if_cp_stats_tx_ops_register(tx_ops);
+
+	target_if_crypto_tx_ops_register(tx_ops);
+
+	target_if_vdev_mgr_tx_ops_register(tx_ops);
 
 	/* Converged UMAC components to register their TX-ops here */
 	return QDF_STATUS_SUCCESS;
@@ -478,10 +511,8 @@ QDF_STATUS target_if_alloc_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 
 	tgt_pdev_info = qdf_mem_malloc(sizeof(*tgt_pdev_info));
 
-	if (tgt_pdev_info == NULL) {
-		target_if_err("Failed to allocate pdev target info");
+	if (!tgt_pdev_info)
 		return QDF_STATUS_E_NOMEM;
-	}
 
 	wlan_pdev_set_tgt_if_handle(pdev, tgt_pdev_info);
 
@@ -517,10 +548,8 @@ QDF_STATUS target_if_alloc_psoc_tgt_info(struct wlan_objmgr_psoc *psoc)
 
 	tgt_psoc_info = qdf_mem_malloc(sizeof(*tgt_psoc_info));
 
-	if (tgt_psoc_info == NULL) {
-		target_if_err("Failed to allocate psoc target info");
+	if (!tgt_psoc_info)
 		return QDF_STATUS_E_NOMEM;
-	}
 
 	wlan_psoc_set_tgt_if_handle(psoc, tgt_psoc_info);
 	target_psoc_set_preferred_hw_mode(tgt_psoc_info, WMI_HOST_HW_MODE_MAX);
@@ -548,7 +577,9 @@ QDF_STATUS target_if_free_psoc_tgt_info(struct wlan_objmgr_psoc *psoc)
 		return QDF_STATUS_E_INVAL;
 	}
 	init_deinit_chainmask_table_free(ext_param);
+	init_deinit_rf_characterization_entries_free(ext_param);
 	init_deinit_dbr_ring_cap_free(tgt_psoc_info);
+	init_deinit_spectral_scaling_params_free(tgt_psoc_info);
 
 	qdf_event_destroy(&tgt_psoc_info->info.event);
 
@@ -577,9 +608,4 @@ bool target_is_tgt_type_qca9984(uint32_t target_type)
 bool target_is_tgt_type_qca9888(uint32_t target_type)
 {
 	return target_type == TARGET_TYPE_QCA9888;
-}
-
-bool target_is_tgt_type_adrastea(uint32_t target_type)
-{
-	return target_type == TARGET_TYPE_ADRASTEA;
 }

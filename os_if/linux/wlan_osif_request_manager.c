@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -83,17 +83,15 @@ struct osif_request *osif_request_alloc(const struct osif_request_params *params
 	struct osif_request *request;
 
 	if (!is_initialized) {
-		cfg80211_err("invoked when not initialized from %pS",
-			(void *)_RET_IP_);
+		cfg80211_err("invoked when not initialized");
 		return NULL;
 	}
 
 	length = sizeof(*request) + params->priv_size;
 	request = qdf_mem_malloc(length);
-	if (!request) {
-		cfg80211_err("allocation failed for %pS", (void *)_RET_IP_);
+	if (!request)
 		return NULL;
-	}
+
 	request->reference_count = 1;
 	request->params = *params;
 	qdf_event_create(&request->completed);
@@ -101,8 +99,8 @@ struct osif_request *osif_request_alloc(const struct osif_request_params *params
 	request->cookie = cookie++;
 	qdf_list_insert_back(&requests, &request->node);
 	qdf_spin_unlock_bh(&spinlock);
-	cfg80211_debug("request %pK, cookie %pK, caller %pS",
-		  request, request->cookie, (void *)_RET_IP_);
+	cfg80211_debug("request %pK, cookie %pK",
+		       request, request->cookie);
 
 	return request;
 }
@@ -123,8 +121,7 @@ struct osif_request *osif_request_get(void *cookie)
 	struct osif_request *request;
 
 	if (!is_initialized) {
-		cfg80211_err("invoked when not initialized from %pS",
-			(void *)_RET_IP_);
+		cfg80211_err("invoked when not initialized");
 		return NULL;
 	}
 	qdf_spin_lock_bh(&spinlock);
@@ -132,8 +129,8 @@ struct osif_request *osif_request_get(void *cookie)
 	if (request)
 		request->reference_count++;
 	qdf_spin_unlock_bh(&spinlock);
-	cfg80211_debug("cookie %pK, request %pK, caller %pS",
-		  cookie, request, (void *)_RET_IP_);
+	cfg80211_debug("cookie %pK, request %pK",
+		       cookie, request);
 
 	return request;
 }
@@ -142,8 +139,8 @@ void osif_request_put(struct osif_request *request)
 {
 	bool unlinked = false;
 
-	cfg80211_debug("request %pK, cookie %pK, caller %pS",
-		  request, request->cookie, (void *)_RET_IP_);
+	cfg80211_debug("request %pK, cookie %pK",
+		       request, request->cookie);
 	qdf_spin_lock_bh(&spinlock);
 	request->reference_count--;
 	if (0 == request->reference_count) {
@@ -172,7 +169,6 @@ void osif_request_complete(struct osif_request *request)
 
 void osif_request_manager_init(void)
 {
-	cfg80211_debug("%pS", (void *)_RET_IP_);
 	if (is_initialized)
 		return;
 
@@ -190,6 +186,5 @@ void osif_request_manager_init(void)
  */
 void osif_request_manager_deinit(void)
 {
-	cfg80211_debug("%pS", (void *)_RET_IP_);
 	is_initialized = false;
 }

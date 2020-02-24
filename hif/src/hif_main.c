@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -38,7 +38,7 @@
 #include "qdf_status.h"
 #include "hif_debug.h"
 #include "mp_dev.h"
-#ifdef QCA_WIFI_QCA8074
+#if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018)
 #include "hal_api.h"
 #endif
 #include "hif_napi.h"
@@ -424,6 +424,7 @@ struct hif_opaque_softc *hif_open(qdf_device_t qdf_ctx, uint32_t mode,
 	qdf_mem_copy(&scn->callbacks, cbk,
 		     sizeof(struct hif_driver_state_callbacks));
 	scn->bus_type  = bus_type;
+	hif_set_event_hist_mask(GET_HIF_OPAQUE_HDL(scn));
 	status = hif_bus_open(scn, bus_type);
 	if (status != QDF_STATUS_SUCCESS) {
 		HIF_ERROR("%s: hif_bus_open error = %d, bus_type = %d",
@@ -463,7 +464,7 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 {
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
-	if (scn == NULL) {
+	if (!scn) {
 		HIF_ERROR("%s: hif_opaque_softc is NULL", __func__);
 		return;
 	}
@@ -486,12 +487,13 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 	qdf_mem_free(scn);
 }
 
-#ifdef QCA_WIFI_QCA8074
+#if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
+	defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390)
 static QDF_STATUS hif_hal_attach(struct hif_softc *scn)
 {
 	if (ce_srng_based(scn)) {
 		scn->hal_soc = hal_attach(scn, scn->qdf_dev);
-		if (scn->hal_soc == NULL)
+		if (!scn->hal_soc)
 			return QDF_STATUS_E_FAILURE;
 	}
 
@@ -539,7 +541,7 @@ QDF_STATUS hif_enable(struct hif_opaque_softc *hif_ctx, struct device *dev,
 	QDF_STATUS status;
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
-	if (scn == NULL) {
+	if (!scn) {
 		HIF_ERROR("%s: hif_ctx = NULL", __func__);
 		return QDF_STATUS_E_NULL_VALUE;
 	}
@@ -799,10 +801,6 @@ int hif_get_device_type(uint32_t device_id,
 		break;
 
 	case QCA8074_DEVICE_ID:
-	case RUMIM2M_DEVICE_ID_NODE0:
-	case RUMIM2M_DEVICE_ID_NODE1:
-	case RUMIM2M_DEVICE_ID_NODE2:
-	case RUMIM2M_DEVICE_ID_NODE3:
 		*hif_type = HIF_TYPE_QCA8074;
 		*target_type = TARGET_TYPE_QCA8074;
 		HIF_INFO(" *********** QCA8074  *************\n");
@@ -815,8 +813,42 @@ int hif_get_device_type(uint32_t device_id,
 		HIF_INFO(" *********** QCA6290EMU *************\n");
 		break;
 
+	case QCN7605_DEVICE_ID:
+	case QCN7605_COMPOSITE:
+	case QCN7605_STANDALONE:
+		*hif_type = HIF_TYPE_QCN7605;
+		*target_type = TARGET_TYPE_QCN7605;
+		HIF_INFO(" *********** QCN7605 *************\n");
+		break;
+
+	case QCA6390_DEVICE_ID:
+	case QCA6390_EMULATION_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCA6390;
+		*target_type = TARGET_TYPE_QCA6390;
+		HIF_INFO(" *********** QCA6390 *************\n");
+		break;
+
+	case QCA8074V2_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCA8074V2;
+		*target_type = TARGET_TYPE_QCA8074V2;
+		HIF_INFO(" *********** QCA8074V2 *************\n");
+		break;
+
+	case QCA6018_DEVICE_ID:
+	case RUMIM2M_DEVICE_ID_NODE0:
+	case RUMIM2M_DEVICE_ID_NODE1:
+	case RUMIM2M_DEVICE_ID_NODE2:
+	case RUMIM2M_DEVICE_ID_NODE3:
+	case RUMIM2M_DEVICE_ID_NODE4:
+	case RUMIM2M_DEVICE_ID_NODE5:
+		*hif_type = HIF_TYPE_QCA6018;
+		*target_type = TARGET_TYPE_QCA6018;
+		HIF_INFO(" *********** QCA6018 *************\n");
+		break;
+
 	default:
-		HIF_ERROR("%s: Unsupported device ID!", __func__);
+		HIF_ERROR("%s: Unsupported device ID = 0x%x!",
+			  __func__, device_id);
 		ret = -ENODEV;
 		break;
 	}
@@ -910,6 +942,7 @@ int hif_get_rx_ctx_id(int ctx_id, struct hif_opaque_softc *hif_hdl)
 {
 	return 0;
 }
+qdf_export_symbol(hif_get_rx_ctx_id);
 #endif /* RECEIVE_OFFLOAD */
 
 #if defined(FEATURE_LRO)
@@ -1099,9 +1132,14 @@ bool hif_is_target_ready(struct hif_softc *scn)
 
 	if (cbk && cbk->is_target_ready)
 		return cbk->is_target_ready(cbk->context);
-
-	return false;
+	/*
+	 * if callback is not registered then there is no way to determine
+	 * if target is ready. In-such case return true to indicate that
+	 * target is ready.
+	 */
+	return true;
 }
+qdf_export_symbol(hif_is_target_ready);
 
 /**
  * hif_batch_send() - API to access hif specific function
@@ -1150,8 +1188,8 @@ qdf_export_symbol(hif_update_tx_ring);
  *
  * Return: msdu sent status
  */
-int hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu, uint32_t
-		transfer_id, u_int32_t len)
+QDF_STATUS hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu,
+			   uint32_t transfer_id, u_int32_t len)
 {
 	void *ce_tx_hdl = hif_get_ce_handle(osc, CE_HTT_TX_CE);
 
@@ -1159,29 +1197,6 @@ int hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu, uint32_t
 			len);
 }
 qdf_export_symbol(hif_send_single);
-
-#ifdef WLAN_FEATURE_FASTPATH
-/**
- * hif_send_fast() - API to access hif specific function
- * ce_send_fast.
- * @osc: HIF Context
- * @msdu : array of msdus to be sent
- * @num_msdus : number of msdus in an array
- * @transfer_id: transfer id
- * @download_len: download length
- *
- * Return: No. of packets that could be sent
- */
-int hif_send_fast(struct hif_opaque_softc *osc, qdf_nbuf_t nbuf,
-		uint32_t transfer_id, uint32_t download_len)
-{
-	void *ce_tx_hdl = hif_get_ce_handle(osc, CE_HTT_TX_CE);
-
-	return ce_send_fast((struct CE_handle *)ce_tx_hdl, nbuf,
-			transfer_id, download_len);
-}
-qdf_export_symbol(hif_send_fast);
-#endif
 #endif
 
 /**
@@ -1198,7 +1213,7 @@ void hif_reg_write(struct hif_opaque_softc *hif_ctx, uint32_t offset,
 {
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
-	hif_write32_mb(scn->mem + offset, value);
+	hif_write32_mb(scn, scn->mem + offset, value);
 
 }
 qdf_export_symbol(hif_reg_write);
@@ -1216,7 +1231,7 @@ uint32_t hif_reg_read(struct hif_opaque_softc *hif_ctx, uint32_t offset)
 
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
-	return hif_read32_mb(scn->mem + offset);
+	return hif_read32_mb(scn, scn->mem + offset);
 }
 qdf_export_symbol(hif_reg_read);
 
@@ -1232,12 +1247,17 @@ void hif_ramdump_handler(struct hif_opaque_softc *scn)
 		hif_usb_ramdump_handler(scn);
 }
 
-#ifdef WLAN_SUSPEND_RESUME_TEST
 irqreturn_t hif_wake_interrupt_handler(int irq, void *context)
 {
 	struct hif_softc *scn = context;
+	struct hif_opaque_softc *hif_ctx = GET_HIF_OPAQUE_HDL(scn);
 
 	HIF_INFO("wake interrupt received on irq %d", irq);
+
+	if (hif_pm_runtime_get_monitor_wake_intr(hif_ctx)) {
+		hif_pm_runtime_set_monitor_wake_intr(hif_ctx, 0);
+		hif_pm_runtime_request_resume(hif_ctx);
+	}
 
 	if (scn->initial_wakeup_cb)
 		scn->initial_wakeup_cb(scn->initial_wakeup_priv);
@@ -1245,21 +1265,10 @@ irqreturn_t hif_wake_interrupt_handler(int irq, void *context)
 	if (hif_is_ut_suspended(scn))
 		hif_ut_fw_resume(scn);
 
-	return IRQ_HANDLED;
-}
-#else /* WLAN_SUSPEND_RESUME_TEST */
-irqreturn_t hif_wake_interrupt_handler(int irq, void *context)
-{
-	struct hif_softc *scn = context;
-
-	HIF_INFO("wake interrupt received on irq %d", irq);
-
-	if (scn->initial_wakeup_cb)
-		scn->initial_wakeup_cb(scn->initial_wakeup_priv);
+	qdf_pm_system_wakeup();
 
 	return IRQ_HANDLED;
 }
-#endif /* WLAN_SUSPEND_RESUME_TEST */
 
 void hif_set_initial_wakeup_cb(struct hif_opaque_softc *hif_ctx,
 			       void (*callback)(void *),

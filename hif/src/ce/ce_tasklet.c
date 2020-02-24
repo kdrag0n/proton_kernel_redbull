@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -62,7 +62,7 @@ static void reschedule_ce_tasklet_work_handler(struct work_struct *work)
 	struct hif_softc *scn = ce_work->data;
 	struct HIF_CE_state *hif_ce_state;
 
-	if (NULL == scn) {
+	if (!scn) {
 		HIF_ERROR("%s: tasklet scn is null", __func__);
 		return;
 	}
@@ -73,7 +73,8 @@ static void reschedule_ce_tasklet_work_handler(struct work_struct *work)
 		HIF_ERROR("%s: wlan driver is unloaded", __func__);
 		return;
 	}
-	tasklet_schedule(&hif_ce_state->tasklets[ce_work->id].intr_tq);
+	if (hif_ce_state->tasklets[ce_work->id].inited)
+		tasklet_schedule(&hif_ce_state->tasklets[ce_work->id].intr_tq);
 }
 
 static struct tasklet_work tasklet_workers[CE_ID_MAX];
@@ -153,7 +154,7 @@ static void ce_tasklet(unsigned long data)
 	struct CE_state *CE_state = scn->ce_id_to_state[tasklet_entry->ce_id];
 
 	hif_record_ce_desc_event(scn, tasklet_entry->ce_id,
-			HIF_CE_TASKLET_ENTRY, NULL, NULL, 0, 0);
+			HIF_CE_TASKLET_ENTRY, NULL, NULL, -1, 0);
 
 	if (qdf_atomic_read(&scn->link_suspended)) {
 		HIF_ERROR("%s: ce %d tasklet fired after link suspend.",
@@ -163,14 +164,14 @@ static void ce_tasklet(unsigned long data)
 
 	ce_per_engine_service(scn, tasklet_entry->ce_id);
 
-	if (ce_check_rx_pending(CE_state)) {
+	if (ce_check_rx_pending(CE_state) && tasklet_entry->inited) {
 		/*
 		 * There are frames pending, schedule tasklet to process them.
 		 * Enable the interrupt only when there is no pending frames in
 		 * any of the Copy Engine pipes.
 		 */
 		hif_record_ce_desc_event(scn, tasklet_entry->ce_id,
-				HIF_CE_TASKLET_RESCHEDULE, NULL, NULL, 0, 0);
+				HIF_CE_TASKLET_RESCHEDULE, NULL, NULL, -1, 0);
 
 		ce_schedule_tasklet(tasklet_entry);
 		return;
@@ -180,7 +181,7 @@ static void ce_tasklet(unsigned long data)
 		hif_irq_enable(scn, tasklet_entry->ce_id);
 
 	hif_record_ce_desc_event(scn, tasklet_entry->ce_id, HIF_CE_TASKLET_EXIT,
-				 NULL, NULL, 0, 0);
+				NULL, NULL, -1, 0);
 
 	qdf_atomic_dec(&scn->active_tasklet_cnt);
 }
@@ -211,6 +212,7 @@ void ce_tasklet_init(struct HIF_CE_state *hif_ce_state, uint32_t mask)
  * ce_tasklet_kill() - ce_tasklet_kill
  * @hif_ce_state: hif_ce_state
  *
+ * Context: Non-Atomic context
  * Return: N/A
  */
 void ce_tasklet_kill(struct hif_softc *scn)
@@ -218,11 +220,23 @@ void ce_tasklet_kill(struct hif_softc *scn)
 	int i;
 	struct HIF_CE_state *hif_ce_state = HIF_GET_CE_STATE(scn);
 
-	for (i = 0; i < CE_COUNT_MAX; i++)
+	work_initialized = false;
+
+	for (i = 0; i < CE_COUNT_MAX; i++) {
 		if (hif_ce_state->tasklets[i].inited) {
-			tasklet_kill(&hif_ce_state->tasklets[i].intr_tq);
 			hif_ce_state->tasklets[i].inited = false;
+			/*
+			 * Cancel the tasklet work before tasklet_disable
+			 * to avoid race between tasklet_schedule and
+			 * tasklet_kill. Here cancel_work_sync() won't
+			 * return before reschedule_ce_tasklet_work_handler()
+			 * completes. Even if tasklet_schedule() happens
+			 * tasklet_disable() will take care of that.
+			 */
+			cancel_work_sync(&tasklet_workers[i].work);
+			tasklet_kill(&hif_ce_state->tasklets[i].intr_tq);
 		}
+	}
 	qdf_atomic_set(&scn->active_tasklet_cnt, 0);
 }
 
@@ -361,6 +375,28 @@ void hif_clear_ce_stats(struct HIF_CE_state *hif_ce_state)
 }
 
 /**
+ * hif_tasklet_schedule() - schedule tasklet
+ * @hif_ctx: hif context
+ * @tasklet_entry: ce tasklet entry
+ *
+ * Return: false if tasklet already scheduled, otherwise true
+ */
+static inline bool hif_tasklet_schedule(struct hif_opaque_softc *hif_ctx,
+					struct ce_tasklet_entry *tasklet_entry)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	if (test_bit(TASKLET_STATE_SCHED, &tasklet_entry->intr_tq.state)) {
+		HIF_DBG("tasklet scheduled, return");
+		qdf_atomic_dec(&scn->active_tasklet_cnt);
+		return false;
+	}
+
+	tasklet_schedule(&tasklet_entry->intr_tq);
+	return true;
+}
+
+/**
  * ce_dispatch_interrupt() - dispatch an interrupt to a processing context
  * @ce_id: ce_id
  * @tasklet_entry: context
@@ -405,7 +441,7 @@ irqreturn_t ce_dispatch_interrupt(int ce_id,
 	if (hif_napi_enabled(hif_hdl, ce_id))
 		hif_napi_schedule(hif_hdl, ce_id);
 	else
-		tasklet_schedule(&tasklet_entry->intr_tq);
+		hif_tasklet_schedule(hif_hdl, tasklet_entry);
 
 	return IRQ_HANDLED;
 }
@@ -446,7 +482,7 @@ QDF_STATUS ce_unregister_irq(struct HIF_CE_state *hif_ce_state, uint32_t mask)
 	int ret;
 	struct hif_softc *scn;
 
-	if (hif_ce_state == NULL) {
+	if (!hif_ce_state) {
 		HIF_WARN("%s: hif_ce_state = NULL", __func__);
 		return QDF_STATUS_SUCCESS;
 	}
@@ -472,6 +508,7 @@ QDF_STATUS ce_unregister_irq(struct HIF_CE_state *hif_ce_state, uint32_t mask)
 					"%s: pld_unregister_irq error - ce_id = %d, ret = %d",
 					__func__, id, ret);
 		}
+		ce_disable_polling(scn->ce_id_to_state[id]);
 	}
 	hif_ce_state->ce_register_irq_done &= ~mask;
 

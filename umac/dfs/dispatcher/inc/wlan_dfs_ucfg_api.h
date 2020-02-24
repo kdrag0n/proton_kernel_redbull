@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -27,6 +27,7 @@
 
 #include <wlan_objmgr_psoc_obj.h>
 #include <wlan_objmgr_pdev_obj.h>
+#include <wlan_dfs_ioctl.h>
 
 /**
  * struct dfs_to_mlme - These are MLME function pointer used by DFS component.
@@ -37,7 +38,7 @@
  * @mlme_mark_dfs:                     Calls dfs_action function.
  * @mlme_start_csa:                    Sends CSA.
  * @mlme_proc_cac:                     Process the CAC completion event.
- * @mlme_deliver_event_up_afrer_cac:   Send a CAC timeout, VAP up event to user
+ * @mlme_deliver_event_up_after_cac:   Send a CAC timeout, VAP up event to user
  *                                     space
  * @mlme_get_dfs_ch_nchans:            Get number of channels in the channel
  *                                     list.
@@ -48,12 +49,21 @@
  * @mlme_get_dfs_ch_channels:          Get the channel list.
  * @mlme_dfs_ch_flags_ext:             Gets channel extension flag.
  * @mlme_channel_change_by_precac:     Channel change triggered by PreCAC.
+ * @mlme_precac_chan_change_csa:       Channel change triggered by PrCAC using
+ *                                     Channel Switch Announcement.
  * @mlme_nol_timeout_notification:     NOL timeout notification.
  * @mlme_clist_update:                 Updates the channel list.
+ * @mlme_is_opmode_sta:                Check if pdev opmode is STA.
  * @mlme_get_cac_timeout:              Gets the CAC timeout.
  * @mlme_rebuild_chan_list_with_non_dfs_channel: Rebuild channels with non-dfs
  *                                     channels.
  * @mlme_restart_vaps_with_non_dfs_chan: Restart vaps with non-dfs channel.
+ * @mlme_check_allowed_prim_chanlist:  Check whether the given channel is
+ *                                     present in the primary allowed channel
+ *                                     list or not.
+ * @mlme_update_scan_channel_list:     Update the scan channel list sent to FW.
+ * @mlme_bringdown_vaps:               Bringdown vaps if no chans is present.
+ * @mlme_dfs_deliver_event:            Deliver DFS events to user space
  */
 struct dfs_to_mlme {
 	QDF_STATUS (*pdev_component_obj_attach)(struct wlan_objmgr_pdev *pdev,
@@ -63,8 +73,6 @@ struct dfs_to_mlme {
 	QDF_STATUS (*pdev_component_obj_detach)(struct wlan_objmgr_pdev *pdev,
 			enum wlan_umac_comp_id id,
 			void *comp_priv_obj);
-	struct wlan_dfs *(*pdev_get_comp_private_obj)(
-			struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*dfs_start_rcsa)(struct wlan_objmgr_pdev *pdev,
 			bool *wait_for_csa);
 	QDF_STATUS (*mlme_mark_dfs)(struct wlan_objmgr_pdev *pdev,
@@ -76,7 +84,7 @@ struct dfs_to_mlme {
 			uint8_t ieee_chan, uint16_t freq,
 			uint8_t cfreq2, uint64_t flags);
 	QDF_STATUS (*mlme_proc_cac)(struct wlan_objmgr_pdev *pdev);
-	QDF_STATUS (*mlme_deliver_event_up_afrer_cac)(
+	QDF_STATUS (*mlme_deliver_event_up_after_cac)(
 			struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*mlme_get_dfs_ch_nchans)(struct wlan_objmgr_pdev *pdev,
 			int *nchans);
@@ -116,22 +124,36 @@ struct dfs_to_mlme {
 			uint16_t *flag_ext);
 	QDF_STATUS (*mlme_channel_change_by_precac)(
 			struct wlan_objmgr_pdev *pdev);
+#ifdef WLAN_DFS_PRECAC_AUTO_CHAN_SUPPORT
+	QDF_STATUS (*mlme_precac_chan_change_csa)(struct wlan_objmgr_pdev *pdev,
+						  uint8_t des_chan,
+						  enum wlan_phymode des_mode);
+#endif
 	QDF_STATUS (*mlme_nol_timeout_notification)(
 			struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*mlme_clist_update)(struct wlan_objmgr_pdev *pdev,
 			void *nollist,
 			int nentries);
+	bool (*mlme_is_opmode_sta)(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*mlme_get_cac_timeout)(struct wlan_objmgr_pdev *pdev,
 			uint16_t dfs_ch_freq,
 			uint8_t c_vhtop_ch_freq_seg2,
 			uint64_t dfs_ch_flags,
 			int *cac_timeout);
-#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
 	QDF_STATUS (*mlme_rebuild_chan_list_with_non_dfs_channels)
 			(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*mlme_restart_vaps_with_non_dfs_chan)
 			(struct wlan_objmgr_pdev *pdev, int no_chans_avail);
-#endif
+	bool (*mlme_check_allowed_prim_chanlist)
+			(struct wlan_objmgr_pdev *pdev, uint32_t chan_num);
+	QDF_STATUS (*mlme_update_scan_channel_list)
+			(struct wlan_objmgr_pdev *pdev);
+	QDF_STATUS (*mlme_bringdown_vaps)
+			(struct wlan_objmgr_pdev *pdev);
+	void (*mlme_dfs_deliver_event)
+			(struct wlan_objmgr_pdev *pdev,
+			 uint16_t freq,
+			 enum WLAN_DFS_EVENTS event);
 };
 
 extern struct dfs_to_mlme global_dfs_to_mlme;
@@ -224,7 +246,7 @@ QDF_STATUS ucfg_dfs_override_precac_timeout(struct wlan_objmgr_pdev *pdev,
  * This function called from outside of dfs component.
  */
 QDF_STATUS ucfg_dfs_set_precac_enable(struct wlan_objmgr_pdev *pdev,
-		uint32_t value);
+				      uint32_t value);
 
 /**
  * ucfg_dfs_get_precac_enable() - Get precac enable flag.
@@ -235,6 +257,52 @@ QDF_STATUS ucfg_dfs_set_precac_enable(struct wlan_objmgr_pdev *pdev,
  * This function called from outside of dfs component.
  */
 QDF_STATUS ucfg_dfs_get_precac_enable(struct wlan_objmgr_pdev *pdev, int *buff);
+
+#ifdef WLAN_DFS_PRECAC_AUTO_CHAN_SUPPORT
+/**
+ * ucfg_dfs_set_precac_intermediate_chan() - Set intermediate channel
+ *                                           for preCAC.
+ * @pdev: Pointer to DFS pdev object.
+ * @value: Channel number of intermediate channel
+ *
+ * Wrapper function for dfs_set_precac_intermediate_chan().
+ * This function is called from outside of dfs component.
+ *
+ * Return:
+ * * QDF_STATUS_SUCCESS  : Successfully set intermediate channel.
+ * * QDF_STATUS_E_FAILURE: Failed to set intermediate channel.
+ */
+QDF_STATUS ucfg_dfs_set_precac_intermediate_chan(struct wlan_objmgr_pdev *pdev,
+						 uint32_t value);
+
+/**
+ * ucfg_dfs_get_precac_intermediate_chan() - Get intermediate channel
+ *						for preCAC.
+ * @pdev: Pointer to DFS pdev object.
+ * @buff: Pointer to Channel number of intermediate channel.
+ *
+ * Wrapper function for dfs_get_precac_intermediate_chan().
+ * This function is called from outside of dfs component.
+ *
+ * Return: Configured intermediate precac channel.
+ */
+QDF_STATUS ucfg_dfs_get_precac_intermediate_chan(struct wlan_objmgr_pdev *pdev,
+						 int *buff);
+
+/**
+ * ucfg_dfs_get_precac_chan_state() - Get precac status for the given channel.
+ * @pdev: Pointer to DFS pdev object.
+ * @precac_chan: Channel number for which precac state needs to be determined.
+ *
+ * Wrapper function for dfs_get_precac_chan_state().
+ * This function called from outside of dfs component.
+ *
+ * Return: Precac state of the given channel.
+ */
+enum precac_chan_state
+ucfg_dfs_get_precac_chan_state(struct wlan_objmgr_pdev *pdev,
+			       uint8_t precac_chan);
+#endif
 
 #ifdef QCA_MCL_DFS_SUPPORT
 /**
@@ -299,4 +367,31 @@ QDF_STATUS ucfg_dfs_get_override_status_timeout(struct wlan_objmgr_pdev *pdev,
 	return QDF_STATUS_SUCCESS;
 }
 #endif
+
+/**
+ * ucfg_dfs_set_nol_subchannel_marking() - Set or unset NOL subchannel marking.
+ * @pdev: Pointer to DFS pdev object.
+ * @nol_subchannel_marking: Set NOL subchannel marking based on this value.
+ *
+ * Wrapper function for dfs_set_nol_subchannel_marking().
+ * This function is called from outside of dfs component.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS ucfg_dfs_set_nol_subchannel_marking(struct wlan_objmgr_pdev *pdev,
+					       bool nol_subchannel_marking);
+
+/**
+ * ucfg_dfs_get_nol_subchannel_marking() - Get the value of NOL subchannel
+ * marking.
+ * @pdev: Pointer to DFS pdev object.
+ * @nol_subchannel_marking: Store the value of  NOL subchannel marking.
+ *
+ * Wrapper function for dfs_get_nol_subchannel_marking().
+ * This function is called from outside of dfs component.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS ucfg_dfs_get_nol_subchannel_marking(struct wlan_objmgr_pdev *pdev,
+					       bool *nol_subchannel_marking);
 #endif /* _WLAN_DFS_UCFG_API_H_ */

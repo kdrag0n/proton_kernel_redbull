@@ -29,18 +29,14 @@
 #include "qdf_list.h"
 #include "qdf_mem.h"
 #include <qdf_module.h>
+#include "qdf_timer.h"
 
 /* Preprocessor definitions and constants */
 #define LINUX_TIMER_COOKIE 0x12341234
 #define LINUX_INVALID_TIMER_COOKIE 0xfeedface
 #define TMR_INVALID_ID (0)
 
-/* qdf timer multiplier */
-#ifdef QCA_WIFI_NAPIER_EMULATION
-static uint32_t g_qdf_timer_multiplier = 100;
-#else
 static uint32_t g_qdf_timer_multiplier = 1;
-#endif
 
 inline void qdf_timer_set_multiplier(uint32_t multiplier)
 {
@@ -103,7 +99,7 @@ qdf_export_symbol(qdf_try_allowing_sleep);
  */
 QDF_TIMER_STATE qdf_mc_timer_get_current_state(qdf_mc_timer_t *timer)
 {
-	if (NULL == timer) {
+	if (!timer) {
 		QDF_ASSERT(0);
 		return QDF_TIMER_STATE_UNUSED;
 	}
@@ -235,7 +231,7 @@ static void qdf_timer_clean(void)
 
 		leaks_detected = true;
 
-		qdf_err("\nTimer leaks detected in the %s (Id %d) domain!\n",
+		qdf_err("\nTimer leaks detected in the %s (Id %d) domain!",
 			qdf_debug_domain_name(i), i);
 		qdf_mc_timer_print_list(timers);
 	}
@@ -362,7 +358,7 @@ QDF_STATUS qdf_mc_timer_init_debug(qdf_mc_timer_t *timer,
 	QDF_STATUS qdf_status;
 
 	/* check for invalid pointer */
-	if ((timer == NULL) || (callback == NULL)) {
+	if ((!timer) || (!callback)) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s: Null params being passed", __func__);
 		QDF_ASSERT(0);
@@ -371,10 +367,7 @@ QDF_STATUS qdf_mc_timer_init_debug(qdf_mc_timer_t *timer,
 
 	timer->timer_node = qdf_mem_malloc(sizeof(qdf_mc_timer_node_t));
 
-	if (timer->timer_node == NULL) {
-		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
-			  "%s: Not able to allocate memory for time_node",
-			  __func__);
+	if (!timer->timer_node) {
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -414,7 +407,7 @@ QDF_STATUS qdf_mc_timer_init(qdf_mc_timer_t *timer, QDF_TIMER_TYPE timer_type,
 			     void *user_data)
 {
 	/* check for invalid pointer */
-	if ((timer == NULL) || (callback == NULL)) {
+	if ((!timer) || (!callback)) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s: Null params being passed", __func__);
 		QDF_ASSERT(0);
@@ -467,7 +460,7 @@ QDF_STATUS qdf_mc_timer_destroy(qdf_mc_timer_t *timer)
 	QDF_STATUS v_status = QDF_STATUS_SUCCESS;
 
 	/* check for invalid pointer */
-	if (NULL == timer) {
+	if (!timer) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s: Null timer pointer being passed", __func__);
 		QDF_ASSERT(0);
@@ -565,7 +558,7 @@ QDF_STATUS qdf_mc_timer_destroy(qdf_mc_timer_t *timer)
 	QDF_STATUS v_status = QDF_STATUS_SUCCESS;
 
 	/* check for invalid pointer */
-	if (NULL == timer) {
+	if (!timer) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s: Null timer pointer being passed", __func__);
 		QDF_ASSERT(0);
@@ -645,7 +638,7 @@ qdf_export_symbol(qdf_mc_timer_destroy);
 QDF_STATUS qdf_mc_timer_start(qdf_mc_timer_t *timer, uint32_t expiration_time)
 {
 	/* check for invalid pointer */
-	if (NULL == timer) {
+	if (!timer) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s Null timer pointer being passed", __func__);
 		QDF_ASSERT(0);
@@ -670,9 +663,6 @@ QDF_STATUS qdf_mc_timer_start(qdf_mc_timer_t *timer, uint32_t expiration_time)
 		return QDF_STATUS_E_INVAL;
 	}
 
-	/* update expiration time based on if emulation platform */
-	expiration_time *= qdf_timer_get_multiplier();
-
 	/* make sure the remainer of the logic isn't interrupted */
 	qdf_spin_lock_irqsave(&timer->platform_info.spinlock);
 
@@ -680,14 +670,14 @@ QDF_STATUS qdf_mc_timer_start(qdf_mc_timer_t *timer, uint32_t expiration_time)
 	if (QDF_TIMER_STATE_STOPPED != timer->state) {
 		qdf_spin_unlock_irqrestore(&timer->platform_info.spinlock);
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
-			  "%s: Cannot start timer in state = %d ", __func__,
-			  timer->state);
+			  "%s: Cannot start timer in state = %d %ps",
+			  __func__, timer->state, (void *)timer->callback);
 		return QDF_STATUS_E_ALREADY;
 	}
 
 	/* start the timer */
 	mod_timer(&(timer->platform_info.timer),
-		  jiffies + msecs_to_jiffies(expiration_time));
+		  jiffies + __qdf_scaled_msecs_to_jiffies(expiration_time));
 
 	timer->state = QDF_TIMER_STATE_RUNNING;
 
@@ -726,7 +716,7 @@ qdf_export_symbol(qdf_mc_timer_start);
 QDF_STATUS qdf_mc_timer_stop(qdf_mc_timer_t *timer)
 {
 	/* check for invalid pointer */
-	if (NULL == timer) {
+	if (!timer) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s Null timer pointer being passed", __func__);
 		QDF_ASSERT(0);

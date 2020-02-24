@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -115,11 +115,13 @@ cdp_set_wisa_mode(ol_txrx_soc_handle soc, struct cdp_vdev *vdev, bool enable)
 /**
  * cdp_data_stall_cb_register() - register data stall callback
  * @soc - data path soc handle
+ * @pdev - device instance pointer
  * @cb - callback function
  *
  * Return: QDF_STATUS_SUCCESS register success
  */
 static inline QDF_STATUS cdp_data_stall_cb_register(ol_txrx_soc_handle soc,
+						    struct cdp_pdev *pdev,
 						    data_stall_detect_cb cb)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops) {
@@ -129,18 +131,22 @@ static inline QDF_STATUS cdp_data_stall_cb_register(ol_txrx_soc_handle soc,
 	}
 
 	if (soc->ops->misc_ops->txrx_data_stall_cb_register)
-		return soc->ops->misc_ops->txrx_data_stall_cb_register(cb);
+		return soc->ops->misc_ops->txrx_data_stall_cb_register(
+								pdev,
+								cb);
 	return QDF_STATUS_SUCCESS;
 }
 
 /**
  * cdp_data_stall_cb_deregister() - de-register data stall callback
  * @soc - data path soc handle
+ * @pdev - device instance pointer
  * @cb - callback function
  *
  * Return: QDF_STATUS_SUCCESS de-register success
  */
 static inline QDF_STATUS cdp_data_stall_cb_deregister(ol_txrx_soc_handle soc,
+						      struct cdp_pdev *pdev,
 						      data_stall_detect_cb cb)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops) {
@@ -150,13 +156,16 @@ static inline QDF_STATUS cdp_data_stall_cb_deregister(ol_txrx_soc_handle soc,
 	}
 
 	if (soc->ops->misc_ops->txrx_data_stall_cb_deregister)
-		return soc->ops->misc_ops->txrx_data_stall_cb_deregister(cb);
+		return soc->ops->misc_ops->txrx_data_stall_cb_deregister(
+								pdev,
+								cb);
 	return QDF_STATUS_SUCCESS;
 }
 
 /**
  * cdp_post_data_stall_event() - post data stall event
  * @soc - data path soc handle
+ * @pdev - device instance pointer
  * @indicator: Module triggering data stall
  * @data_stall_type: data stall event type
  * @pdev_id: pdev id
@@ -167,6 +176,7 @@ static inline QDF_STATUS cdp_data_stall_cb_deregister(ol_txrx_soc_handle soc,
  */
 static inline void
 cdp_post_data_stall_event(ol_txrx_soc_handle soc,
+			  struct cdp_pdev *pdev,
 			  enum data_stall_log_event_indicator indicator,
 			  enum data_stall_log_event_type data_stall_type,
 			  uint32_t pdev_id, uint32_t vdev_id_bitmap,
@@ -184,6 +194,7 @@ cdp_post_data_stall_event(ol_txrx_soc_handle soc,
 		return;
 
 	soc->ops->misc_ops->txrx_post_data_stall_event(
+				pdev,
 				indicator, data_stall_type, pdev_id,
 				vdev_id_bitmap, recovery_type);
 }
@@ -336,13 +347,15 @@ cdp_get_vdev_id(ol_txrx_soc_handle soc, struct cdp_vdev *vdev)
 /**
  * cdp_get_tx_ack_stats() - get tx ack count for vdev
  * @soc - data path soc handle
+ * @pdev - data path device instance
  * @vdev_id - vdev id
  *
  * return tx ack count
  *          0 invalid count
  */
 static inline uint32_t
-cdp_get_tx_ack_stats(ol_txrx_soc_handle soc, uint8_t vdev_id)
+cdp_get_tx_ack_stats(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
+		     uint8_t vdev_id)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
@@ -351,7 +364,8 @@ cdp_get_tx_ack_stats(ol_txrx_soc_handle soc, uint8_t vdev_id)
 	}
 
 	if (soc->ops->misc_ops->get_tx_ack_stats)
-		return soc->ops->misc_ops->get_tx_ack_stats(vdev_id);
+		return soc->ops->misc_ops->get_tx_ack_stats(pdev, vdev_id);
+
 	return 0;
 }
 
@@ -550,4 +564,188 @@ static inline void cdp_pkt_log_con_service(ol_txrx_soc_handle soc,
 
 	return;
 }
+
+/**
+ * cdp_get_num_rx_contexts() - API to get the number of RX contexts
+ * @soc: soc handle
+ *
+ * Return: number of RX contexts
+ */
+static inline int cdp_get_num_rx_contexts(ol_txrx_soc_handle soc)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return 0;
+	}
+
+	if (soc->ops->misc_ops->get_num_rx_contexts)
+		return soc->ops->misc_ops->get_num_rx_contexts(soc);
+
+	return 0;
+}
+
+/**
+ * cdp_register_packetdump_cb() - API to register packetdump callback
+ *
+ * Register TX/RX callback for data packets, during connection. And per packet
+ * stats will be passed to user-space by @tx_cb/@rx_cb.
+ *
+ * @soc: soc handle
+ * @tx_cb: tx packet callback
+ * @rx_cb: rx packet callback
+ *
+ * Return: void
+ */
+static inline void cdp_register_packetdump_cb(ol_txrx_soc_handle soc,
+					      ol_txrx_pktdump_cb tx_cb,
+					      ol_txrx_pktdump_cb rx_cb)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return;
+	}
+
+	if (soc->ops->misc_ops->register_pktdump_cb)
+		return soc->ops->misc_ops->register_pktdump_cb(tx_cb, rx_cb);
+}
+
+/**
+ * cdp_deregister_packetdump_cb() - API to unregister packetdump callback
+ *
+ * Deregister callback for TX/RX data packets.
+ *
+ * @soc: soc handle
+ *
+ * Return: void
+ */
+static inline void cdp_deregister_packetdump_cb(ol_txrx_soc_handle soc)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return;
+	}
+
+	if (soc->ops->misc_ops->unregister_pktdump_cb)
+		return soc->ops->misc_ops->unregister_pktdump_cb();
+}
+
+/**
+ * cdp_pdev_reset_driver_del_ack() - reset driver TCP delayed ack flag
+ * @soc - data path soc handle
+ * @pdev - data path device instance
+ *
+ * Return: none
+ */
+static inline void cdp_pdev_reset_driver_del_ack(void *psoc,
+						 struct cdp_pdev *pdev)
+{
+	ol_txrx_soc_handle soc = psoc;
+
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return;
+	}
+
+	if (soc->ops->misc_ops->pdev_reset_driver_del_ack)
+		return soc->ops->misc_ops->pdev_reset_driver_del_ack(pdev);
+}
+
+/*
+ * cdp_vdev_set_driver_del_ack_enable() - set driver delayed ack enabled flag
+ * @soc - data path soc handle
+ * @vdev_id: vdev id
+ * @rx_packets: number of rx packets
+ * @time_in_ms: time in ms
+ * @high_th: high threshold
+ * @low_th: low threshold
+ *
+ * Return: none
+ */
+static inline void cdp_vdev_set_driver_del_ack_enable(ol_txrx_soc_handle soc,
+						      uint8_t vdev_id,
+						      unsigned long rx_packets,
+						      uint32_t time_in_ms,
+						      uint32_t high_th,
+						      uint32_t low_th)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return;
+	}
+
+	if (soc->ops->misc_ops->vdev_set_driver_del_ack_enable)
+		return soc->ops->misc_ops->vdev_set_driver_del_ack_enable(
+			vdev_id, rx_packets, time_in_ms, high_th, low_th);
+}
+
+/**
+ * cdp_txrx_ext_stats_request(): request dp tx and rx extended stats
+ * @soc: soc handle
+ * @pdev: pdev handle
+ * @req: stats request structure to fill
+ *
+ * return: status
+ */
+static inline QDF_STATUS
+cdp_txrx_ext_stats_request(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
+			   struct cdp_txrx_ext_stats *req)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops || !req) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (soc->ops->misc_ops->txrx_ext_stats_request)
+		return soc->ops->misc_ops->txrx_ext_stats_request(pdev, req);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+/**
+ * cdp_request_rx_hw_stats(): request rx hw stats
+ * @soc: soc handle
+ * @vdev: vdev handle
+ *
+ * return: none
+ */
+static inline void
+cdp_request_rx_hw_stats(ol_txrx_soc_handle soc, struct cdp_vdev *vdev)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
+		return;
+	}
+
+	if (soc->ops->misc_ops->request_rx_hw_stats)
+		soc->ops->misc_ops->request_rx_hw_stats(soc, vdev);
+}
+
+/**
+ * cdp_wait_for_ext_rx_stats(): wait for reo command status for stats
+ * @soc: soc handle
+ *
+ * return: status
+ */
+static inline QDF_STATUS
+cdp_wait_for_ext_rx_stats(ol_txrx_soc_handle soc)
+{
+	if (!soc || !soc->ops || !soc->ops->misc_ops) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (soc->ops->misc_ops->wait_for_ext_rx_stats)
+		return soc->ops->misc_ops->wait_for_ext_rx_stats(soc);
+
+	return QDF_STATUS_SUCCESS;
+}
+
 #endif /* _CDP_TXRX_MISC_H_ */

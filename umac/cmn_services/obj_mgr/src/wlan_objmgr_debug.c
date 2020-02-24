@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,7 +34,7 @@
  * The max duration for which a obj can be allowed to remain in L-state
  * The duration  should be higher than the psoc idle timeout.
  */
-#define LOG_DEL_OBJ_DESTROY_ASSERT_DURATION_SEC 30
+#define LOG_DEL_OBJ_DESTROY_ASSERT_DURATION_SEC 32
 #define LOG_DEL_OBJ_LIST_MAX_COUNT       (3 + 5 + 48 + 4096)
 
 /**
@@ -160,10 +160,9 @@ void wlan_objmgr_notify_log_delete(void *obj,
 
 	tstamp = qdf_system_ticks_to_msecs(qdf_system_ticks()) / 1000;
 	node = qdf_mem_malloc(sizeof(*node));
-	if (!node) {
-		obj_mgr_err("Object node creation failed");
+	if (!node)
 		return;
-	}
+
 	node->obj = obj;
 	node->obj_type = obj_type;
 	node->tstamp = tstamp;
@@ -347,16 +346,14 @@ static void wlan_objmgr_iterate_log_del_obj_handler(void *timer_arg)
 			break;
 		}
 		if (!macaddr) {
-			qdf_spin_unlock_bh(&debug_info->list_lock);
 			obj_mgr_err("macaddr is null");
 			QDF_BUG(0);
-			goto modify_timer;
+			break;
 		}
 		if (!obj_name) {
-			qdf_spin_unlock_bh(&debug_info->list_lock);
 			obj_mgr_err("obj_name is null");
 			QDF_BUG(0);
-			goto modify_timer;
+			break;
 		}
 
 		obj_mgr_alert("#%s in L-state,MAC: " QDF_MAC_ADDR_STR,
@@ -373,11 +370,8 @@ static void wlan_objmgr_iterate_log_del_obj_handler(void *timer_arg)
 
 	} while (QDF_IS_STATUS_SUCCESS(status));
 
-	qdf_spin_unlock_bh(&debug_info->list_lock);
-
-modify_timer:
-	/* modify timer timeout value */
 	qdf_timer_mod(&debug_info->obj_timer, LOG_DEL_OBJ_TIMEOUT_VALUE_MSEC);
+	qdf_spin_unlock_bh(&debug_info->list_lock);
 }
 
 void wlan_objmgr_debug_info_deinit(void)
@@ -440,7 +434,6 @@ void wlan_objmgr_debug_info_init(void)
 
 	debug_info = qdf_mem_malloc(sizeof(*debug_info));
 	if (!debug_info) {
-		obj_mgr_err("debug_info allocation failed");
 		g_umac_glb_obj->debug_info = NULL;
 		return;
 	}

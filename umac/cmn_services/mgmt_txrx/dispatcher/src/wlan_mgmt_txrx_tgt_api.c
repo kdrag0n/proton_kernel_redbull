@@ -649,6 +649,47 @@ mgmt_get_vht_action_subtype(uint8_t action_code)
 }
 
 /**
+ * mgmt_get_fst_action_subtype() - gets fst action subtype
+ * @action_code: action code
+ *
+ * This function returns the subtype for fst action
+ * category.
+ *
+ * Return: mgmt frame type
+ */
+static enum mgmt_frame_type
+mgmt_get_fst_action_subtype(uint8_t action_code)
+{
+	enum mgmt_frame_type frm_type;
+
+	switch (action_code) {
+	case FST_SETUP_REQ:
+		frm_type = MGMT_ACTION_FST_SETUP_REQ;
+		break;
+	case FST_SETUP_RSP:
+		frm_type = MGMT_ACTION_FST_SETUP_RSP;
+		break;
+	case FST_TEAR_DOWN:
+		frm_type = MGMT_ACTION_FST_TEAR_DOWN;
+		break;
+	case FST_ACK_REQ:
+		frm_type = MGMT_ACTION_FST_ACK_REQ;
+		break;
+	case FST_ACK_RSP:
+		frm_type = MGMT_ACTION_FST_ACK_RSP;
+		break;
+	case FST_ON_CHANNEL_TUNNEL:
+		frm_type = MGMT_ACTION_FST_ON_CHANNEL_TUNNEL;
+		break;
+	default:
+		frm_type = MGMT_FRM_UNSPECIFIED;
+		break;
+	}
+
+	return frm_type;
+}
+
+/**
  * mgmt_txrx_get_action_frm_subtype() - gets action frm subtype
  * @mpdu_data_ptr: pointer to mpdu data
  *
@@ -720,6 +761,9 @@ mgmt_txrx_get_action_frm_subtype(uint8_t *mpdu_data_ptr)
 		break;
 	case ACTION_CATEGORY_VENDOR_SPECIFIC:
 		frm_type = MGMT_ACTION_CATEGORY_VENDOR_SPECIFIC;
+		break;
+	case ACTION_CATEGORY_FST:
+		frm_type = mgmt_get_fst_action_subtype(action_hdr->action_code);
 		break;
 	default:
 		frm_type = MGMT_FRM_UNSPECIFIED;
@@ -885,6 +929,13 @@ QDF_STATUS tgt_mgmt_txrx_rx_frame_handler(
 	mgmt_type = (wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	mgmt_subtype = (wh)->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
 
+	if (mgmt_type != IEEE80211_FC0_TYPE_MGT) {
+		mgmt_txrx_err("Rx event doesn't conatin a mgmt. packet, %d",
+			mgmt_type);
+		qdf_nbuf_free(buf);
+		return QDF_STATUS_E_FAILURE;
+	}
+
 	is_from_addr_valid = mgmt_rx_is_bssid_valid((struct qdf_mac_addr *)
 							      wh->i_addr2);
 	is_bssid_valid = mgmt_rx_is_bssid_valid((struct qdf_mac_addr *)
@@ -904,17 +955,10 @@ QDF_STATUS tgt_mgmt_txrx_rx_frame_handler(
 				   wh->i_addr2, wh->i_addr3);
 		if (!is_from_addr_valid)
 			qdf_mem_copy(wh->i_addr2, wh->i_addr3,
-				     IEEE80211_ADDR_LEN);
+				     QDF_MAC_ADDR_SIZE);
 		else
 			qdf_mem_copy(wh->i_addr3, wh->i_addr2,
-				     IEEE80211_ADDR_LEN);
-	}
-
-	if (mgmt_type != IEEE80211_FC0_TYPE_MGT) {
-		mgmt_txrx_err("Rx event doesn't conatin a mgmt. packet, %d",
-			mgmt_type);
-		qdf_nbuf_free(buf);
-		return QDF_STATUS_E_FAILURE;
+				     QDF_MAC_ADDR_SIZE);
 	}
 
 	/* mpdu_data_ptr is pointer to action header */
@@ -1026,6 +1070,12 @@ QDF_STATUS tgt_mgmt_txrx_rx_frame_handler(
 	rx_handler = rx_handler_head;
 	while (rx_handler->next) {
 		copy_buf = qdf_nbuf_clone(buf);
+
+		if (!copy_buf) {
+			rx_handler = rx_handler->next;
+			continue;
+		}
+
 		rx_handler->rx_cb(psoc, peer, copy_buf,
 					mgmt_rx_params, frm_type);
 		rx_handler = rx_handler->next;

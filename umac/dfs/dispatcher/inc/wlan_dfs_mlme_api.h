@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -72,11 +72,11 @@ void dfs_mlme_start_csa(struct wlan_objmgr_pdev *pdev,
 void dfs_mlme_proc_cac(struct wlan_objmgr_pdev *pdev, uint32_t vdev_id);
 
 /**
- * dfs_mlme_deliver_event_up_afrer_cac() - Send a CAC timeout, VAP up event to
+ * dfs_mlme_deliver_event_up_after_cac() - Send a CAC timeout, VAP up event to
  * userspace.
  * @pdev: Pointer to DFS pdev object.
  */
-void dfs_mlme_deliver_event_up_afrer_cac(struct wlan_objmgr_pdev *pdev);
+void dfs_mlme_deliver_event_up_after_cac(struct wlan_objmgr_pdev *pdev);
 
 /**
  * dfs_mlme_get_dfs_ch_nchans() - Get number of channels in the channel list
@@ -135,17 +135,22 @@ int dfs_mlme_ieee2mhz(struct wlan_objmgr_pdev *pdev,
  * @dfs_ch_vhtop_ch_freq_seg1:  Channel Center frequency.
  * @dfs_ch_vhtop_ch_freq_seg2:  Channel Center frequency applicable for 80+80MHz
  *                          mode of operation.
+ *
+ * Return:
+ * * QDF_STATUS_SUCCESS  : Channel found.
+ * * QDF_STATUS_E_FAILURE: Channel not found.
  */
-void dfs_mlme_find_dot11_channel(struct wlan_objmgr_pdev *pdev,
-		uint8_t ieee,
-		uint8_t des_cfreq2,
-		int mode,
-		uint16_t *dfs_ch_freq,
-		uint64_t *dfs_ch_flags,
-		uint16_t *dfs_ch_flagext,
-		uint8_t *dfs_ch_ieee,
-		uint8_t *dfs_ch_vhtop_ch_freq_seg1,
-		uint8_t *dfs_ch_vhtop_ch_freq_seg2);
+QDF_STATUS
+dfs_mlme_find_dot11_channel(struct wlan_objmgr_pdev *pdev,
+			    uint8_t ieee,
+			    uint8_t des_cfreq2,
+			    int mode,
+			    uint16_t *dfs_ch_freq,
+			    uint64_t *dfs_ch_flags,
+			    uint16_t *dfs_ch_flagext,
+			    uint8_t *dfs_ch_ieee,
+			    uint8_t *dfs_ch_vhtop_ch_freq_seg1,
+			    uint8_t *dfs_ch_vhtop_ch_freq_seg2);
 
 /**
  * dfs_mlme_get_dfs_ch_channels() - Get channel from channel list.
@@ -160,13 +165,13 @@ void dfs_mlme_find_dot11_channel(struct wlan_objmgr_pdev *pdev,
  * @index: Index into channel list.
  */
 void dfs_mlme_get_dfs_ch_channels(struct wlan_objmgr_pdev *pdev,
-		uint16_t *dfs_ch_freq,
-		uint64_t *dfs_ch_flags,
-		uint16_t *dfs_ch_flagext,
-		uint8_t *dfs_ch_ieee,
-		uint8_t *dfs_ch_vhtop_ch_freq_seg1,
-		uint8_t *dfs_ch_vhtop_ch_freq_seg2,
-		int index);
+				  uint16_t *dfs_ch_freq,
+				  uint64_t *dfs_ch_flags,
+				  uint16_t *dfs_ch_flagext,
+				  uint8_t *dfs_ch_ieee,
+				  uint8_t *dfs_ch_vhtop_ch_freq_seg1,
+				  uint8_t *dfs_ch_vhtop_ch_freq_seg2,
+				  int index);
 
 /**
  * dfs_mlme_dfs_ch_flags_ext() - Get extension channel flags.
@@ -243,4 +248,45 @@ void dfs_mlme_restart_vaps_with_non_dfs_chan(struct wlan_objmgr_pdev *pdev,
 {
 }
 #endif
+
+/**
+ * dfs_mlme_check_allowed_prim_chanlist() - Check whether the given channel is
+ * present in the primary allowed channel list or not
+ * @pdev: Pointer to DFS pdev object.
+ * @chan_num: Channel number
+ */
+#if defined(WLAN_SUPPORT_PRIMARY_ALLOWED_CHAN)
+bool dfs_mlme_check_allowed_prim_chanlist(struct wlan_objmgr_pdev *pdev,
+					  uint32_t chan_num);
+
+#else
+static inline
+bool dfs_mlme_check_allowed_prim_chanlist(struct wlan_objmgr_pdev *pdev,
+					  uint32_t chan_num)
+{
+	return true;
+}
+#endif
+
+/**
+ * dfs_mlme_handle_dfs_scan_violation() - Handle scan start failure
+ * due to DFS violation (presence of NOL channel in scan channel list).
+ * @pdev: Pointer to pdev object.
+ */
+#if defined(WLAN_DFS_FULL_OFFLOAD) && defined(QCA_DFS_NOL_OFFLOAD)
+void dfs_mlme_handle_dfs_scan_violation(struct wlan_objmgr_pdev *pdev);
+#else
+static inline
+void dfs_mlme_handle_dfs_scan_violation(struct wlan_objmgr_pdev *pdev)
+{
+}
+#endif
+
+/**
+ * dfs_mlme_is_opmode_sta() - Check if pdev opmode is STA.
+ * @pdev: Pointer to DFS pdev object.
+ *
+ * Return: true if pdev opmode is STA, else false.
+ */
+bool dfs_mlme_is_opmode_sta(struct wlan_objmgr_pdev *pdev);
 #endif /* _WLAN_DFS_MLME_API_H_ */

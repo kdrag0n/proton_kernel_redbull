@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -121,6 +121,16 @@
 #define WLAN_SOC_CEXT_WMI_MGMT_REF     0x00000800
 	/* Wideband scan */
 #define WLAN_SOC_CEXT_WIDEBAND_SCAN    0x00001000
+	/* TWT Requester capable */
+#define WLAN_SOC_CEXT_TWT_REQUESTER    0x00002000
+	/* TWT Responder capable */
+#define WLAN_SOC_CEXT_TWT_RESPONDER    0x00004000
+	/* HW DB2DBM CAPABLE */
+#define WLAN_SOC_CEXT_HW_DB2DBM        0x00008000
+	/* OBSS Narrow Bandwidth RU Tolerance */
+#define WLAN_SOC_CEXT_OBSS_NBW_RU      0x00010000
+	/* MBSS IE support */
+#define WLAN_SOC_CEXT_MBSS_IE          0x00020000
 
 /* feature_flags */
 	/* CONF: ATH FF enabled */
@@ -173,6 +183,10 @@
 #define WLAN_SOC_F_BTCOEX_SUPPORT      0x00200000
 	/* HOST 80211 enable*/
 #define WLAN_SOC_F_HOST_80211_ENABLE   0x00400000
+	/* Spectral disable */
+#define WLAN_SOC_F_SPECTRAL_DISABLE    0x00800000
+	/* FTM testmode enable */
+#define WLAN_SOC_F_TESTMODE_ENABLE     0x01000000
 
 /* PSOC op flags */
 
@@ -198,21 +212,13 @@ struct wlan_objmgr_psoc_regulatory {
  * @dot11_mode: Phy mode
  * @skip_dfs_chnl_in_p2p_search: Skip Dfs Channel in case of P2P
  *                             Search
- * @indoor_channel_support: Enable/disable sap on indoor channel
- * @optimize_chan_avoid_event: Optimize channel avoidance
- *                           indication coming from firmware
  * @band_capability: Preferred band (0:Both,  1:2G only,  2:5G only)
- * @dual_mac_feature_disable: Disable Dual MAC feature
  */
 struct wlan_objmgr_psoc_user_config {
 	bool is_11d_support_enabled;
 	bool is_11h_support_enabled;
 	uint8_t dot11_mode;
-	bool skip_dfs_chnl_in_p2p_search;
-	bool indoor_channel_support;
-	bool optimize_chan_avoid_event;
 	uint8_t band_capability;
-	uint32_t dual_mac_feature_disable;
 };
 
 /**
@@ -928,7 +934,7 @@ static inline void wlan_psoc_set_nif_phy_version(struct wlan_objmgr_psoc *psoc,
 static inline uint32_t wlan_psoc_get_nif_phy_version(
 			struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return (uint32_t)-1;
 
 	return psoc->soc_nif.phy_version;
@@ -960,7 +966,7 @@ static inline void wlan_psoc_set_dev_type(struct wlan_objmgr_psoc *psoc,
 static inline WLAN_DEV_TYPE wlan_objmgr_psoc_get_dev_type(
 				struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return (uint32_t)-1;
 
 	return psoc->soc_nif.phy_type;
@@ -1161,7 +1167,7 @@ static inline void wlan_psoc_set_hw_macaddr(struct wlan_objmgr_psoc *psoc,
 					uint8_t *macaddr)
 {
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (psoc != NULL)
+	if (psoc)
 		WLAN_ADDR_COPY(psoc->soc_nif.soc_hw_macaddr, macaddr);
 }
 
@@ -1175,7 +1181,7 @@ static inline void wlan_psoc_set_hw_macaddr(struct wlan_objmgr_psoc *psoc,
  */
 static inline uint8_t *wlan_psoc_get_hw_macaddr(struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return NULL;
 
 	return psoc->soc_nif.soc_hw_macaddr;
@@ -1203,7 +1209,7 @@ void *wlan_objmgr_psoc_get_comp_private_obj(struct wlan_objmgr_psoc *psoc,
  */
 static inline uint8_t wlan_psoc_get_pdev_count(struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return 0;
 
 	return psoc->soc_objmgr.wlan_pdev_count;
@@ -1221,7 +1227,7 @@ static inline uint8_t wlan_psoc_get_pdev_count(struct wlan_objmgr_psoc *psoc)
 static inline void wlan_psoc_set_tgt_if_handle(struct wlan_objmgr_psoc *psoc,
 			void *tgt_if_handle)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return;
 
 	psoc->tgt_if_handle = tgt_if_handle;
@@ -1237,7 +1243,7 @@ static inline void wlan_psoc_set_tgt_if_handle(struct wlan_objmgr_psoc *psoc,
  */
 static inline void *wlan_psoc_get_tgt_if_handle(struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return NULL;
 
 	return psoc->tgt_if_handle;
@@ -1254,7 +1260,7 @@ static inline void *wlan_psoc_get_tgt_if_handle(struct wlan_objmgr_psoc *psoc)
 static inline qdf_device_t wlan_psoc_get_qdf_dev(
 			struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return NULL;
 
 	return psoc->soc_objmgr.qdf_dev;
@@ -1273,7 +1279,7 @@ static inline void wlan_psoc_set_qdf_dev(
 			struct wlan_objmgr_psoc *psoc,
 			qdf_device_t dev)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return;
 
 	psoc->soc_objmgr.qdf_dev = dev;
@@ -1461,21 +1467,6 @@ void wlan_objmgr_psoc_check_for_vdev_leaks(struct wlan_objmgr_psoc *psoc);
 void wlan_objmgr_psoc_check_for_peer_leaks(struct wlan_objmgr_psoc *psoc);
 
 /**
-* wlan_objmgr_psoc_get_dual_mac_disable () - get user config
-* data for DBS disable
-* @psoc: psoc object pointer
-*
-* Return: Disable or Enable
-*/
-static inline uint32_t wlan_objmgr_psoc_get_dual_mac_disable(
-		struct wlan_objmgr_psoc *psoc)
-{
-	if (psoc == NULL)
-		return 0;
-	return psoc->soc_nif.user_config.dual_mac_feature_disable;
-}
-
-/**
 * wlan_objmgr_psoc_get_band_capability () - get user config
 * data for band capability
 * @psoc: psoc object pointer
@@ -1485,7 +1476,7 @@ static inline uint32_t wlan_objmgr_psoc_get_dual_mac_disable(
 static inline uint8_t wlan_objmgr_psoc_get_band_capability(
 		struct wlan_objmgr_psoc *psoc)
 {
-	if (psoc == NULL)
+	if (!psoc)
 		return 0;
 
 	return psoc->soc_nif.user_config.band_capability;
@@ -1540,5 +1531,22 @@ static inline struct wlan_lmac_if_tx_ops *
 wlan_psoc_get_lmac_if_txops(struct wlan_objmgr_psoc *psoc)
 {
 	return &((psoc->soc_cb.tx_ops));
+}
+
+/**
+ * wlan_psoc_get_id() - get psoc id
+ * @psoc: PSOC object
+ *
+ * API to get psoc id
+ *
+ * Return: @psoc_id: psoc id
+ */
+static inline uint8_t wlan_psoc_get_id(
+			struct wlan_objmgr_psoc *psoc)
+{
+	if (!psoc)
+		return (uint8_t)-1;
+
+	return psoc->soc_objmgr.psoc_id;
 }
 #endif /* _WLAN_OBJMGR_PSOC_OBJ_H_*/

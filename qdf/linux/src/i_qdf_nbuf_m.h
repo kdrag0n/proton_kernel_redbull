@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,6 +34,9 @@
 #define QDF_NBUF_CB_RX_LRO_CTX(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.lro_ctx)
 
+#define QDF_NBUF_CB_RX_VDEV_ID(skb) \
+	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.vdev_id)
+
 #define QDF_NBUF_CB_TX_IPA_OWNED(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.dev.priv_cb_m.ipa.owned)
 #define QDF_NBUF_CB_TX_IPA_PRIV(skb) \
@@ -45,6 +48,18 @@
 #define QDF_NBUF_CB_TX_DMA_BI_MAP(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.dev.priv_cb_m. \
 	dma_option.bi_map)
+
+#define QDF_NBUF_CB_RX_PEER_ID(skb) \
+	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.dp. \
+	wifi3.peer_id)
+
+#define QDF_NBUF_CB_RX_PKT_LEN(skb) \
+	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.dp. \
+	wifi3.msdu_len)
+
+#define QDF_NBUF_CB_RX_MAP_IDX(skb) \
+	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.dp. \
+	wifi2.map_index)
 
 #define __qdf_nbuf_ipa_owned_get(skb) \
 	QDF_NBUF_CB_TX_IPA_OWNED(skb)
@@ -61,7 +76,18 @@
 #define __qdf_nbuf_ipa_priv_set(skb, priv) \
 	(QDF_NBUF_CB_TX_IPA_PRIV(skb) = (priv))
 
-
+/**
+ * qdf_nbuf_cb_update_vdev_id() - update vdev id in skb cb
+ * @skb: skb pointer whose cb is updated with vdev id information
+ * @vdev_id: vdev id to be updated in cb
+ *
+ * Return: void
+ */
+static inline void
+qdf_nbuf_cb_update_vdev_id(struct sk_buff *skb, uint8_t vdev_id)
+{
+	QDF_NBUF_CB_RX_VDEV_ID(skb) = vdev_id;
+}
 
 void __qdf_nbuf_init_replenish_timer(void);
 void __qdf_nbuf_deinit_replenish_timer(void);

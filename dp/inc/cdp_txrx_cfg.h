@@ -389,9 +389,7 @@ cdp_cfg_set_tx_compl_tsf64(ol_txrx_soc_handle soc,
 			   uint8_t val)
 {
 	if (!soc || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
-			  "%s invalid instance", __func__);
-		QDF_BUG(0);
+		dp_debug("invalid instance");
 		return;
 	}
 
@@ -406,9 +404,7 @@ static inline bool
 cdp_cfg_get_tx_compl_tsf64(ol_txrx_soc_handle soc)
 {
 	if (!soc || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
-			  "%s invalid instance", __func__);
-		QDF_BUG(0);
+		dp_debug("invalid instance");
 		return false;
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -210,7 +210,7 @@ int qdf_aes_s2v(const uint8_t *key, unsigned int key_len, const uint8_t *s[],
 		/* len(Sn) < 128 */
 		/* T = qdf_update_dbl(D) xor pad(Sn) */
 		qdf_update_dbl(d);
-		qdf_mem_set(buf, AES_BLOCK_SIZE, 0);
+		qdf_mem_zero(buf, AES_BLOCK_SIZE);
 		qdf_mem_copy(buf, s[i], s_len[i]);
 		buf[s_len[i]] = 0x80;
 		xor(d, s[i], AES_BLOCK_SIZE);
@@ -223,7 +223,7 @@ int qdf_aes_s2v(const uint8_t *key, unsigned int key_len, const uint8_t *s[],
 	ret = qdf_get_keyed_hash(alg, key, key_len, a, &t_len, 1, out);
 
 error:
-	if (t != NULL && t != d)
+	if (t && t != d)
 		qdf_mem_free(t);
 	return ret;
 }
@@ -395,8 +395,6 @@ int qdf_crypto_aes_gmac(uint8_t *key, uint16_t key_length,
 			IEEE80211_MMIE_GMAC_MICLEN + AAD_LEN;
 	req = qdf_mem_malloc(req_size);
 	if (!req) {
-		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
-			  "Memory allocation failed");
 		ret = -ENOMEM;
 		goto err_tfm;
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -26,6 +26,14 @@
 /* Forward declaration */
 struct direct_buf_rx_data;
 struct wmi_spectral_cmd_ops;
+
+/**
+ * wlan_spectral_is_feature_disabled() - Check if spectral feature is disabled
+ * @psoc - the physical device object.
+ *
+ * Return : true if spectral is disabled, else false.
+ */
+bool wlan_spectral_is_feature_disabled(struct wlan_objmgr_psoc *psoc);
 
 /**
  * wlan_spectral_init() - API to init spectral component
@@ -146,6 +154,29 @@ spectral_vdev_get_ch_width(struct wlan_objmgr_vdev *vdev);
  */
 QDF_STATUS spectral_pdev_open(struct wlan_objmgr_pdev *pdev);
 
+/**
+ * spectral_register_dbr() - register Spectral event handler with DDMA
+ * @pdev:  pointer to pdev object
+ *
+ * API to register event handler with Direct DMA
+ *
+ * Return: QDF_STATUS_SUCCESS upon successful registration,
+ *         QDF_STATUS_E_FAILURE upon failure
+ */
+
+QDF_STATUS spectral_register_dbr(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * spectral_unregister_dbr() - unregister Spectral event handler with DDMA
+ * @pdev:  pointer to pdev object
+ *
+ * API to unregister event handler with Direct DMA
+ *
+ * Return: QDF_STATUS_SUCCESS upon successful unregistration,
+ *         QDF_STATUS_E_FAILURE upon failure
+ */
+QDF_STATUS spectral_unregister_dbr(struct wlan_objmgr_pdev *pdev);
+
 #ifdef DIRECT_BUF_RX_ENABLE
 /**
  * spectral_dbr_event_handler() - Spectral dbr event handler
@@ -154,9 +185,9 @@ QDF_STATUS spectral_pdev_open(struct wlan_objmgr_pdev *pdev);
  *
  * API to handle spectral dbr event
  *
- * Return: status
+ * Return: true to release buf
  */
-int spectral_dbr_event_handler(struct wlan_objmgr_pdev *pdev,
-			       struct direct_buf_rx_data *payload);
+bool spectral_dbr_event_handler(struct wlan_objmgr_pdev *pdev,
+				struct direct_buf_rx_data *payload);
 #endif
 #endif /* _WLAN_SPECTRAL_UTILS_API_H_*/

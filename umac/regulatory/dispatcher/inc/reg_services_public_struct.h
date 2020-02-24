@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,8 +24,6 @@
 #ifndef __REG_SERVICES_PUBLIC_STRUCT_H_
 #define __REG_SERVICES_PUBLIC_STRUCT_H_
 
-#include "../../core/src/reg_db.h"
-
 #define REG_SBS_SEPARATION_THRESHOLD 100
 #define REG_MAX_CHANNELS_PER_OPERATING_CLASS  25
 #define REG_MAX_SUPP_OPER_CLASSES 32
@@ -34,7 +32,60 @@
 #define INVALID_VDEV_ID 0xFF
 #define INVALID_CHANNEL_NUM 0xBAD
 #define CH_AVOID_MAX_RANGE   4
+#define REG_ALPHA2_LEN 2
+#define MAX_REG_RULES 10
 
+#define REGULATORY_CHAN_DISABLED     BIT(0)
+#define REGULATORY_CHAN_NO_IR        BIT(1)
+#define REGULATORY_CHAN_RADAR        BIT(3)
+#define REGULATORY_CHAN_NO_OFDM      BIT(6)
+#define REGULATORY_CHAN_INDOOR_ONLY  BIT(9)
+
+#define REGULATORY_CHAN_NO_HT40      BIT(4)
+#define REGULATORY_CHAN_NO_80MHZ     BIT(7)
+#define REGULATORY_CHAN_NO_160MHZ    BIT(8)
+#define REGULATORY_CHAN_NO_20MHZ     BIT(11)
+#define REGULATORY_CHAN_NO_10MHZ     BIT(12)
+
+#define REGULATORY_PHYMODE_NO11A     BIT(0)
+#define REGULATORY_PHYMODE_NO11B     BIT(1)
+#define REGULATORY_PHYMODE_NO11G     BIT(2)
+#define REGULATORY_CHAN_NO11N        BIT(3)
+#define REGULATORY_PHYMODE_NO11AC    BIT(4)
+#define REGULATORY_PHYMODE_NO11AX    BIT(5)
+
+/**
+ * enum dfs_reg - DFS region
+ * @DFS_UNINIT_REGION: un-initialized region
+ * @DFS_FCC_REGION: FCC region
+ * @DFS_ETSI_REGION: ETSI region
+ * @DFS_MKK_REGION: MKK region
+ * @DFS_CN_REGION: China region
+ * @DFS_KR_REGION: Korea region
+ * @DFS_UNDEF_REGION: Undefined region
+ */
+enum dfs_reg {
+	DFS_UNINIT_REGION = 0,
+	DFS_FCC_REGION = 1,
+	DFS_ETSI_REGION = 2,
+	DFS_MKK_REGION = 3,
+	DFS_CN_REGION = 4,
+	DFS_KR_REGION = 5,
+	DFS_UNDEF_REGION = 0xFFFF,
+};
+
+/** enum op_class_table_num
+ * OP_CLASS_US- Class corresponds to US
+ * OP_CLASS_EU- Class corresponds to EU
+ * OP_CLASS_JAPAN- Class corresponds to JAPAN
+ * OP_CLASS_GLOBAL- Class corresponds to GLOBAL
+ */
+enum op_class_table_num {
+	OP_CLASS_US = 1,
+	OP_CLASS_EU,
+	OP_CLASS_JAPAN,
+	OP_CLASS_GLOBAL
+};
 #ifdef CONFIG_LEGACY_CHAN_ENUM
 
 /**
@@ -509,29 +560,24 @@ typedef enum {
 	REGDOMAIN_COUNT
 } v_REGDOMAIN_t;
 
-
 /**
- * enum phy_ch_width - channel width
- * @CH_WIDTH_20MHZ: 20 mhz width
- * @CH_WIDTH_40MHZ: 40 mhz width
- * @CH_WIDTH_80MHZ: 80 mhz width
- * @CH_WIDTH_160MHZ: 160 mhz width
- * @CH_WIDTH_80P80HZ: 80+80 mhz width
- * @CH_WIDTH_5MHZ: 5 mhz width
- * @CH_WIDTH_10MHZ: 10 mhz width
- * @CH_WIDTH_INVALID: invalid width
- * @CH_WIDTH_MAX: max possible width
+ * enum ctl_value - CTL value
+ * @CTL_FCC: CTL FCC
+ * @CTL_MKK: CTL MKK
+ * @CTL_ETSI: CTL ETSI
+ * @CTL_KOR: CTL KOR
+ * @CTL_CHN: CTL CHINA
+ * @CTL_USER_DEF: CTL USER_DEF
+ * @CTL_NONE: CTL NONE
  */
-enum phy_ch_width {
-	CH_WIDTH_20MHZ = 0,
-	CH_WIDTH_40MHZ,
-	CH_WIDTH_80MHZ,
-	CH_WIDTH_160MHZ,
-	CH_WIDTH_80P80MHZ,
-	CH_WIDTH_5MHZ,
-	CH_WIDTH_10MHZ,
-	CH_WIDTH_INVALID,
-	CH_WIDTH_MAX
+enum ctl_value {
+	CTL_FCC = 0x10,
+	CTL_ETSI = 0x30,
+	CTL_MKK = 0x40,
+	CTL_KOR = 0x50,
+	CTL_CHN = 0x60,
+	CTL_USER_DEF = 0x70,
+	CTL_NONE = 0xff
 };
 
 /**
@@ -654,6 +700,7 @@ enum country_src {
  * @min_bw: min bandwidth
  * @max_bw: max bandwidth
  * @nol_chan: whether channel is nol
+ * @nol_history: Set NOL-History when STA vap detects RADAR.
  */
 struct regulatory_channel {
 	uint32_t center_freq;
@@ -665,6 +712,7 @@ struct regulatory_channel {
 	uint16_t max_bw;
 	uint8_t ant_gain;
 	bool nol_chan;
+	bool nol_history;
 };
 
 
@@ -1015,6 +1063,22 @@ struct unsafe_ch_list {
 struct avoid_freq_ind_data {
 	struct ch_avoid_ind_type freq_list;
 	struct unsafe_ch_list chan_list;
+};
+
+/**
+ * struct reg_ctl_params - reg ctl and regd info
+ * @regd: regdomain pair
+ * @regd_2g: 2g sub domain code
+ * @regd_5g: 5g sub domain code
+ * @ctl_2g: 2g ctl info
+ * @ctl_5g: 5g ctl info
+ */
+struct reg_ctl_params {
+	uint32_t regd;
+	uint16_t regd_2g;
+	uint16_t regd_5g;
+	uint8_t ctl_2g;
+	uint8_t ctl_5g;
 };
 
 #endif

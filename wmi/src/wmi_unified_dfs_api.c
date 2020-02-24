@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -25,8 +25,10 @@
 #include <qdf_module.h>
 #include <wmi_unified_api.h>
 #include <wmi_unified_priv.h>
+#include <wlan_objmgr_vdev_obj.h>
 #include <wlan_dfs_utils_api.h>
 #include <wmi_unified_dfs_api.h>
+#include <init_deinit_lmac.h>
 
 QDF_STATUS wmi_extract_dfs_cac_complete_event(void *wmi_hdl,
 		uint8_t *evt_buf,
@@ -42,6 +44,22 @@ QDF_STATUS wmi_extract_dfs_cac_complete_event(void *wmi_hdl,
 	return QDF_STATUS_E_FAILURE;
 }
 qdf_export_symbol(wmi_extract_dfs_cac_complete_event);
+
+QDF_STATUS
+wmi_extract_dfs_ocac_complete_event(void *wmi_hdl,
+				    uint8_t *evt_buf,
+				    struct vdev_adfs_complete_status *param)
+{
+	struct wmi_unified *wmi_handle = (struct wmi_unified *)wmi_hdl;
+
+	if (wmi_handle && wmi_handle->ops->extract_dfs_ocac_complete_event)
+		return wmi_handle->ops->extract_dfs_ocac_complete_event(
+				wmi_handle, evt_buf, param);
+
+	return QDF_STATUS_E_FAILURE;
+}
+
+qdf_export_symbol(wmi_extract_dfs_ocac_complete_event);
 
 QDF_STATUS wmi_extract_dfs_radar_detection_event(void *wmi_hdl,
 		uint8_t *evt_buf,
@@ -71,5 +89,46 @@ QDF_STATUS wmi_extract_wlan_radar_event_info(void *wmi_hdl,
 
 	return QDF_STATUS_E_FAILURE;
 }
-#endif
 qdf_export_symbol(wmi_extract_dfs_radar_detection_event);
+#endif
+
+#if defined(WLAN_DFS_FULL_OFFLOAD) && defined(QCA_DFS_NOL_OFFLOAD)
+QDF_STATUS wmi_send_usenol_pdev_param(void *wmi_hdl, bool usenol,
+				      struct wlan_objmgr_pdev *pdev)
+{
+	struct pdev_params pparam;
+	int pdev_idx;
+	struct wmi_unified *wmi_handle = (struct wmi_unified *)wmi_hdl;
+
+	pdev_idx = lmac_get_pdev_idx(pdev);
+	if (pdev_idx < 0)
+		return QDF_STATUS_E_FAILURE;
+
+	qdf_mem_zero(&pparam, sizeof(pparam));
+	pparam.param_id = wmi_pdev_param_use_nol;
+	pparam.param_value = usenol;
+
+	return wmi_unified_pdev_param_send(wmi_handle, &pparam, pdev_idx);
+}
+
+QDF_STATUS
+wmi_send_subchan_marking_pdev_param(void *wmi_hdl,
+				    bool subchanmark,
+				    struct wlan_objmgr_pdev *pdev)
+{
+	struct pdev_params pparam;
+	int pdev_idx;
+	struct wmi_unified *wmi_handle = (struct wmi_unified *)wmi_hdl;
+
+	pdev_idx = lmac_get_pdev_idx(pdev);
+	if (pdev_idx < 0)
+		return QDF_STATUS_E_FAILURE;
+
+	qdf_mem_zero(&pparam, sizeof(pparam));
+	pparam.param_id = wmi_pdev_param_sub_channel_marking;
+	pparam.param_value = subchanmark;
+
+	return wmi_unified_pdev_param_send(wmi_handle, &pparam, pdev_idx);
+}
+
+#endif

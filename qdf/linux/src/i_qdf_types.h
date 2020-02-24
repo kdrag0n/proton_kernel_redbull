@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -23,8 +23,6 @@
 
 #if !defined(__I_QDF_TYPES_H)
 #define __I_QDF_TYPES_H
-
-#include <qdf_status.h>
 
 #ifndef __KERNEL__
 #define __iomem
@@ -61,6 +59,8 @@
 #ifdef IPA_OFFLOAD
 #include <linux/ipa.h>
 #endif
+
+#define __qdf_must_check __must_check
 
 typedef struct sg_table __sgtable_t;
 
@@ -156,6 +156,7 @@ typedef dma_addr_t __qdf_dma_addr_t;
 typedef size_t __qdf_dma_size_t;
 typedef dma_addr_t __qdf_dma_context_t;
 typedef struct net_device *__qdf_netdev_t;
+typedef struct cpumask __qdf_cpu_mask;
 typedef __le16 __qdf_le16_t;
 typedef __le32 __qdf_le32_t;
 typedef __le64 __qdf_le64_t;
@@ -244,9 +245,7 @@ struct __qdf_device {
 	__qdf_os_intr func;
 	struct __qdf_mempool_ctxt *mem_pool[MAX_MEM_POOLS];
 	enum qdf_bus_type bus_type;
-#ifdef CONFIG_MCL
 	const struct hif_bus_id *bid;
-#endif
 	bool smmu_s1_enabled;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 	struct iommu_domain *domain;
@@ -319,8 +318,10 @@ enum __qdf_net_wireless_evcode {
 #define __qdf_vsnprint            vsnprintf
 #define __qdf_toupper            toupper
 #define qdf_kstrtoint            __qdf_kstrtoint
+#define qdf_kstrtouint            __qdf_kstrtouint
 
 #define __qdf_kstrtoint          kstrtoint
+#define __qdf_kstrtouint          kstrtouint
 
 #define __QDF_DMA_BIDIRECTIONAL  DMA_BIDIRECTIONAL
 #define __QDF_DMA_TO_DEVICE      DMA_TO_DEVICE

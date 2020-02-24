@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,6 +50,8 @@
 #include "wlan_scan_cache_db_i.h"
 #include "wlan_reg_services_api.h"
 #include "wlan_reg_ucfg_api.h"
+#include <wlan_objmgr_vdev_obj.h>
+#include <wlan_dfs_utils_api.h>
 
 /**
  * scm_del_scan_node() - API to remove scan node from the list
@@ -106,7 +108,7 @@ static QDF_STATUS scm_del_scan_node_from_db(struct scan_dbs *scan_db,
  */
 static void scm_scan_entry_get_ref(struct scan_cache_node *scan_node)
 {
-	if (scan_node == NULL) {
+	if (!scan_node) {
 		scm_err("scan_node is NULL");
 		QDF_ASSERT(0);
 		return;
@@ -310,11 +312,11 @@ scm_get_next_node(struct scan_dbs *scan_db,
  */
 static void scm_check_and_age_out(struct scan_dbs *scan_db,
 	struct scan_cache_node *node,
-	uint32_t scan_aging_time)
+	qdf_time_t scan_aging_time)
 {
 	if (util_scan_entry_age(node->entry) >=
 	   scan_aging_time) {
-		scm_debug("Aging out BSSID: %pM with age %d ms",
+		scm_debug("Aging out BSSID: %pM with age %lu ms",
 			  node->entry->bssid.bytes,
 			  util_scan_entry_age(node->entry));
 		qdf_spin_lock_bh(&scan_db->scan_db_lock);
@@ -399,7 +401,7 @@ static QDF_STATUS scm_flush_oldest_entry(struct scan_dbs *scan_db)
 	}
 
 	if (oldest_node) {
-		scm_debug("Flush oldest BSSID: %pM with age %d ms",
+		scm_debug("Flush oldest BSSID: %pM with age %lu ms",
 				oldest_node->entry->bssid.bytes,
 				util_scan_entry_age(oldest_node->entry));
 		/* Release ref_cnt taken for oldest_node and delete it */
@@ -666,6 +668,7 @@ static QDF_STATUS scm_add_update_entry(struct wlan_objmgr_psoc *psoc,
 	QDF_STATUS status;
 	struct scan_dbs *scan_db;
 	struct wlan_scan_obj *scan_obj;
+	uint8_t security_type;
 
 	scan_db = wlan_pdev_get_scan_db(psoc, pdev);
 	if (!scan_db) {
@@ -693,6 +696,22 @@ static QDF_STATUS scm_add_update_entry(struct wlan_objmgr_psoc *psoc,
 
 	is_dup_found = scm_find_duplicate(pdev, scan_obj, scan_db, scan_params,
 					  &dup_node);
+
+	security_type = scan_params->security_type;
+	scm_nofl_debug("Received %s: BSSID: %pM tsf_delta %u Seq %d ssid: %.*s rssi: %d chan %d phy_mode %d hidden %d chan_mismatch %d %s%s%s%s pdev %d",
+		       (scan_params->frm_subtype == MGMT_SUBTYPE_PROBE_RESP) ?
+		       "Probe Rsp" : "Beacon", scan_params->bssid.bytes,
+		       scan_params->tsf_delta, scan_params->seq_num,
+		       scan_params->ssid.length, scan_params->ssid.ssid,
+		       scan_params->rssi_raw,
+		       scan_params->channel.chan_idx, scan_params->phy_mode,
+		       scan_params->is_hidden_ssid,
+		       scan_params->channel_mismatch,
+		       security_type & SCAN_SECURITY_TYPE_WPA ? "[WPA]" : "",
+		       security_type & SCAN_SECURITY_TYPE_RSN ? "[RSN]" : "",
+		       security_type & SCAN_SECURITY_TYPE_WAPI ? "[WAPI]" : "",
+		       security_type & SCAN_SECURITY_TYPE_WEP ? "[WEP]" : "",
+		       wlan_objmgr_pdev_get_pdev_id(pdev));
 
 	if (scan_obj->cb.inform_beacon)
 		scan_obj->cb.inform_beacon(pdev, scan_params);
@@ -729,9 +748,8 @@ static QDF_STATUS scm_add_update_entry(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
+QDF_STATUS __scm_handle_bcn_probe(struct scan_bcn_probe_event *bcn)
 {
-	struct scan_bcn_probe_event *bcn;
 	struct wlan_objmgr_psoc *psoc;
 	struct wlan_objmgr_pdev *pdev = NULL;
 	struct scan_cache_entry *scan_entry;
@@ -741,8 +759,8 @@ QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
 	uint32_t list_count, i;
 	qdf_list_node_t *next_node = NULL;
 	struct scan_cache_node *scan_node;
+	struct wlan_frame_hdr *hdr = NULL;
 
-	bcn = msg->bodyptr;
 	if (!bcn) {
 		scm_err("bcn is NULL");
 		return QDF_STATUS_E_INVAL;
@@ -758,6 +776,7 @@ QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
 		goto free_nbuf;
 	}
 
+	hdr = (struct wlan_frame_hdr *)qdf_nbuf_data(bcn->buf);
 	psoc = bcn->psoc;
 	pdev = wlan_objmgr_get_pdev_by_id(psoc,
 			   bcn->rx_data->pdev_id, WLAN_SCAN_ID);
@@ -781,12 +800,18 @@ QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
 		goto free_nbuf;
 	}
 
+	if (bcn->frm_type == MGMT_SUBTYPE_BEACON &&
+	    utils_is_dfs_ch(pdev, bcn->rx_data->channel)) {
+		util_scan_add_hidden_ssid(pdev, bcn->buf);
+	}
+
 	scan_list =
 		 util_scan_unpack_beacon_frame(pdev, qdf_nbuf_data(bcn->buf),
 			qdf_nbuf_len(bcn->buf), bcn->frm_type,
 			bcn->rx_data);
 	if (!scan_list || qdf_list_empty(scan_list)) {
-		scm_debug("failed to unpack frame");
+		scm_debug("failed to unpack %d frame BSSID: %pM",
+			  bcn->frm_type, hdr->i_addr3);
 		status = QDF_STATUS_E_INVAL;
 		goto free_nbuf;
 	}
@@ -794,8 +819,9 @@ QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
 	list_count = qdf_list_size(scan_list);
 	for (i = 0; i < list_count; i++) {
 		status = qdf_list_remove_front(scan_list, &next_node);
-		if (QDF_IS_STATUS_ERROR(status) || next_node == NULL) {
-			scm_debug("failed to unpack frame");
+		if (QDF_IS_STATUS_ERROR(status) || !next_node) {
+			scm_debug("list remove failure i:%d, lsize:%d, BSSID: %pM",
+				  i, list_count, hdr->i_addr3);
 			status = QDF_STATUS_E_INVAL;
 			goto free_nbuf;
 		}
@@ -806,22 +832,15 @@ QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
 		scan_entry = scan_node->entry;
 
 		if (scan_obj->drop_bcn_on_chan_mismatch &&
-			scan_entry->channel_mismatch) {
-			scm_debug("Drop frame, as channel mismatch Received for from BSSID: %pM Seq Num: %d",
-				   scan_entry->bssid.bytes,
-				   scan_entry->seq_num);
+		    scan_entry->channel_mismatch) {
+			scm_debug("Drop frame, as channel mismatch Received for from BSSID: %pM Seq Num: %d chan %d RSSI %d",
+				  scan_entry->bssid.bytes, scan_entry->seq_num,
+				  scan_entry->channel.chan_idx,
+				  scan_entry->rssi_raw);
 			util_scan_free_cache_entry(scan_entry);
 			qdf_mem_free(scan_node);
 			continue;
 		}
-
-		scm_nofl_debug("Received %s from BSSID: %pM tsf_delta = %u Seq Num: %d  ssid:%.*s, rssi: %d channel %d",
-			       (bcn->frm_type == MGMT_SUBTYPE_PROBE_RESP) ?
-			       "Probe Rsp" : "Beacon", scan_entry->bssid.bytes,
-			       scan_entry->tsf_delta, scan_entry->seq_num,
-			       scan_entry->ssid.length, scan_entry->ssid.ssid,
-			       scan_entry->rssi_raw,
-			       scan_entry->channel.chan_idx);
 
 		if (scan_obj->cb.update_beacon)
 			scan_obj->cb.update_beacon(pdev, scan_entry);
@@ -856,6 +875,16 @@ free_nbuf:
 	qdf_mem_free(bcn);
 
 	return status;
+}
+
+QDF_STATUS scm_handle_bcn_probe(struct scheduler_msg *msg)
+{
+	if (!msg) {
+		scm_err("msg is NULL");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	return __scm_handle_bcn_probe(msg->bodyptr);
 }
 
 /**

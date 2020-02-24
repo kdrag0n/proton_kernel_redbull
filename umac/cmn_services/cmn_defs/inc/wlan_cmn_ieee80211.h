@@ -66,6 +66,9 @@
 #define QCA_OUI 0xf0fd8c
 #define QCA_OUI_WHC_TYPE  0x00
 
+/* Extender vendor specific IE */
+#define QCA_OUI_EXTENDER_TYPE           0x03
+
 #define ADAPTIVE_11R_OUI      0x964000
 #define ADAPTIVE_11R_OUI_TYPE 0x2C
 
@@ -101,7 +104,9 @@
 /* Individual element IEs length checks */
 
 #define WLAN_SUPPORTED_RATES_IE_MAX_LEN          12
+#define WLAN_FH_PARAM_IE_MAX_LEN                 5
 #define WLAN_DS_PARAM_IE_MAX_LEN                 1
+#define WLAN_CF_PARAM_IE_MAX_LEN                 6
 #define WLAN_COUNTRY_IE_MIN_LEN                  3
 #define WLAN_QUIET_IE_MAX_LEN                    6
 #define WLAN_CSA_IE_MAX_LEN                      3
@@ -113,6 +118,9 @@
 #define WLAN_MOBILITY_DOMAIN_IE_MAX_LEN          3
 #define WLAN_OPMODE_IE_MAX_LEN                   1
 #define WLAN_IBSSDFS_IE_MIN_LEN                  7
+#define WLAN_IBSS_IE_MAX_LEN                     2
+#define WLAN_REQUEST_IE_MAX_LEN                  255
+#define WLAN_RM_CAPABILITY_IE_MAX_LEN            5
 
 /* HT capability flags */
 #define WLAN_HTCAP_C_ADVCODING             0x0001
@@ -252,10 +260,13 @@ enum ext_chan_offset {
  * @WLAN_ELEMID_WAPI: WAPI IE
  * @WLAN_ELEMID_TIME_ADVERTISEMENT: Time IE
  * @WLAN_ELEMID_RRM: Radio resource measurement IE
+ * @WLAN_ELEMID_MULTIPLE_BSSID: Multiple BSSID IE
  * @WLAN_ELEMID_2040_COEXT: 20-40 COext ext IE
  * @WLAN_ELEMID_2040_INTOL:20-40 INT OL IE
  * @WLAN_ELEMID_OBSS_SCAN: OBSS scan IE
  * @WLAN_ELEMID_MMIE: 802.11w Management MIC IE
+ * @WLAN_ELEMID_NONTX_BSSID_CAP: Nontransmitted BSSID Capability IE
+ * @WLAN_ELEMID_MULTI_BSSID_IDX: Multiple BSSID index
  * @WLAN_ELEMID_FMS_DESCRIPTOR: 802.11v FMS descriptor IE
  * @WLAN_ELEMID_FMS_REQUEST: 802.11v FMS request IE
  * @WLAN_ELEMID_FMS_RESPONSE: 802.11v FMS response IE
@@ -290,8 +301,10 @@ enum element_ie {
 	WLAN_ELEMID_TIM              = 5,
 	WLAN_ELEMID_IBSSPARMS        = 6,
 	WLAN_ELEMID_COUNTRY          = 7,
+	/* 8-9 reserved */
 	WLAN_ELEMID_REQINFO          = 10,
 	WLAN_ELEMID_QBSS_LOAD        = 11,
+	WLAN_ELEMID_EDCAPARMS        = 12,
 	WLAN_ELEMID_TCLAS            = 14,
 	WLAN_ELEMID_CHALLENGE        = 16,
 	/* 17-31 reserved for challenge text extension */
@@ -308,6 +321,7 @@ enum element_ie {
 	WLAN_ELEMID_ERP              = 42,
 	WLAN_ELEMID_TCLAS_PROCESS    = 44,
 	WLAN_ELEMID_HTCAP_ANA        = 45,
+	WLAN_ELEMID_QOS_CAPABILITY   = 46,
 	WLAN_ELEMID_RSN              = 48,
 	WLAN_ELEMID_XRATES           = 50,
 	WLAN_ELEMID_HTCAP_VENDOR     = 51,
@@ -322,10 +336,13 @@ enum element_ie {
 	WLAN_ELEMID_WAPI             = 68,
 	WLAN_ELEMID_TIME_ADVERTISEMENT = 69,
 	WLAN_ELEMID_RRM              = 70,
+	WLAN_ELEMID_MULTIPLE_BSSID   = 71,
 	WLAN_ELEMID_2040_COEXT       = 72,
 	WLAN_ELEMID_2040_INTOL       = 73,
 	WLAN_ELEMID_OBSS_SCAN        = 74,
 	WLAN_ELEMID_MMIE             = 76,
+	WLAN_ELEMID_NONTX_BSSID_CAP  = 83,
+	WLAN_ELEMID_MULTI_BSSID_IDX  = 85,
 	WLAN_ELEMID_FMS_DESCRIPTOR   = 86,
 	WLAN_ELEMID_FMS_REQUEST      = 87,
 	WLAN_ELEMID_FMS_RESPONSE     = 88,
@@ -350,17 +367,20 @@ enum element_ie {
 	WLAN_ELEMID_OP_MODE_NOTIFY   = 199,
 	WLAN_ELEMID_VENDOR           = 221,
 	WLAN_ELEMID_FILS_INDICATION  = 240,
+	WLAN_ELEMID_RSNXE            = 244,
 	WLAN_ELEMID_EXTN_ELEM        = 255,
 };
 
 /**
  * enum extn_element_ie :- extended management information element
+ * @WLAN_EXTN_ELEMID_MAX_CHAN_SWITCH_TIME: Maximum Channel Switch Time IE
  * @WLAN_EXTN_ELEMID_HECAP:  HE capabilities IE
  * @WLAN_EXTN_ELEMID_HEOP:   HE Operation IE
  * @WLAN_EXTN_ELEMID_MUEDCA: MU-EDCA IE
  * @WLAN_EXTN_ELEMID_SRP:    spatial reuse parameter IE
  */
 enum extn_element_ie {
+	WLAN_EXTN_ELEMID_MAX_CHAN_SWITCH_TIME = 34,
 	WLAN_EXTN_ELEMID_HECAP       = 35,
 	WLAN_EXTN_ELEMID_HEOP        = 36,
 	WLAN_EXTN_ELEMID_MUEDCA      = 38,
@@ -373,6 +393,7 @@ enum extn_element_ie {
 #define WLAN_RSN_SELECTOR_LEN 4
 #define WLAN_WPA_SELECTOR_LEN 4
 #define PMKID_LEN 16
+#define MAX_PMK_LEN 64
 #define MAX_PMKID 4
 
 #define WLAN_WPA_OUI 0xf25000
@@ -558,6 +579,37 @@ struct wlan_frame_hdr {
 		uint8_t i_addr_all[3 * QDF_MAC_ADDR_SIZE];
 	};
 	uint8_t i_seq[2];
+} qdf_packed;
+
+struct wlan_frame_hdr_qos {
+	uint8_t i_fc[2];
+	uint8_t i_dur[2];
+	union {
+		struct {
+			uint8_t i_addr1[QDF_MAC_ADDR_SIZE];
+			uint8_t i_addr2[QDF_MAC_ADDR_SIZE];
+			uint8_t i_addr3[QDF_MAC_ADDR_SIZE];
+		};
+		uint8_t i_addr_all[3 * QDF_MAC_ADDR_SIZE];
+	};
+	uint8_t i_seq[2];
+	uint8_t i_qos[2];
+} qdf_packed;
+
+struct wlan_frame_hdr_qos_addr4 {
+	uint8_t i_fc[2];
+	uint8_t i_dur[2];
+	union {
+		struct {
+			uint8_t i_addr1[QDF_MAC_ADDR_SIZE];
+			uint8_t i_addr2[QDF_MAC_ADDR_SIZE];
+			uint8_t i_addr3[QDF_MAC_ADDR_SIZE];
+		};
+		uint8_t i_addr_all[3 * QDF_MAC_ADDR_SIZE];
+	};
+	uint8_t i_seq[2];
+	uint8_t i_addr4[QDF_MAC_ADDR_SIZE];
+	uint8_t i_qos[2];
 } qdf_packed;
 
 /* sequence number offset base on begin of mac header */
@@ -1090,6 +1142,18 @@ struct wlan_esp_ie {
 } qdf_packed;
 
 /**
+ * struct wlan_ext_cap_ie - struct for extended capabilities information
+ * @ext_cap_id: Extended capabilities id
+ * @ext_cap_len: Extended capabilities IE len
+ * @ext_caps: Variable length extended capabilities information
+ */
+struct wlan_ext_cap_ie {
+	uint8_t ext_cap_id;
+	uint8_t ext_cap_len;
+	uint8_t ext_caps[];
+} qdf_packed;
+
+/**
  * struct oce_reduced_wan_metrics: struct for oce wan metrics
  * @downlink_av_cap: Download available capacity
  * @uplink_av_cap: Upload available capacity
@@ -1361,6 +1425,21 @@ is_he_op_oui(uint8_t *frm)
 {
 	return (frm[1] > 4) && (LE_READ_4(frm + 2) ==
 		((ATH_HE_OP_SUBTYPE << 24) | ATH_HE_OUI));
+}
+
+/**
+ * is_extender_oui() - If vendor IE is EXTENDER OUI
+ * @frm: vendor IE pointer
+ *
+ * API to check if vendor IE is EXTENDER OUI
+ *
+ * Return: true if its EXTENDER OUI
+ */
+static inline bool
+is_extender_oui(uint8_t *frm)
+{
+	return (frm[1] > 4) && (LE_READ_4(frm + 2) ==
+		((QCA_OUI_EXTENDER_TYPE << 24) | QCA_OUI));
 }
 
 /**

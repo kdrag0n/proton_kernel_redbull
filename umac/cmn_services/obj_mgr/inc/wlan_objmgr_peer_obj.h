@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -147,7 +147,9 @@ struct wlan_objmgr_peer_mlme {
 struct wlan_objmgr_peer_objmgr {
 	struct wlan_objmgr_vdev *vdev;
 	qdf_atomic_t ref_cnt;
+#ifdef WLAN_OBJMGR_REF_ID_DEBUG
 	qdf_atomic_t ref_id_dbg[WLAN_REF_ID_MAX];
+#endif
 	uint8_t print_cnt;
 };
 
@@ -525,7 +527,7 @@ static inline struct wlan_objmgr_peer *wlan_peer_get_next_peer_of_vdev(
 	qdf_list_node_t *next_node = NULL;
 
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (peer == NULL)
+	if (!peer)
 		return NULL;
 
 	node = &peer->vdev_peer;
@@ -596,7 +598,7 @@ static inline struct wlan_objmgr_peer *wlan_peer_get_next_peer_of_psoc(
 	qdf_list_node_t *next_node = NULL;
 
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (peer == NULL)
+	if (!peer)
 		return NULL;
 
 	node = &peer->psoc_peer;
@@ -1035,5 +1037,26 @@ static inline void wlan_peer_set_pdev_id(struct wlan_objmgr_peer *peer,
 {
 	peer->pdev_id = pdev_id;
 }
+
+/**
+ * wlan_objmgr_print_peer_ref_ids() - print peer object refs
+ * @peer: peer object pointer
+ * @log_level: log level
+ *
+ * Return: void
+ */
+void wlan_objmgr_print_peer_ref_ids(struct wlan_objmgr_peer *peer,
+				    QDF_TRACE_LEVEL log_level);
+
+/**
+ * wlan_objmgr_peer_get_comp_ref_cnt() - get component ref count for a peer
+ * @peer: peer object pointer
+ * @id: component id
+ *
+ * Return: uint32_t
+ */
+uint32_t
+wlan_objmgr_peer_get_comp_ref_cnt(struct wlan_objmgr_peer *peer,
+				  enum wlan_umac_comp_id id);
 
 #endif /* _WLAN_OBJMGR_PEER_OBJ_H_*/

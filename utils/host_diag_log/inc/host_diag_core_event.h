@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -583,6 +583,26 @@ struct event_wlan_csr_rsn_info {
 };
 
 /*-------------------------------------------------------------------------
+  Event ID: EVENT_WLAN_AUTH_INFO
+  -------------------------------------------------------------------------
+ */
+/**
+ * struct event_wlan_lim_auth_info - Structure holding the
+ * algo num, seq num and status code for auth request
+ * @auth_algo_num: Gives information about algo num used in auth request
+ * @auth_transaction_seq_num: seq num of auth request
+ * @auth_status_code: status code of auth request
+ *
+ * This structure will hold the algo num, seq num and status code
+ * for auth request
+ */
+struct event_wlan_lim_auth_info {
+	uint16_t   auth_algo_num;
+	uint16_t   auth_transaction_seq_num;
+	uint16_t   auth_status_code;
+};
+
+/*-------------------------------------------------------------------------
   Event ID: EVENT_WLAN_WAKE_LOCK
   ------------------------------------------------------------------------*/
 /**
@@ -875,6 +895,7 @@ enum wifi_connectivity_events {
  * @WIFI_POWER_EVENT_WAKELOCK_CONNECT: connection in progress
  * @WIFI_POWER_EVENT_WAKELOCK_IFACE_CHANGE_TIMER: iface change timer running
  * @WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE: Montitor mode wakelock
+ * @WIFI_POWER_EVENT_WAKELOCK_DRIVER_IDLE_RESTART: Wakelock for Idle Restart
  *
  * Indicates the reason for which the wakelock was taken/released
  */
@@ -901,6 +922,7 @@ enum wake_lock_reason {
 	WIFI_POWER_EVENT_WAKELOCK_CONNECT,
 	WIFI_POWER_EVENT_WAKELOCK_IFACE_CHANGE_TIMER,
 	WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE,
+	WIFI_POWER_EVENT_WAKELOCK_DRIVER_IDLE_RESTART,
 };
 
 /* The length of interface name should >= IFNAMSIZ */

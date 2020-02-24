@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -38,10 +38,9 @@ QDF_STATUS wlan_mgmt_txrx_desc_pool_init(
 			MGMT_DESC_POOL_MAX *
 			sizeof(struct mgmt_txrx_desc_elem_t));
 
-	if (!mgmt_txrx_pdev_ctx->mgmt_desc_pool.pool) {
-		mgmt_txrx_err("Failed to allocate desc pool");
+	if (!mgmt_txrx_pdev_ctx->mgmt_desc_pool.pool)
 		return QDF_STATUS_E_NOMEM;
-	}
+
 	qdf_list_create(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.free_list,
 					MGMT_DESC_POOL_MAX);
 
@@ -125,14 +124,15 @@ struct mgmt_txrx_desc_elem_t *wlan_mgmt_txrx_desc_get(
 					  entry);
 	mgmt_txrx_desc->in_use = true;
 
+	qdf_spin_unlock_bh(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.desc_pool_lock);
+
 	/* acquire the wakelock when there are pending mgmt tx frames */
 	qdf_wake_lock_timeout_acquire(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
 				      MGMT_TXRX_WAKELOCK_TIMEOUT_TX_CMP);
+	qdf_runtime_pm_prevent_suspend(
+		&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
 
-	qdf_spin_unlock_bh(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.desc_pool_lock);
 
-	mgmt_txrx_info("retrieved mgmt desc: %pK with desc id: %d",
-			mgmt_txrx_desc, mgmt_txrx_desc->desc_id);
 	return mgmt_txrx_desc;
 }
 
@@ -141,6 +141,7 @@ void wlan_mgmt_txrx_desc_put(
 			uint32_t desc_id)
 {
 	struct mgmt_txrx_desc_elem_t *desc;
+	bool release_wakelock = false;
 
 	desc = &mgmt_txrx_pdev_ctx->mgmt_desc_pool.pool[desc_id];
 	qdf_spin_lock_bh(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.desc_pool_lock);
@@ -157,17 +158,21 @@ void wlan_mgmt_txrx_desc_put(
 	desc->tx_dwnld_cmpl_cb = NULL;
 	desc->tx_ota_cmpl_cb = NULL;
 	desc->vdev_id = WLAN_UMAC_VDEV_ID_MAX;
+
 	qdf_list_insert_front(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.free_list,
 			      &desc->entry);
 
 	/* release the wakelock if there are no pending mgmt tx frames */
 	if (mgmt_txrx_pdev_ctx->mgmt_desc_pool.free_list.count ==
 	    mgmt_txrx_pdev_ctx->mgmt_desc_pool.free_list.max_size)
-		qdf_wake_lock_release(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
-				      MGMT_TXRX_WAKELOCK_REASON_TX_CMP);
+		release_wakelock = true;
 
 	qdf_spin_unlock_bh(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.desc_pool_lock);
 
-	mgmt_txrx_info("put mgmt desc: %pK with desc id: %d into freelist",
-			desc, desc->desc_id);
+	if (release_wakelock) {
+		qdf_runtime_pm_allow_suspend(
+			&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
+		qdf_wake_lock_release(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
+				      MGMT_TXRX_WAKELOCK_REASON_TX_CMP);
+	}
 }

@@ -43,8 +43,12 @@ static void wlan_cfg80211_mc_cp_stats_dealloc(void *priv)
 {
 	struct stats_event *stats = priv;
 
-	if (!stats)
+	cfg80211_debug("Enter");
+
+	if (!stats) {
+		cfg80211_err("stats is NULL");
 		return;
+	}
 
 	qdf_mem_free(stats->pdev_stats);
 	qdf_mem_free(stats->peer_stats);
@@ -52,6 +56,7 @@ static void wlan_cfg80211_mc_cp_stats_dealloc(void *priv)
 	qdf_mem_free(stats->vdev_summary_stats);
 	qdf_mem_free(stats->vdev_chain_rssi);
 	qdf_mem_free(stats->peer_adv_stats);
+	cfg80211_debug("Exit");
 }
 
 /**
@@ -254,12 +259,14 @@ int wlan_cfg80211_mc_cp_stats_get_tx_power(struct wlan_objmgr_vdev *vdev,
 	info.u.get_tx_power_cb = get_tx_power_cb;
 	info.vdev_id = wlan_vdev_get_id(vdev);
 	info.pdev_id = wlan_objmgr_pdev_get_pdev_id(wlan_vdev_get_pdev(vdev));
-	peer = wlan_vdev_get_bsspeer(vdev);
+	peer = wlan_objmgr_vdev_try_get_bsspeer(vdev, WLAN_CP_STATS_ID);
 	if (!peer) {
 		ret = -EINVAL;
 		goto peer_is_null;
 	}
-	qdf_mem_copy(info.peer_mac_addr, peer->macaddr, WLAN_MACADDR_LEN);
+	qdf_mem_copy(info.peer_mac_addr, peer->macaddr, QDF_MAC_ADDR_SIZE);
+
+	wlan_objmgr_peer_release_ref(peer, WLAN_CP_STATS_ID);
 
 	status = ucfg_mc_cp_stats_send_stats_request(vdev,
 						     TYPE_CONNECTION_TX_POWER,
@@ -327,10 +334,8 @@ static void get_peer_rssi_cb(struct stats_event *ev, void *cookie)
 	}
 
 	priv->peer_stats = qdf_mem_malloc(rssi_size);
-	if (!priv->peer_stats) {
-		cfg80211_err("allocation failed");
+	if (!priv->peer_stats)
 		goto get_peer_rssi_cb_fail;
-	}
 
 	priv->num_peer_stats = ev->num_peer_stats;
 	qdf_mem_copy(priv->peer_stats, ev->peer_stats, rssi_size);
@@ -358,7 +363,6 @@ wlan_cfg80211_mc_cp_stats_get_peer_rssi(struct wlan_objmgr_vdev *vdev,
 
 	out = qdf_mem_malloc(sizeof(*out));
 	if (!out) {
-		cfg80211_err("allocation failed");
 		*errno = -ENOMEM;
 		return NULL;
 	}
@@ -377,7 +381,7 @@ wlan_cfg80211_mc_cp_stats_get_peer_rssi(struct wlan_objmgr_vdev *vdev,
 	info.u.get_peer_rssi_cb = get_peer_rssi_cb;
 	info.vdev_id = wlan_vdev_get_id(vdev);
 	info.pdev_id = wlan_objmgr_pdev_get_pdev_id(wlan_vdev_get_pdev(vdev));
-	qdf_mem_copy(info.peer_mac_addr, mac_addr, WLAN_MACADDR_LEN);
+	qdf_mem_copy(info.peer_mac_addr, mac_addr, QDF_MAC_ADDR_SIZE);
 	status = ucfg_mc_cp_stats_send_stats_request(vdev, TYPE_PEER_STATS,
 						     &info);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -425,6 +429,8 @@ static void get_station_stats_cb(struct stats_event *ev, void *cookie)
 	struct osif_request *request;
 	uint32_t summary_size, rssi_size, peer_adv_size;
 
+	cfg80211_debug("Enter");
+
 	request = osif_request_get(cookie);
 	if (!request) {
 		cfg80211_err("Obsolete request");
@@ -443,16 +449,12 @@ static void get_station_stats_cb(struct stats_event *ev, void *cookie)
 	}
 
 	priv->vdev_summary_stats = qdf_mem_malloc(summary_size);
-	if (!priv->vdev_summary_stats) {
-		cfg80211_err("memory allocation failed");
+	if (!priv->vdev_summary_stats)
 		goto station_stats_cb_fail;
-	}
 
 	priv->vdev_chain_rssi = qdf_mem_malloc(rssi_size);
-	if (!priv->vdev_chain_rssi) {
-		cfg80211_err("memory allocation failed");
+	if (!priv->vdev_chain_rssi)
 		goto station_stats_cb_fail;
-	}
 
 	if (peer_adv_size) {
 		priv->peer_adv_stats = qdf_mem_malloc(peer_adv_size);
@@ -476,6 +478,8 @@ static void get_station_stats_cb(struct stats_event *ev, void *cookie)
 station_stats_cb_fail:
 	osif_request_complete(request);
 	osif_request_put(request);
+
+	cfg80211_debug("Exit");
 }
 
 struct stats_event *
@@ -494,16 +498,16 @@ wlan_cfg80211_mc_cp_stats_get_station_stats(struct wlan_objmgr_vdev *vdev,
 		.dealloc = wlan_cfg80211_mc_cp_stats_dealloc,
 	};
 
+	cfg80211_debug("Enter");
+
 	out = qdf_mem_malloc(sizeof(*out));
 	if (!out) {
-		cfg80211_err("allocation failed");
 		*errno = -ENOMEM;
 		return NULL;
 	}
 
 	request = osif_request_alloc(&params);
 	if (!request) {
-		cfg80211_err("Request allocation failure, return cached value");
 		qdf_mem_free(out);
 		*errno = -ENOMEM;
 		return NULL;
@@ -515,13 +519,15 @@ wlan_cfg80211_mc_cp_stats_get_station_stats(struct wlan_objmgr_vdev *vdev,
 	info.u.get_station_stats_cb = get_station_stats_cb;
 	info.vdev_id = wlan_vdev_get_id(vdev);
 	info.pdev_id = wlan_objmgr_pdev_get_pdev_id(wlan_vdev_get_pdev(vdev));
-	peer = wlan_vdev_get_bsspeer(vdev);
+	peer = wlan_objmgr_vdev_try_get_bsspeer(vdev, WLAN_CP_STATS_ID);
 	if (!peer) {
 		cfg80211_err("peer is null");
 		*errno = -EINVAL;
 		goto get_station_stats_fail;
 	}
-	qdf_mem_copy(info.peer_mac_addr, peer->macaddr, WLAN_MACADDR_LEN);
+	qdf_mem_copy(info.peer_mac_addr, peer->macaddr, QDF_MAC_ADDR_SIZE);
+
+	wlan_objmgr_peer_release_ref(peer, WLAN_CP_STATS_ID);
 
 	status = ucfg_mc_cp_stats_send_stats_request(vdev, TYPE_STATION_STATS,
 						     &info);
@@ -562,11 +568,15 @@ wlan_cfg80211_mc_cp_stats_get_station_stats(struct wlan_objmgr_vdev *vdev,
 	priv->peer_adv_stats = NULL;
 	osif_request_put(request);
 
+	cfg80211_debug("Exit");
+
 	return out;
 
 get_station_stats_fail:
 	osif_request_put(request);
 	wlan_cfg80211_mc_cp_stats_free_stats_event(out);
+
+	cfg80211_debug("Exit");
 
 	return NULL;
 }

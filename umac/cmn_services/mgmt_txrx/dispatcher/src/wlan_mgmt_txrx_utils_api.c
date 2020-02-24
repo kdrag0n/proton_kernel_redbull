@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -58,7 +58,6 @@ static QDF_STATUS wlan_mgmt_txrx_psoc_obj_create_notification(
 
 	mgmt_txrx_psoc_ctx = qdf_mem_malloc(sizeof(*mgmt_txrx_psoc_ctx));
 	if (!mgmt_txrx_psoc_ctx) {
-		mgmt_txrx_err("Failed to allocate mgmt txrx context");
 		status = QDF_STATUS_E_NOMEM;
 		goto err_return;
 	}
@@ -162,7 +161,6 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_create_notification(
 
 	mgmt_txrx_pdev_ctx = qdf_mem_malloc(sizeof(*mgmt_txrx_pdev_ctx));
 	if (!mgmt_txrx_pdev_ctx) {
-		mgmt_txrx_err("Failed to allocate mgmt txrx context");
 		status = QDF_STATUS_E_NOMEM;
 		goto err_return;
 	}
@@ -179,8 +177,6 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_create_notification(
 
 	mgmt_txrx_stats = qdf_mem_malloc(sizeof(*mgmt_txrx_stats));
 	if (!mgmt_txrx_stats) {
-		mgmt_txrx_err(
-			"Failed to allocate memory for mgmt txrx stats structure");
 		status = QDF_STATUS_E_NOMEM;
 		goto err_mgmt_txrx_stats;
 	}
@@ -188,6 +184,7 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_create_notification(
 
 	qdf_wake_lock_create(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
 			     "mgmt_txrx tx_cmp");
+	qdf_runtime_lock_init(&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
 
 	if (wlan_objmgr_pdev_component_obj_attach(pdev,
 			WLAN_UMAC_COMP_MGMT_TXRX,
@@ -205,6 +202,7 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_create_notification(
 	return QDF_STATUS_SUCCESS;
 
 err_pdev_attach:
+	qdf_runtime_lock_deinit(&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
 	qdf_wake_lock_destroy(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
 	qdf_mem_free(mgmt_txrx_stats);
 err_mgmt_txrx_stats:
@@ -255,6 +253,7 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_destroy_notification(
 
 	wlan_mgmt_txrx_desc_pool_deinit(mgmt_txrx_pdev_ctx);
 	qdf_mem_free(mgmt_txrx_pdev_ctx->mgmt_txrx_stats);
+	qdf_runtime_lock_deinit(&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
 	qdf_wake_lock_destroy(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
 	qdf_mem_free(mgmt_txrx_pdev_ctx);
 
@@ -540,10 +539,8 @@ static QDF_STATUS wlan_mgmt_txrx_create_rx_handler(
 	struct mgmt_rx_handler *rx_handler;
 
 	rx_handler = qdf_mem_malloc(sizeof(*rx_handler));
-	if (!rx_handler) {
-		mgmt_txrx_err("Couldn't allocate memory for rx handler");
+	if (!rx_handler)
 		return QDF_STATUS_E_NOMEM;
-	}
 
 	rx_handler->comp_id = comp_id;
 	rx_handler->rx_cb = mgmt_rx_cb;

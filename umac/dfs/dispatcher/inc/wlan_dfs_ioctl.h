@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2016-2019 The Linux Foundation. All rights reserved.
  * Copyright (c) 2010, Atheros Communications Inc.
  * All Rights Reserved.
  *
@@ -48,18 +48,17 @@
 #define DFS_GET_CAC_VALID_TIME   20
 #define DFS_SET_CAC_VALID_TIME   21
 #define DFS_SHOW_NOLHISTORY      22
-#define DFS_SECOND_SEGMENT_BANGRADAR  23
-#define DFS_SHOW_PRECAC_LISTS    24
-#define DFS_RESET_PRECAC_LISTS   25
-
-#define DFS_SET_PRI_MULTIPILER   29
+#define DFS_SHOW_PRECAC_LISTS    23
+#define DFS_RESET_PRECAC_LISTS   24
+#define DFS_SET_DISABLE_RADAR_MARKING 25
+#define DFS_GET_DISABLE_RADAR_MARKING 26
 
 /*
  * Spectral IOCTLs use DFS_LAST_IOCTL as the base.
  * This must always be the last IOCTL in DFS and have
  * the highest value.
  */
-#define DFS_LAST_IOCTL 26
+#define DFS_LAST_IOCTL 27
 
 #ifndef DFS_CHAN_MAX
 #define DFS_CHAN_MAX 1023
@@ -121,6 +120,44 @@ struct dfs_ioctl_params {
 	int32_t dfs_maxlen;
 };
 
+/* Types of Bangradar commands:
+ * @DFS_BANGRADAR_FOR_ALL_SUBCHANS          : Bangradar with no arguments.
+ *                                            All the subchannels in the current
+ *                                            channel shall be added.
+ * @DFS_BANGRADAR_FOR_ALL_SUBCHANS_OF_SEGID : Bangradar with 1 (seg_id) argument
+ *                                            All subchannels of the specific
+ *                                            seg_id shall be added.
+ * @DFS_BANGRADAR_FOR_SPECIFIC_SUBCHANS     : Bangradar with all (segment ID,
+ *                                            is_chirp and frequency offset)
+ *                                            arguments.
+ *                                            Only radar infected subchannels
+ *                                            of the specific seg_id shall be
+ *                                            added.
+ *
+ * (Unless all arguments are given, we cannot determine which specific
+ * subchannels to simulate the radar on, hence simulate in all subchans).
+ */
+enum dfs_bangradar_types {
+	DFS_NO_BANGRADAR = 0,
+	DFS_BANGRADAR_FOR_ALL_SUBCHANS,
+	DFS_BANGRADAR_FOR_ALL_SUBCHANS_OF_SEGID,
+	DFS_BANGRADAR_FOR_SPECIFIC_SUBCHANS,
+	DFS_INVALID_BANGRADAR_TYPE
+};
+
+/**
+ * struct dfs_bangradar_params - DFS bangradar params.
+ * @bangradar_type: Type of Bangradar.
+ * @seg_id:         Segment ID information.
+ * @is_chirp:       Chirp radar or not.
+ * @freq_offset:    Frequency offset at which radar was found.
+ */
+struct dfs_bangradar_params {
+	enum dfs_bangradar_types bangradar_type;
+	uint8_t seg_id;
+	uint8_t is_chirp;
+	int32_t freq_offset;
+};
 #define DFS_IOCTL_PARAM_NOVAL  65535
 #define DFS_IOCTL_PARAM_ENABLE 0x8000
 
@@ -145,6 +182,12 @@ struct dfs_ioctl_params {
 
 /* Flag to exclude all 2.4GHz channels */
 #define DFS_RANDOM_CH_FLAG_NO_2GHZ_CH           0x0040 /* 0000 0000 0100 0000 */
+
+/* Flag to enable Reduced BW Agile DFS */
+#define DFS_RANDOM_CH_FLAG_ENABLE_REDUCED_BW    0x0080 /* 0000 0000 1000 0000 */
+
+/* Flag to exclude Japan W53 channnels */
+#define DFS_RANDOM_CH_FLAG_NO_JAPAN_W53_CH      0x0100 /* 0000 0001 0000 0000 */
 
 /**
  * struct wlan_dfs_caps - DFS capability structure.
@@ -207,6 +250,25 @@ struct wlan_dfs_phyerr_param {
 	bool       pe_usefir128;
 	bool       pe_blockradar;
 	bool       pe_enmaxrssi;
+};
+
+/**
+ * enum WLAN_DFS_EVENTS - DFS Events that will be sent to userspace
+ * @WLAN_EV_RADAR_DETECTED: Radar is detected
+ * @WLAN_EV_CAC_STARTED:    CAC timer has started
+ * @WLAN_EV_CAC_COMPLETED:  CAC timer completed
+ * @WLAN_EV_NOL_STARTED:    NOL started
+ * @WLAN_EV_NOL_FINISHED:   NOL Completed
+ *
+ * DFS events such as radar detected, CAC started,
+ * CAC completed, NOL started, NOL finished
+ */
+enum WLAN_DFS_EVENTS {
+	WLAN_EV_RADAR_DETECTED,
+	WLAN_EV_CAC_STARTED,
+	WLAN_EV_CAC_COMPLETED,
+	WLAN_EV_NOL_STARTED,
+	WLAN_EV_NOL_FINISHED,
 };
 
 #endif  /* _DFS_IOCTL_H_ */

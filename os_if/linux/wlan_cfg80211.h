@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -30,23 +30,20 @@
 #include <net/cfg80211.h>
 #include <qca_vendor.h>
 
-#define cfg80211_log(level, args...) \
-	QDF_TRACE(QDF_MODULE_ID_OS_IF, level, ## args)
-#define cfg80211_logfl(level, format, args...) \
-	cfg80211_log(level, FL(format), ## args)
-
-#define cfg80211_alert(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_FATAL, format, ## args)
-#define cfg80211_err(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_ERROR, format, ## args)
-#define cfg80211_warn(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_WARN, format, ## args)
-#define cfg80211_notice(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_INFO, format, ## args)
-#define cfg80211_info(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_INFO_HIGH, format, ## args)
-#define cfg80211_debug(format, args...) \
-	cfg80211_logfl(QDF_TRACE_LEVEL_DEBUG, format, ## args)
+#define cfg80211_alert(params...) \
+	QDF_TRACE_FATAL(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_err(params...) \
+	QDF_TRACE_ERROR(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_warn(params...) \
+	QDF_TRACE_WARN(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_notice(params...) \
+	QDF_TRACE_INFO(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_info(params...) \
+	QDF_TRACE_INFO(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_debug(params...) \
+	QDF_TRACE_DEBUG(QDF_MODULE_ID_OS_IF, params)
+#define cfg80211_debug_rl(params...) \
+	QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_OS_IF, params)
 
 #define COMMON_VENDOR_COMMANDS						\
 { 									\

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -764,7 +764,7 @@ dfs_find_target_channel_in_channel_matrix(enum phy_ch_width ch_width,
 		}
 	}
 
-	if (NULL == target_chan_matrix) {
+	if (!target_chan_matrix) {
 		return false;
 	} else {
 		*pTarget_chnl_mtrx = target_chan_matrix;
@@ -1206,16 +1206,7 @@ static void dfs_remove_cur_ch_from_list(
 	return;
 }
 
-/**
- * dfs_freq_is_in_nol()- check if given channel in nol list
- * @dfs: dfs handler
- * @freq: channel frequency.
- *
- * check if given channel in nol list.
- *
- * Return: true if channel in nol, false else
- */
-static bool dfs_freq_is_in_nol(struct wlan_dfs *dfs, uint32_t freq)
+bool dfs_is_freq_in_nol(struct wlan_dfs *dfs, uint32_t freq)
 {
 	struct dfs_nolelem *nol;
 
@@ -1262,25 +1253,26 @@ static void dfs_apply_rules(struct wlan_dfs *dfs,
 	struct dfs_acs_info *acs_info)
 {
 	struct dfs_channel *chan;
-	uint16_t flag_no_weather = 0;
-	uint16_t flag_no_lower_5g = 0;
-	uint16_t flag_no_upper_5g = 0;
-	uint16_t flag_no_dfs_chan = 0;
-	uint16_t flag_no_2g_chan  = 0;
-	uint16_t flag_no_5g_chan  = 0;
+	bool flag_no_weather = 0;
+	bool flag_no_lower_5g = 0;
+	bool flag_no_upper_5g = 0;
+	bool flag_no_dfs_chan = 0;
+	bool flag_no_2g_chan  = 0;
+	bool flag_no_5g_chan  = 0;
+	bool flag_no_japan_w53 = 0;
 	int i;
 	bool found = false;
-	uint8_t j;
+	uint16_t j;
 
 	dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN, "flags %d", flags);
 	flag_no_weather = (dfs_region == DFS_ETSI_REGION_VAL) ?
 		flags & DFS_RANDOM_CH_FLAG_NO_WEATHER_CH : 0;
 
-	flag_no_lower_5g = (dfs_region == DFS_MKK_REGION_VAL) ?
-		flags & DFS_RANDOM_CH_FLAG_NO_LOWER_5G_CH : 0;
-
-	flag_no_upper_5g = (dfs_region == DFS_MKK_REGION_VAL) ?
-		flags & DFS_RANDOM_CH_FLAG_NO_UPEER_5G_CH : 0;
+	if (dfs_region == DFS_MKK_REGION_VAL) {
+		flag_no_lower_5g = flags & DFS_RANDOM_CH_FLAG_NO_LOWER_5G_CH;
+		flag_no_upper_5g = flags & DFS_RANDOM_CH_FLAG_NO_UPEER_5G_CH;
+		flag_no_japan_w53 = flags & DFS_RANDOM_CH_FLAG_NO_JAPAN_W53_CH;
+	}
 
 	flag_no_dfs_chan = flags & DFS_RANDOM_CH_FLAG_NO_DFS_CH;
 	flag_no_2g_chan  = flags & DFS_RANDOM_CH_FLAG_NO_2GHZ_CH;
@@ -1292,8 +1284,7 @@ static void dfs_apply_rules(struct wlan_dfs *dfs,
 		if ((chan->dfs_ch_ieee == 0) ||
 				(chan->dfs_ch_ieee > MAX_CHANNEL_NUM)) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"invalid channel %d",
-					chan->dfs_ch_ieee);
+				  "invalid channel %d", chan->dfs_ch_ieee);
 			continue;
 		}
 
@@ -1302,8 +1293,8 @@ static void dfs_apply_rules(struct wlan_dfs *dfs,
 			if (chan->dfs_ch_ieee ==
 					dfs->dfs_curchan->dfs_ch_ieee) {
 				dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-						"skip %d current operating channel\n",
-						chan->dfs_ch_ieee);
+					  "skip %d current operating channel",
+					  chan->dfs_ch_ieee);
 				continue;
 			}
 		}
@@ -1329,24 +1320,22 @@ static void dfs_apply_rules(struct wlan_dfs *dfs,
 		if (flag_no_2g_chan &&
 				chan->dfs_ch_ieee <= DFS_MAX_24GHZ_CHANNEL) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip 2.4 GHz channel=%d",
-				    chan->dfs_ch_ieee);
+				  "skip 2.4 GHz channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
 		if (flag_no_5g_chan &&
 				chan->dfs_ch_ieee > DFS_MAX_24GHZ_CHANNEL) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip 5 GHz channel=%d",
-				    chan->dfs_ch_ieee);
+				  "skip 5 GHz channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
 		if (flag_no_weather) {
 			if (DFS_IS_CHANNEL_WEATHER_RADAR(chan->dfs_ch_freq)) {
 				dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-						"skip weather channel=%d",
-						chan->dfs_ch_ieee);
+					  "skip weather channel=%d",
+					  chan->dfs_ch_ieee);
 				continue;
 			}
 		}
@@ -1354,31 +1343,35 @@ static void dfs_apply_rules(struct wlan_dfs *dfs,
 		if (flag_no_lower_5g &&
 		    DFS_IS_CHAN_JAPAN_INDOOR(chan->dfs_ch_ieee)) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip indoor channel=%d",
-					chan->dfs_ch_ieee);
+				  "skip indoor channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
 		if (flag_no_upper_5g &&
 		    DFS_IS_CHAN_JAPAN_OUTDOOR(chan->dfs_ch_ieee)) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip outdoor channel=%d",
-				    chan->dfs_ch_ieee);
+				  "skip outdoor channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
 		if (flag_no_dfs_chan &&
 		    (chan->dfs_ch_flagext & WLAN_CHAN_DFS)) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip dfs channel=%d",
-				    chan->dfs_ch_ieee);
+				  "skip dfs channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
-		if (dfs_freq_is_in_nol(dfs, chan->dfs_ch_freq)) {
+		if (flag_no_japan_w53 &&
+		    DFS_IS_CHAN_JAPAN_W53(chan->dfs_ch_ieee)) {
 			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-					"skip nol channel=%d",
-				    chan->dfs_ch_ieee);
+				  "skip japan W53 channel=%d",
+				  chan->dfs_ch_ieee);
+			continue;
+		}
+
+		if (dfs_is_freq_in_nol(dfs, chan->dfs_ch_freq)) {
+			dfs_debug(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
+				  "skip nol channel=%d", chan->dfs_ch_ieee);
 			continue;
 		}
 
@@ -1419,11 +1412,8 @@ uint8_t dfs_prepare_random_channel(struct wlan_dfs *dfs,
 	}
 
 	random_chan_list = qdf_mem_malloc(ch_cnt * sizeof(*random_chan_list));
-	if (!random_chan_list) {
-		dfs_alert(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-				"Memory allocation failed");
+	if (!random_chan_list)
 		return 0;
-	}
 
 	if (flags & DFS_RANDOM_CH_FLAG_NO_CURR_OPE_CH)
 		dfs_remove_cur_ch_from_list(ch_list, &ch_cnt, ch_wd, cur_chan);
@@ -1437,8 +1427,6 @@ uint8_t dfs_prepare_random_channel(struct wlan_dfs *dfs,
 	/* list adjusted after leakage has been marked */
 	leakage_adjusted_lst = qdf_mem_malloc(random_chan_cnt);
 	if (!leakage_adjusted_lst) {
-		dfs_alert(dfs, WLAN_DEBUG_DFS_RANDOM_CHAN,
-				"Memory allocation failed");
 		qdf_mem_free(random_chan_list);
 		return 0;
 	}

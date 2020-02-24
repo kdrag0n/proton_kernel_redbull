@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +24,8 @@
 #ifndef _QDF_PLATFORM_H
 #define _QDF_PLATFORM_H
 
+#include "qdf_types.h"
+
 /**
  * qdf_self_recovery_callback() - callback for self recovery
  * @reason: the reason for the recovery request
@@ -35,20 +37,6 @@
 typedef void (*qdf_self_recovery_callback)(enum qdf_hang_reason reason,
 					   const char *func,
 					   const uint32_t line);
-
-/**
- * qdf_ssr_callback() - callback for ssr
- *
- * Return: true if fw is down and false if fw is not down
- */
-typedef void (*qdf_ssr_callback)(const char *);
-
-/**
- * qdf_is_module_state_transitioning_cb() - callback to check module state
- *
- * Return: true if module is in transition, else false
- */
-typedef int (*qdf_is_module_state_transitioning_cb)(void);
 
 /**
  * qdf_is_fw_down_callback() - callback to query if fw is down
@@ -74,6 +62,51 @@ void qdf_register_fw_down_callback(qdf_is_fw_down_callback is_fw_down);
 bool qdf_is_fw_down(void);
 
 /**
+ * qdf_wmi_recv_qmi_cb() - callback to receive WMI over QMI
+ * @cb_ctx: WMI event recv callback context(wmi_handle)
+ * @buf: WMI buffer
+ * @len: WMI buffer len
+ *
+ * Return: 0 if success otherwise -EINVAL
+ */
+typedef int (*qdf_wmi_recv_qmi_cb)(void *cb_ctx, void *buf, int len);
+
+/**
+ * qdf_wmi_send_over_qmi_callback() - callback to send WMI over QMI
+ * @buf: WMI buffer
+ * @len: WMI buffer len
+ * @cb_ctx: WMI event recv callback context(wmi_handle)
+ * @wmi_rx_cb: WMI event receive call back
+ *
+ * Return: QDF_STATUS_SUCCESS if success otherwise QDF error code
+ */
+typedef QDF_STATUS (*qdf_wmi_send_over_qmi_callback)(void *buf, uint32_t len,
+						     void *cb_ctx,
+						     qdf_wmi_recv_qmi_cb
+						     wmi_rx_cb);
+
+/**
+ * qdf_register_wmi_send_recv_qmi_callback() - Register WMI over QMI callback
+ * @qdf_wmi_send_over_qmi_callback: callback to send recv WMI data over QMI
+ *
+ * Return: none
+ */
+void qdf_register_wmi_send_recv_qmi_callback(qdf_wmi_send_over_qmi_callback
+					     wmi_send_recv_qmi_cb);
+
+/**
+ * qdf_wmi_send_recv_qmi() - API to send receive WMI data over QMI
+ * @buf: WMI buffer
+ * @len: WMI buffer len
+ * @cb_ctx: WMI event recv callback context(wmi_handle)
+ * @wmi_rx_cb: WMI event receive call back
+ *
+ * Return: QDF STATUS of operation
+ */
+QDF_STATUS qdf_wmi_send_recv_qmi(void *buf, uint32_t len, void *cb_ctx,
+				 qdf_wmi_recv_qmi_cb wmi_rx_cb);
+
+/**
  * qdf_register_self_recovery_callback() - register self recovery callback
  * @callback:  self recovery callback
  *
@@ -82,50 +115,19 @@ bool qdf_is_fw_down(void);
 void qdf_register_self_recovery_callback(qdf_self_recovery_callback callback);
 
 /**
- * qdf_trigger_self_recovery () - tirgger self recovery
+ * qdf_trigger_self_recovery () - trigger self recovery
+ * @reason: the reason for the recovery request
+ *
+ * Call API only in case of fatal error,
+ * if self_recovery_cb callback is registered, injcets fw crash and recovers
+ * else raises QDF_BUG()
  *
  * Return: None
  */
-#define qdf_trigger_self_recovery() \
-	__qdf_trigger_self_recovery(__func__, __LINE__)
-void __qdf_trigger_self_recovery(const char *func, const uint32_t line);
-
-/**
- * qdf_register_ssr_protect_callbacks() - register [un]protect callbacks
- *
- * Return: None
- */
-void qdf_register_ssr_protect_callbacks(qdf_ssr_callback protect,
-					qdf_ssr_callback unprotect);
-
-/**
- * qdf_ssr_protect() - start SSR protection
- *
- * Return: None
- */
-void qdf_ssr_protect(const char *caller);
-
-/**
- * qdf_ssr_unprotect() - remove SSR protection
- *
- * Return: None
- */
-void qdf_ssr_unprotect(const char *caller);
-
-/**
- * qdf_register_module_state_query_callback() - register module state query
- *
- * Return: None
- */
-void qdf_register_module_state_query_callback(
-			qdf_is_module_state_transitioning_cb query);
-
-/**
- * qdf_is_module_state_transitioning() - query module state transition
- *
- * Return: true if in transition else false
- */
-bool qdf_is_module_state_transitioning(void);
+#define qdf_trigger_self_recovery(reason) \
+	__qdf_trigger_self_recovery(reason, __func__, __LINE__)
+void __qdf_trigger_self_recovery(enum qdf_hang_reason reason,
+				 const char *func, const uint32_t line);
 
 /**
  * qdf_is_recovering_callback() - callback to get driver recovering in progress
@@ -151,4 +153,79 @@ void qdf_register_recovering_state_query_callback(
  * Return: true if driver is doing recovering else false
  */
 bool qdf_is_recovering(void);
+
+/**
+ * struct qdf_op_sync - opaque operation synchronization context handle
+ */
+struct qdf_op_sync;
+
+typedef int (*qdf_op_protect_cb)(void **out_sync, const char *func);
+typedef void (*qdf_op_unprotect_cb)(void *sync, const char *func);
+
+/**
+ * qdf_op_protect() - attempt to protect a driver operation
+ * @out_sync: output parameter for the synchronization context, populated on
+ *	success
+ *
+ * Return: Errno
+ */
+#define qdf_op_protect(out_sync) __qdf_op_protect(out_sync, __func__)
+
+qdf_must_check int
+__qdf_op_protect(struct qdf_op_sync **out_sync, const char *func);
+
+/**
+ * qdf_op_unprotect() - release driver operation protection
+ * @sync: synchronization context returned from qdf_op_protect()
+ *
+ * Return: None
+ */
+#define qdf_op_unprotect(sync) __qdf_op_unprotect(sync, __func__)
+
+void __qdf_op_unprotect(struct qdf_op_sync *sync, const char *func);
+
+/**
+ * qdf_op_callbacks_register() - register driver operation protection callbacks
+ *
+ * Return: None
+ */
+void qdf_op_callbacks_register(qdf_op_protect_cb on_protect,
+			       qdf_op_unprotect_cb on_unprotect);
+
+/**
+ * qdf_is_drv_connected_callback() - callback to query if drv is connected
+ *
+ * Return: true if drv is connected else false
+ */
+typedef bool (*qdf_is_drv_connected_callback)(void);
+
+/**
+ * qdf_is_drv_connected() - API to check if drv is connected or not
+ *
+ * DRV is dynamic request voting using which fw can do page fault and
+ * bring in page back without apps wake up
+ *
+ * Return: true: if drv is connected
+ *	   false: if drv is not connected
+ */
+bool qdf_is_drv_connected(void);
+
+/**
+ * qdf_register_drv_connected_callback() - API to register drv connected cb
+ * @is_drv_connected: callback to query if drv is connected or not
+ *
+ * Return: none
+ */
+void qdf_register_drv_connected_callback(qdf_is_drv_connected_callback
+					 is_drv_connected);
+
+/**
+ * qdf_check_state_before_panic() - API to check if FW is down
+ * or driver is in recovery before calling assert
+ *
+ * Return: none
+ */
+void qdf_check_state_before_panic(void);
+
 #endif /*_QDF_PLATFORM_H*/
+

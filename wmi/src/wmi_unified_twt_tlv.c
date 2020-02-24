@@ -1,6 +1,5 @@
-
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -62,6 +61,7 @@ static QDF_STATUS send_twt_enable_cmd_tlv(wmi_unified_t wmi_handle,
 	cmd->mode_check_interval =          params->mode_check_interval;
 	cmd->add_sta_slot_interval =        params->add_sta_slot_interval;
 	cmd->remove_sta_slot_interval =     params->remove_sta_slot_interval;
+	cmd->flags =                        params->flags;
 
 	status = wmi_unified_cmd_send(wmi_handle, buf, sizeof(*cmd),
 			WMI_TWT_ENABLE_CMDID);
@@ -169,6 +169,7 @@ static QDF_STATUS send_twt_del_dialog_cmd_tlv(wmi_unified_t wmi_handle,
 			(wmi_twt_del_dialog_cmd_fixed_param));
 
 	cmd->vdev_id = params->vdev_id;
+	WMI_CHAR_ARRAY_TO_MAC_ADDR(params->peer_macaddr, &cmd->peer_macaddr);
 	cmd->dialog_id = params->dialog_id;
 
 	status = wmi_unified_cmd_send(wmi_handle, buf, sizeof(*cmd),
@@ -201,6 +202,7 @@ static QDF_STATUS send_twt_pause_dialog_cmd_tlv(wmi_unified_t wmi_handle,
 			(wmi_twt_pause_dialog_cmd_fixed_param));
 
 	cmd->vdev_id = params->vdev_id;
+	WMI_CHAR_ARRAY_TO_MAC_ADDR(params->peer_macaddr, &cmd->peer_macaddr);
 	cmd->dialog_id = params->dialog_id;
 
 	status = wmi_unified_cmd_send(wmi_handle, buf, sizeof(*cmd),
@@ -233,8 +235,10 @@ static QDF_STATUS send_twt_resume_dialog_cmd_tlv(wmi_unified_t wmi_handle,
 			(wmi_twt_resume_dialog_cmd_fixed_param));
 
 	cmd->vdev_id = params->vdev_id;
+	WMI_CHAR_ARRAY_TO_MAC_ADDR(params->peer_macaddr, &cmd->peer_macaddr);
 	cmd->dialog_id = params->dialog_id;
 	cmd->sp_offset_us = params->sp_offset_us;
+	cmd->next_twt_size = params->next_twt_size;
 
 	status = wmi_unified_cmd_send(wmi_handle, buf, sizeof(*cmd),
 						WMI_TWT_RESUME_DIALOG_CMDID);
@@ -309,6 +313,7 @@ static QDF_STATUS extract_twt_add_dialog_comp_event_tlv(
 	ev = param_buf->fixed_param;
 
 	params->vdev_id = ev->vdev_id;
+	WMI_MAC_ADDR_TO_CHAR_ARRAY(&ev->peer_macaddr, params->peer_macaddr);
 	params->status = ev->status;
 	params->dialog_id = ev->dialog_id;
 
@@ -332,6 +337,7 @@ static QDF_STATUS extract_twt_del_dialog_comp_event_tlv(
 	ev = param_buf->fixed_param;
 
 	params->vdev_id = ev->vdev_id;
+	WMI_MAC_ADDR_TO_CHAR_ARRAY(&ev->peer_macaddr, params->peer_macaddr);
 	params->dialog_id = ev->dialog_id;
 
 	return QDF_STATUS_SUCCESS;
@@ -354,6 +360,7 @@ static QDF_STATUS extract_twt_pause_dialog_comp_event_tlv(
 	ev = param_buf->fixed_param;
 
 	params->vdev_id = ev->vdev_id;
+	WMI_MAC_ADDR_TO_CHAR_ARRAY(&ev->peer_macaddr, params->peer_macaddr);
 	params->status = ev->status;
 	params->dialog_id = ev->dialog_id;
 
@@ -378,6 +385,7 @@ static QDF_STATUS extract_twt_resume_dialog_comp_event_tlv(
 	ev = param_buf->fixed_param;
 
 	params->vdev_id = ev->vdev_id;
+	WMI_MAC_ADDR_TO_CHAR_ARRAY(&ev->peer_macaddr, params->peer_macaddr);
 	params->status = ev->status;
 	params->dialog_id = ev->dialog_id;
 

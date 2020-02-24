@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -26,6 +26,50 @@
 #include "wlan_objmgr_psoc_obj.h"
 #include "service_ready_param.h"
 #include "target_if.h"
+
+#ifdef WLAN_SUPPORT_RF_CHARACTERIZATION
+/**
+ * init_deinit_populate_rf_characterization_entries()
+ *	- allocates space for and populates the RF characterization information
+ * @handle: WMI handle pointer
+ * @evt: event buffer received from FW
+ * @service_ext_param: pointer to server ext param
+ *
+ * Allocates space for and populates the RF characterization information
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS init_deinit_populate_rf_characterization_entries(void *handle,
+		uint8_t *evt,
+		struct wlan_psoc_host_service_ext_param *service_ext_par);
+
+/**
+ * init_deinit_rf_characterization_entries_free()
+ *	- free RF characterization information
+ * @service_ext_param: pointer to server ext param
+ *
+ * Frees RF characterization information
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS init_deinit_rf_characterization_entries_free(
+		struct wlan_psoc_host_service_ext_param *service_ext_par);
+#else
+static inline
+QDF_STATUS init_deinit_populate_rf_characterization_entries(void *handle,
+			uint8_t *evt,
+			struct wlan_psoc_host_service_ext_param *ser_ext_par)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+QDF_STATUS init_deinit_rf_characterization_entries_free(
+		struct wlan_psoc_host_service_ext_param *ser_ext_par)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 
 /**
  * init_deinit_chainmask_table_alloc()
@@ -103,6 +147,21 @@ int init_deinit_populate_service_ready_ext_param(void *handle, uint8_t *evt,
 			struct wlan_psoc_host_service_ext_param *param);
 
 /**
+ * init_deinit_populate_service_ready_ext2_param() - populate service ready ext2
+ *                                                   parameter
+ * @handle: WMI handle pointer
+ * @evt: event buffer received from FW
+ * @info: Target info handle
+ *
+ * API to populate service ready ext2 param
+ *
+ * Return: zero on successful parsing of service ready ext parameter or failure
+ */
+int init_deinit_populate_service_ready_ext2_param(
+		void *handle, uint8_t *evt,
+		struct tgt_info *info);
+
+/**
  * init_deinit_populate_chainmask_tables() - populate chainmaks tables
  * @handle: WMI handle pointer
  * @evt: event buffer received from FW
@@ -158,6 +217,22 @@ int init_deinit_populate_dbr_ring_cap(struct wlan_objmgr_psoc *psoc,
 				struct tgt_info *info);
 
 /**
+ * init_deinit_populate_spectral_bin_scale_params() - populate Spectral scaling
+ * @psoc: PSOC object
+ * @handle: WMI handle pointer
+ * @event: event buffer received from FW
+ * @info: tgt_info object
+ *
+ * API to populate Spectral bin scaling parameters
+ *
+ * Return: zero on successful parsing of scaling params or failure
+ */
+int init_deinit_populate_spectral_bin_scale_params(
+				struct wlan_objmgr_psoc *psoc,
+				void *handle, uint8_t *event,
+				struct tgt_info *info);
+
+/**
  * init_deinit_dbr_ring_cap_free() - free dbr ring capability
  * @tgt_psoc_info: target psoc info object
  *
@@ -166,6 +241,17 @@ int init_deinit_populate_dbr_ring_cap(struct wlan_objmgr_psoc *psoc,
  * Return: QDF_STATUS
  */
 QDF_STATUS init_deinit_dbr_ring_cap_free(
+				struct target_psoc_info *tgt_psoc_info);
+
+/**
+ * init_deinit_spectral_scaling_params_free() - free Spectral scaling params
+ * @tgt_psoc_info: target psoc info object
+ *
+ * API to free Spectral scaling params
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS init_deinit_spectral_scaling_params_free(
 				struct target_psoc_info *tgt_psoc_info);
 
 /**

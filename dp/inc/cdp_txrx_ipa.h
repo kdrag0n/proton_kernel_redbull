@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -350,6 +350,7 @@ cdp_ipa_disable_autonomy(ol_txrx_soc_handle soc, struct cdp_pdev *pdev)
  * @rx_pipe_handle: pointer to Rx pipe handle
  * @is_smmu_enabled: Is SMMU enabled or not
  * @sys_in: parameters to setup sys pipe in mcc mode
+ * @over_gsi: Is IPA using GSI
  *
  * Return: QDF_STATUS
  */
@@ -358,7 +359,8 @@ cdp_ipa_setup(ol_txrx_soc_handle soc, struct cdp_pdev *pdev, void *ipa_i2w_cb,
 	      void *ipa_w2i_cb, void *ipa_wdi_meter_notifier_cb,
 	      uint32_t ipa_desc_size, void *ipa_priv, bool is_rm_enabled,
 	      uint32_t *tx_pipe_handle, uint32_t *rx_pipe_handle,
-	      bool is_smmu_enabled, qdf_ipa_sys_connect_params_t *sys_in)
+	      bool is_smmu_enabled, qdf_ipa_sys_connect_params_t *sys_in,
+	      bool over_gsi)
 {
 	if (!soc || !soc->ops || !soc->ops->ipa_ops || !pdev) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
@@ -375,7 +377,7 @@ cdp_ipa_setup(ol_txrx_soc_handle soc, struct cdp_pdev *pdev, void *ipa_i2w_cb,
 						    tx_pipe_handle,
 						    rx_pipe_handle,
 						    is_smmu_enabled,
-						    sys_in);
+						    sys_in, over_gsi);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -572,6 +574,38 @@ cdp_ipa_set_perf_level(ol_txrx_soc_handle soc, int client,
 
 	return QDF_STATUS_SUCCESS;
 }
+
+/**
+ * cdp_ipa_rx_intrabss_fwd() - Perform intra-bss fwd for IPA RX path
+ *
+ * @soc: data path soc handle
+ * @vdev: vdev handle
+ * @nbuf: pointer to skb of ethernet packet received from IPA RX path
+ * @fwd_success: pointer to indicate if skb succeeded in intra-bss TX
+ *
+ * This function performs intra-bss forwarding for WDI 3.0 IPA RX path.
+ *
+ * Return: true if packet is intra-bss fwd-ed and no need to pass to
+ *	   network stack. false if packet needs to be passed to network stack.
+ */
+static inline bool
+cdp_ipa_rx_intrabss_fwd(ol_txrx_soc_handle soc, struct cdp_vdev *vdev,
+			qdf_nbuf_t nbuf, bool *fwd_success)
+{
+	if (!soc || !soc->ops || !soc->ops->ipa_ops || !vdev || !fwd_success) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (soc->ops->ipa_ops->ipa_rx_intrabss_fwd)
+		return soc->ops->ipa_ops->ipa_rx_intrabss_fwd(vdev, nbuf,
+							      fwd_success);
+
+	/* Fall back to pass up to stack */
+	return false;
+}
+
 #endif /* IPA_OFFLOAD */
 
 #endif /* _CDP_TXRX_IPA_H_ */

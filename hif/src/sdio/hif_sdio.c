@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -87,7 +87,7 @@ void hif_sdio_stop(struct hif_softc *hif_ctx)
 	struct hif_sdio_device *htc_sdio_device = hif_dev_from_hif(hif_device);
 
 	HIF_ENTER();
-	if (htc_sdio_device != NULL) {
+	if (htc_sdio_device) {
 		hif_dev_disable_interrupts(htc_sdio_device);
 		hif_dev_destroy(htc_sdio_device);
 	}
@@ -133,11 +133,9 @@ int hif_map_service_to_pipe(struct hif_opaque_softc *hif_hdl,
 {
 	struct hif_sdio_softc *scn = HIF_GET_SDIO_SOFTC(hif_hdl);
 	struct hif_sdio_dev *hif_device = scn->hif_handle;
-	struct hif_sdio_device *htc_sdio_device = hif_dev_from_hif(hif_device);
 
-	return hif_dev_map_service_to_pipe(htc_sdio_device,
-					   service_id, ul_pipe, dl_pipe,
-					   hif_device->swap_mailbox);
+	return hif_dev_map_service_to_pipe(hif_device,
+					   service_id, ul_pipe, dl_pipe);
 }
 
 /**
@@ -174,11 +172,15 @@ void hif_post_init(struct hif_opaque_softc *hif_ctx, void *target,
 	struct hif_sdio_dev *hif_device = scn->hif_handle;
 	struct hif_sdio_device *htc_sdio_device = hif_dev_from_hif(hif_device);
 
-	if (htc_sdio_device == NULL)
+	HIF_ENTER();
+
+	if (!htc_sdio_device)
 		htc_sdio_device = hif_dev_create(hif_device, callbacks, target);
 
 	if (htc_sdio_device)
 		hif_dev_setup(htc_sdio_device);
+
+	HIF_EXIT();
 }
 
 /**

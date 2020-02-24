@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +24,23 @@
 #include "hif_main.h"
 #include "qdf_util.h"
 #include "hif_exec.h"
+
+#ifndef DATA_CE_SW_INDEX_NO_INLINE_UPDATE
+#define DATA_CE_UPDATE_SWINDEX(x, scn, addr)				\
+		(x = CE_SRC_RING_READ_IDX_GET_FROM_DDR(scn, addr))
+#else
+#define DATA_CE_UPDATE_SWINDEX(x, scn, addr)
+#endif
+
+/*
+ * Number of times to check for any pending tx/rx completion on
+ * a copy engine, this count should be big enough. Once we hit
+ * this threashold we'll not check for any Tx/Rx comlpetion in same
+ * interrupt handling. Note that this threashold is only used for
+ * Rx interrupt processing, this can be used tor Tx as well if we
+ * suspect any infinite loop in checking for pending Tx completion.
+ */
+#define CE_TXRX_COMP_CHECK_THRESHOLD 20
 
 #define CE_HTT_T2H_MSG 1
 #define CE_HTT_H2T_MSG 4
@@ -51,6 +68,12 @@ enum ce_id_type {
 	CE_ID_10,
 	CE_ID_11,
 	CE_ID_MAX
+};
+
+enum ce_target_type {
+	CE_SVC_LEGACY,
+	CE_SVC_SRNG,
+	CE_MAX_TARGET_TYPE
 };
 
 #ifdef CONFIG_WIN
@@ -178,6 +201,24 @@ struct shadow_reg_v2_cfg {
 	uint32_t reg_value;
 };
 
+#ifdef CONFIG_BYPASS_QMI
+
+#define FW_SHARED_MEM (2 * 1024 * 1024)
+
+#ifdef QCN7605_SUPPORT
+struct msi_cfg {
+	u16 ce_id;
+	u16 msi_vector;
+} qdf_packed;
+
+struct ce_info {
+	u32 rri_over_ddr_low_paddr;
+	u32 rri_over_ddr_high_paddr;
+	struct msi_cfg cfg[CE_COUNT_MAX];
+} qdf_packed;
+#endif
+#endif
+
 void hif_ce_stop(struct hif_softc *scn);
 int hif_dump_ce_registers(struct hif_softc *scn);
 void
@@ -200,6 +241,8 @@ void hif_ce_ipa_get_ce_resource(struct hif_softc *scn,
 
 #endif
 int hif_wlan_enable(struct hif_softc *scn);
+void ce_enable_polling(void *cestate);
+void ce_disable_polling(void *cestate);
 void hif_wlan_disable(struct hif_softc *scn);
 void hif_get_target_ce_config(struct hif_softc *scn,
 		struct CE_pipe_config **target_ce_config_ret,
@@ -225,5 +268,8 @@ void hif_select_epping_service_to_pipe_map(struct service_to_pipe
 					   uint32_t *sz_tgt_svc_map_to_use)
 { }
 #endif
+
+void ce_service_register_module(enum ce_target_type target_type,
+				struct ce_ops* (*ce_attach)(void));
 
 #endif /* __CE_H__ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -23,21 +23,18 @@
 
 #ifdef CONFIG_MCL
 #include <cds_ieee80211_common.h>
-#else
-#include <linux/ieee80211.h>
 #endif
 
-#define DEFRAG_IEEE80211_ADDR_LEN	6
 #define DEFRAG_IEEE80211_KEY_LEN	8
 #define DEFRAG_IEEE80211_FCS_LEN	4
 
 #define DP_RX_DEFRAG_IEEE80211_ADDR_COPY(dst, src) \
-	qdf_mem_copy(dst, src, IEEE80211_ADDR_LEN)
+	qdf_mem_copy(dst, src, QDF_MAC_ADDR_SIZE)
 
 #define DP_RX_DEFRAG_IEEE80211_QOS_HAS_SEQ(wh) \
 	(((wh) & \
-	(IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_QOS)) == \
-	(IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS))
+	(IEEE80211_FC0_TYPE_MASK | QDF_IEEE80211_FC0_SUBTYPE_QOS)) == \
+	(IEEE80211_FC0_TYPE_DATA | QDF_IEEE80211_FC0_SUBTYPE_QOS))
 
 #define UNI_DESC_OWNER_SW 0x1
 #define UNI_DESC_BUF_TYPE_RX_MSDU_LINK 0x6
@@ -57,8 +54,8 @@ struct dp_rx_defrag_cipher {
 
 uint32_t dp_rx_frag_handle(struct dp_soc *soc, void *ring_desc,
 		struct hal_rx_mpdu_desc_info *mpdu_desc_info,
-		union dp_rx_desc_list_elem_t **head,
-		union dp_rx_desc_list_elem_t **tail,
+		struct dp_rx_desc *rx_desc,
+		uint8_t *mac_id,
 		uint32_t quota);
 
 /*
@@ -144,4 +141,8 @@ void dp_rx_reorder_flush_frag(struct dp_peer *peer,
 			 unsigned int tid);
 void dp_rx_defrag_waitlist_remove(struct dp_peer *peer, unsigned tid);
 void dp_rx_defrag_cleanup(struct dp_peer *peer, unsigned tid);
+
+QDF_STATUS dp_rx_defrag_add_last_frag(struct dp_soc *soc,
+				      struct dp_peer *peer, uint16_t tid,
+		uint16_t rxseq, qdf_nbuf_t nbuf);
 #endif /* _DP_RX_DEFRAG_H */

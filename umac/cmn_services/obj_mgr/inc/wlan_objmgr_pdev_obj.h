@@ -1,19 +1,17 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
- * Permission to use, copy, modify, and/or distribute this software for
- * any purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 /**
@@ -82,6 +80,12 @@
 /*#define WLAN_PDEV_F_DUPIE                 0x00200000*/
  /* QWRAP enable flag */
 #define WLAN_PDEV_F_WRAP_EN                 0x04000000
+/* Chan concurrency enabled */
+#define WLAN_PDEV_F_CHAN_CONCURRENCY        0x08000000
+/* Multivdev restart enabled */
+#define WLAN_PDEV_F_MULTIVDEV_RESTART       0x10000000
+/* MBSS IE enable */
+#define WLAN_PDEV_F_MBSS_IE_ENABLE          0x20000000
 
 /* PDEV op flags */
    /* Enable htrate for wep and tkip */
@@ -113,6 +117,12 @@
 #define WLAN_PDEV_OP_OBSS_LONGSLOT      0x00008000
    /* enable/disable min rssi cli block */
 #define WLAN_PDEV_OP_MIN_RSSI_ENABLE    0x00010000
+   /* PDEV VDEV restart is in progress */
+#define WLAN_PDEV_OP_RESTART_INPROGRESS 0x00020000
+   /* PDEV MBSSID VDEV restart trigger */
+#define WLAN_PDEV_OP_MBSSID_RESTART     0x00040000
+   /* RADAR DETECT Defer */
+#define WLAN_PDEV_OP_RADAR_DETECT_DEFER 0x00080000
 
 
 struct osif_pdev_priv;
@@ -568,6 +578,51 @@ static inline uint8_t wlan_pdev_nif_feat_cap_get(struct wlan_objmgr_pdev *pdev,
 }
 
 /**
+ * wlan_pdev_mlme_op_set() - set operation flags
+ * @pdev: PDEV object
+ * @op: Operation flag to be set
+ *
+ * API to set operation flag in pdev
+ *
+ * Return: void
+ */
+static inline void wlan_pdev_mlme_op_set(struct wlan_objmgr_pdev *pdev,
+					 uint32_t op)
+{
+	pdev->pdev_mlme.pdev_op_flags |= op;
+}
+
+/**
+ * wlan_pdev_mlme_op_clear() - clear op flags
+ * @pdev: PDEV object
+ * @op: Operation flag to be cleared
+ *
+ * API to clear op flag in pdev
+ *
+ * Return: void
+ */
+static inline void wlan_pdev_mlme_op_clear(struct wlan_objmgr_pdev *pdev,
+					   uint32_t op)
+{
+	pdev->pdev_mlme.pdev_op_flags &= ~op;
+}
+
+/**
+ * wlan_pdev_mlme_op_get() - get op flag
+ * @pdev: PDEV object
+ * @op: Operation flag to be checked
+ *
+ * API to know, whether particular operation flag is set in pdev
+ *
+ * Return: 1 (for set) or 0 (for not set)
+ */
+static inline uint8_t wlan_pdev_mlme_op_get(struct wlan_objmgr_pdev *pdev,
+					    uint32_t op)
+{
+	return (pdev->pdev_mlme.pdev_op_flags & op) ? 1 : 0;
+}
+
+/**
  * wlan_pdev_get_hw_macaddr() - get hw macaddr
  * @pdev: PDEV object
  *
@@ -779,7 +834,7 @@ static inline void wlan_pdev_set_tgt_if_handle(struct wlan_objmgr_pdev *pdev,
 			void *tgt_if_handle)
 {
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (pdev == NULL)
+	if (!pdev)
 		return;
 
 	pdev->tgt_if_handle = tgt_if_handle;
@@ -795,7 +850,7 @@ static inline void wlan_pdev_set_tgt_if_handle(struct wlan_objmgr_pdev *pdev,
  */
 static inline void *wlan_pdev_get_tgt_if_handle(struct wlan_objmgr_pdev *pdev)
 {
-	if (pdev == NULL)
+	if (!pdev)
 		return NULL;
 
 	return pdev->tgt_if_handle;

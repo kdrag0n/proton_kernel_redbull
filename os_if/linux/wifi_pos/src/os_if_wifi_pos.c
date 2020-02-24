@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -22,6 +22,7 @@
  * component's os_if layer.
  */
 
+#include "qdf_platform.h"
 #include "wlan_nlink_srv.h"
 #include "wlan_ptt_sock_svc.h"
 #include "wlan_nlink_common.h"
@@ -54,7 +55,7 @@ static void os_if_wifi_pos_send_rsp(uint32_t pid, uint32_t rsp_msg_type,
 	}
 
 	skb = alloc_skb(NLMSG_SPACE(sizeof(tAniMsgHdr) + buf_len), GFP_ATOMIC);
-	if (skb == NULL) {
+	if (!skb) {
 		cfg80211_alert("alloc_skb failed");
 		return;
 	}
@@ -188,15 +189,15 @@ static int wifi_pos_parse_req(struct sk_buff *skb, struct wifi_pos_req_msg *req)
 #endif
 
 /**
- * os_if_wifi_pos_callback() - callback registered with NL service socket to
+ * __os_if_wifi_pos_callback() - callback registered with NL service socket to
  * process wifi pos request
  * @skb: request message sk_buff
  *
  * Return: status of operation
  */
 #ifdef CNSS_GENL
-static void os_if_wifi_pos_callback(const void *data, int data_len,
-				    void *ctx, int pid)
+static void __os_if_wifi_pos_callback(const void *data, int data_len,
+				      void *ctx, int pid)
 {
 	uint8_t err;
 	QDF_STATUS status;
@@ -226,8 +227,20 @@ static void os_if_wifi_pos_callback(const void *data, int data_len,
 release_psoc_ref:
 	wlan_objmgr_psoc_release_ref(psoc, WLAN_WIFI_POS_OSIF_ID);
 }
+
+static void os_if_wifi_pos_callback(const void *data, int data_len,
+				    void *ctx, int pid)
+{
+	struct qdf_op_sync *op_sync;
+
+	if (qdf_op_protect(&op_sync))
+		return;
+
+	__os_if_wifi_pos_callback(data, data_len, ctx, pid);
+	qdf_op_unprotect(op_sync);
+}
 #else
-static int os_if_wifi_pos_callback(struct sk_buff *skb)
+static int __os_if_wifi_pos_callback(struct sk_buff *skb)
 {
 	uint8_t err;
 	QDF_STATUS status;
@@ -258,6 +271,20 @@ release_psoc_ref:
 	wlan_objmgr_psoc_release_ref(psoc, WLAN_WIFI_POS_OSIF_ID);
 
 	return qdf_status_to_os_return(status);
+}
+
+static int os_if_wifi_pos_callback(struct sk_buff *skb)
+{
+	struct qdf_op_sync *op_sync;
+	int err;
+
+	if (qdf_op_protect(&op_sync))
+		return -EINVAL;
+
+	err = __os_if_wifi_pos_callback(skb);
+	qdf_op_unprotect(op_sync);
+
+	return err;
 }
 #endif
 
@@ -311,15 +338,14 @@ void os_if_wifi_pos_send_peer_status(struct qdf_mac_addr *peer_mac,
 
 	if (!wifi_pos_is_app_registered(psoc) ||
 			wifi_pos_get_app_pid(psoc) == 0) {
-		cfg80211_err("app is not registered or pid is invalid");
+		cfg80211_debug("app is not registered or pid is invalid");
 		return;
 	}
 
 	peer_info = qdf_mem_malloc(sizeof(*peer_info));
-	if (!peer_info) {
-		cfg80211_alert("malloc failed");
+	if (!peer_info)
 		return;
-	}
+
 	qdf_mem_copy(peer_info->peer_mac_addr, peer_mac->bytes,
 		     sizeof(peer_mac->bytes));
 	peer_info->peer_status = peer_status;

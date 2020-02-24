@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -216,5 +216,17 @@ void ucfg_mc_cp_stats_register_lost_link_info_cb(
 		struct wlan_objmgr_psoc *psoc,
 		void (*lost_link_cp_stats_info_cb)(void *stats_ev));
 
+#ifdef WLAN_POWER_MANAGEMENT_OFFLOAD
+/**
+ * ucfg_mc_cp_stats_register_pmo_handler() - API to register pmo handler
+ *
+ * Return: none
+ */
+void ucfg_mc_cp_stats_register_pmo_handler(void);
+#else
+void static inline ucfg_mc_cp_stats_register_pmo_handler(void) { };
+#endif /* WLAN_POWER_MANAGEMENT_OFFLOAD */
+#else
+void static inline ucfg_mc_cp_stats_register_pmo_handler(void) { };
 #endif /* QCA_SUPPORT_CP_STATS */
 #endif /* __WLAN_CP_STATS_MC_UCFG_API_H__ */

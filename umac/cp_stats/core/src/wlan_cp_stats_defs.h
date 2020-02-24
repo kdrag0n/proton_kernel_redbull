@@ -46,7 +46,7 @@
  * @psoc_cp_stats_lock: lock to protect object
  * @cmn_stats: stats common for AP and STA devices
  * @obj_stats: stats specific to AP or STA devices
- * @legacy_stats_cb: callback to update the stats received from FW in
+ * @legacy_stats_cb: callback to update the stats received from FW through
  * asynchronous events.
  */
 struct psoc_cp_stats {

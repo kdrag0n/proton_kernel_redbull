@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -32,6 +32,7 @@
 #include <init_cmd_api.h>
 #include <wlan_defs.h>
 #include <target_if_scan.h>
+#include <target_if_reg.h>
 
 /**
  *  init_deinit_alloc_host_mem_chunk() - allocates chunk of memory requested
@@ -86,7 +87,7 @@ static uint32_t init_deinit_alloc_host_mem_chunk(struct wlan_objmgr_psoc *psoc,
 	while (!info->mem_chunks[idx].vaddr && num_units) {
 		info->mem_chunks[idx].vaddr = qdf_mem_alloc_consistent(qdf_dev,
 				qdf_dev->dev, num_units * unit_len, &paddr);
-		if (info->mem_chunks[idx].vaddr == NULL) {
+		if (!info->mem_chunks[idx].vaddr) {
 			if (num_unit_info &
 					HOST_CONTIGUOUS_MEM_CHUNK_REQUIRED) {
 				num_units = 0;
@@ -204,8 +205,9 @@ static QDF_STATUS init_deinit_alloc_num_units(struct wlan_objmgr_psoc *psoc,
 	uint32_t num_units;
 	QDF_STATUS status;
 
-	if (!tgt_hdl) {
-		target_if_err("target_psoc_info is null");
+	if (!tgt_hdl || !mem_reqs) {
+		target_if_err("Invalid parameters, tgt_hdl: %pK, mem_reqs: %pK",
+			      tgt_hdl, mem_reqs);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -465,6 +467,12 @@ void init_deinit_prepare_send_init_cmd(
 
 		init_deinit_derive_band_to_mac_param(psoc, tgt_hdl,
 						     init_param.band_to_mac);
+	} else {
+		ret_val = tgt_if_regulatory_modify_freq_range(psoc);
+		if (QDF_IS_STATUS_ERROR(ret_val)) {
+			target_if_err("Modify freq range is failed");
+			return;
+		}
 	}
 
 	ret_val = target_if_alloc_pdevs(psoc, tgt_hdl);
@@ -487,4 +495,7 @@ void init_deinit_prepare_send_init_cmd(
 	/* Set Max scans allowed */
 	target_if_scan_set_max_active_scans(psoc,
 					    WLAN_MAX_ACTIVE_SCANS_ALLOWED);
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_hw_db2dbm_support))
+		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_HW_DB2DBM);
 }

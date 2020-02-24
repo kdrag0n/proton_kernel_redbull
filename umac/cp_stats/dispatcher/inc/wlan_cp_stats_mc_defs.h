@@ -60,6 +60,9 @@ enum stats_req_type {
  * @TX_RATE_VHT20: VHT 20 rates
  * @TX_RATE_VHT40: VHT 40 rates
  * @TX_RATE_VHT80: VHT 80 rates
+ * @TX_RATE_HE20: HE 20 rates
+ * @TX_RATE_HE40: HE 40 rates
+ * @TX_RATE_HE80: HE 80 rates
  */
 enum tx_rate_info {
 	TX_RATE_LEGACY = 0x1,
@@ -70,6 +73,23 @@ enum tx_rate_info {
 	TX_RATE_VHT20 = 0x20,
 	TX_RATE_VHT40 = 0x40,
 	TX_RATE_VHT80 = 0x80,
+	TX_RATE_HE20 = 0x100,
+	TX_RATE_HE40 = 0x200,
+	TX_RATE_HE80 = 0x400,
+};
+
+/**
+ * enum - txrate_gi
+ * @txrate_gi_0_8_US: guard interval 0.8 us
+ * @txrate_gi_0_4_US: guard interval 0.4 us for legacy
+ * @txrate_gi_1_6_US: guard interval 1.6 us
+ * @txrate_gi_3_2_US: guard interval 3.2 us
+ */
+enum txrate_gi {
+	TXRATE_GI_0_8_US = 0,
+	TXRATE_GI_0_4_US,
+	TXRATE_GI_1_6_US,
+	TXRATE_GI_3_2_US,
 };
 
 /**
@@ -148,7 +168,7 @@ struct request_info {
 	} u;
 	uint32_t vdev_id;
 	uint32_t pdev_id;
-	uint8_t peer_mac_addr[WLAN_MACADDR_LEN];
+	uint8_t peer_mac_addr[QDF_MAC_ADDR_SIZE];
 };
 
 /**
@@ -173,11 +193,13 @@ struct cca_stats {
 
 /**
  * struct psoc_mc_cp_stats: psoc specific stats
+ * @is_cp_stats_suspended: is cp stats suspended or not
  * @pending: details of pending requests
  * @wow_unspecified_wake_up_count: number of non-wow related wake ups
  * @wow_stats: wake_lock stats for vdev
  */
 struct psoc_mc_cp_stats {
+	bool is_cp_stats_suspended;
 	struct pending_stats_requests pending;
 	uint32_t wow_unspecified_wake_up_count;
 	struct wake_lock_stats wow_stats;
@@ -209,7 +231,7 @@ struct pdev_mc_cp_stats {
  */
 struct summary_stats {
 	uint32_t snr;
-	uint32_t rssi;
+	int8_t rssi;
 	uint32_t retry_cnt[4];
 	uint32_t multiple_retry_cnt[4];
 	uint32_t tx_frm_cnt[4];
@@ -238,17 +260,41 @@ struct vdev_mc_cp_stats {
 };
 
 /**
+ * struct peer_extd_stats - Peer extension statistics
+ * @peer_macaddr: peer MAC address
+ * @rx_duration: lower 32 bits of rx duration in microseconds
+ * @peer_tx_bytes: Total TX bytes (including dot11 header) sent to peer
+ * @peer_rx_bytes: Total RX bytes (including dot11 header) received from peer
+ * @last_tx_rate_code: last TX ratecode
+ * @last_tx_power: TX power used by peer - units are 0.5 dBm
+ * @rx_mc_bc_cnt: Total number of received multicast & broadcast data frames
+ * corresponding to this peer, 1 in the MSB of rx_mc_bc_cnt represents a
+ * valid data
+ */
+struct peer_extd_stats {
+	uint8_t peer_macaddr[QDF_MAC_ADDR_SIZE];
+	uint32_t rx_duration;
+	uint32_t peer_tx_bytes;
+	uint32_t peer_rx_bytes;
+	uint32_t last_tx_rate_code;
+	int32_t last_tx_power;
+	uint32_t rx_mc_bc_cnt;
+};
+
+/**
  * struct peer_mc_cp_stats - peer specific stats
  * @tx_rate: tx rate
  * @rx_rate: rx rate
  * @peer_rssi: rssi
  * @peer_macaddr: mac address
+ * @peer_extd_stats: Pointer to peer extended stats
  */
 struct peer_mc_cp_stats {
 	uint32_t tx_rate;
 	uint32_t rx_rate;
-	uint32_t peer_rssi;
-	uint8_t peer_macaddr[WLAN_MACADDR_LEN];
+	int8_t peer_rssi;
+	uint8_t peer_macaddr[QDF_MAC_ADDR_SIZE];
+	struct peer_extd_stats *extd_stats;
 };
 
 /**
@@ -259,7 +305,7 @@ struct peer_mc_cp_stats {
  * @rx_count: rx count
  */
 struct peer_adv_mc_cp_stats {
-	uint8_t peer_macaddr[WLAN_MACADDR_LEN];
+	uint8_t peer_macaddr[QDF_MAC_ADDR_SIZE];
 	uint32_t fcs_count;
 	uint32_t rx_count;
 	uint64_t rx_bytes;
@@ -303,6 +349,8 @@ struct chain_rssi_event {
  * @peer_stats: if populated array indicating peer stats
  * @peer_adv_stats: if populated, indicates peer adv (extd2) stats
  * @num_peer_adv_stats: number of peer adv (extd2) stats
+ * @num_peer_extd_stats: Num peer extended stats
+ * @peer_extended_stats: Peer extended stats
  * @cca_stats: if populated indicates congestion stats
  * @num_summary_stats: number of summary stats
  * @vdev_summary_stats: if populated indicates array of summary stats per vdev
@@ -320,6 +368,8 @@ struct stats_event {
 	struct peer_mc_cp_stats *peer_stats;
 	uint32_t num_peer_adv_stats;
 	struct peer_adv_mc_cp_stats *peer_adv_stats;
+	uint32_t num_peer_extd_stats;
+	struct peer_extd_stats *peer_extended_stats;
 	struct congestion_stats_event *cca_stats;
 	uint32_t num_summary_stats;
 	struct summary_stats_event *vdev_summary_stats;

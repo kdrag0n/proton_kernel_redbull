@@ -1,30 +1,19 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of The Linux Foundation nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
  */
 
 #ifndef _HAL_INTERNAL_H_
@@ -34,57 +23,41 @@
 #include "qdf_lock.h"
 #include "qdf_mem.h"
 #include "qdf_nbuf.h"
-#include "wcss_seq_hwiobase.h"
-#include "tlv_hdr.h"
-#include "tlv_tag_def.h"
-#include "reo_destination_ring.h"
-#include "reo_reg_seq_hwioreg.h"
-#include "reo_entrance_ring.h"
-#include "reo_get_queue_stats.h"
-#include "reo_get_queue_stats_status.h"
-#include "tcl_data_cmd.h"
-#include "tcl_gse_cmd.h"
-#include "tcl_status_ring.h"
-#include "mac_tcl_reg_seq_hwioreg.h"
-#include "ce_src_desc.h"
-#include "ce_stat_desc.h"
-#include "wfss_ce_reg_seq_hwioreg.h"
-#include "wbm_link_descriptor_ring.h"
-#include "wbm_reg_seq_hwioreg.h"
-#include "wbm_buffer_ring.h"
-#include "wbm_release_ring.h"
-#include "rx_msdu_desc_info.h"
-#include "rx_mpdu_start.h"
-#include "rx_mpdu_end.h"
-#include "rx_msdu_start.h"
-#include "rx_msdu_end.h"
-#include "rx_attention.h"
-#include "rx_ppdu_start.h"
-#include "rx_ppdu_start_user_info.h"
-#include "rx_ppdu_end_user_stats.h"
-#include "rx_ppdu_end_user_stats_ext.h"
-#include "rx_mpdu_desc_info.h"
-#include "rxpcu_ppdu_end_info.h"
-#include "phyrx_he_sig_a_su.h"
-#include "phyrx_he_sig_a_mu_dl.h"
-#include "phyrx_he_sig_b1_mu.h"
-#include "phyrx_he_sig_b2_mu.h"
-#include "phyrx_he_sig_b2_ofdma.h"
-#include "phyrx_l_sig_a.h"
-#include "phyrx_l_sig_b.h"
-#include "phyrx_vht_sig_a.h"
-#include "phyrx_ht_sig.h"
-#include "tx_msdu_extension.h"
-#include "receive_rssi_info.h"
-#include "phyrx_pkt_end.h"
-#include "phyrx_rssi_legacy.h"
-#include "wcss_version.h"
 #include "pld_common.h"
-#include "rx_msdu_link.h"
 
-#ifdef QCA_WIFI_QCA6290_11AX
-#include "phyrx_other_receive_info_ru_details.h"
-#endif /* QCA_WIFI_QCA6290_11AX */
+#define hal_alert(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_TXRX, params)
+#define hal_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_TXRX, params)
+#define hal_warn(params...) QDF_TRACE_WARN(QDF_MODULE_ID_TXRX, params)
+#define hal_info(params...) QDF_TRACE_INFO(QDF_MODULE_ID_TXRX, params)
+#define hal_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_TXRX, params)
+
+#define hal_alert_rl(params...) QDF_TRACE_FATAL_RL(QDF_MODULE_ID_HAL, params)
+#define hal_err_rl(params...) QDF_TRACE_ERROR_RL(QDF_MODULE_ID_HAL, params)
+#define hal_warn_rl(params...) QDF_TRACE_WARN_RL(QDF_MODULE_ID_HAL, params)
+#define hal_info_rl(params...) QDF_TRACE_INFO_RL(QDF_MODULE_ID_HAL, params)
+#define hal_debug_rl(params...) QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_HAL, params)
+
+#ifdef ENABLE_VERBOSE_DEBUG
+extern bool is_hal_verbose_debug_enabled;
+#define hal_verbose_debug(params...) \
+	if (unlikely(is_hal_verbose_debug_enabled)) \
+		do {\
+			QDF_TRACE_DEBUG(QDF_MODULE_ID_TXRX, params); \
+		} while (0)
+#define hal_verbose_hex_dump(params...) \
+	if (unlikely(is_hal_verbose_debug_enabled)) \
+		do {\
+			QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_TXRX, \
+					   QDF_TRACE_LEVEL_DEBUG, \
+					   params); \
+		} while (0)
+#else
+#define hal_verbose_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_TXRX, params)
+#define hal_verbose_hex_dump(params...) \
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG, \
+				   params)
+#endif
+
 
 /* TBD: This should be movded to shared HW header file */
 enum hal_srng_ring_id {
@@ -181,9 +154,7 @@ enum hal_srng_ring_id {
 	HAL_SRNG_LMAC1_ID_END = 143
 };
 
-#define HAL_SRNG_REO_EXCEPTION HAL_SRNG_REO2SW1
-#define HAL_SRNG_REO_ALTERNATE_SELECT 0x7
-
+#define HAL_RXDMA_MAX_RING_SIZE 0xFFFF
 #define HAL_MAX_LMACS 3
 #define HAL_MAX_RINGS_PER_LMAC (HAL_SRNG_LMAC1_ID_END - HAL_SRNG_LMAC1_ID_START)
 #define HAL_MAX_LMAC_RINGS (HAL_MAX_LMACS * HAL_MAX_RINGS_PER_LMAC)
@@ -202,7 +173,13 @@ enum hal_srng_dir {
 #define SRNG_UNLOCK(_lock) qdf_spin_unlock_bh(_lock)
 #define SRNG_LOCK_DESTROY(_lock) qdf_spinlock_destroy(_lock)
 
+struct hal_soc;
 #define MAX_SRNG_REG_GROUPS 2
+
+/* Hal Srng bit mask
+ * HAL_SRNG_FLUSH_EVENT: SRNG HP TP flush in case of link down
+ */
+#define HAL_SRNG_FLUSH_EVENT BIT(0)
 
 /* Common SRNG ring structure for source and destination rings */
 struct hal_srng {
@@ -307,6 +284,13 @@ struct hal_srng {
 	} u;
 
 	struct hal_soc *hal_soc;
+
+	/* Number of times hp/tp updated in runtime resume */
+	uint32_t flush_count;
+	/* hal srng event flag*/
+	unsigned long srng_event;
+	/* last flushed time stamp */
+	uint64_t last_flush_ts;
 };
 
 /* HW SRNG configuration table */
@@ -318,11 +302,72 @@ struct hal_hw_srng_config {
 	uint16_t reg_size[MAX_SRNG_REG_GROUPS];
 	uint8_t lmac_ring;
 	enum hal_srng_dir ring_dir;
+	uint32_t max_size;
 };
 
-/* calculate the register address offset from bar0 of shadow register x */
-#define SHADOW_REGISTER(x) (0x00003024 + (4*x))
 #define MAX_SHADOW_REGISTERS 36
+
+struct hal_hw_txrx_ops {
+
+	/* init and setup */
+	void (*hal_srng_dst_hw_init)(void *hal,
+		struct hal_srng *srng);
+	void (*hal_srng_src_hw_init)(void *hal,
+	struct hal_srng *srng);
+	void (*hal_get_hw_hptp)(struct hal_soc *hal, void *hal_ring,
+				uint32_t *headp, uint32_t *tailp,
+				uint8_t ring_type);
+	void (*hal_reo_setup)(void *hal_soc, void *reoparams);
+	void (*hal_setup_link_idle_list)(void *hal_soc,
+	qdf_dma_addr_t scatter_bufs_base_paddr[],
+	void *scatter_bufs_base_vaddr[], uint32_t num_scatter_bufs,
+	uint32_t scatter_buf_size, uint32_t last_buf_end_offset,
+	uint32_t num_entries);
+
+	/* tx */
+	void (*hal_tx_desc_set_dscp_tid_table_id)(void *desc, uint8_t id);
+	void (*hal_tx_set_dscp_tid_map)(void *hal_soc, uint8_t *map,
+					uint8_t id);
+	void (*hal_tx_update_dscp_tid)(void *hal_soc, uint8_t tid, uint8_t id,
+				       uint8_t dscp);
+	void (*hal_tx_desc_set_lmac_id)(void *desc, uint8_t lmac_id);
+	 void (*hal_tx_desc_set_buf_addr)(void *desc, dma_addr_t paddr,
+			uint8_t pool_id, uint32_t desc_id, uint8_t type);
+	void (*hal_tx_desc_set_search_type)(void *desc, uint8_t search_type);
+	void (*hal_tx_desc_set_search_index)(void *desc, uint32_t search_index);
+	void (*hal_tx_comp_get_status)(void *desc, void *ts, void *hal);
+	uint8_t (*hal_tx_comp_get_release_reason)(void *hal_desc);
+
+	/* rx */
+	uint32_t (*hal_rx_msdu_start_nss_get)(uint8_t *);
+	void (*hal_rx_mon_hw_desc_get_mpdu_status)(void *hw_desc_addr,
+						   struct mon_rx_status *rs);
+	uint8_t (*hal_rx_get_tlv)(void *rx_tlv);
+	void (*hal_rx_proc_phyrx_other_receive_info_tlv)(void *rx_tlv_hdr,
+							void *ppdu_info_handle);
+	void (*hal_rx_dump_msdu_start_tlv)(void *msdu_start, uint8_t dbg_level);
+	void (*hal_rx_dump_msdu_end_tlv)(void *msdu_end,
+					 uint8_t dbg_level);
+	uint32_t (*hal_get_link_desc_size)(void);
+	uint32_t (*hal_rx_mpdu_start_tid_get)(uint8_t *buf);
+	uint32_t (*hal_rx_msdu_start_reception_type_get)(uint8_t *buf);
+	uint16_t (*hal_rx_msdu_end_da_idx_get)(uint8_t *buf);
+	void* (*hal_rx_msdu_desc_info_get_ptr)(void *msdu_details_ptr);
+	void* (*hal_rx_link_desc_msdu0_ptr)(void *msdu_link_ptr);
+	void (*hal_reo_status_get_header)(uint32_t *d, int b, void *h);
+	uint32_t (*hal_rx_status_get_tlv_info)(void *rx_tlv_hdr,
+			void *ppdu_info,
+			void *hal);
+	void (*hal_rx_wbm_err_info_get)(void *wbm_desc,
+				void *wbm_er_info);
+	void (*hal_rx_dump_mpdu_start_tlv)(void *mpdustart,
+						uint8_t dbg_level);
+
+	void (*hal_tx_set_pcp_tid_map)(void *hal_soc, uint8_t *map);
+	void (*hal_tx_update_pcp_tid_map)(void *hal_soc, uint8_t pcp,
+					  uint8_t id);
+	void (*hal_tx_set_tidmap_prty)(void *hal_soc, uint8_t prio);
+};
 
 /**
  * HAL context to be used to access SRNG APIs (currently used by data path
@@ -354,6 +399,7 @@ struct hal_soc {
 	/* REO blocking resource index */
 	uint8_t reo_res_bitmap;
 	uint8_t index;
+	uint32_t target_type;
 
 	/* shadow register configuration */
 	struct pld_shadow_reg_v2_cfg shadow_config[MAX_SHADOW_REGISTERS];
@@ -361,35 +407,14 @@ struct hal_soc {
 	bool use_register_windowing;
 	uint32_t register_window;
 	qdf_spinlock_t register_access_lock;
+
+	/* srng table */
+	struct hal_hw_srng_config *hw_srng_table;
+	int32_t *hal_hw_reg_offset;
+	struct hal_hw_txrx_ops *ops;
 };
 
-/* TODO: Check if the following can be provided directly by HW headers */
-#define SRNG_LOOP_CNT_MASK REO_DESTINATION_RING_15_LOOPING_COUNT_MASK
-#define SRNG_LOOP_CNT_LSB REO_DESTINATION_RING_15_LOOPING_COUNT_LSB
-
-#define HAL_SRNG_LMAC_RING 0x80000000
-
-#define HAL_DEFAULT_REO_TIMEOUT_MS 40 /* milliseconds */
-
-#define HAL_DESC_SET_FIELD(_desc, _word, _fld, _value) do { \
-	((uint32_t *)(_desc))[(_word ## _ ## _fld ## _OFFSET) >> 2] &= \
-		~(_word ## _ ## _fld ## _MASK); \
-	((uint32_t *)(_desc))[(_word ## _ ## _fld ## _OFFSET) >> 2] |= \
-		((_value) << _word ## _ ## _fld ## _LSB); \
-} while (0)
-
-#define HAL_SM(_reg, _fld, _val) \
-	(((_val) << (_reg ## _ ## _fld ## _SHFT)) & \
-		(_reg ## _ ## _fld ## _BMSK))
-
-#define HAL_MS(_reg, _fld, _val) \
-	(((_val) & (_reg ## _ ## _fld ## _BMSK)) >> \
-		(_reg ## _ ## _fld ## _SHFT))
-
-#define HAL_REG_WRITE(_soc, _reg, _value) \
-	hal_write32_mb(_soc, (_reg), (_value))
-
-#define HAL_REG_READ(_soc, _offset) \
-	hal_read32_mb(_soc, (_offset))
-
+void hal_qca6390_attach(struct hal_soc *hal_soc);
+void hal_qca6290_attach(struct hal_soc *hal_soc);
+void hal_qca8074_attach(struct hal_soc *hal_soc);
 #endif /* _HAL_INTERNAL_H_ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  * Copyright (c) 2007-2008 Sam Leffler, Errno Consulting
  * All rights reserved.
  *
@@ -30,9 +30,12 @@
 
 #include "../dfs_channel.h"
 #include "../dfs_zero_cac.h"
+#include "../dfs_etsi_precac.h"
+#include <wlan_objmgr_vdev_obj.h>
 #include "wlan_dfs_utils_api.h"
 #include "wlan_dfs_mlme_api.h"
 #include "../dfs_internal.h"
+#include "../dfs_process_radar_found_ind.h"
 
 #define IS_CHANNEL_WEATHER_RADAR(freq) ((freq >= 5600) && (freq <= 5650))
 #define ADJACENT_WEATHER_RADAR_CHANNEL   5580
@@ -106,6 +109,11 @@ static os_timer_func(dfs_cac_timeout)
 	dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "cac expired, chan %d curr time %d",
 		dfs->dfs_curchan->dfs_ch_freq,
 		(qdf_system_ticks_to_msecs(qdf_system_ticks()) / 1000));
+
+	/* Once CAC is done, add channel to ETSI precacdone list*/
+	if (utils_get_dfsdomain(dfs->dfs_pdev_obj) == DFS_ETSI_DOMAIN)
+		dfs_add_to_etsi_precac_done_list(dfs);
+
 	/*
 	 * When radar is detected during a CAC we are woken up prematurely to
 	 * switch to a new channel. Check the channel to decide how to act.
@@ -142,7 +150,7 @@ static os_timer_func(dfs_cac_timeout)
 	dfs_mlme_proc_cac(dfs->dfs_pdev_obj, 0);
 
 	/* Send a CAC timeout, VAP up event to user space */
-	dfs_mlme_deliver_event_up_afrer_cac(dfs->dfs_pdev_obj);
+	dfs_mlme_deliver_event_up_after_cac(dfs->dfs_pdev_obj);
 
 	if (dfs->dfs_defer_precac_channel_change == 1) {
 		dfs_mlme_channel_change_by_precac(dfs->dfs_pdev_obj);
@@ -177,10 +185,12 @@ void dfs_cac_timer_reset(struct wlan_dfs *dfs)
 	qdf_timer_stop(&dfs->dfs_cac_timer);
 	dfs_get_override_cac_timeout(dfs,
 			&(dfs->dfs_cac_timeout_override));
+	qdf_mem_zero(&dfs->dfs_cac_started_chan,
+		     sizeof(dfs->dfs_cac_started_chan));
 
 }
 
-void dfs_cac_timer_free(struct wlan_dfs *dfs)
+void dfs_cac_timer_detach(struct wlan_dfs *dfs)
 {
 	qdf_timer_free(&dfs->dfs_cac_timer);
 
@@ -195,11 +205,24 @@ int dfs_is_ap_cac_timer_running(struct wlan_dfs *dfs)
 
 void dfs_start_cac_timer(struct wlan_dfs *dfs)
 {
-	qdf_timer_mod(&dfs->dfs_cac_timer,
-			dfs_mlme_get_cac_timeout(dfs->dfs_pdev_obj,
-				dfs->dfs_curchan->dfs_ch_freq,
-				dfs->dfs_curchan->dfs_ch_vhtop_ch_freq_seg2,
-				dfs->dfs_curchan->dfs_ch_flags) * 1000);
+	int cac_timeout = 0;
+	struct dfs_channel *chan = dfs->dfs_curchan;
+
+	cac_timeout = dfs_mlme_get_cac_timeout(dfs->dfs_pdev_obj,
+					       chan->dfs_ch_freq,
+					       chan->dfs_ch_vhtop_ch_freq_seg2,
+					       chan->dfs_ch_flags);
+
+	dfs->dfs_cac_started_chan = *chan;
+
+	dfs_debug(dfs, WLAN_DEBUG_DFS,
+		  "chan = %d cfreq2 = %d timeout = %d sec, curr_time = %d sec",
+		  chan->dfs_ch_ieee, chan->dfs_ch_vhtop_ch_freq_seg2,
+		  cac_timeout,
+		  qdf_system_ticks_to_msecs(qdf_system_ticks()) / 1000);
+
+	qdf_timer_mod(&dfs->dfs_cac_timer, cac_timeout * 1000);
+	dfs->dfs_cac_aborted = 0;
 }
 
 void dfs_cancel_cac_timer(struct wlan_dfs *dfs)
@@ -216,6 +239,8 @@ void dfs_cac_stop(struct wlan_dfs *dfs)
 		"Stopping CAC Timer %d procphyerr 0x%08x",
 		 dfs->dfs_curchan->dfs_ch_freq, phyerr);
 	qdf_timer_stop(&dfs->dfs_cac_timer);
+	if (dfs->dfs_cac_timer_running)
+		dfs->dfs_cac_aborted = 1;
 	dfs->dfs_cac_timer_running = 0;
 }
 
@@ -227,4 +252,154 @@ void dfs_stacac_stop(struct wlan_dfs *dfs)
 	dfs_debug(dfs, WLAN_DEBUG_DFS,
 		"Stopping STA CAC Timer %d procphyerr 0x%08x",
 		 dfs->dfs_curchan->dfs_ch_freq, phyerr);
+}
+
+bool dfs_is_subset_channel(struct wlan_dfs *dfs,
+			   struct dfs_channel *old_chan,
+			   struct dfs_channel *new_chan)
+{
+	uint8_t old_subchans[NUM_CHANNELS_160MHZ];
+	uint8_t new_subchans[NUM_CHANNELS_160MHZ];
+	uint8_t old_n_chans;
+	uint8_t new_n_chans;
+	int i = 0, j = 0;
+	bool is_found = false;
+
+	if (WLAN_IS_CHAN_11AC_VHT160(old_chan) ||
+	    WLAN_IS_CHAN_11AC_VHT80_80(old_chan)) {
+		/* If primary segment is NON-DFS */
+		if (!WLAN_IS_CHAN_DFS(old_chan))
+			old_n_chans = dfs_get_bonding_channels(dfs,
+							       old_chan,
+							       SEG_ID_SECONDARY,
+							       old_subchans);
+		else
+			old_n_chans = dfs_get_bonding_channels_without_seg_info(
+					old_chan, old_subchans);
+	} else {
+		old_n_chans = dfs_get_bonding_channels_without_seg_info(
+				old_chan, old_subchans);
+	}
+
+	if (WLAN_IS_CHAN_11AC_VHT160(new_chan) ||
+	    WLAN_IS_CHAN_11AC_VHT80_80(new_chan)) {
+		/* If primary segment is NON-DFS */
+		if (WLAN_IS_CHAN_DFS(new_chan))
+			new_n_chans = dfs_get_bonding_channels(
+					dfs, new_chan, SEG_ID_SECONDARY,
+					new_subchans);
+		else
+			new_n_chans = dfs_get_bonding_channels_without_seg_info(
+					new_chan, new_subchans);
+	} else {
+		new_n_chans = dfs_get_bonding_channels_without_seg_info(
+				new_chan, new_subchans);
+	}
+
+	if (new_n_chans > old_n_chans)
+		return false;
+
+	for (i = 0; i < new_n_chans; i++) {
+		is_found = false;
+		for (j = 0; j < old_n_chans; j++) {
+			if (new_subchans[i] == old_subchans[j]) {
+				is_found = true;
+				break;
+			}
+		}
+
+		/* If new_subchans[i] is not found in old_subchans, then,
+		 * new_chan is not subset of old_chan.
+		 */
+		if (!is_found)
+			break;
+	}
+
+	return is_found;
+}
+
+bool dfs_is_curchan_subset_of_cac_started_chan(struct wlan_dfs *dfs)
+{
+	return dfs_is_subset_channel(dfs, &dfs->dfs_cac_started_chan,
+				     dfs->dfs_curchan);
+}
+
+void dfs_clear_cac_started_chan(struct wlan_dfs *dfs)
+{
+	qdf_mem_zero(&dfs->dfs_cac_started_chan,
+		     sizeof(dfs->dfs_cac_started_chan));
+}
+
+bool dfs_check_for_cac_start(struct wlan_dfs *dfs,
+			     bool *continue_current_cac)
+{
+	if (dfs->dfs_ignore_dfs || dfs->dfs_cac_valid || dfs->dfs_ignore_cac) {
+		dfs_debug(dfs, WLAN_DEBUG_DFS,
+			  "Skip CAC, ignore_dfs = %d cac_valid = %d ignore_cac = %d",
+			  dfs->dfs_ignore_dfs, dfs->dfs_cac_valid,
+			  dfs->dfs_ignore_cac);
+		return false;
+	}
+
+	if (dfs_is_etsi_precac_done(dfs)) {
+		dfs_debug(dfs, WLAN_DEBUG_DFS,
+			  "ETSI PRE-CAC alreay done on this channel %d",
+			  dfs->dfs_curchan->dfs_ch_ieee);
+		return false;
+	}
+
+	/* If the channel has completed PRE-CAC then CAC can be skipped here. */
+	if (dfs_is_precac_done(dfs, dfs->dfs_curchan)) {
+		dfs_debug(dfs, WLAN_DEBUG_DFS,
+			  "PRE-CAC alreay done on this channel %d",
+			  dfs->dfs_curchan->dfs_ch_ieee);
+		return false;
+	}
+
+	if (dfs_is_ap_cac_timer_running(dfs)) {
+		/* Check if we should continue the existing CAC or
+		 * cancel the existing CAC.
+		 * For example: - if an existing VAP(0) is already in
+		 * DFS wait state (which means the radio(wifi) is
+		 * running the CAC) and it is in channel A and another
+		 * VAP(1) comes up in the same channel then instead of
+		 * cancelling the CAC we can let the CAC continue.
+		 */
+		if (dfs_is_curchan_subset_of_cac_started_chan(dfs)) {
+			*continue_current_cac = true;
+		} else {
+			/* New CAC is needed, cancel the running CAC
+			 * timer.
+			 * 1) When AP is in DFS_WAIT state and it is in
+			 *    channel A and user restarts the AP vap in
+			 *    channel B, then cancel the running CAC in
+			 *    channel A and start new CAC in channel B.
+			 *
+			 * 2) When AP detects the RADAR during CAC in
+			 *    channel A, it cancels the running CAC and
+			 *    tries to find channel B with the reduced
+			 *    bandwidth with of channel A.
+			 *    In this case, since the CAC is aborted by
+			 *    the RADAR, AP should start the CAC again.
+			 */
+			dfs_cancel_cac_timer(dfs);
+		}
+	} else { /* CAC timer is not running. */
+		if (dfs_is_curchan_subset_of_cac_started_chan(dfs)) {
+			/* AP bandwidth reduce case:
+			 * When AP detects the RADAR in in-service monitoring
+			 * mode in channel A, it cancels the running CAC and
+			 * tries to find the channel B with the reduced
+			 * bandwidth of channel A.
+			 * If the new channel B is subset of the channel A
+			 * then AP skips the CAC.
+			 */
+			if (!dfs->dfs_cac_aborted) {
+				dfs_debug(dfs, WLAN_DEBUG_DFS, "Skip CAC");
+				return false;
+			}
+		}
+	}
+
+	return true;
 }

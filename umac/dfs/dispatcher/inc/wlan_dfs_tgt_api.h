@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -27,14 +27,12 @@
 
 #include <wlan_dfs_public_struct.h>
 
-/* Max number arguments for DFS unit test command */
-#define DFS_MAX_NUM_UNIT_TEST_ARGS 3
+#define WLAN_DFS_RESET_TIME_S 7
+#define WLAN_DFS_WAIT (60 + WLAN_DFS_RESET_TIME_S) /* 60 seconds */
+#define WLAN_DFS_WAIT_MS ((WLAN_DFS_WAIT) * 1000)  /*in MS*/
 
 /* Command id to send test radar to firmware */
 #define DFS_PHYERR_OFFLOAD_TEST_SET_RADAR 0
-
-/* Number of arguments for  DFS unit test command */
-#define DFS_UNIT_TEST_NUM_ARGS 3
 
 /* Segment ID corresponding to primary segment */
 #define SEG_ID_PRIMARY 0
@@ -42,14 +40,43 @@
 /* Segment ID corresponding to secondary segment */
 #define SEG_ID_SECONDARY 1
 
-/* Index id pointing to command id value */
-#define IDX_CMD_ID 0
+/* dfs_radar_args_for_unit_test: Radar parameters to be sent in unit test cmd.
+ * @IDX_CMD_ID:          Index id pointing to command id value
+ * @IDX_PDEV_ID:         Index id pointing to pdev id value
+ * @IDX_RADAR_PARAM1_ID: Index pointing to packed arguments value that includes
+ *                         1). Segment ID,
+ *                         2). Chirp information (is chirp or non chirp),
+ *                         3). Frequency offset.
+ *
+ * The packed argument structure is:
+ *
+ * ------------------------------32 bits arg-------------------------
+ *
+ * ------------21 bits-------------|-------8 bits------|1 bit|2 bits|
+ * __________________________________________________________________
+ *|                                | | | | | | | | | | |     |   |   |
+ *|---------21 Unused bits---------|x|x|x| |x|x|x|x| |x|  x  | x | x |
+ *|________________________________|_|_|_|_|_|_|_|_|_|_|_____|___|___|
+ *
+ *                                 |___________________|_____|_______|
+ *                                   freq.offset        Chirp  segID
+ *
+ * @DFS_UNIT_TEST_NUM_ARGS:     Number of arguments for bangradar unit test
+ *                              command.
+ * @DFS_MAX_NUM_UNIT_TEST_ARGS: Maximum number of arguments for unit test
+ *                              command in radar simulation.
+ */
+enum {
+	IDX_CMD_ID = 0,
+	IDX_PDEV_ID,
+	IDX_RADAR_PARAM1_ID,
+	DFS_UNIT_TEST_NUM_ARGS,
+	DFS_MAX_NUM_UNIT_TEST_ARGS = DFS_UNIT_TEST_NUM_ARGS
+};
 
-/* Index id pointing to pdev id value */
-#define IDX_PDEV_ID 1
-
-/* Index pointing to segment id value */
-#define IDX_SEG_ID 2
+#define SEG_ID_SIZE 2
+#define IS_CHIRP_SIZE 1
+#define MASK 0xFF
 
 /**
  * struct dfs_emulate_bang_radar_test_cmd - Unit test command structure to send
@@ -63,6 +90,22 @@ struct dfs_emulate_bang_radar_test_cmd {
 	uint32_t vdev_id;
 	uint32_t num_args;
 	uint32_t args[DFS_MAX_NUM_UNIT_TEST_ARGS];
+};
+
+/**
+ * struct vdev_adfs_complete_status - OCAC complete status event param
+ * @vdev_id: Physical device identifier
+ * @chan_freq: Channel number
+ * @chan_width: Channel Width
+ * @center_freq: Center Frequency channel number
+ * @ocac_status: off channel cac status
+ */
+struct vdev_adfs_complete_status {
+	uint32_t vdev_id;
+	uint32_t chan_freq;
+	uint32_t chan_width;
+	uint32_t center_freq;
+	uint32_t ocac_status;
 };
 
 extern struct dfs_to_mlme global_dfs_to_mlme;
@@ -91,12 +134,14 @@ QDF_STATUS tgt_dfs_set_current_channel(struct wlan_objmgr_pdev *pdev,
  * tgt_dfs_radar_enable() - Enables the radar.
  * @pdev: Pointer to DFS pdev object.
  * @no_cac: If no_cac is 0, it cancels the CAC.
+ * @enable: disable/enable radar
  *
  * This is called each time a channel change occurs, to (potentially) enable
  * the radar code.
  */
-QDF_STATUS tgt_dfs_radar_enable(struct wlan_objmgr_pdev *pdev,
-	int no_cac, uint32_t opmode);
+QDF_STATUS tgt_dfs_radar_enable(
+	struct wlan_objmgr_pdev *pdev,
+	int no_cac, uint32_t opmode, bool enable);
 
 /**
  * tgt_dfs_control()- Used to process ioctls related to DFS.
@@ -148,8 +193,9 @@ static inline QDF_STATUS tgt_dfs_set_current_channel(
 	return QDF_STATUS_SUCCESS;
 }
 
-static inline QDF_STATUS tgt_dfs_radar_enable(struct wlan_objmgr_pdev *pdev,
-	int no_cac, uint32_t opmode)
+static inline QDF_STATUS tgt_dfs_radar_enable(
+	struct wlan_objmgr_pdev *pdev,
+	int no_cac, uint32_t opmode, bool enable)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -234,16 +280,13 @@ QDF_STATUS tgt_dfs_destroy_object(struct wlan_objmgr_pdev *pdev);
 /**
  * tgt_dfs_set_tx_leakage_threshold() - set tx_leakage_threshold.
  * @pdev: Pointer to DFS pdev object.
- * @tx_leakage_threshold: tx leakage threshold for dfs.
  *
  * Return QDF_STATUS.
  */
-QDF_STATUS tgt_dfs_set_tx_leakage_threshold(struct wlan_objmgr_pdev *pdev,
-		uint16_t tx_leakage_threshold);
+QDF_STATUS tgt_dfs_set_tx_leakage_threshold(struct wlan_objmgr_pdev *pdev);
 #else
 static inline QDF_STATUS tgt_dfs_set_tx_leakage_threshold
-		(struct wlan_objmgr_pdev *pdev,
-		uint16_t tx_leakage_threshold)
+		(struct wlan_objmgr_pdev *pdev)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -259,6 +302,39 @@ static inline QDF_STATUS tgt_dfs_set_tx_leakage_threshold
  */
 QDF_STATUS tgt_dfs_is_precac_timer_running(struct wlan_objmgr_pdev *pdev,
 	bool *is_precac_timer_running);
+
+/**
+ * tgt_dfs_set_agile_precac_state() - set state for Agile Precac.
+ *
+ * @pdev: Pointer to DFS pdev object.
+ * @agile_precac_state: Agile Precac state
+ *
+ * wrapper function for  dfs_set_agile_precac_state.
+ * This function called from outside of dfs component.
+ */
+QDF_STATUS tgt_dfs_set_agile_precac_state(struct wlan_objmgr_pdev *pdev,
+					  int agile_precac_state);
+
+/**
+ * tgt_dfs_agile_precac_start() - Start agile precac
+ *
+ * @pdev: Pointer to DFS pdev object.
+ *
+ * wrapper function for  dfs_set_agile_precac_state.
+ * This function called from outside of dfs component.
+ */
+QDF_STATUS tgt_dfs_agile_precac_start(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * tgt_dfs_ocac_complete() - Process off channel cac complete indication.
+ * @pdev: Pointer to DFS pdev object.
+ * @vdev_adfs_complete_status: Off channel CAC complete status.
+ *
+ * wrapper function for  dfs_set_agile_precac_state.
+ * This function called from outside of dfs component.
+ */
+QDF_STATUS tgt_dfs_ocac_complete(struct wlan_objmgr_pdev *pdev,
+				 struct vdev_adfs_complete_status *ocac_status);
 
 /**
  * utils_dfs_find_vht80_chan_for_precac() - Find VHT80 channel for precac.
@@ -390,6 +466,64 @@ QDF_STATUS tgt_dfs_reset_spoof_test(struct wlan_objmgr_pdev *pdev);
 #else
 static inline
 QDF_STATUS tgt_dfs_reset_spoof_test(struct wlan_objmgr_pdev *pdev)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+/**
+ * tgt_dfs_enable_stadfs() - Enable/Disable STADFS capability.
+ * @pdev: Pointer to DFS pdev object.
+ * @val: input value.
+ */
+void tgt_dfs_enable_stadfs(struct wlan_objmgr_pdev *pdev, bool val);
+
+/**
+ * tgt_dfs_is_stadfs_enabled() - Get STADFS capability
+ * @pdev: Pointer to DFS pdev object.
+ *
+ * Return: true if STADFS is enabled, else false.
+ */
+bool tgt_dfs_is_stadfs_enabled(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * tgt_dfs_is_pdev_5ghz() - Check if the input pdev is 5GHZ.
+ * @pdev: Pointer to DFS pdev object.
+ *
+ * Return: true if the pdev supports 5GHz, else false.
+ */
+bool tgt_dfs_is_pdev_5ghz(struct wlan_objmgr_pdev *pdev);
+
+#if defined(WLAN_DFS_FULL_OFFLOAD) && defined(QCA_DFS_NOL_OFFLOAD)
+/**
+ * tgt_dfs_send_usenol_pdev_param() - Send usenol pdev param to FW.
+ * @pdev: Pointer to pdev object.
+ * @usenol: Value of usenol
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS tgt_dfs_send_usenol_pdev_param(struct wlan_objmgr_pdev *pdev,
+					  bool usenol);
+
+/**
+ * tgt_dfs_send_subchan_marking() - Send subchannel marking pdev param to FW.
+ * @pdev: Pointer to pdev object.
+ * @subchanmark: Value of subchannel_marking.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS tgt_dfs_send_subchan_marking(struct wlan_objmgr_pdev *pdev,
+					bool subchanmark);
+#else
+static inline
+QDF_STATUS tgt_dfs_send_usenol_pdev_param(struct wlan_objmgr_pdev *pdev,
+					  bool usenol)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+tgt_dfs_send_subchan_marking(struct wlan_objmgr_pdev *pdev, bool subchanmark)
 {
 	return QDF_STATUS_SUCCESS;
 }

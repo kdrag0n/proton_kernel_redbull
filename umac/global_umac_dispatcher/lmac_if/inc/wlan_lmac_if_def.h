@@ -47,6 +47,10 @@
 #include "wlan_crypto_global_def.h"
 #endif
 
+#ifdef WLAN_CFR_ENABLE
+#include "wlan_cfr_utils_api.h"
+#endif
+
 #include <wlan_dfs_tgt_api.h>
 #include <wlan_dfs_ioctl.h>
 
@@ -62,17 +66,24 @@ struct oem_data_rsp;
 #ifdef DIRECT_BUF_RX_ENABLE
 /* forward declarations for direct buf rx */
 struct direct_buf_rx_data;
+/* Forward declaration for module_ring_params */
+struct module_ring_params;
+/*Forward declaration for dbr_module_config */
+struct dbr_module_config;
 #endif
 
-struct scheduler_msg;
-
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 #include "wlan_tdls_public_structs.h"
 #endif
 
 #ifdef QCA_SUPPORT_CP_STATS
 #include <wlan_cp_stats_mc_defs.h>
 #endif /* QCA_SUPPORT_CP_STATS */
+
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+#include <wlan_vdev_mgr_tgt_if_tx_defs.h>
+#include <wlan_vdev_mgr_tgt_if_rx_defs.h>
+#endif /* CMN_VDEV_MGR_TGT_IF_ENABLE */
 
 #ifdef QCA_SUPPORT_CP_STATS
 /**
@@ -172,12 +183,101 @@ struct wlan_lmac_if_ftm_tx_ops {
 };
 
 
+/**
+ * struct wlan_lmac_if_mlme_tx_ops - south bound tx function pointers for mlme
+ * @scan_sta_power_events: function to handle STA power events
+ * @scan_connection_lost: function to get scan connection lost
+ * @scan_end: function to end scan
+ * @get_wifi_iface_id: function to get wifi interface id
+ * @vdev_mlme_attach: function to register events
+ * @vdev_mlme_detach: function to unregister events
+ * @vdev_mgr_rsp_timer_init: function to initialize vdev response timer
+ * @vdev_mgr_rsp_timer_mod: function to timer_mod vdev response timer
+ * @vdev_mgr_rsp_timer_stop: function to stop vdev response timer
+ * @vdev_create_send: function to send vdev create
+ * @vdev_start_send: function to send vdev start
+ * @vdev_up_send: function to send vdev up
+ * @vdev_delete_send: function to send vdev delete
+ * @vdev_stop_send: function to send vdev stop
+ * @vdev_down_send: function to send vdev down
+ * @vdev_set_param_send: function to send vdev parameter
+ * @vdev_set_nac_rssi_send: function to send nac rssi
+ * @vdev_set_neighbour_rx_cmd_send: function to send vdev neighbour rx cmd
+ * @vdev_sifs_trigger_send: function to send vdev sifs trigger
+ * @vdev_set_custom_aggr_size_cmd_send: function to send custom aggr size
+ * @vdev_config_ratemask_cmd_send: function to send ratemask
+ * @peer_flush_tids_send: function to flush peer tids
+ * @multiple_vdev_restart_req_cmd: function to send multiple vdev restart
+ * @beacon_send_cmd: function to send beacon
+ * @beacon_tmpl_send: function to send beacon template
+ * @vdev_bcn_miss_offload_send: function to send beacon miss offload
+ * @vdev_sta_ps_param_send: function to sent STA power save config
+ * @target_is_pre_lithium: function to get target type status
+ */
 struct wlan_lmac_if_mlme_tx_ops {
 	void (*scan_sta_power_events)(struct wlan_objmgr_pdev *pdev,
 			int event_type, int event_status);
 	void (*scan_connection_lost)(struct wlan_objmgr_pdev *pdev);
 	void (*scan_end)(struct wlan_objmgr_pdev *pdev);
 	uint32_t (*get_wifi_iface_id) (struct wlan_objmgr_pdev *pdev);
+	QDF_STATUS (*vdev_mlme_attach)(struct wlan_objmgr_psoc *psoc);
+	QDF_STATUS (*vdev_mlme_detach)(struct wlan_objmgr_psoc *psoc);
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+	QDF_STATUS (*vdev_mgr_rsp_timer_init)(
+					struct wlan_objmgr_vdev *vdev,
+					qdf_timer_t *rsp_timer);
+	QDF_STATUS (*vdev_mgr_rsp_timer_mod)(
+					struct wlan_objmgr_vdev *vdev,
+					struct vdev_response_timer *vdev_rsp,
+					int mseconds);
+	QDF_STATUS (*vdev_mgr_rsp_timer_stop)(
+					struct wlan_objmgr_vdev *vdev,
+					struct vdev_response_timer *vdev_rsp,
+					uint8_t clear_bit);
+	QDF_STATUS (*vdev_create_send)(struct wlan_objmgr_vdev *vdev,
+				       struct vdev_create_params *param);
+	QDF_STATUS (*vdev_start_send)(struct wlan_objmgr_vdev *vdev,
+				      struct vdev_start_params *param);
+	QDF_STATUS (*vdev_up_send)(struct wlan_objmgr_vdev *vdev,
+				   struct vdev_up_params *param);
+	QDF_STATUS (*vdev_delete_send)(struct wlan_objmgr_vdev *vdev,
+				       struct vdev_delete_params *param);
+	QDF_STATUS (*vdev_stop_send)(struct wlan_objmgr_vdev *vdev,
+				     struct vdev_stop_params *param);
+	QDF_STATUS (*vdev_down_send)(struct wlan_objmgr_vdev *vdev,
+				     struct vdev_down_params *param);
+	QDF_STATUS (*vdev_set_param_send)(struct wlan_objmgr_vdev *vdev,
+					  struct vdev_set_params *param);
+	QDF_STATUS (*vdev_set_nac_rssi_send)(
+				struct wlan_objmgr_vdev *vdev,
+				struct vdev_scan_nac_rssi_params *param);
+	QDF_STATUS (*vdev_set_neighbour_rx_cmd_send)(
+					struct wlan_objmgr_vdev *vdev,
+					struct set_neighbour_rx_params *param,
+					uint8_t *mac);
+	QDF_STATUS (*vdev_sifs_trigger_send)(
+					struct wlan_objmgr_vdev *vdev,
+					struct sifs_trigger_param *param);
+	QDF_STATUS (*vdev_set_custom_aggr_size_cmd_send)(
+				struct wlan_objmgr_vdev *vdev,
+				struct set_custom_aggr_size_params *param);
+	QDF_STATUS (*vdev_config_ratemask_cmd_send)(
+					struct wlan_objmgr_vdev *vdev,
+					struct config_ratemask_params *param);
+	QDF_STATUS (*peer_flush_tids_send)(
+					struct wlan_objmgr_vdev *vdev,
+					struct peer_flush_params *param);
+	QDF_STATUS (*multiple_vdev_restart_req_cmd)(
+				struct wlan_objmgr_pdev *pdev,
+				struct multiple_vdev_restart_params *param);
+	QDF_STATUS (*beacon_cmd_send)(struct wlan_objmgr_vdev *vdev,
+				      struct beacon_params *param);
+	QDF_STATUS (*beacon_tmpl_send)(struct wlan_objmgr_vdev *vdev,
+				       struct beacon_tmpl_params *param);
+	QDF_STATUS (*vdev_bcn_miss_offload_send)(struct wlan_objmgr_vdev *vdev);
+	QDF_STATUS (*vdev_sta_ps_param_send)(struct wlan_objmgr_vdev *vdev,
+					     struct sta_ps_params *param);
+#endif
 };
 
 /**
@@ -219,18 +319,20 @@ struct p2p_set_mac_filter;
 struct wlan_lmac_if_p2p_tx_ops {
 	QDF_STATUS (*set_ps)(struct wlan_objmgr_psoc *psoc,
 		struct p2p_ps_config *ps_config);
+#ifdef FEATURE_P2P_LISTEN_OFFLOAD
 	QDF_STATUS (*lo_start)(struct wlan_objmgr_psoc *psoc,
 		struct p2p_lo_start *lo_start);
 	QDF_STATUS (*lo_stop)(struct wlan_objmgr_psoc *psoc,
 		uint32_t vdev_id);
-	QDF_STATUS (*set_noa)(struct wlan_objmgr_psoc *psoc,
-		uint32_t vdev_id, bool disable_noa);
 	QDF_STATUS (*reg_lo_ev_handler)(struct wlan_objmgr_psoc *psoc,
-			void *arg);
-	QDF_STATUS (*reg_noa_ev_handler)(struct wlan_objmgr_psoc *psoc,
 			void *arg);
 	QDF_STATUS (*unreg_lo_ev_handler)(struct wlan_objmgr_psoc *psoc,
 			void *arg);
+#endif
+	QDF_STATUS (*set_noa)(struct wlan_objmgr_psoc *psoc,
+			      uint32_t vdev_id, bool disable_noa);
+	QDF_STATUS (*reg_noa_ev_handler)(struct wlan_objmgr_psoc *psoc,
+					 void *arg);
 	QDF_STATUS (*unreg_noa_ev_handler)(struct wlan_objmgr_psoc *psoc,
 			void *arg);
 	QDF_STATUS (*reg_mac_addr_rx_filter_handler)(
@@ -245,7 +347,7 @@ struct wlan_lmac_if_p2p_tx_ops {
 
 /**
  * struct wlan_lmac_if_atf_tx_ops - ATF specific tx function pointers
- * @atf_update_peer_txtoken:      Update peer Tx token
+ * @atf_node_unblock:             Resume node
  * @atf_set_enable_disable:       Set atf enable/disable
  * @atf_tokens_used:              Get used atf tokens
  * @atf_get_unused_txtoken:       Get unused atf tokens
@@ -258,6 +360,7 @@ struct wlan_lmac_if_p2p_tx_ops {
  * @atf_ssid_sched_policy:        Set ssid schedule policy
  * @atf_set:                      Set atf
  * @atf_set_grouping:             Set atf grouping
+ * @atf_set_group_ac:             Set atf Group AC
  * @atf_send_peer_request:        Send peer requests
  * @atf_set_bwf:                  Set bandwidth fairness
  * @atf_peer_buf_held:            Get buffer held
@@ -268,9 +371,8 @@ struct wlan_lmac_if_p2p_tx_ops {
  * @atf_unregister_event_handler  ATF unregister wmi event handlers
  */
 struct wlan_lmac_if_atf_tx_ops {
-	void (*atf_update_peer_txtoken)(struct wlan_objmgr_pdev *pdev,
-					struct wlan_objmgr_peer *peer,
-					struct atf_stats *stats);
+	void (*atf_node_unblock)(struct wlan_objmgr_pdev *pdev,
+				 struct wlan_objmgr_peer *peer);
 	void (*atf_set_enable_disable)(struct wlan_objmgr_pdev *pdev,
 				       uint8_t value);
 	uint8_t (*atf_tokens_used)(struct wlan_objmgr_pdev *pdev,
@@ -290,8 +392,8 @@ struct wlan_lmac_if_atf_tx_ops {
 					 uint32_t tput,
 					 uint32_t *possible_tput);
 	uint32_t (*atf_debug_peerstate)(struct wlan_objmgr_pdev *pdev,
-					struct wlan_objmgr_peer *peer);
-
+					struct wlan_objmgr_peer *peer,
+					struct atf_peerstate *peerstate);
 	int32_t (*atf_enable_disable)(struct wlan_objmgr_vdev *vdev,
 				      uint8_t value);
 	int32_t (*atf_ssid_sched_policy)(struct wlan_objmgr_vdev *vdev,
@@ -301,6 +403,9 @@ struct wlan_lmac_if_atf_tx_ops {
 			   uint8_t atf_tput_based);
 	int32_t (*atf_set_grouping)(struct wlan_objmgr_pdev *pdev,
 				    struct pdev_atf_ssid_group_req *atf_grp_req,
+				    uint8_t atf_tput_based);
+	int32_t (*atf_set_group_ac)(struct wlan_objmgr_pdev *pdev,
+				    struct pdev_atf_group_wmm_ac_req *atf_acreq,
 				    uint8_t atf_tput_based);
 	int32_t (*atf_send_peer_request)(struct wlan_objmgr_pdev *pdev,
 					 struct pdev_atf_peer_ext_request *atfr,
@@ -362,6 +467,30 @@ struct wlan_lmac_if_sa_api_tx_ops {
 
 #endif
 
+#ifdef WLAN_CFR_ENABLE
+/**
+ * struct wlan_lmac_if_cfr_tx_ops - CFR specific tx function pointers
+ * @cfr_init_pdev: Initialize CFR
+ * @cfr_deinit_pdev: De-initialize CFR
+ * @cfr_enable_cfr_timer: Function to enable CFR timer
+ * @cfr_start_capture: Function to start CFR capture
+ * @cfr_stop_capture: Function to stop CFR capture
+ */
+struct wlan_lmac_if_cfr_tx_ops {
+	int (*cfr_init_pdev)(struct wlan_objmgr_psoc *psoc,
+			     struct wlan_objmgr_pdev *pdev);
+	int (*cfr_deinit_pdev)(struct wlan_objmgr_psoc *psoc,
+			       struct wlan_objmgr_pdev *pdev);
+	int (*cfr_enable_cfr_timer)(struct wlan_objmgr_pdev *pdev,
+				    uint32_t cfr_timer);
+	int (*cfr_start_capture)(struct wlan_objmgr_pdev *pdev,
+				 struct wlan_objmgr_peer *peer,
+				 struct cfr_capture_params *params);
+	int (*cfr_stop_capture)(struct wlan_objmgr_pdev *pdev,
+				struct wlan_objmgr_peer *peer);
+};
+#endif /* WLAN_CFR_ENABLE */
+
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
 struct wmi_spectral_cmd_ops;
 /**
@@ -392,23 +521,36 @@ struct wmi_spectral_cmd_ops;
 struct wlan_lmac_if_sptrl_tx_ops {
 	void *(*sptrlto_pdev_spectral_init)(struct wlan_objmgr_pdev *pdev);
 	void (*sptrlto_pdev_spectral_deinit)(struct wlan_objmgr_pdev *pdev);
-	int (*sptrlto_set_spectral_config)(struct wlan_objmgr_pdev *pdev,
-					   const u_int32_t threshtype,
-					   const u_int32_t value);
-	void (*sptrlto_get_spectral_config)(struct wlan_objmgr_pdev *pdev,
-					    struct spectral_config *sptrl_config
-					    );
-	int (*sptrlto_start_spectral_scan)(struct wlan_objmgr_pdev *pdev);
-	void (*sptrlto_stop_spectral_scan)(struct wlan_objmgr_pdev *pdev);
-	bool (*sptrlto_is_spectral_active)(struct wlan_objmgr_pdev *pdev);
-	bool (*sptrlto_is_spectral_enabled)(struct wlan_objmgr_pdev *pdev);
-	int (*sptrlto_set_debug_level)(struct wlan_objmgr_pdev *pdev,
-				       u_int32_t debug_level);
+	QDF_STATUS (*sptrlto_set_spectral_config)
+					(struct wlan_objmgr_pdev *pdev,
+					 const u_int32_t threshtype,
+					 const u_int32_t value,
+					 const enum spectral_scan_mode smode,
+					 enum spectral_cp_error_code *err);
+	QDF_STATUS (*sptrlto_get_spectral_config)
+					(struct wlan_objmgr_pdev *pdev,
+					 struct spectral_config *sptrl_config,
+					 enum spectral_scan_mode smode);
+	QDF_STATUS (*sptrlto_start_spectral_scan)
+					(struct wlan_objmgr_pdev *pdev,
+					 const enum spectral_scan_mode smode,
+					 enum spectral_cp_error_code *err);
+	QDF_STATUS (*sptrlto_stop_spectral_scan)
+					(struct wlan_objmgr_pdev *pdev,
+					 const enum spectral_scan_mode smode);
+	bool (*sptrlto_is_spectral_active)(struct wlan_objmgr_pdev *pdev,
+					   const enum spectral_scan_mode smode);
+	bool (*sptrlto_is_spectral_enabled)(struct wlan_objmgr_pdev *pdev,
+					    enum spectral_scan_mode smode);
+	QDF_STATUS (*sptrlto_set_debug_level)(struct wlan_objmgr_pdev *pdev,
+					      u_int32_t debug_level);
 	u_int32_t (*sptrlto_get_debug_level)(struct wlan_objmgr_pdev *pdev);
-	void (*sptrlto_get_spectral_capinfo)(struct wlan_objmgr_pdev *pdev,
-					     void *outdata);
-	void (*sptrlto_get_spectral_diagstats)(struct wlan_objmgr_pdev *pdev,
-					       void *outdata);
+	QDF_STATUS (*sptrlto_get_spectral_capinfo)
+						(struct wlan_objmgr_pdev *pdev,
+						 struct spectral_caps *scaps);
+	QDF_STATUS (*sptrlto_get_spectral_diagstats)
+					(struct wlan_objmgr_pdev *pdev,
+					 struct spectral_diag_stats *stats);
 	void (*sptrlto_register_wmi_spectral_cmd_ops)(
 		struct wlan_objmgr_pdev *pdev,
 		struct wmi_spectral_cmd_ops *cmd_ops);
@@ -440,24 +582,39 @@ struct wlan_lmac_if_wifi_pos_tx_ops {
  * struct wlan_lmac_if_direct_buf_rx_tx_ops - structire of direct buf rx txops
  * @direct_buf_rx_module_register: Registration API callback for modules
  *                                 to register with direct buf rx framework
+ * @direct_buf_rx_module_unregister: Unregistration API to clean up module
+ *                                   specific resources in DBR
  * @direct_buf_rx_register_events: Registration of WMI events for direct
  *                                 buffer rx framework
  * @direct_buf_rx_unregister_events: Unregistraton of WMI events for direct
  *                                   buffer rx framework
+ * @direct_buf_rx_print_ring_stat: Print ring status per module per pdev
+ *
+ * @direct_buf_rx_get_ring_params: Get ring parameters for module_id
  */
 struct wlan_lmac_if_direct_buf_rx_tx_ops {
 	QDF_STATUS (*direct_buf_rx_module_register)(
 			struct wlan_objmgr_pdev *pdev, uint8_t mod_id,
-			int (*dbr_rsp_handler)(struct wlan_objmgr_pdev *pdev,
-				struct direct_buf_rx_data *dbr_data));
+			struct dbr_module_config *dbr_config,
+			bool (*dbr_rsp_handler)
+			     (struct wlan_objmgr_pdev *pdev,
+			      struct direct_buf_rx_data *dbr_data));
+	QDF_STATUS (*direct_buf_rx_module_unregister)(
+			struct wlan_objmgr_pdev *pdev, uint8_t mod_id);
 	QDF_STATUS (*direct_buf_rx_register_events)(
 			struct wlan_objmgr_psoc *psoc);
 	QDF_STATUS (*direct_buf_rx_unregister_events)(
 			struct wlan_objmgr_psoc *psoc);
+	QDF_STATUS (*direct_buf_rx_print_ring_stat)(
+			struct wlan_objmgr_pdev *pdev);
+	QDF_STATUS (*direct_buf_rx_get_ring_params)
+		(struct wlan_objmgr_pdev *pdev,
+		 struct module_ring_params *param,
+		 uint8_t module_id, uint8_t srng_id);
 };
 #endif
 
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 /* fwd declarations for tdls tx ops */
 struct tdls_info;
 struct tdls_peer_update_state;
@@ -500,17 +657,6 @@ struct wlan_lmac_if_tdls_rx_ops {
 };
 #endif
 
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-/**
- * struct wlan_lmac_if_nan_tx_ops - structure of firwware tx function
- * pointers for nan component
- * @data_req_tx: function pointer to send nan req to firmware
- */
-struct wlan_lmac_if_nan_tx_ops {
-	QDF_STATUS (*nan_req_tx)(void *req, uint32_t req_id);
-};
-#endif
-
 /**
  * struct wlan_lmac_if_ftm_rx_ops  - south bound rx function pointers for FTM
  * @ftm_ev_handler: function to handle FTM event
@@ -529,6 +675,7 @@ struct wlan_lmac_if_ftm_rx_ops {
  * @unregister_master_handler:  pointer to unregister event handler
  * @register_11d_new_cc_handler: pointer to register 11d cc event handler
  * @unregister_11d_new_cc_handler:  pointer to unregister 11d cc event handler
+ * @send_ctl_info: call-back function to send CTL info to firmware
  */
 struct wlan_lmac_if_reg_tx_ops {
 	QDF_STATUS (*register_master_handler)(struct wlan_objmgr_psoc *psoc,
@@ -557,6 +704,8 @@ struct wlan_lmac_if_reg_tx_ops {
 			struct wlan_objmgr_psoc *psoc, void *arg);
 	QDF_STATUS (*unregister_ch_avoid_event_handler)(
 			struct wlan_objmgr_psoc *psoc, void *arg);
+	QDF_STATUS (*send_ctl_info)(struct wlan_objmgr_psoc *psoc,
+				    struct reg_ctl_params *params);
 };
 
 /**
@@ -577,12 +726,16 @@ struct wlan_lmac_if_reg_tx_ops {
  * @dfs_get_phymode_info:               Get phymode info.
  * @dfs_reg_ev_handler:                 Register dfs event handler.
  * @dfs_process_emulate_bang_radar_cmd: Process emulate bang radar test command.
+ * @dfs_agile_ch_cfg_cmd:               Send Agile Channel Configuration command
+ * @dfs_ocac_abort_cmd:                 Send Off-Channel CAC abort command.
  * @dfs_is_pdev_5ghz:                   Check if the given pdev is 5GHz.
  * @dfs_set_phyerr_filter_offload:      Config phyerr filter offload.
  * @dfs_send_offload_enable_cmd:        Send dfs offload enable command to fw.
  * @dfs_host_dfs_check_support:         To check Host DFS confirmation feature
  *                                      support.
  * @dfs_send_avg_radar_params_to_fw:    Send average radar parameters to FW.
+ * @dfs_send_usenol_pdev_param:         Send usenol pdev param to FW.
+ * @dfs_send_subchan_marking_pdev_param: Send subchan marking pdev param to FW.
  */
 
 struct wlan_lmac_if_dfs_tx_ops {
@@ -613,6 +766,9 @@ struct wlan_lmac_if_dfs_tx_ops {
 	QDF_STATUS (*dfs_process_emulate_bang_radar_cmd)(
 			struct wlan_objmgr_pdev *pdev,
 			struct dfs_emulate_bang_radar_test_cmd *dfs_unit_test);
+	QDF_STATUS (*dfs_agile_ch_cfg_cmd)(struct wlan_objmgr_pdev *pdev,
+					   uint8_t *ch_freq);
+	QDF_STATUS (*dfs_ocac_abort_cmd)(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*dfs_is_pdev_5ghz)(struct wlan_objmgr_pdev *pdev,
 			bool *is_5ghz);
 	QDF_STATUS (*dfs_set_phyerr_filter_offload)(
@@ -627,6 +783,11 @@ struct wlan_lmac_if_dfs_tx_ops {
 	QDF_STATUS (*dfs_send_avg_radar_params_to_fw)(
 			struct wlan_objmgr_pdev *pdev,
 			struct dfs_radar_found_params *params);
+	QDF_STATUS (*dfs_send_usenol_pdev_param)(struct wlan_objmgr_pdev *pdev,
+						 bool usenol);
+	QDF_STATUS (*dfs_send_subchan_marking_pdev_param)(
+			struct wlan_objmgr_pdev *pdev,
+			bool subchanmark);
 };
 
 /**
@@ -636,7 +797,6 @@ struct wlan_lmac_if_dfs_tx_ops {
  * @tgt_is_tgt_type_ipq4019: To check IPQ4019 target type.
  * @tgt_is_tgt_type_qca9984: To check QCA9984 target type.
  * @tgt_is_tgt_type_qca9888: To check QCA9888 target type.
- * @tgt_is_tgt_type_adrastea: To check QCS40X target type.
  * @tgt_get_tgt_type:        Get target type
  * @tgt_get_tgt_version:     Get target version
  * @tgt_get_tgt_revision:    Get target revision
@@ -646,7 +806,6 @@ struct wlan_lmac_if_target_tx_ops {
 	bool (*tgt_is_tgt_type_ipq4019)(uint32_t);
 	bool (*tgt_is_tgt_type_qca9984)(uint32_t);
 	bool (*tgt_is_tgt_type_qca9888)(uint32_t);
-	bool (*tgt_is_tgt_type_adrastea)(uint32_t);
 	uint32_t (*tgt_get_tgt_type)(struct wlan_objmgr_psoc *psoc);
 	uint32_t (*tgt_get_tgt_version)(struct wlan_objmgr_psoc *psoc);
 	uint32_t (*tgt_get_tgt_revision)(struct wlan_objmgr_psoc *psoc);
@@ -721,6 +880,10 @@ struct wlan_lmac_if_tx_ops {
 	struct wlan_lmac_if_sa_api_tx_ops sa_api_tx_ops;
 #endif
 
+#ifdef WLAN_CFR_ENABLE
+	struct wlan_lmac_if_cfr_tx_ops cfr_tx_ops;
+#endif
+
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
 	struct wlan_lmac_if_sptrl_tx_ops sptrl_tx_ops;
 #endif
@@ -732,13 +895,10 @@ struct wlan_lmac_if_tx_ops {
 #ifdef WIFI_POS_CONVERGED
 	struct wlan_lmac_if_wifi_pos_tx_ops wifi_pos_tx_ops;
 #endif
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-	struct wlan_lmac_if_nan_tx_ops nan_tx_ops;
-#endif
 	struct wlan_lmac_if_reg_tx_ops reg_ops;
 	struct wlan_lmac_if_dfs_tx_ops dfs_tx_ops;
 
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 	struct wlan_lmac_if_tdls_tx_ops tdls_tx_ops;
 #endif
 
@@ -795,12 +955,6 @@ struct wlan_lmac_if_mgmt_txrx_rx_ops {
 			struct wlan_objmgr_pdev *pdev);
 };
 
-/**
- * struct wlan_lmac_if_reg_rx_ops  -  structure of rx function
- *		pointers for regulatory component
- * @reg_ignore_fw_reg_offload_ind: Function pointer to check if
- *		needs to be ignored
- */
 struct wlan_lmac_if_reg_rx_ops {
 	QDF_STATUS (*master_list_handler)(struct cur_regulatory_info
 					  *reg_info);
@@ -810,6 +964,8 @@ struct wlan_lmac_if_reg_rx_ops {
 			bool val);
 	QDF_STATUS (*reg_set_11d_offloaded)(struct wlan_objmgr_psoc *psoc,
 			bool val);
+	QDF_STATUS (*reg_set_6ghz_supported)(struct wlan_objmgr_psoc *psoc,
+					     bool val);
 	QDF_STATUS (*get_dfs_region)(struct wlan_objmgr_pdev *pdev,
 			enum dfs_reg *dfs_reg);
 	QDF_STATUS (*reg_ch_avoid_event_handler)(struct wlan_objmgr_psoc *psoc,
@@ -823,8 +979,9 @@ struct wlan_lmac_if_reg_rx_ops {
 			uint16_t regdmn);
 	QDF_STATUS (*reg_get_current_regdomain)(struct wlan_objmgr_pdev *pdev,
 			struct cur_regdmn_info *cur_regdmn);
+	QDF_STATUS (*reg_enable_dfs_channels)(struct wlan_objmgr_pdev *pdev,
+					      bool dfs_enable);
 	bool (*reg_ignore_fw_reg_offload_ind)(struct wlan_objmgr_psoc *psoc);
-
 };
 
 #ifdef CONVERGED_P2P_ENABLE
@@ -843,8 +1000,10 @@ struct p2p_set_mac_filter_evt;
  *    rx filter event
  */
 struct wlan_lmac_if_p2p_rx_ops {
+#ifdef FEATURE_P2P_LISTEN_OFFLOAD
 	QDF_STATUS (*lo_ev_handler)(struct wlan_objmgr_psoc *psoc,
 		struct p2p_lo_event *event_info);
+#endif
 	QDF_STATUS (*noa_ev_handler)(struct wlan_objmgr_psoc *psoc,
 		struct p2p_noa_info *event_info);
 	QDF_STATUS (*add_mac_addr_filter_evt_handler)(
@@ -867,32 +1026,34 @@ struct wlan_lmac_if_p2p_rx_ops {
  * @atf_get_peers:                     Get number of peers for a radio
  * @atf_get_tput_based:                Get throughput based enabled/disabled
  * @atf_get_logging:                   Get logging enabled/disabled
- * @atf_get_txbuf_share:               Get TxBuff share state
- * @atf_get_txbuf_max:                 Get TxBuff MAX number
- * @atf_get_txbuf_min:                 Get TxBuff MIN number
+ * @atf_update_buf_held:               Set Num buf held by subgroup
  * @atf_get_ssidgroup:                 Get ssid group state
- * @atf_get_tx_block_count:            Get tx block count
- * @atf_get_peer_blk_txtraffic:        Get peer tx traffic block state
+ * @atf_get_vdev_ac_blk_cnt:           Get AC block count for vdev
+ * @atf_get_peer_blk_txbitmap:         Get peer tx traffic AC bitmap
  * @atf_get_vdev_blk_txtraffic:        Get vdev tx traffic block state
  * @atf_get_sched:                     Get ATF scheduled policy
  * @atf_get_tx_tokens:                 Get Tx tokens
- * @atf_get_shadow_tx_tokens:          Get shadow tx tokens
+ * @atf_buf_distribute:                Distribute Buffers
  * @atf_get_tx_tokens_common:          Get common tx tokens
  * @atf_get_shadow_alloted_tx_tokens:  Get shadow alloted tx tokens
  * @atf_get_peer_stats:                Get atf peer stats
+ * @atf_adjust_subgroup_txtokens:      Adjust tokens based on actual duration
+ * @atf_account_subgroup_txtokens:     Estimate tx time & update subgroup tokens
+ * @atf_subgroup_free_buf:             On tx completion, update num buf held
+ * @atf_update_subgroup_tidstate:      TID state (Paused/unpaused) of node
+ * @atf_get_subgroup_airtime:          Get subgroup airtime
  * @atf_get_token_allocated:           Get atf token allocated
  * @atf_get_token_utilized:            Get atf token utilized
  * @atf_set_sched:                     Set ATF schedule policy
  * @atf_set_fmcap:                     Set firmware capability for ATF
  * @atf_set_obss_scale:                Set ATF obss scale
- * @atf_set_mode:                      Set ATF mode
  * @atf_set_msdu_desc:                 Set msdu desc
  * @atf_set_max_vdevs:                 Set maximum vdevs number
  * @atf_set_peers:                     Set peers number
  * @atf_set_peer_stats:                Set peer stats
  * @atf_set_vdev_blk_txtraffic:        Set Block/unblock vdev tx traffic
- * @atf_set_peer_blk_txtraffic:        Set Block/unblock peer tx traffic
- * @atf_set_tx_block_count:            Set tx block count
+ * @atf_peer_blk_txtraffic:            Block peer tx traffic
+ * @atf_peer_unblk_txtraffic:          Unblock peer tx traffic
  * @atf_set_token_allocated:           Set atf token allocated
  * @atf_set_token_utilized:            Set atf token utilized
  */
@@ -906,29 +1067,43 @@ struct wlan_lmac_if_atf_rx_ops {
 	uint32_t (*atf_get_peers)(struct wlan_objmgr_psoc *psoc);
 	uint32_t (*atf_get_tput_based)(struct wlan_objmgr_pdev *pdev);
 	uint32_t (*atf_get_logging)(struct wlan_objmgr_pdev *pdev);
-	uint8_t (*atf_get_txbuf_share)(struct wlan_objmgr_pdev *pdev);
-	uint16_t (*atf_get_txbuf_max)(struct wlan_objmgr_pdev *pdev);
-	uint16_t (*atf_get_txbuf_min)(struct wlan_objmgr_pdev *pdev);
+	void*   (*atf_update_buf_held)(struct wlan_objmgr_peer *peer,
+				       int8_t ac);
 	uint32_t (*atf_get_ssidgroup)(struct wlan_objmgr_pdev *pdev);
-	uint32_t (*atf_get_tx_block_count)(struct wlan_objmgr_vdev *vdev);
-	uint8_t (*atf_get_peer_blk_txtraffic)(struct wlan_objmgr_peer *peer);
+	uint32_t (*atf_get_vdev_ac_blk_cnt)(struct wlan_objmgr_vdev *vdev);
+	uint8_t (*atf_get_peer_blk_txbitmap)(struct wlan_objmgr_peer *peer);
 	uint8_t (*atf_get_vdev_blk_txtraffic)(struct wlan_objmgr_vdev *vdev);
 	uint32_t (*atf_get_sched)(struct wlan_objmgr_pdev *pdev);
 	uint32_t (*atf_get_tx_tokens)(struct wlan_objmgr_peer *peer);
-	uint32_t (*atf_get_shadow_tx_tokens)(struct wlan_objmgr_peer *peer);
+	uint32_t (*atf_buf_distribute)(struct wlan_objmgr_pdev *pdev,
+				       struct wlan_objmgr_peer *peer,
+				       int8_t ac);
 	uint32_t (*atf_get_txtokens_common)(struct wlan_objmgr_pdev *pdev);
 	uint32_t (*atf_get_shadow_alloted_tx_tokens)(
 						struct wlan_objmgr_pdev *pdev);
 	void (*atf_get_peer_stats)(struct wlan_objmgr_peer *peer,
 				   struct atf_stats *stats);
+	QDF_STATUS
+	(*atf_adjust_subgroup_txtokens)(struct wlan_objmgr_peer *pr,
+					uint8_t ac, uint32_t actual_duration,
+					uint32_t est_duration);
+	QDF_STATUS
+	(*atf_account_subgroup_txtokens)(struct wlan_objmgr_peer *pr,
+					 uint8_t ac,
+					 uint32_t duration);
+	QDF_STATUS
+	(*atf_subgroup_free_buf)(uint16_t buf_acc_size, void *bf_atf_sg);
+	QDF_STATUS
+	(*atf_update_subgroup_tidstate)(struct wlan_objmgr_peer *peer,
+					uint8_t atf_nodepaused);
+	uint8_t (*atf_get_subgroup_airtime)(struct wlan_objmgr_peer *peer,
+					    uint8_t ac);
 	uint16_t (*atf_get_token_allocated)(struct wlan_objmgr_peer *peer);
 	uint16_t (*atf_get_token_utilized)(struct wlan_objmgr_peer *peer);
-
 	void (*atf_set_sched)(struct wlan_objmgr_pdev *pdev, uint32_t value);
 	void (*atf_set_fmcap)(struct wlan_objmgr_psoc *psoc, uint32_t value);
 	void (*atf_set_obss_scale)(struct wlan_objmgr_pdev *pdev,
 				   uint32_t value);
-	void (*atf_set_mode)(struct wlan_objmgr_psoc *psoc, uint8_t value);
 	void (*atf_set_msdu_desc)(struct wlan_objmgr_psoc *psoc,
 				  uint32_t value);
 	void (*atf_set_max_vdevs)(struct wlan_objmgr_psoc *psoc,
@@ -938,10 +1113,10 @@ struct wlan_lmac_if_atf_rx_ops {
 				   struct atf_stats *stats);
 	void (*atf_set_vdev_blk_txtraffic)(struct wlan_objmgr_vdev *vdev,
 					   uint8_t value);
-	void (*atf_set_peer_blk_txtraffic)(struct wlan_objmgr_peer *peer,
-					   uint8_t value);
-	void (*atf_set_tx_block_count)(struct wlan_objmgr_vdev *vdev,
-					uint32_t count);
+	void (*atf_peer_blk_txtraffic)(struct wlan_objmgr_peer *peer,
+				       int8_t ac_id);
+	void (*atf_peer_unblk_txtraffic)(struct wlan_objmgr_peer *peer,
+					 int8_t ac_id);
 	void (*atf_set_token_allocated)(struct wlan_objmgr_peer *peer,
 					uint16_t value);
 	void (*atf_set_token_utilized)(struct wlan_objmgr_peer *peer,
@@ -1004,11 +1179,27 @@ struct wlan_lmac_if_sa_api_rx_ops {
 };
 #endif
 
+#ifdef WLAN_CFR_ENABLE
+
+/**
+ * struct wlan_lmac_if_cfr_rx_ops - CFR south bound rx function pointers
+ * @cfr_support_set: Set the CFR support based on FW advert
+ * @cfr_info_send: Send cfr info to upper layers
+ */
+struct wlan_lmac_if_cfr_rx_ops {
+	void (*cfr_support_set)(struct wlan_objmgr_psoc *psoc, uint32_t value);
+	uint32_t (*cfr_info_send)(struct wlan_objmgr_pdev *pdev, void *head,
+				  size_t hlen, void *data, size_t dlen,
+				  void *tail, size_t tlen);
+};
+#endif
+
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
 /**
  * struct wlan_lmac_if_sptrl_rx_ops - Spectral south bound Rx operations
  *
  * @sptrlro_get_target_handle: Get Spectral handle for target/LMAC private data
+ * @sptrlro_spectral_is_feature_disabled: Check if spectral feature is disabled
  */
 struct wlan_lmac_if_sptrl_rx_ops {
 	void * (*sptrlro_get_target_handle)(struct wlan_objmgr_pdev *pdev);
@@ -1018,6 +1209,8 @@ struct wlan_lmac_if_sptrl_rx_ops {
 	int (*sptrlro_vdev_get_sec20chan_freq_mhz)(
 			struct wlan_objmgr_vdev *vdev,
 			uint16_t *sec20chan_freq);
+	bool (*sptrlro_spectral_is_feature_disabled)(
+			struct wlan_objmgr_psoc *psoc);
 };
 #endif /* WLAN_CONV_SPECTRAL_ENABLE */
 
@@ -1030,17 +1223,6 @@ struct wlan_lmac_if_sptrl_rx_ops {
 struct wlan_lmac_if_wifi_pos_rx_ops {
 	int (*oem_rsp_event_rx)(struct wlan_objmgr_psoc *psoc,
 				struct oem_data_rsp *oem_rsp);
-};
-#endif
-
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-/**
- * struct wlan_lmac_if_nan_rx_ops - structure of rx function
- * pointers for nan component
- * @oem_rsp_event_rx: callback for WMI_OEM_RESPONSE_EVENTID
- */
-struct wlan_lmac_if_nan_rx_ops {
-	QDF_STATUS (*nan_event_rx)(struct scheduler_msg *event);
 };
 #endif
 
@@ -1059,11 +1241,22 @@ struct wlan_lmac_if_nan_rx_ops {
  * @dfs_override_precac_timeout:      Override the default precac timeout.
  * @dfs_set_precac_enable:            Set precac enable flag.
  * @dfs_get_precac_enable:            Get precac enable flag.
+ * @dfs_set_precac_intermediate_chan: Set intermediate channel for precac.
+ * @dfs_get_precac_intermediate_chan: Get intermediate channel for precac.
+ * @dfs_precac_preferred_chan:        Configure preferred channel during
+ *                                    precac.
+ * dfs_get_precac_chan_state:         Get precac status for given channel.
+ * dfs_start_precac_timer:            Start precac timer.
  * @dfs_get_override_precac_timeout:  Get precac timeout.
  * @dfs_set_current_channel:          Set DFS current channel.
  * @dfs_process_radar_ind:            Process radar found indication.
  * @dfs_dfs_cac_complete_ind:         Process cac complete indication.
+ * @dfs_agile_precac_start:           Initiate Agile PreCAC run.
+ * @dfs_set_agile_precac_state:       Set agile precac state.
+ * @dfs_dfs_ocac_complete_ind:        Process offchan cac complete indication.
  * @dfs_stop:                         Clear dfs timers.
+ * @dfs_enable_stadfs:                Enable/Disable STADFS capability.
+ * @dfs_is_stadfs_enabled:            Get STADFS capability value.
  * @dfs_process_phyerr_filter_offload:Process radar event.
  * @dfs_is_phyerr_filter_offload:     Check whether phyerr filter is offload.
  * @dfs_action_on_status:             Trigger the action to be taken based on
@@ -1073,6 +1266,7 @@ struct wlan_lmac_if_nan_rx_ops {
  * @dfs_get_override_status_timeout:  Get the value of host dfs status wait
  *                                    timeout.
  * @dfs_reset_spoof_test:             Checks if radar detection is enabled.
+ * @dfs_is_disable_radar_marking_set: Check if dis_radar_marking param is set.
  */
 struct wlan_lmac_if_dfs_rx_ops {
 	QDF_STATUS (*dfs_get_radars)(struct wlan_objmgr_pdev *pdev);
@@ -1084,9 +1278,11 @@ struct wlan_lmac_if_dfs_rx_ops {
 			uint32_t r_rs_tstamp,
 			uint64_t r_fulltsf);
 	QDF_STATUS (*dfs_destroy_object)(struct wlan_objmgr_pdev *pdev);
-	QDF_STATUS (*dfs_radar_enable)(struct wlan_objmgr_pdev *pdev,
+	QDF_STATUS (*dfs_radar_enable)(
+			struct wlan_objmgr_pdev *pdev,
 			int no_cac,
-			uint32_t opmode);
+			uint32_t opmode,
+			bool enable);
 	void (*dfs_is_radar_enabled)(struct wlan_objmgr_pdev *pdev,
 				     int *ignore_dfs);
 	QDF_STATUS (*dfs_control)(struct wlan_objmgr_pdev *pdev,
@@ -1108,6 +1304,13 @@ struct wlan_lmac_if_dfs_rx_ops {
 					      uint32_t *phy_mode,
 					      bool *dfs_set_cfreq2,
 					      bool *set_agile);
+	QDF_STATUS (*dfs_agile_precac_start)(struct wlan_objmgr_pdev *pdev);
+	QDF_STATUS (*dfs_set_agile_precac_state)(struct wlan_objmgr_pdev *pdev,
+						 int agile_precac_state);
+	QDF_STATUS
+	(*dfs_dfs_ocac_complete_ind)(struct wlan_objmgr_pdev *pdev,
+				     struct vdev_adfs_complete_status *ocac_st);
+	QDF_STATUS (*dfs_start_precac_timer)(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*dfs_cancel_precac_timer)(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*dfs_override_precac_timeout)(
 			struct wlan_objmgr_pdev *pdev,
@@ -1116,6 +1319,17 @@ struct wlan_lmac_if_dfs_rx_ops {
 			uint32_t value);
 	QDF_STATUS (*dfs_get_precac_enable)(struct wlan_objmgr_pdev *pdev,
 			int *buff);
+#ifdef WLAN_DFS_PRECAC_AUTO_CHAN_SUPPORT
+	QDF_STATUS (*dfs_set_precac_intermediate_chan)(struct wlan_objmgr_pdev *pdev,
+						       uint32_t value);
+	QDF_STATUS (*dfs_get_precac_intermediate_chan)(struct wlan_objmgr_pdev *pdev,
+						       int *buff);
+	bool (*dfs_decide_precac_preferred_chan)(struct wlan_objmgr_pdev *pdev,
+						 uint8_t *pref_chan,
+						 enum wlan_phymode mode);
+	enum precac_chan_state (*dfs_get_precac_chan_state)(struct wlan_objmgr_pdev *pdev,
+							    uint8_t precac_chan);
+#endif
 	QDF_STATUS (*dfs_get_override_precac_timeout)(
 			struct wlan_objmgr_pdev *pdev,
 			int *precac_timeout);
@@ -1133,6 +1347,8 @@ struct wlan_lmac_if_dfs_rx_ops {
 			uint32_t vdev_id);
 #endif
 	QDF_STATUS (*dfs_stop)(struct wlan_objmgr_pdev *pdev);
+	void (*dfs_enable_stadfs)(struct wlan_objmgr_pdev *pdev, bool val);
+	bool (*dfs_is_stadfs_enabled)(struct wlan_objmgr_pdev *pdev);
 	QDF_STATUS (*dfs_process_phyerr_filter_offload)(
 			struct wlan_objmgr_pdev *pdev,
 			struct radar_event_info *wlan_radar_info);
@@ -1148,8 +1364,57 @@ struct wlan_lmac_if_dfs_rx_ops {
 			struct wlan_objmgr_pdev *pdev,
 			int *status_timeout);
 	QDF_STATUS (*dfs_reset_spoof_test)(struct wlan_objmgr_pdev *pdev);
+	QDF_STATUS (*dfs_is_disable_radar_marking_set)(struct wlan_objmgr_pdev
+						 *pdev,
+						 bool *disable_radar_marking);
+	QDF_STATUS (*dfs_set_nol_subchannel_marking)(
+			struct wlan_objmgr_pdev *pdev,
+			bool value);
+	QDF_STATUS (*dfs_get_nol_subchannel_marking)(
+			struct wlan_objmgr_pdev *pdev,
+			bool *value);
+	QDF_STATUS (*dfs_set_bw_reduction)(struct wlan_objmgr_pdev *pdev,
+			bool value);
+	QDF_STATUS (*dfs_is_bw_reduction_needed)(struct wlan_objmgr_pdev *pdev,
+			bool *bw_reduce);
 };
 
+/**
+ * struct wlan_lmac_if_mlme_rx_ops: Function pointer to call MLME functions
+ * @wlan_mlme_scan_start: function to start scan
+ * @wlan_mlme_register_pm_event_handler: function to register pm event
+ * @wlan_mlme_unregister_pm_event_handler: function unregister for pm event
+ * @wlan_mlme_register_vdev_event_handler: function to register for vdev event
+ * @wlan_mlme_unregister_vdev_event_handler: functiont o unregister for vdev
+ * event
+ * @wlan_mlme_send_probe_request: function to send probe
+ * @wlan_mlme_resmgr_request_bsschan: function to request bsschan
+ * @wlan_mlme_resmgr_request_offchan: function to request offchan
+ * @wlan_mlme_resmgr_active: function to check resmgr status
+ * @wlan_mlme_get_cw_inter_found: function to get cw interference
+ * @wlan_mlme_set_home_channel: function to set home channel
+ * @wlan_mlme_set_channel: function to set channel
+ * @wlan_mlme_start_record_stats: functiont to start record stats
+ * @wlan_mlme_end_record_stats: function to end recording of stats
+ * @wlan_mlme_get_enh_rpt_ind: function to get enhanced repeater index
+ * @wlan_mlme_pause: function to pause mlme
+ * @wlan_mlme_unpause: function to unpause mlme
+ * @wlan_mlme_vdev_pause_control: function to set vdev pause control
+ * @wlan_mlme_sta_power_pause: function to set sta power pause
+ * @wlan_mlme_sta_power_unpause: function to set sta power pause
+ * @wlan_mlme_set_vdev_sleep: function to sleep vdev sleep
+ * @wlan_mlme_set_vdev_wakeup: function to set vdev wakeup
+ * @wlan_mlme_get_traffic_indication_timestamp: function to get tid timestamp
+ * @wlan_mlme_get_acs_in_progress: function to get ACS progress
+ * @wlan_mlme_end_scan: function to end scan
+ * @mlme_get_rsp_timer: function to get vdev mgr response timer
+ * @mlme_response_timeout_cb: function to trigger on response time expiry
+ * @mlme_start_response: function to handle vdev start response
+ * @mlme_stop_response: function to handle vdev stop response
+ * @mlme_offload_bcn_tx_status_event_handle: function to get offload beacon tx
+ * status
+ * @mlme_tbttoffset_update_handle: function to handle tbttoffset event
+ */
 struct wlan_lmac_if_mlme_rx_ops {
 
 	void (*wlan_mlme_scan_start)(struct wlan_objmgr_pdev *pdev);
@@ -1207,6 +1472,26 @@ struct wlan_lmac_if_mlme_rx_ops {
 	int (*wlan_mlme_get_acs_in_progress)(struct wlan_objmgr_pdev *pdev,
 			uint8_t vdev_id);
 	void (*wlan_mlme_end_scan)(struct wlan_objmgr_pdev *pdev);
+
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+	struct vdev_response_timer *(*vdev_mgr_get_response_timer_info)(
+					struct wlan_objmgr_vdev *vdev);
+	QDF_STATUS (*vdev_mgr_start_response)(
+					struct wlan_objmgr_psoc *psoc,
+					struct vdev_start_response *rsp);
+	QDF_STATUS (*vdev_mgr_stop_response)(
+					struct wlan_objmgr_psoc *psoc,
+					struct vdev_stop_response *rsp);
+	QDF_STATUS (*vdev_mgr_delete_response)(
+					struct wlan_objmgr_psoc *psoc,
+					struct vdev_delete_response *rsp);
+	QDF_STATUS (*vdev_mgr_offload_bcn_tx_status_event_handle)(
+							uint32_t vdev_id,
+							uint32_t tx_status);
+	QDF_STATUS (*vdev_mgr_tbttoffset_update_handle)(
+						uint32_t num_vdevs,
+						bool is_ext);
+#endif
 };
 
 #ifdef WLAN_SUPPORT_GREEN_AP
@@ -1225,6 +1510,7 @@ struct wlan_lmac_if_green_ap_rx_ops {
  * @scan: scan rx ops
  * @dfs_rx_ops: dfs rx ops.
  * @cp_stats_rx_ops: cp stats rx ops
+ * @cfr_rx_ops: cfr rx ops
  *
  * Callback function tabled to be registered with lmac/wmi.
  * lmac will use the functional table to send events/frames to umac
@@ -1251,6 +1537,10 @@ struct wlan_lmac_if_rx_ops {
 	struct wlan_lmac_if_sa_api_rx_ops sa_api_rx_ops;
 #endif
 
+#ifdef WLAN_CFR_ENABLE
+	struct wlan_lmac_if_cfr_rx_ops cfr_rx_ops;
+#endif
+
 #ifdef WLAN_CONV_SPECTRAL_ENABLE
 	struct wlan_lmac_if_sptrl_rx_ops sptrl_rx_ops;
 #endif
@@ -1261,12 +1551,9 @@ struct wlan_lmac_if_rx_ops {
 #ifdef WIFI_POS_CONVERGED
 	struct wlan_lmac_if_wifi_pos_rx_ops wifi_pos_rx_ops;
 #endif
-#ifdef WLAN_FEATURE_NAN_CONVERGENCE
-	struct wlan_lmac_if_nan_rx_ops nan_rx_ops;
-#endif
 	struct wlan_lmac_if_reg_rx_ops reg_rx_ops;
 	struct wlan_lmac_if_dfs_rx_ops dfs_rx_ops;
-#ifdef CONVERGED_TDLS_ENABLE
+#ifdef FEATURE_WLAN_TDLS
 	struct wlan_lmac_if_tdls_rx_ops tdls_rx_ops;
 #endif
 

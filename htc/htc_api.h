@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,6 +50,7 @@ struct htc_init_info {
 	void (*TargetSendSuspendComplete)(void *ctx, bool is_nack);
 	void (*target_initial_wakeup_cb)(void *cb_ctx);
 	void *target_psoc;
+	uint32_t cfg_wmi_credit_cnt;
 };
 
 /* Struct for HTC layer packet stats*/
@@ -117,6 +118,10 @@ typedef HTC_PACKET *(*HTC_EP_RECV_ALLOC)(void *,
 					 HTC_ENDPOINT_ID Endpoint,
 					 int Length);
 
+/* Optional per service connection callback to log packet information.
+ */
+typedef void (*HTC_EP_LOG_PKT)(void *, HTC_PACKET *);
+
 enum htc_send_full_action {
 	/* packet that overflowed should be kept in the queue */
 	HTC_SEND_FULL_KEEP = 0,
@@ -176,6 +181,8 @@ struct htc_ep_callbacks {
 	 * are empty
 	 */
 	int RecvRefillWaterMark;
+	/* OPTIONAL callback to log packet information */
+	HTC_EP_LOG_PKT ep_log_pkt;
 };
 
 /* service connection information */

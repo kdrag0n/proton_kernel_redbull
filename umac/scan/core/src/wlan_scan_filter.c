@@ -632,7 +632,7 @@ static bool scm_is_rsn_security(struct scan_filter *filter,
 		   rsn.akm_suite_count,
 		   WLAN_RSN_SEL(WLAN_AKM_SUITEB_EAP_SHA256))) {
 			if (match_any_akm ||
-			    filter_akm == WLAN_AUTH_TYPE_SUITEB_EAP_SHA256) {
+			    (filter_akm == WLAN_AUTH_TYPE_SUITEB_EAP_SHA256)) {
 				neg_auth = WLAN_AUTH_TYPE_SUITEB_EAP_SHA256;
 				match = true;
 				break;
@@ -642,7 +642,7 @@ static bool scm_is_rsn_security(struct scan_filter *filter,
 		   rsn.akm_suite_count,
 		   WLAN_RSN_SEL(WLAN_AKM_SUITEB_EAP_SHA384))) {
 			if (match_any_akm ||
-			    filter_akm == WLAN_AUTH_TYPE_SUITEB_EAP_SHA384) {
+			    (filter_akm == WLAN_AUTH_TYPE_SUITEB_EAP_SHA384)) {
 				neg_auth = WLAN_AUTH_TYPE_SUITEB_EAP_SHA384;
 				match = true;
 				break;
@@ -652,7 +652,7 @@ static bool scm_is_rsn_security(struct scan_filter *filter,
 		if (scm_is_cipher_match(rsn.akm_suites, rsn.akm_suite_count,
 					WLAN_RSN_SEL(WLAN_AKM_FT_SAE))) {
 			if (match_any_akm ||
-			    filter_akm == WLAN_AUTH_TYPE_FT_SAE) {
+			    (filter_akm == WLAN_AUTH_TYPE_FT_SAE)) {
 				neg_auth = WLAN_AUTH_TYPE_FT_SAE;
 				match = true;
 				break;
@@ -1140,7 +1140,6 @@ bool scm_filter_match(struct wlan_objmgr_psoc *psoc,
 {
 	int i;
 	bool match = false;
-	struct roam_filter_params *roam_params;
 	struct scan_default_params *def_param;
 	struct wlan_country_ie *cc_ie;
 
@@ -1148,21 +1147,13 @@ bool scm_filter_match(struct wlan_objmgr_psoc *psoc,
 	if (!def_param)
 		return false;
 
-	roam_params = &def_param->roam_params;
+	if (filter->age_threshold && filter->age_threshold <
+					util_scan_entry_age(db_entry))
+		return false;
 
 	if (filter->p2p_results && !db_entry->is_p2p)
 		return false;
 
-	for (i = 0; i < roam_params->num_bssid_avoid_list; i++) {
-		if (qdf_is_macaddr_equal(&roam_params->bssid_avoid_list[i],
-		   &db_entry->bssid)) {
-			scm_debug("%pM : Ignore as its blacklisted",
-				  db_entry->bssid.bytes);
-			return false;
-		}
-	}
-
-	match = false;
 	if (db_entry->ssid.length) {
 		for (i = 0; i < filter->num_of_ssid; i++) {
 			if (util_is_ssid_match(&filter->ssid_list[i],

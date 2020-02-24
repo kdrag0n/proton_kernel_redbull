@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -32,6 +32,14 @@
 #include <service_ready_param.h>
 #include <init_cmd_api.h>
 #include <cdp_txrx_cmn.h>
+
+static void init_deinit_set_send_init_cmd(struct wlan_objmgr_psoc *psoc,
+					  struct target_psoc_info *tgt_hdl)
+{
+	tgt_hdl->info.wmi_service_ready = TRUE;
+	/* send init command */
+	init_deinit_prepare_send_init_cmd(psoc, tgt_hdl);
+}
 
 static int init_deinit_service_ready_event_handler(ol_scn_t scn_handle,
 							uint8_t *event,
@@ -101,6 +109,21 @@ static int init_deinit_service_ready_event_handler(ol_scn_t scn_handle,
 	if (wmi_service_enabled(wmi_handle, wmi_service_check_cal_version))
 		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_SW_CAL);
 
+	if (wmi_service_enabled(wmi_handle, wmi_service_twt_requestor))
+		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_TWT_REQUESTER);
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_twt_responder))
+		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_TWT_RESPONDER);
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_bss_color_offload))
+		target_if_debug(" BSS COLOR OFFLOAD supported");
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_ul_ru26_allowed))
+		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_OBSS_NBW_RU);
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_infra_mbssid))
+		wlan_psoc_nif_fw_ext_cap_set(psoc, WLAN_SOC_CEXT_MBSS_IE);
+
 	target_if_debug(" TT support %d, Wide BW Scan %d, SW cal %d",
 		wlan_psoc_nif_fw_ext_cap_get(psoc, WLAN_SOC_CEXT_TT_SUPPORT),
 		wlan_psoc_nif_fw_ext_cap_get(psoc, WLAN_SOC_CEXT_WIDEBAND_SCAN),
@@ -108,13 +131,18 @@ static int init_deinit_service_ready_event_handler(ol_scn_t scn_handle,
 
 	target_if_mesh_support_enable(psoc, tgt_hdl, event);
 
+	target_if_eapol_minrate_enable(psoc, tgt_hdl, event);
+
 	target_if_smart_antenna_enable(psoc, tgt_hdl, event);
+
+	target_if_cfr_support_enable(psoc, tgt_hdl, event);
 
 	target_if_peer_cfg_enable(psoc, tgt_hdl, event);
 
 	target_if_atf_cfg_enable(psoc, tgt_hdl, event);
 
-	target_if_qwrap_cfg_enable(psoc, tgt_hdl, event);
+	if (!wmi_service_enabled(wmi_handle, wmi_service_ext_msg))
+		target_if_qwrap_cfg_enable(psoc, tgt_hdl, event);
 
 	target_if_lteu_cfg_enable(psoc, tgt_hdl, event);
 
@@ -152,15 +180,57 @@ static int init_deinit_service_ready_event_handler(ol_scn_t scn_handle,
 		goto exit;
 
 	target_if_reg_set_offloaded_info(psoc);
-	if (!wmi_service_enabled(wmi_handle, wmi_service_ext_msg)) {
-		target_if_debug("No EXT message, send init command");
-		tgt_hdl->info.wmi_service_ready = TRUE;
-		target_psoc_set_num_radios(tgt_hdl, 1);
-		/* send init command */
-		init_deinit_prepare_send_init_cmd(psoc, tgt_hdl);
-	} else {
+	target_if_reg_set_6ghz_info(psoc);
+
+	if (wmi_service_enabled(wmi_handle, wmi_service_ext_msg)) {
 		target_if_debug("Wait for EXT message");
+	} else {
+		target_if_debug("No EXT message, send init command");
+		target_psoc_set_num_radios(tgt_hdl, 1);
+		init_deinit_set_send_init_cmd(psoc, tgt_hdl);
 	}
+
+exit:
+	return err_code;
+}
+
+static int init_deinit_service_ext2_ready_event_handler(ol_scn_t scn_handle,
+							uint8_t *event,
+							uint32_t data_len)
+{
+	int err_code = 0;
+	struct wlan_objmgr_psoc *psoc;
+	struct target_psoc_info *tgt_hdl;
+	struct common_wmi_handle *wmi_handle;
+	struct tgt_info *info;
+
+	if (!scn_handle) {
+		target_if_err("scn handle NULL in service ready handler");
+		return -EINVAL;
+	}
+
+	psoc = target_if_get_psoc_from_scn_hdl(scn_handle);
+	if (!psoc) {
+		target_if_err("psoc is null in service ready handler");
+		return -EINVAL;
+	}
+
+	tgt_hdl = wlan_psoc_get_tgt_if_handle(psoc);
+	if (!tgt_hdl) {
+		target_if_err("target_psoc_info is null in service ready ev");
+		return -EINVAL;
+	}
+
+	wmi_handle = target_psoc_get_wmi_hdl(tgt_hdl);
+	info = (&tgt_hdl->info);
+
+	err_code = init_deinit_populate_service_ready_ext2_param(wmi_handle,
+								 event, info);
+	if (err_code)
+		goto exit;
+
+	/* send init command */
+	init_deinit_set_send_init_cmd(psoc, tgt_hdl);
 
 exit:
 	return err_code;
@@ -210,8 +280,26 @@ static int init_deinit_service_ext_ready_event_handler(ol_scn_t scn_handle,
 		goto exit;
 
 	if (init_deinit_is_preferred_hw_mode_supported(psoc, tgt_hdl)
-			== FALSE)
+			== FALSE) {
+		target_if_err("Preferred mode %d not supported",
+			      info->preferred_hw_mode);
 		return -EINVAL;
+	}
+
+	if (info->preferred_hw_mode != WMI_HOST_HW_MODE_MAX) {
+		struct wlan_psoc_host_hw_mode_caps *hw_cap = &info->hw_mode_cap;
+		/* prune info mac_phy cap to preferred/selected mode caps */
+		info->total_mac_phy_cnt = 0;
+		err_code = init_deinit_populate_mac_phy_capability(wmi_handle,
+								   event,
+								   hw_cap,
+								   info);
+		if (err_code)
+			goto exit;
+
+		info->num_radios = info->total_mac_phy_cnt;
+		target_if_debug("num radios is %d\n", info->num_radios);
+	}
 
 	target_if_print_service_ready_ext_param(psoc, tgt_hdl);
 
@@ -232,8 +320,21 @@ static int init_deinit_service_ext_ready_event_handler(ol_scn_t scn_handle,
 			goto exit;
 	}
 
+	err_code = init_deinit_populate_rf_characterization_entries(
+						wmi_handle,
+						event,
+						&info->service_ext_param);
+	if (err_code)
+		goto exit;
+
 	err_code = init_deinit_populate_dbr_ring_cap(psoc, wmi_handle,
 						event, info);
+	if (err_code)
+		goto exit;
+
+	err_code = init_deinit_populate_spectral_bin_scale_params(psoc,
+								  wmi_handle,
+								  event, info);
 	if (err_code)
 		goto exit;
 
@@ -242,15 +343,24 @@ static int init_deinit_service_ext_ready_event_handler(ol_scn_t scn_handle,
 		legacy_callback(wmi_service_ready_ext_event_id,
 				scn_handle, event, data_len);
 
+	target_if_qwrap_cfg_enable(psoc, tgt_hdl, event);
+
+	target_if_set_twt_ap_pdev_count(info, tgt_hdl);
+
 	info->wlan_res_cfg.num_vdevs = (target_psoc_get_num_radios(tgt_hdl) *
 					info->wlan_res_cfg.num_vdevs);
 	info->wlan_res_cfg.beacon_tx_offload_max_vdev =
 				(target_psoc_get_num_radios(tgt_hdl) *
 				info->wlan_res_cfg.beacon_tx_offload_max_vdev);
+	info->wlan_res_cfg.max_bssid_indicator =
+				info->service_ext_param.max_bssid_indicator;
 
-	info->wmi_service_ready = TRUE;
-
-	init_deinit_prepare_send_init_cmd(psoc, tgt_hdl);
+	if (wmi_service_enabled(wmi_handle, wmi_service_ext2_msg)) {
+		target_if_debug("Wait for EXT2 message");
+	} else {
+		target_if_debug("No EXT2 message, send init command");
+		init_deinit_set_send_init_cmd(psoc, tgt_hdl);
+	}
 
 exit:
 	return err_code;
@@ -311,6 +421,8 @@ static int init_deinit_ready_event_handler(ol_scn_t scn_handle,
 	wmi_legacy_service_ready_callback legacy_callback;
 	uint8_t num_radios, i;
 	uint32_t max_peers;
+	uint32_t max_ast_index;
+	target_resource_config *tgt_cfg;
 
 	if (!scn_handle) {
 		target_if_err("scn handle NULL");
@@ -350,6 +462,11 @@ static int init_deinit_ready_event_handler(ol_scn_t scn_handle,
 		return -EINVAL;
 	}
 
+	if (!ready_ev.agile_capability)
+		target_if_err("agile capability disabled in HW");
+	else
+		info->wlan_res_cfg.agile_capability = ready_ev.agile_capability;
+
 	if ((ready_ev.num_total_peer != 0) &&
 	    (info->wlan_res_cfg.num_peers != ready_ev.num_total_peer)) {
 		/* FW allocated number of peers is different than host
@@ -365,10 +482,17 @@ static int init_deinit_ready_event_handler(ol_scn_t scn_handle,
 	 * allocate peer memory in this case
 	 */
 	if (ready_ev.num_total_peer != 0) {
-		max_peers = info->wlan_res_cfg.num_peers +
-			ready_ev.num_extra_peer + 1;
+		tgt_cfg = &info->wlan_res_cfg;
+		max_peers = tgt_cfg->num_peers + ready_ev.num_extra_peer + 1;
+		max_ast_index = ready_ev.max_ast_index + 1;
 
-		cdp_peer_map_attach(wlan_psoc_get_dp_handle(psoc), max_peers);
+		if (cdp_peer_map_attach(wlan_psoc_get_dp_handle(psoc),
+					max_peers, max_ast_index,
+					tgt_cfg->peer_map_unmap_v2) !=
+				QDF_STATUS_SUCCESS) {
+			target_if_err("DP peer map attach failed");
+			return -EINVAL;
+		}
 	}
 
 	/* Indicate to the waiting thread that the ready
@@ -488,6 +612,12 @@ QDF_STATUS init_deinit_register_tgt_psoc_ev_handlers(
 				wmi_ready_event_id,
 				init_deinit_ready_event_handler,
 				WMI_RX_WORK_CTX);
+	retval = wmi_unified_register_event_handler(
+				wmi_handle,
+				wmi_service_ready_ext2_event_id,
+				init_deinit_service_ext2_ready_event_handler,
+				WMI_RX_WORK_CTX);
+
 
 	return retval;
 }

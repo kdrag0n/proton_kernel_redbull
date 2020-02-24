@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -113,7 +113,7 @@ int pktlog_alloc_buf(struct hif_opaque_softc *scn)
 	page_cnt = (sizeof(*(pl_info->buf)) + pl_info->buf_size) / PAGE_SIZE;
 
 	qdf_spin_lock_bh(&pl_info->log_lock);
-	if (pl_info->buf != NULL) {
+	if (pl_info->buf) {
 		qdf_spin_unlock_bh(&pl_info->log_lock);
 		printk(PKTLOG_TAG "Buffer is already in use\n");
 		return -EINVAL;
@@ -121,7 +121,7 @@ int pktlog_alloc_buf(struct hif_opaque_softc *scn)
 	qdf_spin_unlock_bh(&pl_info->log_lock);
 
 	buffer = vmalloc((page_cnt + 2) * PAGE_SIZE);
-	if (buffer == NULL) {
+	if (!buffer) {
 		printk(PKTLOG_TAG
 		       "%s: Unable to allocate buffer "
 		       "(%d pages)\n", __func__, page_cnt);
@@ -140,7 +140,7 @@ int pktlog_alloc_buf(struct hif_opaque_softc *scn)
 	}
 
 	qdf_spin_lock_bh(&pl_info->log_lock);
-	if (pl_info->buf != NULL)
+	if (pl_info->buf)
 		pktlog_release_buf(scn);
 
 	pl_info->buf =  buffer;
@@ -418,11 +418,11 @@ static int pktlog_attach(struct hif_opaque_softc *scn)
 	/* Allocate pktlog dev for later use */
 	pl_dev = get_pktlog_handle();
 
-	if (pl_dev != NULL) {
+	if (pl_dev) {
 		pl_info_lnx = kmalloc(sizeof(*pl_info_lnx), GFP_KERNEL);
-		if (pl_info_lnx == NULL) {
+		if (!pl_info_lnx) {
 			QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
-				 "%s: Allocation failed for pl_info\n",
+				 "%s: Allocation failed for pl_info",
 				 __func__);
 			goto attach_fail1;
 		}
@@ -454,7 +454,7 @@ static int pktlog_attach(struct hif_opaque_softc *scn)
 			g_pktlog_pde, &pktlog_fops,
 			&pl_info_lnx->info);
 
-	if (proc_entry == NULL) {
+	if (!proc_entry) {
 		printk(PKTLOG_TAG "%s: create_proc_entry failed for %s\n",
 				__func__, proc_name);
 		goto attach_fail1;
@@ -545,12 +545,6 @@ static int __pktlog_open(struct inode *i, struct file *f)
 	int ret = 0;
 
 	PKTLOG_MOD_INC_USE_COUNT;
-
-	if (qdf_is_module_state_transitioning()) {
-		pr_info("%s: module transition in progress", __func__);
-		return -EAGAIN;
-	}
-
 	scn = cds_get_context(QDF_MODULE_ID_HIF);
 	if (!scn) {
 		qdf_print("%s: Invalid scn context", __func__);
@@ -614,13 +608,18 @@ static int __pktlog_open(struct inode *i, struct file *f)
 
 static int pktlog_open(struct inode *i, struct file *f)
 {
-	int ret;
+	struct qdf_op_sync *op_sync;
+	int errno;
 
-	qdf_ssr_protect(__func__);
-	ret = __pktlog_open(i, f);
-	qdf_ssr_unprotect(__func__);
+	errno = qdf_op_protect(&op_sync);
+	if (errno)
+		return errno;
 
-	return ret;
+	errno = __pktlog_open(i, f);
+
+	qdf_op_unprotect(op_sync);
+
+	return errno;
 }
 
 static int __pktlog_release(struct inode *i, struct file *f)
@@ -632,12 +631,6 @@ static int __pktlog_release(struct inode *i, struct file *f)
 	int ret = 0;
 
 	PKTLOG_MOD_DEC_USE_COUNT;
-
-	if (qdf_is_module_state_transitioning()) {
-		pr_info("%s: module transition in progress", __func__);
-		return -EAGAIN;
-	}
-
 	scn = cds_get_context(QDF_MODULE_ID_HIF);
 	if (!scn) {
 		qdf_print("%s: Invalid scn context", __func__);
@@ -694,13 +687,18 @@ static int __pktlog_release(struct inode *i, struct file *f)
 
 static int pktlog_release(struct inode *i, struct file *f)
 {
-	int ret;
+	struct qdf_op_sync *op_sync;
+	int errno;
 
-	qdf_ssr_protect(__func__);
-	ret = __pktlog_release(i, f);
-	qdf_ssr_unprotect(__func__);
+	errno = qdf_op_protect(&op_sync);
+	if (errno)
+		return errno;
 
-	return ret;
+	errno = __pktlog_release(i, f);
+
+	qdf_op_unprotect(op_sync);
+
+	return errno;
 }
 
 #ifndef MIN
@@ -739,7 +737,7 @@ pktlog_read_proc_entry(char *buf, size_t nbytes, loff_t *ppos,
 
 	*read_complete = false;
 
-	if (log_buf == NULL) {
+	if (!log_buf) {
 		*read_complete = true;
 		qdf_spin_unlock_bh(&pl_info->log_lock);
 		return 0;
@@ -873,20 +871,14 @@ __pktlog_read(struct file *file, char *buf, size_t nbytes, loff_t *ppos)
 	struct ath_pktlog_info *pl_info;
 	struct ath_pktlog_buf *log_buf;
 
-	if (qdf_is_module_state_transitioning()) {
-		pr_info("%s: module transition in progress", __func__);
-		return -EAGAIN;
-	}
-
-	pl_info = (struct ath_pktlog_info *)
-					PDE_DATA(file->f_path.dentry->d_inode);
+	pl_info = PDE_DATA(file->f_path.dentry->d_inode);
 	if (!pl_info)
 		return 0;
 
 	qdf_spin_lock_bh(&pl_info->log_lock);
 	log_buf = pl_info->buf;
 
-	if (log_buf == NULL) {
+	if (!log_buf) {
 		qdf_spin_unlock_bh(&pl_info->log_lock);
 		return 0;
 	}
@@ -1022,20 +1014,24 @@ rd_done:
 static ssize_t
 pktlog_read(struct file *file, char *buf, size_t nbytes, loff_t *ppos)
 {
-	size_t ret;
-	struct ath_pktlog_info *pl_info;
+	struct ath_pktlog_info *info = PDE_DATA(file->f_path.dentry->d_inode);
+	struct qdf_op_sync *op_sync;
+	ssize_t err_size;
 
-	pl_info = (struct ath_pktlog_info *)
-			PDE_DATA(file->f_path.dentry->d_inode);
-	if (!pl_info)
+	if (!info)
 		return 0;
 
-	qdf_ssr_protect(__func__);
-	mutex_lock(&pl_info->pktlog_mutex);
-	ret = __pktlog_read(file, buf, nbytes, ppos);
-	mutex_unlock(&pl_info->pktlog_mutex);
-	qdf_ssr_unprotect(__func__);
-	return ret;
+	err_size = qdf_op_protect(&op_sync);
+	if (err_size)
+		return err_size;
+
+	mutex_lock(&info->pktlog_mutex);
+	err_size = __pktlog_read(file, buf, nbytes, ppos);
+	mutex_unlock(&info->pktlog_mutex);
+
+	qdf_op_unprotect(op_sync);
+
+	return err_size;
 }
 
 int pktlogmod_init(void *context)
@@ -1045,7 +1041,7 @@ int pktlogmod_init(void *context)
 	/* create the proc directory entry */
 	g_pktlog_pde = proc_mkdir(PKTLOG_PROC_DIR, NULL);
 
-	if (g_pktlog_pde == NULL) {
+	if (!g_pktlog_pde) {
 		printk(PKTLOG_TAG "%s: proc_mkdir failed\n", __func__);
 		return -EPERM;
 	}
@@ -1068,7 +1064,7 @@ attach_fail:
 
 void pktlogmod_exit(void *context)
 {
-	if (g_pktlog_pde == NULL)
+	if (!g_pktlog_pde)
 		return;
 
 	pktlog_detach((struct hif_opaque_softc *)context);

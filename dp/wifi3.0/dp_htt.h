@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +24,9 @@
 #include <qdf_nbuf.h>
 #include <htc_api.h>
 
+#include "cdp_txrx_cmn_struct.h"
+#include "dp_types.h"
+
 #define HTT_TX_MUTEX_TYPE qdf_spinlock_t
 
 #define HTT_TX_MUTEX_INIT(_mutex)				\
@@ -44,7 +47,20 @@
 #define HTT_MAC_ADDR_LEN 6
 #endif
 
+#define HTT_FRAMECTRL_TYPE_MASK 0x0C
+#define HTT_GET_FRAME_CTRL_TYPE(_val)	\
+		(((_val) & HTT_FRAMECTRL_TYPE_MASK) >> 2)
+#define FRAME_CTRL_TYPE_MGMT	0x0
+#define FRAME_CTRL_TYPE_CTRL	0x1
+#define FRAME_CTRL_TYPE_DATA	0x2
+#define FRAME_CTRL_TYPE_RESV	0x3
+
+#define HTT_FRAMECTRL_DATATYPE 0x08
+#define HTT_PPDU_DESC_MAX_DEPTH 16
+#define DP_SCAN_PEER_ID 0xFFFF
+
 #define DP_HTT_HTC_PKT_MISCLIST_SIZE          256
+#define HTT_T2H_MAX_MSG_SIZE 2048
 
 #define HTT_T2H_EXT_STATS_TLV_START_OFFSET    3
 
@@ -108,6 +124,14 @@ struct htt_soc {
  * @enable_mgmt: enable/disable MGMT packet
  * @enable_ctrl: enable/disable CTRL packet
  * @enable_data: enable/disable DATA packet
+ * @offset_valid: Flag to indicate if below offsets are valid
+ * @rx_packet_offset: Offset of packet payload
+ * @rx_header_offset: Offset of rx_header tlv
+ * @rx_mpdu_end_offset: Offset of rx_mpdu_end tlv
+ * @rx_mpdu_start_offset: Offset of rx_mpdu_start tlv
+ * @rx_msdu_end_offset: Offset of rx_msdu_end tlv
+ * @rx_msdu_start_offset: Offset of rx_msdu_start tlv
+ * @rx_attn_offset: Offset of rx_attention tlv
  */
 struct htt_rx_ring_tlv_filter {
 	u_int32_t mpdu_start:1,
@@ -132,11 +156,49 @@ struct htt_rx_ring_tlv_filter {
 		mo_ctrl_filter:16;
 	u_int32_t fp_data_filter:16,
 		mo_data_filter:16;
+	u_int16_t md_data_filter;
+	u_int16_t md_mgmt_filter;
+	u_int16_t md_ctrl_filter;
+	bool offset_valid;
+	uint16_t rx_packet_offset;
+	uint16_t rx_header_offset;
+	uint16_t rx_mpdu_end_offset;
+	uint16_t rx_mpdu_start_offset;
+	uint16_t rx_msdu_end_offset;
+	uint16_t rx_msdu_start_offset;
+	uint16_t rx_attn_offset;
 };
 
+/*
+ * htt_soc_initialize() - SOC level HTT initialization
+ * @htt_soc: Opaque htt SOC handle
+ * @ctrl_psoc: Opaque ctrl SOC handle
+ * @htc_soc: SOC level HTC handle
+ * @hal_soc: Opaque HAL SOC handle
+ * @osdev: QDF device
+ *
+ * Return: HTT handle on success; NULL on failure
+ */
 void *
-htt_soc_attach(void *txrx_soc, void *ctrl_psoc, HTC_HANDLE htc_soc,
-	void *hal_soc, qdf_device_t osdev);
+htt_soc_initialize(void *htt_soc, void *ctrl_psoc, HTC_HANDLE htc_soc,
+		   void *hal_soc, qdf_device_t osdev);
+
+/*
+ * htt_soc_htc_dealloc() - HTC memory de-alloc
+ * @htt_soc: SOC level HTT handle
+ *
+ * Return: None
+ */
+void htt_soc_htc_dealloc(struct htt_soc *htt_handle);
+
+/*
+ * htt_soc_htc_prealloc() - HTC memory prealloc
+ * @htt_soc: SOC level HTT handle
+ *
+ * Return: QDF_STATUS_SUCCESS on success or
+ * QDF_STATUS_E_NO_MEM on allocation failure
+ */
+QDF_STATUS htt_soc_htc_prealloc(struct htt_soc *htt_soc);
 
 void htt_soc_detach(void *soc);
 
@@ -180,5 +242,19 @@ struct htt_stats_context {
 	qdf_nbuf_queue_t msg;
 	uint32_t msg_len;
 };
+
+int
+dp_htt_get_ppdu_sniffer_ampdu_tlv_bitmap(uint32_t bitmap);
+
+/**
+ * dp_ppdu_desc_user_stats_update(): Function to update TX user stats
+ * @pdev: DP pdev handle
+ * @ppdu_info: per PPDU TLV descriptor
+ *
+ * return: void
+ */
+void
+dp_ppdu_desc_user_stats_update(struct dp_pdev *pdev,
+			       struct ppdu_info *ppdu_info);
 
 #endif /* _DP_HTT_H_ */

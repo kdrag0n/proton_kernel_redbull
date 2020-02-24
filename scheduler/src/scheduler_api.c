@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -99,7 +99,7 @@ QDF_STATUS scheduler_enable(void)
 	/* create the scheduler thread */
 	sched_ctx->sch_thread = qdf_create_thread(scheduler_thread, sched_ctx,
 						  "scheduler_thread");
-	if (IS_ERR(sched_ctx->sch_thread)) {
+	if (!sched_ctx->sch_thread) {
 		sched_err("Failed to create scheduler thread");
 		return QDF_STATUS_E_RESOURCES;
 	}
@@ -472,6 +472,25 @@ QDF_STATUS scheduler_timer_q_mq_handler(struct scheduler_msg *msg)
 	return QDF_STATUS_SUCCESS;
 }
 
+QDF_STATUS scheduler_mlme_mq_handler(struct scheduler_msg *msg)
+{
+	scheduler_msg_process_fn_t mlme_msg_handler;
+
+	QDF_BUG(msg);
+	if (!msg)
+		return QDF_STATUS_E_FAILURE;
+
+	mlme_msg_handler = msg->callback;
+
+	QDF_BUG(mlme_msg_handler);
+	if (!mlme_msg_handler)
+		return QDF_STATUS_E_FAILURE;
+
+	mlme_msg_handler(msg);
+
+	return QDF_STATUS_SUCCESS;
+}
+
 QDF_STATUS scheduler_scan_mq_handler(struct scheduler_msg *msg)
 {
 	QDF_STATUS (*scan_q_msg_handler)(struct scheduler_msg *);
@@ -659,4 +678,23 @@ QDF_STATUS scheduler_get_queue_size(QDF_MODULE_ID qid, uint32_t *size)
 	*size = qdf_list_size(&target_mq->mq_list);
 
 	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS scheduler_post_message_debug(QDF_MODULE_ID src_id,
+					QDF_MODULE_ID dest_id,
+					QDF_MODULE_ID que_id,
+					struct scheduler_msg *msg,
+					int line,
+					const char *func)
+{
+	QDF_STATUS status;
+
+	status = scheduler_post_msg(scheduler_get_qid(src_id, dest_id, que_id),
+				    msg);
+
+	if (QDF_IS_STATUS_ERROR(status))
+		sched_err("couldn't post from %d to %d - called from %d, %s",
+			  src_id, dest_id, line, func);
+
+	return status;
 }

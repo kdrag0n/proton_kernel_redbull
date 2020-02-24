@@ -23,6 +23,9 @@
  * DFS component.
  */
 
+#ifndef _DFS_PROCESS_RADAR_FOUND_IND_H_
+#define _DFS_PROCESS_RADAR_FOUND_IND_H_
+
 /* Number of channel marking offsets */
 #define DFS_NUM_FREQ_OFFSET   3
 
@@ -58,6 +61,8 @@
 
 /* Frequency offset to sidx */
 #define DFS_FREQ_OFFSET_TO_SIDX(_f)  ((32 * (_f)) / 10)
+/* Sidx to frequency offset */
+#define DFS_SIDX_TO_FREQ_OFFSET(_s)  ((10 * (_s)) / 32)
 /* sidx offset boundary */
 #define DFS_BOUNDARY_SIDX  32
 /* freq offset for chirp */
@@ -133,12 +138,48 @@ void dfs_radarfound_action_generic(struct wlan_dfs *dfs, uint8_t seg_id);
 
 /**
  * dfs_get_bonding_channels() - Get bonding channels.
+ * @dfs: Pointer to wlan_dfs structure.
  * @curchan: Pointer to dfs_channels to know width and primary channel.
  * @segment_id: Segment id, useful for 80+80/160 MHz operating band.
  * @channels: Pointer to save radar affected channels.
  *
  * Return: Number of channels.
  */
-uint8_t dfs_get_bonding_channels(struct dfs_channel *curchan,
+uint8_t dfs_get_bonding_channels(struct wlan_dfs *dfs,
+				 struct dfs_channel *curchan,
 				 uint32_t segment_id,
 				 uint8_t *channels);
+
+/**
+ * dfs_get_bonding_channels_without_seg_info() - Get bonding channels in chan
+ * @chan: Pointer to dfs_channel structure.
+ * @channels: channel array holding list of bonded channels.
+ *
+ * Return: number of sub channels in the input channel.
+ */
+uint8_t dfs_get_bonding_channels_without_seg_info(struct dfs_channel *chan,
+						  uint8_t *channels);
+
+/**
+ * dfs_set_nol_subchannel_marking() - Set or unset NOL subchannel marking.
+ * @dfs: Pointer to wlan_dfs structure.
+ * @nol_subchannel_marking - Configure NOL subchannel marking.
+ *
+ * Return: Status of the configuration.
+ */
+int
+dfs_set_nol_subchannel_marking(struct wlan_dfs *dfs,
+			       bool nol_subchannel_marking);
+
+/**
+ * dfs_get_nol_subchannel_marking() - Get the value of NOL subchannel marking.
+ * @dfs: Pointer to wlan_dfs structure.
+ * @nol_subchannel_marking - Read and store the value of NOL subchannel marking
+ * config.
+ *
+ * Return: Status of the read.
+ */
+int
+dfs_get_nol_subchannel_marking(struct wlan_dfs *dfs,
+			       bool *nol_subchannel_marking);
+#endif /*_DFS_PROCESS_RADAR_FOUND_IND_H_ */

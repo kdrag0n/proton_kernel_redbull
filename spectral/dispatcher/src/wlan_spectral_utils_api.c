@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -21,6 +21,20 @@
 #include <qdf_module.h>
 #include "../../core/spectral_cmn_api_i.h"
 #include <wlan_spectral_tgt_api.h>
+#include <cfg_ucfg_api.h>
+
+bool wlan_spectral_is_feature_disabled(struct wlan_objmgr_psoc *psoc)
+{
+	if (!psoc) {
+		spectral_err("PSOC is NULL!");
+		return true;
+	}
+
+	if (wlan_psoc_nif_feat_cap_get(psoc, WLAN_SOC_F_SPECTRAL_DISABLE))
+		return true;
+
+	return false;
+}
 
 QDF_STATUS
 wlan_spectral_init(void)
@@ -168,6 +182,8 @@ wlan_lmac_if_sptrl_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
 	sptrl_rx_ops->sptrlro_vdev_get_ch_width = spectral_vdev_get_ch_width;
 	sptrl_rx_ops->sptrlro_vdev_get_sec20chan_freq_mhz =
 	    spectral_vdev_get_sec20chan_freq_mhz;
+	sptrl_rx_ops->sptrlro_spectral_is_feature_disabled =
+		wlan_spectral_is_feature_disabled;
 }
 
 void
@@ -192,8 +208,8 @@ wlan_register_wmi_spectral_cmd_ops(struct wlan_objmgr_pdev *pdev,
 qdf_export_symbol(wlan_register_wmi_spectral_cmd_ops);
 
 #ifdef DIRECT_BUF_RX_ENABLE
-int spectral_dbr_event_handler(struct wlan_objmgr_pdev *pdev,
-			       struct direct_buf_rx_data *payload)
+bool spectral_dbr_event_handler(struct wlan_objmgr_pdev *pdev,
+				struct direct_buf_rx_data *payload)
 {
 	struct spectral_context *sc;
 
@@ -207,7 +223,9 @@ int spectral_dbr_event_handler(struct wlan_objmgr_pdev *pdev,
 		return -EINVAL;
 	}
 
-	return sc->sptrlc_process_spectral_report(pdev, payload);
+	sc->sptrlc_process_spectral_report(pdev, payload);
+
+	return true;
 }
 #endif
 
@@ -215,7 +233,29 @@ QDF_STATUS spectral_pdev_open(struct wlan_objmgr_pdev *pdev)
 {
 	QDF_STATUS status;
 
-	status = tgt_spectral_register_to_dbr(pdev);
+	if (wlan_spectral_is_feature_disabled(wlan_pdev_get_psoc(pdev))) {
+		spectral_info("Spectral is disabled");
+		return QDF_STATUS_COMP_DISABLED;
+	}
 
+	status = tgt_spectral_register_to_dbr(pdev);
 	return QDF_STATUS_SUCCESS;
 }
+
+QDF_STATUS spectral_register_dbr(struct wlan_objmgr_pdev *pdev)
+{
+	return tgt_spectral_register_to_dbr(pdev);
+}
+
+qdf_export_symbol(spectral_register_dbr);
+
+QDF_STATUS spectral_unregister_dbr(struct wlan_objmgr_pdev *pdev)
+{
+	QDF_STATUS status;
+
+	status = tgt_spectral_unregister_to_dbr(pdev);
+
+	return status;
+}
+
+qdf_export_symbol(spectral_unregister_dbr);

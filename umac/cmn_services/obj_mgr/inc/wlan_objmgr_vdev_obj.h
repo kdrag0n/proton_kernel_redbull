@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,6 +31,12 @@
 #include "wlan_objmgr_cmn.h"
 #include "wlan_objmgr_pdev_obj.h"
 #include "wlan_objmgr_psoc_obj.h"
+#include "wlan_vdev_mlme_main.h"
+#ifdef CMN_VDEV_MGR_TGT_IF_ENABLE
+#include "include/wlan_vdev_mlme.h"
+#include "wlan_vdev_mlme_api.h"
+#include "wlan_mlme_dbg.h"
+#endif
 
 	/* CONF: privacy enabled */
 #define WLAN_VDEV_F_PRIVACY              0x00000001
@@ -152,6 +158,16 @@
 #define WLAN_VDEV_FEXT_SON_INFO_UPDATE      0x01000000
 	/* CONF: A-MSDU supported */
 #define WLAN_VDEV_FEXT_AMSDU                0x02000000
+	/* VDEV is PSTA*/
+#define WLAN_VDEV_FEXT_PSTA                 0x04000000
+	/* VDEV is MPSTA*/
+#define WLAN_VDEV_FEXT_MPSTA                0x08000000
+	/* VDEV is WRAP*/
+#define WLAN_VDEV_FEXT_WRAP                 0x10000000
+	/* VDEV has MAT enabled*/
+#define WLAN_VDEV_FEXT_MAT                  0x20000000
+	/* VDEV is wired PSTA*/
+#define WLAN_VDEV_FEXT_WIRED_PSTA           0x40000000
 
 /* VDEV OP flags  */
   /* if the vap destroyed by user */
@@ -218,27 +234,6 @@
 /* Invalid VDEV identifier */
 #define WLAN_INVALID_VDEV_ID 255
 
-/**
- * enum wlan_vdev_state - VDEV state
- * @WLAN_VDEV_S_INIT:    Default state, IDLE state
- * @WLAN_VDEV_S_SCAN:    SCAN state
- * @WLAN_VDEV_S_JOIN:    Join state
- * @WLAN_VDEV_S_DFS_WAIT:CAC period
- * @WLAN_VDEV_S_RUN:     RUN state
- * @WLAN_VDEV_S_STOP:    STOP state
- * @WLAN_VDEV_S_RESET:   RESET state, STOP+INIT+JOIN
- * @WLAN_VDEV_S_MAX:     MAX state
- */
-enum wlan_vdev_state {
-	WLAN_VDEV_S_INIT     = 0,
-	WLAN_VDEV_S_SCAN     = 1,
-	WLAN_VDEV_S_JOIN     = 2,
-	WLAN_VDEV_S_DFS_WAIT = 3,
-	WLAN_VDEV_S_RUN      = 4,
-	WLAN_VDEV_S_STOP     = 5,
-	WLAN_VDEV_S_RESET    = 6,
-	WLAN_VDEV_S_MAX,
-};
 
 /**
  * struct wlan_vdev_create_params - Create params, HDD/OSIF passes this
@@ -266,6 +261,8 @@ struct wlan_vdev_create_params {
  * @ch_maxpower:  Maximum tx power in dBm.
  * @ch_freq_seg1: Channel Center frequeny for VHT80/160 and HE80/160.
  * @ch_freq_seg2: Second channel Center frequency applicable for 80+80MHz mode.
+ * @ch_cfreq1:    channel center frequency for primary
+ * @ch_cfreq2:    channel center frequency for secondary
  * @ch_width:     Channel width.
  * @ch_phymode:   Channel phymode.
  */
@@ -277,50 +274,58 @@ struct wlan_channel {
 	int8_t       ch_maxpower;
 	uint8_t      ch_freq_seg1;
 	uint8_t      ch_freq_seg2;
-	enum wlan_phy_ch_width ch_width;
+	uint32_t     ch_cfreq1;
+	uint32_t     ch_cfreq2;
+	enum phy_ch_width ch_width;
 	enum wlan_phymode ch_phymode;
 };
 
 /**
  * struct wlan_objmgr_vdev_mlme - VDEV MLME specific sub structure
  * @vdev_opmode:        Opmode of VDEV
- * @mlme_state:         VDEV state
+ * @mlme_state:         VDEV MLME SM state
+ * @mlme_state:         VDEV MLME SM substate
  * @bss_chan:           BSS channel
  * @des_chan:           Desired channel, for STA Desired may not be used
- * @nss:                Num. Spatial streams
- * @tx_chainmask:       Tx Chainmask
- * @rx_chainmask:       Rx Chainmask
- * @tx_power:           Tx power
  * @vdev_caps:          VDEV capabilities
  * @vdev_feat_caps:     VDEV feature caps
  * @vdev_feat_ext_caps: VDEV Extended feature caps
- * @max_rate:           MAX rate
- * @tx_mgmt_rate:       TX Mgmt. Rate
  * @vdev_op_flags:      Operation flags
  * @mataddr[]:          MAT address
  * @macaddr[]:          VDEV self MAC address
  * @ssid[]:             SSID
  * @ssid_len:           SSID length
+ * @nss:                Num. Spatial streams
+ * @tx_chainmask:       Tx Chainmask
+ * @rx_chainmask:       Rx Chainmask
+ * @tx_power:           Tx power
+ * @max_rate:           MAX rate
+ * @tx_mgmt_rate:       TX Mgmt. Rate
+ * @per_band_mgmt_rate: Per-band TX Mgmt. Rate
  */
 struct wlan_objmgr_vdev_mlme {
 	enum QDF_OPMODE vdev_opmode;
 	enum wlan_vdev_state mlme_state;
-	struct wlan_channel  *bss_chan;   /* Define wlan_channel */
-	struct wlan_channel  *des_chan;  /*TODO ??? */
+	enum wlan_vdev_state mlme_substate;
+	struct wlan_channel *bss_chan;
+	struct wlan_channel *des_chan;
+	uint32_t vdev_caps;
+	uint32_t vdev_feat_caps;
+	uint32_t vdev_feat_ext_caps;
+	uint32_t vdev_op_flags;
+	uint8_t  mataddr[QDF_MAC_ADDR_SIZE];
+	uint8_t  macaddr[QDF_MAC_ADDR_SIZE];
+#ifndef CMN_VDEV_MGR_TGT_IF_ENABLE
+	char ssid[WLAN_SSID_MAX_LEN + 1];
+	uint8_t ssid_len;
 	uint8_t nss;
 	uint8_t tx_chainmask;
 	uint8_t rx_chainmask;
 	uint8_t  tx_power;
-	uint32_t vdev_caps;
-	uint32_t vdev_feat_caps;
-	uint32_t vdev_feat_ext_caps;
 	uint32_t max_rate;
 	uint32_t tx_mgmt_rate;
-	uint32_t vdev_op_flags;
-	uint8_t  mataddr[QDF_MAC_ADDR_SIZE];
-	uint8_t  macaddr[QDF_MAC_ADDR_SIZE];
-	char ssid[WLAN_SSID_MAX_LEN+1];
-	uint8_t ssid_len;
+	uint32_t per_band_mgmt_rate[WLAN_BAND_NUM_MAX];
+#endif
 };
 
 /**
@@ -479,6 +484,25 @@ QDF_STATUS wlan_objmgr_iterate_peerobj_list(
 		void *arg, wlan_objmgr_ref_dbgid dbg_id);
 
 /**
+ * wlan_objmgr_vdev_get_log_del_peer_list() - vdev logically deleted peer list
+ * @vdev: vdev object
+ * @dbg_id: id of the caller
+ *
+ * API to be used for populating the list of logically deleted peers from the
+ * vdev's peer list
+ *
+ * The caller of this function should free the memory allocated for the
+ * peerlist and the peer member in the list
+ * Also the peer ref release is handled by the caller
+ *
+ * Return: list of peer pointers
+ *         NULL on FAILURE
+ */
+qdf_list_t *wlan_objmgr_vdev_get_log_del_peer_list(
+		struct wlan_objmgr_vdev *vdev,
+		wlan_objmgr_ref_dbgid dbg_id);
+
+/**
  * wlan_objmgr_trigger_vdev_comp_priv_object_creation() - vdev
  * comp object creation
  * @vdev: VDEV object
@@ -566,6 +590,19 @@ static inline struct wlan_objmgr_vdev *wlan_pdev_vdev_list_peek_head(
 }
 
 /**
+ * wlan_pdev_peek_active_first_vdev() - get first active vdev from pdev list
+ * @pdev: PDEV object
+ * @dbg_id: id of the caller
+ *
+ * API to get the head active vdev of given pdev (of pdev's vdev list)
+ *
+ * Return:
+ */
+struct wlan_objmgr_vdev *wlan_pdev_peek_active_first_vdev(
+		struct wlan_objmgr_pdev *pdev,
+		wlan_objmgr_ref_dbgid dbg_id);
+
+/**
  * wlan_pdev_vdev_list_peek_active_head() - get first active vdev from pdev list
  * @vdev: VDEV object
  * @vdev_list: qdf_list_t
@@ -601,7 +638,7 @@ static inline struct wlan_objmgr_vdev *wlan_vdev_get_next_vdev_of_pdev(
 	qdf_list_node_t *next_node = NULL;
 
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (node == NULL)
+	if (!node)
 		return NULL;
 
 	if (qdf_list_peek_next(vdev_list, node, &next_node) !=
@@ -665,7 +702,7 @@ static inline struct wlan_objmgr_psoc *wlan_vdev_get_psoc(
 	struct wlan_objmgr_psoc *psoc = NULL;
 
 	pdev = wlan_vdev_get_pdev(vdev);
-	if (pdev == NULL)
+	if (!pdev)
 		return NULL;
 
 	psoc = wlan_pdev_get_psoc(pdev);
@@ -803,11 +840,104 @@ static inline uint8_t *wlan_vdev_get_hw_macaddr(struct wlan_objmgr_vdev *vdev)
 	struct wlan_objmgr_pdev *pdev = wlan_vdev_get_pdev(vdev);
 
 	/* This API is invoked with lock acquired, do not add log prints */
-	if (pdev != NULL)
+	if (pdev)
 		return wlan_pdev_get_hw_macaddr(pdev);
 	else
 		return NULL;
 }
+
+/**
+ * wlan_vdev_obj_lock() - Acquire VDEV spinlock
+ * @vdev: VDEV object
+ *
+ * API to acquire VDEV lock
+ * Parent lock should not be taken in child lock context
+ * but child lock can be taken in parent lock context
+ * (for ex: psoc lock can't be invoked in pdev/vdev/peer lock context)
+ *
+ * Return: void
+ */
+static inline void wlan_vdev_obj_lock(struct wlan_objmgr_vdev *vdev)
+{
+	qdf_spin_lock_bh(&vdev->vdev_lock);
+}
+
+/**
+ * wlan_vdev_obj_unlock() - Release VDEV spinlock
+ * @vdev: VDEV object
+ *
+ * API to Release VDEV lock
+ *
+ * Return: void
+ */
+static inline void wlan_vdev_obj_unlock(struct wlan_objmgr_vdev *vdev)
+{
+	qdf_spin_unlock_bh(&vdev->vdev_lock);
+}
+
+/**
+ * wlan_vdev_mlme_set_bss_chan() - set bss chan
+ * @vdev: VDEV object
+ * @bss_chan: Channel
+ *
+ * API to set the BSS channel
+ *
+ * Return: void
+ */
+static inline void wlan_vdev_mlme_set_bss_chan(
+				struct wlan_objmgr_vdev *vdev,
+				struct wlan_channel *bss_chan)
+{
+	vdev->vdev_mlme.bss_chan = bss_chan;
+}
+
+/**
+ * wlan_vdev_mlme_get_bss_chan() - get bss chan
+ * @vdev: VDEV object
+ *
+ * API to get the BSS channel
+ *
+ * Return:
+ * @bss_chan: Channel
+ */
+static inline struct wlan_channel *wlan_vdev_mlme_get_bss_chan(
+				struct wlan_objmgr_vdev *vdev)
+{
+	return vdev->vdev_mlme.bss_chan;
+}
+
+/**
+ * wlan_vdev_mlme_set_des_chan() - set desired chan
+ * @vdev: VDEV object
+ * @des_chan: Channel configured by user
+ *
+ * API to set the desired channel
+ *
+ * Return: void
+ */
+static inline void wlan_vdev_mlme_set_des_chan(
+				struct wlan_objmgr_vdev *vdev,
+				struct wlan_channel *des_chan)
+{
+	vdev->vdev_mlme.des_chan = des_chan;
+}
+
+/**
+ * wlan_vdev_mlme_get_des_chan() - get desired chan
+ * @vdev: VDEV object
+ *
+ * API to get the desired channel
+ *
+ * Return:
+ * @des_chan: Channel configured by user
+ */
+static inline struct wlan_channel *wlan_vdev_mlme_get_des_chan(
+				struct wlan_objmgr_vdev *vdev)
+{
+	return vdev->vdev_mlme.des_chan;
+}
+
+#ifndef CMN_VDEV_MGR_TGT_IF_ENABLE
 
 /**
  * wlan_vdev_mlme_set_ssid() - set ssid
@@ -867,95 +997,6 @@ static inline QDF_STATUS wlan_vdev_mlme_get_ssid(
 }
 
 /**
- * wlan_vdev_obj_lock() - Acquire VDEV spinlock
- * @vdev: VDEV object
- *
- * API to acquire VDEV lock
- * Parent lock should not be taken in child lock context
- * but child lock can be taken in parent lock context
- * (for ex: psoc lock can't be invoked in pdev/vdev/peer lock context)
- *
- * Return: void
- */
-static inline void wlan_vdev_obj_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spin_lock_bh(&vdev->vdev_lock);
-}
-
-/**
- * wlan_vdev_obj_unlock() - Release VDEV spinlock
- * @vdev: VDEV object
- *
- * API to Release VDEV lock
- *
- * Return: void
- */
-static inline void wlan_vdev_obj_unlock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spin_unlock_bh(&vdev->vdev_lock);
-}
-
-/**
- * wlan_vdev_mlme_set_bss_chan() - set bss chan
- * @vdev: VDEV object
- * @bss_chan: Channel
- *
- * API to set the BSS channel
- *
- * Return: void
- */
-static inline void wlan_vdev_mlme_set_bss_chan(struct wlan_objmgr_vdev *vdev,
-			struct wlan_channel *bss_chan)
-{
-	vdev->vdev_mlme.bss_chan = bss_chan;
-}
-
-/**
- * wlan_vdev_mlme_get_bss_chan() - get bss chan
- * @vdev: VDEV object
- *
- * API to get the BSS channel
- *
- * Return:
- * @bss_chan: Channel
- */
-static inline struct wlan_channel *wlan_vdev_mlme_get_bss_chan(
-				struct wlan_objmgr_vdev *vdev)
-{
-	return vdev->vdev_mlme.bss_chan;
-}
-
-/**
- * wlan_vdev_mlme_set_des_chan() - set desired chan
- * @vdev: VDEV object
- * @des_chan: Channel configured by user
- *
- * API to set the desired channel
- *
- * Return: void
- */
-static inline void wlan_vdev_mlme_set_des_chan(struct wlan_objmgr_vdev *vdev,
-			struct wlan_channel *des_chan)
-{
-	vdev->vdev_mlme.des_chan = des_chan;
-}
-
-/**
- * wlan_vdev_mlme_get_des_chan() - get desired chan
- * @vdev: VDEV object
- *
- * API to get the desired channel
- *
- * Return:
- * @des_chan: Channel configured by user
- */
-static inline struct wlan_channel *wlan_vdev_mlme_get_des_chan(
-				struct wlan_objmgr_vdev *vdev)
-{
-	return vdev->vdev_mlme.des_chan;
-}
-
-/**
  * wlan_vdev_mlme_set_nss() - set NSS
  * @vdev: VDEV object
  * @nss: nss configured by user
@@ -965,7 +1006,7 @@ static inline struct wlan_channel *wlan_vdev_mlme_get_des_chan(
  * Return: void
  */
 static inline void wlan_vdev_mlme_set_nss(struct wlan_objmgr_vdev *vdev,
-			uint8_t nss)
+					  uint8_t nss)
 {
 	vdev->vdev_mlme.nss = nss;
 }
@@ -994,8 +1035,9 @@ static inline uint8_t wlan_vdev_mlme_get_nss(
  *
  * Return: void
  */
-static inline void wlan_vdev_mlme_set_txchainmask(struct wlan_objmgr_vdev *vdev,
-			uint8_t chainmask)
+static inline void wlan_vdev_mlme_set_txchainmask(
+				struct wlan_objmgr_vdev *vdev,
+				uint8_t chainmask)
 {
 	vdev->vdev_mlme.tx_chainmask = chainmask;
 }
@@ -1024,8 +1066,9 @@ static inline uint8_t wlan_vdev_mlme_get_txchainmask(
  *
  * Return: void
  */
-static inline void wlan_vdev_mlme_set_rxchainmask(struct wlan_objmgr_vdev *vdev,
-			uint8_t chainmask)
+static inline void wlan_vdev_mlme_set_rxchainmask(
+				struct wlan_objmgr_vdev *vdev,
+				uint8_t chainmask)
 {
 	vdev->vdev_mlme.rx_chainmask = chainmask;
 }
@@ -1055,8 +1098,9 @@ static inline uint8_t wlan_vdev_mlme_get_rxchainmask(
  *
  * Return: void
  */
-static inline void wlan_vdev_mlme_set_txpower(struct wlan_objmgr_vdev *vdev,
-			uint8_t txpow)
+static inline void wlan_vdev_mlme_set_txpower(
+				struct wlan_objmgr_vdev *vdev,
+				uint8_t txpow)
 {
 	vdev->vdev_mlme.tx_power = txpow;
 }
@@ -1085,8 +1129,9 @@ static inline uint8_t wlan_vdev_mlme_get_txpower(
  *
  * Return: void
  */
-static inline void wlan_vdev_mlme_set_maxrate(struct wlan_objmgr_vdev *vdev,
-			uint32_t maxrate)
+static inline void wlan_vdev_mlme_set_maxrate(
+				struct wlan_objmgr_vdev *vdev,
+				uint32_t maxrate)
 {
 	vdev->vdev_mlme.max_rate = maxrate;
 }
@@ -1115,8 +1160,9 @@ static inline uint32_t wlan_vdev_mlme_get_maxrate(
  *
  * Return: void
  */
-static inline void wlan_vdev_mlme_set_txmgmtrate(struct wlan_objmgr_vdev *vdev,
-			uint32_t txmgmtrate)
+static inline void wlan_vdev_mlme_set_txmgmtrate(
+				struct wlan_objmgr_vdev *vdev,
+				uint32_t txmgmtrate)
 {
 	vdev->vdev_mlme.tx_mgmt_rate = txmgmtrate;
 }
@@ -1135,6 +1181,7 @@ static inline uint32_t wlan_vdev_mlme_get_txmgmtrate(
 {
 	return vdev->vdev_mlme.tx_mgmt_rate;
 }
+#endif
 
 /**
  * wlan_vdev_mlme_feat_cap_set() - set feature caps
@@ -1292,19 +1339,17 @@ static inline enum wlan_vdev_state wlan_vdev_mlme_get_state(
 }
 
 /**
- * wlan_vdev_mlme_set_state() - set mlme state
+ * wlan_vdev_mlme_get_substate() - get mlme substate
  * @vdev: VDEV object
- * @state: MLME state
  *
- * API to set MLME state
+ * API to get VDEV MLME substate
  *
- * Return: void
+ * Return: substate of VDEV MLME
  */
-static inline void wlan_vdev_mlme_set_state(struct wlan_objmgr_vdev *vdev,
-					enum wlan_vdev_state state)
+static inline enum wlan_vdev_state wlan_vdev_mlme_get_substate(
+				struct wlan_objmgr_vdev *vdev)
 {
-	if (state < WLAN_VDEV_S_MAX)
-		vdev->vdev_mlme.mlme_state = state;
+	return vdev->vdev_mlme.mlme_substate;
 }
 
 /**
@@ -1356,7 +1401,9 @@ static inline void wlan_vdev_set_bsspeer(struct wlan_objmgr_vdev *vdev,
  * wlan_vdev_get_bsspeer() - get bss peer
  * @vdev: VDEV object
  *
- * API to get the BSS peer of VDEV
+ * API to get the BSS peer of VDEV, wlan_objmgr_vdev_try_get_bsspeer API
+ * preferred to use outside obj manager to take and handle ref count of
+ * bss_peer with ref debug ID.
  *
  * Return:
  * @peer: BSS peer pointer

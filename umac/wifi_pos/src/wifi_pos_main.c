@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -233,8 +233,9 @@ static void wifi_update_channel_bw_info(struct wlan_objmgr_psoc *psoc,
 	wlan_reg_set_channel_params(pdev, chan, sec_ch_2g, &ch_params);
 	if (ch_params.center_freq_seg0)
 		chan_info->band_center_freq1 =
-			wlan_reg_get_channel_freq(pdev,
-						  ch_params.center_freq_seg0);
+			wlan_reg_legacy_chan_to_freq(
+						pdev,
+						ch_params.center_freq_seg0);
 
 	wifi_pos_psoc->wifi_pos_get_phy_mode(chan, ch_params.ch_width,
 					     &phy_mode);
@@ -270,7 +271,7 @@ static uint32_t wifi_pos_get_valid_channels(uint8_t *channels, uint32_t num_ch,
 	uint32_t i, num_valid_channels = 0;
 
 	for (i = 0; i < num_ch; i++) {
-		if (INVALID_CHANNEL == reg_get_chan_enum(channels[i]))
+		if (wlan_reg_get_chan_enum(channels[i]) == INVALID_CHANNEL)
 			continue;
 		valid_channel_list[num_valid_channels++] = channels[i];
 	}
@@ -319,7 +320,6 @@ static QDF_STATUS wifi_pos_process_ch_info_req(struct wlan_objmgr_psoc *psoc,
 			num_valid_channels;
 	buf = qdf_mem_malloc(len);
 	if (!buf) {
-		wifi_pos_alert("malloc failed");
 		wlan_objmgr_pdev_release_ref(pdev, WLAN_WIFI_POS_CORE_ID);
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -416,7 +416,6 @@ static QDF_STATUS wifi_pos_process_app_reg_req(struct wlan_objmgr_psoc *psoc,
 			+ sizeof(uint8_t);
 	app_reg_rsp = qdf_mem_malloc(rsp_len);
 	if (!app_reg_rsp) {
-		wifi_pos_alert("malloc failed");
 		ret = QDF_STATUS_E_NOMEM;
 		err = OEM_ERR_NULL_CONTEXT;
 		goto app_reg_failed;
@@ -505,7 +504,6 @@ QDF_STATUS wifi_pos_psoc_obj_created_notification(
 	/* initialize wifi-pos psoc priv object */
 	wifi_pos_obj = qdf_mem_malloc(sizeof(*wifi_pos_obj));
 	if (!wifi_pos_obj) {
-		wifi_pos_alert("Mem alloc failed for wifi pos psoc priv obj");
 		wifi_pos_clear_psoc();
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -613,10 +611,9 @@ int wifi_pos_oem_rsp_handler(struct wlan_objmgr_psoc *psoc,
 	if (oem_rsp->rsp_len_2 + oem_rsp->dma_len) {
 		/* stitch togther the msg data_1 + CIR/CFR + data_2 */
 		data = qdf_mem_malloc(len);
-		if (!data) {
-			wifi_pos_err("malloc failed");
+		if (!data)
 			return -ENOMEM;
-		}
+
 		qdf_mem_copy(data, oem_rsp->data_1, oem_rsp->rsp_len_1);
 		qdf_mem_copy(&data[oem_rsp->rsp_len_1],
 			     oem_rsp->vaddr, oem_rsp->dma_len);
@@ -636,46 +633,31 @@ int wifi_pos_oem_rsp_handler(struct wlan_objmgr_psoc *psoc,
 static void wifi_pos_pdev_iterator(struct wlan_objmgr_psoc *psoc,
 				   void *obj, void *arg)
 {
-	uint32_t i;
 	QDF_STATUS status;
+	uint8_t i, num_channels;
 	struct wlan_objmgr_pdev *pdev = obj;
-	struct regulatory_channel *psoc_ch_lst = arg;
-	struct regulatory_channel pdev_ch_lst[NUM_CHANNELS];
+	struct wifi_pos_driver_caps *caps = arg;
+	struct channel_power ch_list[NUM_CHANNELS];
 
-	status = wlan_reg_get_current_chan_list(pdev, pdev_ch_lst);
+	status = wlan_reg_get_channel_list_with_power(pdev, ch_list,
+						      &num_channels);
+
 	if (QDF_IS_STATUS_ERROR(status)) {
-		wifi_pos_err("wlan_reg_get_current_chan_list_by_range failed");
+		wifi_pos_err("Failed to get valid channel list");
 		return;
 	}
-
-	for (i = 0; i < NUM_CHANNELS; i++) {
-		if (pdev_ch_lst[i].state != CHANNEL_STATE_DISABLE &&
-			pdev_ch_lst[i].state != CHANNEL_STATE_INVALID)
-			psoc_ch_lst[i] = pdev_ch_lst[i];
-	}
+	for (i = 0; i < num_channels; i++)
+		caps->channel_list[i] = ch_list[i].chan_num;
+	caps->num_channels = num_channels;
 }
 
 static void wifi_pos_get_ch_info(struct wlan_objmgr_psoc *psoc,
 				 struct wifi_pos_driver_caps *caps)
 {
-	uint32_t i, num_ch = 0;
-	struct regulatory_channel ch_lst[NUM_CHANNELS] = {{0}};
-
 	wlan_objmgr_iterate_obj_list(psoc, WLAN_PDEV_OP,
 				     wifi_pos_pdev_iterator,
-				     ch_lst, true, WLAN_WIFI_POS_CORE_ID);
-
-	for (i = 0; i < NUM_CHANNELS && num_ch < OEM_CAP_MAX_NUM_CHANNELS;
-	     i++) {
-		if (ch_lst[i].state != CHANNEL_STATE_DISABLE &&
-		    ch_lst[i].state != CHANNEL_STATE_INVALID) {
-			num_ch++;
-			caps->channel_list[i] = ch_lst[i].chan_num;
-		}
-	}
-
-	caps->num_channels = num_ch;
-	wifi_pos_err("num channels: %d", num_ch);
+				      caps, true, WLAN_WIFI_POS_CORE_ID);
+	wifi_pos_err("num channels: %d", caps->num_channels);
 }
 
 QDF_STATUS wifi_pos_populate_caps(struct wlan_objmgr_psoc *psoc,

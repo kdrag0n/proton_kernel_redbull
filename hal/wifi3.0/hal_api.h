@@ -1,30 +1,19 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of The Linux Foundation nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
  */
 
 #ifndef _HAL_API_H_
@@ -32,22 +21,168 @@
 
 #include "qdf_types.h"
 #include "qdf_util.h"
+#include "qdf_atomic.h"
 #include "hal_internal.h"
-#include "rx_msdu_link.h"
-#include "rx_reo_queue.h"
-#include "rx_reo_queue_ext.h"
+#include "qdf_platform.h"
 
 #define MAX_UNWINDOWED_ADDRESS 0x80000
+#ifdef QCA_WIFI_QCA6390
+#define WINDOW_ENABLE_BIT 0x40000000
+#else
 #define WINDOW_ENABLE_BIT 0x80000000
+#endif
 #define WINDOW_REG_ADDRESS 0x310C
 #define WINDOW_SHIFT 19
 #define WINDOW_VALUE_MASK 0x3F
 #define WINDOW_START MAX_UNWINDOWED_ADDRESS
 #define WINDOW_RANGE_MASK 0x7FFFF
 
+/*
+ * BAR + 4K is always accessible, any access outside this
+ * space requires force wake procedure.
+ * OFFSET = 4K - 32 bytes = 0x4063
+ */
+#define MAPPED_REF_OFF 0x4063
+
+#ifdef HAL_CONFIG_SLUB_DEBUG_ON
+#define FORCE_WAKE_DELAY_TIMEOUT 500
+#else
+#define FORCE_WAKE_DELAY_TIMEOUT 50
+#endif /* HAL_CONFIG_SLUB_DEBUG_ON */
+
+#define FORCE_WAKE_DELAY_MS 5
+
+#ifdef ENABLE_VERBOSE_DEBUG
+static inline void
+hal_set_verbose_debug(bool flag)
+{
+	is_hal_verbose_debug_enabled = flag;
+}
+#endif
+
+/**
+ * hal_reg_write_result_check() - check register writing result
+ * @hal_soc: HAL soc handle
+ * @offset: register offset to read
+ * @exp_val: the expected value of register
+ *
+ * Return: none
+ */
+static inline void hal_reg_write_result_check(struct hal_soc *hal_soc,
+					      uint32_t offset,
+					      uint32_t exp_val)
+{
+	uint32_t value;
+
+	value = qdf_ioread32(hal_soc->dev_base_addr + offset);
+	if (exp_val != value) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO_HIGH,
+			  "register offset 0x%x write failed!\n", offset);
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO_HIGH,
+			  "the expectation 0x%x, actual value 0x%x\n",
+			  exp_val,
+			  value);
+	}
+}
+
+#ifndef QCA_WIFI_QCA6390
+static inline int hal_force_wake_request(struct hal_soc *soc)
+{
+	return 0;
+}
+
+static inline int hal_force_wake_release(struct hal_soc *soc)
+{
+	return 0;
+}
+
+static inline void hal_lock_reg_access(struct hal_soc *soc,
+				       unsigned long *flags)
+{
+	qdf_spin_lock_irqsave(&soc->register_access_lock);
+}
+
+static inline void hal_unlock_reg_access(struct hal_soc *soc,
+					 unsigned long *flags)
+{
+	qdf_spin_unlock_irqrestore(&soc->register_access_lock);
+}
+
+#else
+static inline int hal_force_wake_request(struct hal_soc *soc)
+{
+	uint32_t timeout = 0;
+	int ret;
+
+	ret = pld_force_wake_request(soc->qdf_dev->dev);
+	if (ret) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Request send failed %d\n", __func__, ret);
+		return -EINVAL;
+	}
+
+	while (!pld_is_device_awake(soc->qdf_dev->dev) &&
+	       timeout <= FORCE_WAKE_DELAY_TIMEOUT) {
+		mdelay(FORCE_WAKE_DELAY_MS);
+		timeout += FORCE_WAKE_DELAY_MS;
+	}
+
+	if (pld_is_device_awake(soc->qdf_dev->dev) == true)
+		return 0;
+	else
+		return -ETIMEDOUT;
+}
+
+static inline int hal_force_wake_release(struct hal_soc *soc)
+{
+	return pld_force_wake_release(soc->qdf_dev->dev);
+}
+
+static inline void hal_lock_reg_access(struct hal_soc *soc,
+				       unsigned long *flags)
+{
+	pld_lock_reg_window(soc->qdf_dev->dev, flags);
+}
+
+static inline void hal_unlock_reg_access(struct hal_soc *soc,
+					 unsigned long *flags)
+{
+	pld_unlock_reg_window(soc->qdf_dev->dev, flags);
+}
+#endif
+
+#ifdef PCIE_REG_WINDOW_LOCAL_NO_CACHE
 static inline void hal_select_window(struct hal_soc *hal_soc, uint32_t offset)
 {
 	uint32_t window = (offset >> WINDOW_SHIFT) & WINDOW_VALUE_MASK;
+
+	qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_REG_ADDRESS,
+		      WINDOW_ENABLE_BIT | window);
+	hal_soc->register_window = window;
+}
+
+/**
+ * hal_select_window_confirm() - write window register and
+				 check writing result
+ *
+ */
+static inline void hal_select_window_confirm(struct hal_soc *hal_soc,
+					     uint32_t offset)
+{
+	uint32_t window = (offset >> WINDOW_SHIFT) & WINDOW_VALUE_MASK;
+
+	qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_REG_ADDRESS,
+		      WINDOW_ENABLE_BIT | window);
+	hal_soc->register_window = window;
+
+	hal_reg_write_result_check(hal_soc, WINDOW_REG_ADDRESS,
+				   WINDOW_ENABLE_BIT | window);
+}
+#else
+static inline void hal_select_window(struct hal_soc *hal_soc, uint32_t offset)
+{
+	uint32_t window = (offset >> WINDOW_SHIFT) & WINDOW_VALUE_MASK;
+
 	if (window != hal_soc->register_window) {
 		qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_REG_ADDRESS,
 			      WINDOW_ENABLE_BIT | window);
@@ -55,27 +190,132 @@ static inline void hal_select_window(struct hal_soc *hal_soc, uint32_t offset)
 	}
 }
 
+static inline void hal_select_window_confirm(struct hal_soc *hal_soc,
+					     uint32_t offset)
+{
+	uint32_t window = (offset >> WINDOW_SHIFT) & WINDOW_VALUE_MASK;
+
+	if (window != hal_soc->register_window) {
+		qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_REG_ADDRESS,
+			      WINDOW_ENABLE_BIT | window);
+		hal_soc->register_window = window;
+
+		hal_reg_write_result_check(
+					hal_soc,
+					WINDOW_REG_ADDRESS,
+					WINDOW_ENABLE_BIT | window);
+	}
+}
+#endif
+
 /**
  * note1: WINDOW_RANGE_MASK = (1 << WINDOW_SHIFT) -1
  * note2: 1 << WINDOW_SHIFT = MAX_UNWINDOWED_ADDRESS
  * note3: WINDOW_VALUE_MASK = big enough that trying to write past that window
  *				would be a bug
  */
+#ifndef QCA_WIFI_QCA6390
 static inline void hal_write32_mb(struct hal_soc *hal_soc, uint32_t offset,
 				  uint32_t value)
 {
+	unsigned long flags;
 
 	if (!hal_soc->use_register_windowing ||
 	    offset < MAX_UNWINDOWED_ADDRESS) {
 		qdf_iowrite32(hal_soc->dev_base_addr + offset, value);
 	} else {
-		qdf_spin_lock_irqsave(&hal_soc->register_access_lock);
+		hal_lock_reg_access(hal_soc, &flags);
 		hal_select_window(hal_soc, offset);
 		qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_START +
 			  (offset & WINDOW_RANGE_MASK), value);
-		qdf_spin_unlock_irqrestore(&hal_soc->register_access_lock);
+
+		hal_unlock_reg_access(hal_soc, &flags);
 	}
 }
+
+#define hal_write32_mb_confirm(_hal_soc, _offset, _value) \
+			hal_write32_mb(_hal_soc, _offset, _value)
+#else
+static inline void hal_write32_mb(struct hal_soc *hal_soc, uint32_t offset,
+				  uint32_t value)
+{
+	int ret;
+	unsigned long flags;
+
+	if (offset > MAPPED_REF_OFF) {
+		ret = hal_force_wake_request(hal_soc);
+		if (ret) {
+			QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+				  "%s: Wake up request failed %d\n",
+				  __func__, ret);
+			qdf_check_state_before_panic();
+			return;
+		}
+	}
+
+	if (!hal_soc->use_register_windowing ||
+	    offset < MAX_UNWINDOWED_ADDRESS) {
+		qdf_iowrite32(hal_soc->dev_base_addr + offset, value);
+	} else {
+		hal_lock_reg_access(hal_soc, &flags);
+		hal_select_window(hal_soc, offset);
+		qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_START +
+			  (offset & WINDOW_RANGE_MASK), value);
+
+		hal_unlock_reg_access(hal_soc, &flags);
+	}
+
+	if ((offset > MAPPED_REF_OFF) &&
+	    hal_force_wake_release(hal_soc))
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Wake up release failed\n", __func__);
+}
+
+/**
+ * hal_write32_mb_confirm() - write register and check writing result
+ */
+static inline void hal_write32_mb_confirm(struct hal_soc *hal_soc,
+					  uint32_t offset,
+					  uint32_t value)
+{
+	int ret;
+	unsigned long flags;
+
+	if (offset > MAPPED_REF_OFF) {
+		ret = hal_force_wake_request(hal_soc);
+		if (ret) {
+			QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+				  "%s: Wake up request failed %d\n",
+				  __func__, ret);
+			qdf_check_state_before_panic();
+			return;
+		}
+	}
+
+	if (!hal_soc->use_register_windowing ||
+	    offset < MAX_UNWINDOWED_ADDRESS) {
+		qdf_iowrite32(hal_soc->dev_base_addr + offset, value);
+		hal_reg_write_result_check(hal_soc, offset,
+					   value);
+	} else {
+		hal_lock_reg_access(hal_soc, &flags);
+		hal_select_window_confirm(hal_soc, offset);
+		qdf_iowrite32(hal_soc->dev_base_addr + WINDOW_START +
+			  (offset & WINDOW_RANGE_MASK), value);
+
+		hal_reg_write_result_check(
+				hal_soc,
+				WINDOW_START + (offset & WINDOW_RANGE_MASK),
+				value);
+		hal_unlock_reg_access(hal_soc, &flags);
+	}
+
+	if ((offset > MAPPED_REF_OFF) &&
+	    hal_force_wake_release(hal_soc))
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Wake up release failed\n", __func__);
+}
+#endif
 
 /**
  * hal_write_address_32_mb - write a value to a register
@@ -93,23 +333,92 @@ static inline void hal_write_address_32_mb(struct hal_soc *hal_soc,
 	hal_write32_mb(hal_soc, offset, value);
 }
 
+#ifndef QCA_WIFI_QCA6390
 static inline uint32_t hal_read32_mb(struct hal_soc *hal_soc, uint32_t offset)
 {
 	uint32_t ret;
+	unsigned long flags;
 
 	if (!hal_soc->use_register_windowing ||
 	    offset < MAX_UNWINDOWED_ADDRESS) {
 		return qdf_ioread32(hal_soc->dev_base_addr + offset);
 	}
 
-	qdf_spin_lock_irqsave(&hal_soc->register_access_lock);
+	hal_lock_reg_access(hal_soc, &flags);
 	hal_select_window(hal_soc, offset);
 	ret = qdf_ioread32(hal_soc->dev_base_addr + WINDOW_START +
 		       (offset & WINDOW_RANGE_MASK));
-	qdf_spin_unlock_irqrestore(&hal_soc->register_access_lock);
+	hal_unlock_reg_access(hal_soc, &flags);
 
 	return ret;
 }
+
+/**
+ * hal_read_address_32_mb() - Read 32-bit value from the register
+ * @soc: soc handle
+ * @addr: register address to read
+ *
+ * Return: 32-bit value
+ */
+static inline uint32_t hal_read_address_32_mb(struct hal_soc *soc,
+					      void __iomem *addr)
+{
+	uint32_t offset;
+	uint32_t ret;
+
+	if (!soc->use_register_windowing)
+		return qdf_ioread32(addr);
+
+	offset = addr - soc->dev_base_addr;
+	ret = hal_read32_mb(soc, offset);
+	return ret;
+}
+#else
+static inline uint32_t hal_read32_mb(struct hal_soc *hal_soc, uint32_t offset)
+{
+	uint32_t ret;
+	unsigned long flags;
+
+	if ((offset > MAPPED_REF_OFF) &&
+	    hal_force_wake_request(hal_soc)) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Wake up request failed\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!hal_soc->use_register_windowing ||
+	    offset < MAX_UNWINDOWED_ADDRESS) {
+		return qdf_ioread32(hal_soc->dev_base_addr + offset);
+	}
+
+	hal_lock_reg_access(hal_soc, &flags);
+	hal_select_window(hal_soc, offset);
+	ret = qdf_ioread32(hal_soc->dev_base_addr + WINDOW_START +
+		       (offset & WINDOW_RANGE_MASK));
+	hal_unlock_reg_access(hal_soc, &flags);
+
+	if ((offset > MAPPED_REF_OFF) &&
+	    hal_force_wake_release(hal_soc))
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Wake up release failed\n", __func__);
+
+	return ret;
+}
+
+static inline uint32_t hal_read_address_32_mb(struct hal_soc *soc,
+					      void __iomem *addr)
+{
+	uint32_t offset;
+	uint32_t ret;
+
+	if (!soc->use_register_windowing)
+		return qdf_ioread32(addr);
+
+	offset = addr - soc->dev_base_addr;
+	ret = hal_read32_mb(soc, offset);
+	return ret;
+}
+#endif
 
 #include "hif_io32.h"
 
@@ -137,39 +446,41 @@ extern void hal_detach(void *hal_soc);
 
 /* SRNG type to be passed in APIs hal_srng_get_entrysize and hal_srng_setup */
 enum hal_ring_type {
-	REO_DST,
-	REO_EXCEPTION,
-	REO_REINJECT,
-	REO_CMD,
-	REO_STATUS,
-	TCL_DATA,
-	TCL_CMD,
-	TCL_STATUS,
-	CE_SRC,
-	CE_DST,
-	CE_DST_STATUS,
-	WBM_IDLE_LINK,
-	SW2WBM_RELEASE,
-	WBM2SW_RELEASE,
-	RXDMA_BUF,
-	RXDMA_DST,
-	RXDMA_MONITOR_BUF,
-	RXDMA_MONITOR_STATUS,
-	RXDMA_MONITOR_DST,
-	RXDMA_MONITOR_DESC,
-	DIR_BUF_RX_DMA_SRC,
+	REO_DST = 0,
+	REO_EXCEPTION = 1,
+	REO_REINJECT = 2,
+	REO_CMD = 3,
+	REO_STATUS = 4,
+	TCL_DATA = 5,
+	TCL_CMD = 6,
+	TCL_STATUS = 7,
+	CE_SRC = 8,
+	CE_DST = 9,
+	CE_DST_STATUS = 10,
+	WBM_IDLE_LINK = 11,
+	SW2WBM_RELEASE = 12,
+	WBM2SW_RELEASE = 13,
+	RXDMA_BUF = 14,
+	RXDMA_DST = 15,
+	RXDMA_MONITOR_BUF = 16,
+	RXDMA_MONITOR_STATUS = 17,
+	RXDMA_MONITOR_DST = 18,
+	RXDMA_MONITOR_DESC = 19,
+	DIR_BUF_RX_DMA_SRC = 20,
 #ifdef WLAN_FEATURE_CIF_CFR
 	WIFI_POS_SRC,
 #endif
 	MAX_RING_TYPES
 };
 
+#define HAL_SRNG_LMAC_RING 0x80000000
 /* SRNG flags passed in hal_srng_params.flags */
 #define HAL_SRNG_MSI_SWAP				0x00000008
 #define HAL_SRNG_RING_PTR_SWAP			0x00000010
 #define HAL_SRNG_DATA_TLV_SWAP			0x00000020
 #define HAL_SRNG_LOW_THRES_INTR_ENABLE	0x00010000
 #define HAL_SRNG_MSI_INTR				0x00020000
+#define HAL_SRNG_CACHED_DESC		0x00040000
 
 #define PN_SIZE_24 0
 #define PN_SIZE_48 1
@@ -338,11 +649,17 @@ extern void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
 	  _ORIGINAL_DEST ## _SHFT))
 
 /**
- * hal_reo_remap_IX0 - Remap REO ring destination
+ * hal_reo_read_write_ctrl_ix - Read or write REO_DESTINATION_RING_CTRL_IX
  * @hal: HAL SOC handle
- * @remap_val: Remap value
+ * @read: boolean value to indicate if read or write
+ * @ix0: pointer to store IX0 reg value
+ * @ix1: pointer to store IX1 reg value
+ * @ix2: pointer to store IX2 reg value
+ * @ix3: pointer to store IX3 reg value
  */
-extern void hal_reo_remap_IX0(struct hal_soc *hal, uint32_t remap_val);
+extern void hal_reo_read_write_ctrl_ix(struct hal_soc *hal, bool read,
+				       uint32_t *ix0, uint32_t *ix1,
+				       uint32_t *ix2, uint32_t *ix3);
 
 /**
  * hal_srng_set_hp_paddr() - Set physical address to dest SRNG head pointer
@@ -373,6 +690,26 @@ static inline bool hal_srng_initialized(void *hal_ring)
 }
 
 /**
+ * hal_srng_dst_peek - Check if there are any entries in the ring (peek)
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring: Destination ring pointer
+ *
+ * Caller takes responsibility for any locking needs.
+ *
+ * Return: Opaque pointer for next ring entry; NULL on failire
+ */
+static inline
+void *hal_srng_dst_peek(void *hal_soc, void *hal_ring)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+
+	if (srng->u.dst_ring.tp != srng->u.dst_ring.cached_hp)
+		return (void *)(&srng->ring_base_vaddr[srng->u.dst_ring.tp]);
+
+	return NULL;
+}
+
+/**
  * hal_srng_access_start_unlocked - Start ring access (unlocked). Should use
  * hal_srng_access_start if locked access is required
  *
@@ -384,13 +721,29 @@ static inline bool hal_srng_initialized(void *hal_ring)
 static inline int hal_srng_access_start_unlocked(void *hal_soc, void *hal_ring)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+	struct hal_soc *soc = (struct hal_soc *)hal_soc;
+	uint32_t *desc;
 
 	if (srng->ring_dir == HAL_SRNG_SRC_RING)
 		srng->u.src_ring.cached_tp =
 			*(volatile uint32_t *)(srng->u.src_ring.tp_addr);
-	else
+	else {
 		srng->u.dst_ring.cached_hp =
 			*(volatile uint32_t *)(srng->u.dst_ring.hp_addr);
+
+		if (srng->flags & HAL_SRNG_CACHED_DESC) {
+			desc = hal_srng_dst_peek(hal_soc, hal_ring);
+			if (qdf_likely(desc)) {
+				qdf_mem_dma_cache_sync(soc->qdf_dev,
+						       qdf_mem_virt_to_phys
+						       (desc),
+						       QDF_DMA_FROM_DEVICE,
+						       (srng->entry_size *
+							sizeof(uint32_t)));
+				qdf_prefetch(desc);
+			}
+		}
+	}
 
 	return 0;
 }
@@ -406,6 +759,11 @@ static inline int hal_srng_access_start_unlocked(void *hal_soc, void *hal_ring)
 static inline int hal_srng_access_start(void *hal_soc, void *hal_ring)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+
+	if (qdf_unlikely(!hal_ring)) {
+		qdf_print("Error: Invalid hal_ring\n");
+		return -EINVAL;
+	}
 
 	SRNG_LOCK(&(srng->lock));
 
@@ -424,7 +782,10 @@ static inline int hal_srng_access_start(void *hal_soc, void *hal_ring)
 static inline void *hal_srng_dst_get_next(void *hal_soc, void *hal_ring)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+	struct hal_soc *soc = (struct hal_soc *)hal_soc;
 	uint32_t *desc;
+	uint32_t *desc_next;
+	uint32_t tp;
 
 	if (srng->u.dst_ring.tp != srng->u.dst_ring.cached_hp) {
 		desc = &(srng->ring_base_vaddr[srng->u.dst_ring.tp]);
@@ -436,6 +797,17 @@ static inline void *hal_srng_dst_get_next(void *hal_soc, void *hal_ring)
 		 */
 		srng->u.dst_ring.tp = (srng->u.dst_ring.tp + srng->entry_size) %
 			srng->ring_size;
+
+		if (srng->flags & HAL_SRNG_CACHED_DESC) {
+			tp = srng->u.dst_ring.tp;
+			desc_next = &srng->ring_base_vaddr[tp];
+			qdf_mem_dma_cache_sync(soc->qdf_dev,
+					       qdf_mem_virt_to_phys(desc_next),
+					       QDF_DMA_FROM_DEVICE,
+					       (srng->entry_size *
+						sizeof(uint32_t)));
+			qdf_prefetch(desc_next);
+		}
 
 		return (void *)desc;
 	}
@@ -475,24 +847,57 @@ static inline void *hal_srng_dst_get_next_hp(void *hal_soc, void *hal_ring)
 }
 
 /**
- * hal_srng_dst_peek - Get next entry from a ring without moving tail pointer.
- * hal_srng_dst_get_next should be called subsequently to move the tail pointer
- * TODO: See if we need an optimized version of get_next that doesn't check for
- * loop_cnt
- *
+ * hal_srng_dst_peek_sync - Check if there are any entries in the ring (peek)
  * @hal_soc: Opaque HAL SOC handle
  * @hal_ring: Destination ring pointer
  *
+ * Sync cached head pointer with HW.
+ * Caller takes responsibility for any locking needs.
+ *
  * Return: Opaque pointer for next ring entry; NULL on failire
  */
-static inline void *hal_srng_dst_peek(void *hal_soc, void *hal_ring)
+static inline
+void *hal_srng_dst_peek_sync(void *hal_soc, void *hal_ring)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+
+	srng->u.dst_ring.cached_hp =
+		*(volatile uint32_t *)(srng->u.dst_ring.hp_addr);
 
 	if (srng->u.dst_ring.tp != srng->u.dst_ring.cached_hp)
 		return (void *)(&(srng->ring_base_vaddr[srng->u.dst_ring.tp]));
 
 	return NULL;
+}
+
+/**
+ * hal_srng_dst_peek_sync_locked - Peek for any entries in the ring
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring: Destination ring pointer
+ *
+ * Sync cached head pointer with HW.
+ * This function takes up SRNG_LOCK. Should not be called with SRNG lock held.
+ *
+ * Return: Opaque pointer for next ring entry; NULL on failire
+ */
+static inline
+void *hal_srng_dst_peek_sync_locked(void *hal_soc, void *hal_ring)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+	void *ring_desc_ptr = NULL;
+
+	if (qdf_unlikely(!hal_ring)) {
+		qdf_print("Error: Invalid hal_ring\n");
+		return  NULL;
+	}
+
+	SRNG_LOCK(&srng->lock);
+
+	ring_desc_ptr = hal_srng_dst_peek_sync(hal_soc, hal_ring);
+
+	SRNG_UNLOCK(&srng->lock);
+
+	return ring_desc_ptr;
 }
 
 /**
@@ -505,14 +910,14 @@ static inline void *hal_srng_dst_peek(void *hal_soc, void *hal_ring)
  *
  */
 static inline uint32_t hal_srng_dst_num_valid(void *hal_soc, void *hal_ring,
-	int sync_hw_ptr)
+					      int sync_hw_ptr)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
-	uint32 hp;
-	uint32 tp = srng->u.dst_ring.tp;
+	uint32_t hp;
+	uint32_t tp = srng->u.dst_ring.tp;
 
 	if (sync_hw_ptr) {
-		hp = *(srng->u.dst_ring.hp_addr);
+		hp = *(volatile uint32_t *)(srng->u.dst_ring.hp_addr);
 		srng->u.dst_ring.cached_hp = hp;
 	} else {
 		hp = srng->u.dst_ring.cached_hp;
@@ -522,6 +927,33 @@ static inline uint32_t hal_srng_dst_num_valid(void *hal_soc, void *hal_ring,
 		return (hp - tp) / srng->entry_size;
 	else
 		return (srng->ring_size - tp + hp) / srng->entry_size;
+}
+
+/**
+ * hal_srng_dst_num_valid_locked - Returns num valid entries to be processed
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring_hdl: Destination ring pointer
+ * @sync_hw_ptr: Sync cached head pointer with HW
+ *
+ * Returns number of valid entries to be processed by the host driver. The
+ * function takes up SRNG lock.
+ *
+ * Return: Number of valid destination entries
+ */
+static inline uint32_t
+hal_srng_dst_num_valid_locked(void *hal_soc,
+			      void *hal_ring_hdl,
+			      int sync_hw_ptr)
+{
+	uint32_t num_valid;
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	SRNG_LOCK(&srng->lock);
+	num_valid = hal_srng_dst_num_valid(hal_soc, hal_ring_hdl, sync_hw_ptr);
+	SRNG_UNLOCK(&srng->lock);
+
+	return num_valid;
 }
 
 /**
@@ -644,7 +1076,21 @@ static inline uint32_t hal_srng_src_done_val(void *hal_soc, void *hal_ring)
 }
 
 /**
- * hal_api_get_tphp - Get head and tail pointer location for any ring
+ * hal_get_entrysize_from_srng() - Retrieve ring entry size
+ * @hal_ring: Source ring pointer
+ *
+ * Return: uint8_t
+ */
+static inline
+uint8_t hal_get_entrysize_from_srng(void *hal_ring)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+
+	return srng->entry_size;
+}
+
+/**
+ * hal_get_sw_hptp - Get SW head and tail pointer location for any ring
  * @hal_soc: Opaque HAL SOC handle
  * @hal_ring: Source ring pointer
  * @tailp: Tail Pointer
@@ -652,17 +1098,17 @@ static inline uint32_t hal_srng_src_done_val(void *hal_soc, void *hal_ring)
  *
  * Return: Update tail pointer and head pointer in arguments.
  */
-static inline void hal_api_get_tphp(void *hal_soc, void *hal_ring,
-	uint32_t *tailp, uint32_t *headp)
+static inline void hal_get_sw_hptp(void *hal_soc, void *hal_ring,
+				   uint32_t *tailp, uint32_t *headp)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
 
 	if (srng->ring_dir == HAL_SRNG_SRC_RING) {
-		*headp = srng->u.src_ring.hp / srng->entry_size;
-		*tailp = *(srng->u.src_ring.tp_addr) / srng->entry_size;
+		*headp = srng->u.src_ring.hp;
+		*tailp = *srng->u.src_ring.tp_addr;
 	} else {
-		*tailp = srng->u.dst_ring.tp / srng->entry_size;
-		*headp = *(srng->u.dst_ring.hp_addr) / srng->entry_size;
+		*tailp = srng->u.dst_ring.tp;
+		*headp = *srng->u.dst_ring.hp_addr;
 	}
 }
 
@@ -743,8 +1189,8 @@ static inline uint32_t hal_srng_src_num_avail(void *hal_soc,
 	void *hal_ring, int sync_hw_ptr)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
-	uint32 tp;
-	uint32 hp = srng->u.src_ring.hp;
+	uint32_t tp;
+	uint32_t hp = srng->u.src_ring.hp;
 
 	if (sync_hw_ptr) {
 		tp = *(srng->u.src_ring.tp_addr);
@@ -810,6 +1256,11 @@ static inline void hal_srng_access_end(void *hal_soc, void *hal_ring)
 {
 	struct hal_srng *srng = (struct hal_srng *)hal_ring;
 
+	if (qdf_unlikely(!hal_ring)) {
+		qdf_print("Error: Invalid hal_ring\n");
+		return;
+	}
+
 	hal_srng_access_end_unlocked(hal_soc, hal_ring);
 	SRNG_UNLOCK(&(srng->lock));
 }
@@ -832,13 +1283,11 @@ static inline void hal_srng_access_end_reap(void *hal_soc, void *hal_ring)
 }
 
 /* TODO: Check if the following definitions is available in HW headers */
-#define WBM_IDLE_DESC_LIST 1
 #define WBM_IDLE_SCATTER_BUF_SIZE 32704
 #define NUM_MPDUS_PER_LINK_DESC 6
 #define NUM_MSDUS_PER_LINK_DESC 7
 #define REO_QUEUE_DESC_ALIGN 128
 
-#define LINK_DESC_SIZE (NUM_OF_DWORDS_RX_MSDU_LINK << 2)
 #define LINK_DESC_ALIGN 128
 
 #define ADDRESS_MATCH_TAG_VAL 0x5
@@ -854,28 +1303,6 @@ static inline void hal_srng_access_end_reap(void *hal_soc, void *hal_ring)
  */
 #define WBM_IDLE_SCATTER_BUF_NEXT_PTR_SIZE 8
 
-/**
- * hal_set_link_desc_addr - Setup link descriptor in a buffer_addr_info
- * HW structure
- *
- * @desc: Descriptor entry (from WBM_IDLE_LINK ring)
- * @cookie: SW cookie for the buffer/descriptor
- * @link_desc_paddr: Physical address of link descriptor entry
- *
- */
-static inline void hal_set_link_desc_addr(void *desc, uint32_t cookie,
-	qdf_dma_addr_t link_desc_paddr)
-{
-	uint32_t *buf_addr = (uint32_t *)desc;
-	HAL_DESC_SET_FIELD(buf_addr, BUFFER_ADDR_INFO_0, BUFFER_ADDR_31_0,
-		link_desc_paddr & 0xffffffff);
-	HAL_DESC_SET_FIELD(buf_addr, BUFFER_ADDR_INFO_1, BUFFER_ADDR_39_32,
-		(uint64_t)link_desc_paddr >> 32);
-	HAL_DESC_SET_FIELD(buf_addr, BUFFER_ADDR_INFO_1, RETURN_BUFFER_MANAGER,
-		WBM_IDLE_DESC_LIST);
-	HAL_DESC_SET_FIELD(buf_addr, BUFFER_ADDR_INFO_1, SW_BUFFER_COOKIE,
-		cookie);
-}
 
 /**
  * hal_idle_list_scatter_buf_size - Get the size of each scatter buffer
@@ -895,9 +1322,19 @@ static inline uint32_t hal_idle_list_scatter_buf_size(void *hal_soc)
  * @hal_soc: Opaque HAL SOC handle
  *
  */
-static inline uint32_t hal_get_link_desc_size(void *hal_soc)
+static inline uint32_t hal_get_link_desc_size(struct hal_soc *hal_soc)
 {
-	return LINK_DESC_SIZE;
+	if (!hal_soc || !hal_soc->ops) {
+		qdf_print("Error: Invalid ops\n");
+		QDF_BUG(0);
+		return -EINVAL;
+	}
+	if (!hal_soc->ops->hal_get_link_desc_size) {
+		qdf_print("Error: Invalid function pointer\n");
+		QDF_BUG(0);
+		return -EINVAL;
+	}
+	return hal_soc->ops->hal_get_link_desc_size();
 }
 
 /**
@@ -982,25 +1419,6 @@ static inline uint32_t hal_idle_list_num_scatter_bufs(void *hal_soc,
 	return num_scatter_bufs;
 }
 
-/**
- * hal_idle_scatter_buf_setup - Setup scattered idle list using the buffer list
- * provided
- *
- * @hal_soc: Opaque HAL SOC handle
- * @idle_scatter_bufs_base_paddr: Array of physical base addresses
- * @idle_scatter_bufs_base_vaddr: Array of virtual base addresses
- * @num_scatter_bufs: Number of scatter buffers in the above lists
- * @scatter_buf_size: Size of each scatter buffer
- * @last_buf_end_offset: Offset to the last entry
- * @num_entries: Total entries of all scatter bufs
- *
- */
-extern void hal_setup_link_idle_list(void *hal_soc,
-	qdf_dma_addr_t scatter_bufs_base_paddr[],
-	void *scatter_bufs_base_vaddr[], uint32_t num_scatter_bufs,
-	uint32_t scatter_buf_size, uint32_t last_buf_end_offset,
-	uint32_t num_entries);
-
 /* REO parameters to be passed to hal_reo_setup */
 struct hal_reo_params {
 	/** rx hash steering enabled or disabled */
@@ -1015,14 +1433,6 @@ struct hal_reo_params {
 	uint8_t padding[3];
 };
 
-/**
- * hal_reo_setup - Initialize HW REO block
- *
- * @hal_soc: Opaque HAL SOC handle
- * @reo_params: parameters needed by HAL for REO config
- */
-extern void hal_reo_setup(void *hal_soc,
-	 struct hal_reo_params *reo_params);
 
 enum hal_pn_type {
 	HAL_PN_NONE,
@@ -1032,30 +1442,6 @@ enum hal_pn_type {
 };
 
 #define HAL_RX_MAX_BA_WINDOW 256
-/**
- * hal_get_reo_qdesc_size - Get size of reo queue descriptor
- *
- * @hal_soc: Opaque HAL SOC handle
- * @ba_window_size: BlockAck window size
- *
- */
-static inline uint32_t hal_get_reo_qdesc_size(void *hal_soc,
-	uint32_t ba_window_size)
-{
-	if (ba_window_size <= 1)
-		return sizeof(struct rx_reo_queue);
-
-	if (ba_window_size <= 105)
-		return sizeof(struct rx_reo_queue) +
-			sizeof(struct rx_reo_queue_ext);
-
-	if (ba_window_size <= 210)
-		return sizeof(struct rx_reo_queue) +
-			(2 * sizeof(struct rx_reo_queue_ext));
-
-	return sizeof(struct rx_reo_queue) +
-		(3 * sizeof(struct rx_reo_queue_ext));
-}
 
 /**
  * hal_get_reo_qdesc_align - Get start address alignment for reo
@@ -1131,6 +1517,23 @@ static inline qdf_dma_addr_t hal_srng_get_tp_addr(void *hal_soc, void *hal_ring)
 }
 
 /**
+ * hal_srng_get_num_entries - Get total entries in the HAL Srng
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring_hdl: Ring pointer (Source or Destination ring)
+ *
+ * Return: total number of entries in hal ring
+ */
+static inline
+uint32_t hal_srng_get_num_entries(void *hal_soc_hdl,
+				  void *hal_ring_hdl)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	return srng->num_entries;
+}
+
+/**
  * hal_get_srng_params - Retrieve SRNG parameters for a given ring from HAL
  *
  * @hal_soc: Opaque HAL SOC handle
@@ -1147,4 +1550,213 @@ extern void hal_get_srng_params(void *hal_soc, void *hal_ring,
  * @mem: pointer to structure to be updated with hal mem info
  */
 extern void hal_get_meminfo(void *hal_soc,struct hal_mem_info *mem );
+
+/**
+ * hal_get_target_type - Return target type
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ */
+uint32_t hal_get_target_type(struct hal_soc *hal);
+
+/**
+ * hal_get_ba_aging_timeout - Retrieve BA aging timeout
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @ac: Access category
+ * @value: timeout duration in millisec
+ */
+void hal_get_ba_aging_timeout(void *hal_soc, uint8_t ac,
+			      uint32_t *value);
+/**
+ * hal_set_aging_timeout - Set BA aging timeout
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @ac: Access category in millisec
+ * @value: timeout duration value
+ */
+void hal_set_ba_aging_timeout(void *hal_soc, uint8_t ac,
+			      uint32_t value);
+/**
+ * hal_srng_dst_hw_init - Private function to initialize SRNG
+ * destination ring HW
+ * @hal_soc: HAL SOC handle
+ * @srng: SRNG ring pointer
+ */
+static inline void hal_srng_dst_hw_init(struct hal_soc *hal,
+	struct hal_srng *srng)
+{
+	hal->ops->hal_srng_dst_hw_init(hal, srng);
+}
+
+/**
+ * hal_srng_src_hw_init - Private function to initialize SRNG
+ * source ring HW
+ * @hal_soc: HAL SOC handle
+ * @srng: SRNG ring pointer
+ */
+static inline void hal_srng_src_hw_init(struct hal_soc *hal,
+	struct hal_srng *srng)
+{
+	hal->ops->hal_srng_src_hw_init(hal, srng);
+}
+
+/**
+ * hal_get_hw_hptp()  - Get HW head and tail pointer value for any ring
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring: Source ring pointer
+ * @headp: Head Pointer
+ * @tailp: Tail Pointer
+ * @ring_type: Ring
+ *
+ * Return: Update tail pointer and head pointer in arguments.
+ */
+static inline void hal_get_hw_hptp(struct hal_soc *hal, void *hal_ring,
+				   uint32_t *headp, uint32_t *tailp,
+				   uint8_t ring_type)
+{
+	hal->ops->hal_get_hw_hptp(hal, hal_ring, headp, tailp, ring_type);
+}
+
+/**
+ * hal_reo_setup - Initialize HW REO block
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @reo_params: parameters needed by HAL for REO config
+ */
+static inline void hal_reo_setup(void *halsoc,
+	 void *reoparams)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)halsoc;
+
+	hal_soc->ops->hal_reo_setup(halsoc, reoparams);
+}
+
+/**
+ * hal_setup_link_idle_list - Setup scattered idle list using the
+ * buffer list provided
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @scatter_bufs_base_paddr: Array of physical base addresses
+ * @scatter_bufs_base_vaddr: Array of virtual base addresses
+ * @num_scatter_bufs: Number of scatter buffers in the above lists
+ * @scatter_buf_size: Size of each scatter buffer
+ * @last_buf_end_offset: Offset to the last entry
+ * @num_entries: Total entries of all scatter bufs
+ *
+ */
+static inline void hal_setup_link_idle_list(void *halsoc,
+	qdf_dma_addr_t scatter_bufs_base_paddr[],
+	void *scatter_bufs_base_vaddr[], uint32_t num_scatter_bufs,
+	uint32_t scatter_buf_size, uint32_t last_buf_end_offset,
+	uint32_t num_entries)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)halsoc;
+
+	hal_soc->ops->hal_setup_link_idle_list(halsoc, scatter_bufs_base_paddr,
+			scatter_bufs_base_vaddr, num_scatter_bufs,
+			scatter_buf_size, last_buf_end_offset,
+			num_entries);
+
+}
+
+/**
+ * hal_srng_dump_ring_desc() - Dump ring descriptor info
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring: Source ring pointer
+ * @ring_desc: Opaque ring descriptor handle
+ */
+static inline void hal_srng_dump_ring_desc(struct hal_soc *hal, void *hal_ring,
+					   void *ring_desc)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+
+	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO_HIGH,
+			   ring_desc, (srng->entry_size << 2));
+}
+
+/**
+ * hal_srng_dump_ring() - Dump last 128 descs of the ring
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @hal_ring: Source ring pointer
+ */
+static inline void hal_srng_dump_ring(struct hal_soc *hal, void *hal_ring)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring;
+	uint32_t *desc;
+	uint32_t tp, i;
+
+	tp = srng->u.dst_ring.tp;
+
+	for (i = 0; i < 128; i++) {
+		if (!tp)
+			tp = srng->ring_size;
+
+		desc = &srng->ring_base_vaddr[tp - srng->entry_size];
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_DP,
+				   QDF_TRACE_LEVEL_DEBUG,
+				   desc, (srng->entry_size << 2));
+
+		tp -= srng->entry_size;
+	}
+}
+
+/**
+ * hal_srng_set_event() - Set hal_srng event
+ * @srng: SRNG ring pointer
+ * @event: SRNG ring event
+ *
+ * Return: None
+ */
+static inline void hal_srng_set_event(struct hal_srng *srng, int event)
+{
+	qdf_atomic_set_bit(event, &srng->srng_event);
+}
+
+/**
+ * hal_srng_clear_event() - Clear hal_srng event
+ * @srng: SRNG ring pointer
+ * @event: SRNG ring event
+ *
+ * Return: None
+ */
+static inline void hal_srng_clear_event(struct hal_srng *srng, int event)
+{
+	qdf_atomic_clear_bit(event, &srng->srng_event);
+}
+
+/**
+ * hal_srng_get_clear_event() - Clear srng event and return old value
+ * @srng: SRNG ring pointer
+ * @event: SRNG ring event
+ *
+ * Return: Return old event value
+ */
+static inline int hal_srng_get_clear_event(struct hal_srng *srng, int event)
+{
+	return qdf_atomic_test_and_clear_bit(event, &srng->srng_event);
+}
+
+/**
+ * hal_srng_set_flush_last_ts() - Record last flush time stamp
+ * @srng: SRNG ring pointer
+ *
+ * Return: None
+ */
+static inline void hal_srng_set_flush_last_ts(struct hal_srng *srng)
+{
+	srng->last_flush_ts = qdf_get_log_timestamp();
+}
+
+/**
+ * hal_srng_inc_flush_cnt() - Increment flush counter
+ * @srng: Source ring pointer
+ *
+ * Return: None
+ */
+static inline void hal_srng_inc_flush_cnt(struct hal_srng *srng)
+{
+	srng->flush_count++;
+}
 #endif /* _HAL_APIH_ */

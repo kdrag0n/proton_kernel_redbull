@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -17,13 +17,13 @@
  */
 
 #include <qdf_status.h>
-#include <wmi_unified_api.h>
 #include <target_if_direct_buf_rx_api.h>
 #include <wlan_objmgr_cmn.h>
 #include <wlan_objmgr_global_obj.h>
 #include <wlan_objmgr_psoc_obj.h>
 #include <wlan_objmgr_cmn.h>
 #include "target_if_direct_buf_rx_main.h"
+#include <qdf_module.h>
 
 QDF_STATUS direct_buf_rx_init(void)
 {
@@ -142,7 +142,7 @@ QDF_STATUS direct_buf_rx_target_attach(struct wlan_objmgr_psoc *psoc,
 {
 	struct direct_buf_rx_psoc_obj *dbr_psoc_obj;
 
-	if (hal_soc == NULL || osdev == NULL) {
+	if (!hal_soc || !osdev) {
 		direct_buf_rx_err("hal soc or osdev is null");
 		return QDF_STATUS_E_INVAL;
 	}
@@ -152,7 +152,7 @@ QDF_STATUS direct_buf_rx_target_attach(struct wlan_objmgr_psoc *psoc,
 
 	direct_buf_rx_info("Dbr psoc obj %pK", dbr_psoc_obj);
 
-	if (dbr_psoc_obj == NULL) {
+	if (!dbr_psoc_obj) {
 		direct_buf_rx_err("dir buf rx psoc obj is null");
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -167,9 +167,15 @@ void target_if_direct_buf_rx_register_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 	tx_ops->dbr_tx_ops.direct_buf_rx_module_register =
 				target_if_direct_buf_rx_module_register;
+	tx_ops->dbr_tx_ops.direct_buf_rx_module_unregister =
+				target_if_direct_buf_rx_module_unregister;
 	tx_ops->dbr_tx_ops.direct_buf_rx_register_events =
 				target_if_direct_buf_rx_register_events;
 	tx_ops->dbr_tx_ops.direct_buf_rx_unregister_events =
 				target_if_direct_buf_rx_unregister_events;
+	tx_ops->dbr_tx_ops.direct_buf_rx_print_ring_stat =
+				target_if_direct_buf_rx_print_ring_stat;
+	tx_ops->dbr_tx_ops.direct_buf_rx_get_ring_params =
+				target_if_direct_buf_rx_get_ring_params;
 }
 qdf_export_symbol(target_if_direct_buf_rx_register_tx_ops);

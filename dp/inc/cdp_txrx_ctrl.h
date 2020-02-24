@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -26,6 +26,7 @@
 #define _CDP_TXRX_CTRL_H_
 #include "cdp_txrx_handle.h"
 #include "cdp_txrx_cmn_struct.h"
+#include "cdp_txrx_cmn.h"
 #include "cdp_txrx_ops.h"
 
 static inline int cdp_is_target_ar900b
@@ -100,14 +101,14 @@ cdp_set_filter_neighbour_peers(ol_txrx_soc_handle soc,
  *  which needs to be filtered
  *
  * @param soc - the pointer to soc object
- * @param pdev - the pointer to physical device object
+ * @param vdev - the pointer to vdev
  * @param cmd - add/del entry into peer table
  * @param macaddr - the address of neighbour peer
  * @return - int
  */
 static inline int
 cdp_update_filter_neighbour_peers(ol_txrx_soc_handle soc,
-	struct cdp_pdev *pdev, uint32_t cmd, uint8_t *macaddr)
+	struct cdp_vdev *vdev, uint32_t cmd, uint8_t *macaddr)
 {
 	if (!soc || !soc->ops) {
 		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
@@ -121,7 +122,7 @@ cdp_update_filter_neighbour_peers(ol_txrx_soc_handle soc,
 		return 0;
 
 	return soc->ops->ctrl_ops->txrx_update_filter_neighbour_peers
-			(pdev, cmd, macaddr);
+			(vdev, cmd, macaddr);
 }
 
 /**
@@ -346,128 +347,6 @@ cdp_peer_authorize(ol_txrx_soc_handle soc,
 			(peer, authorize);
 }
 
-static inline bool
-cdp_set_inact_params(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
-			u_int16_t inact_check_interval,
-			u_int16_t inact_normal,
-			u_int16_t inact_overload)
-{
-	if (!soc || !pdev || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
-				"%s: Invalid Instance:", __func__);
-		QDF_BUG(0);
-		return false;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_set_inact_params)
-		return false;
-
-	return soc->ops->ctrl_ops->txrx_set_inact_params
-			(pdev, inact_check_interval, inact_normal,
-			inact_overload);
-}
-
-static inline bool
-cdp_start_inact_timer(ol_txrx_soc_handle soc,
-	struct cdp_pdev *pdev,
-	bool enable)
-{
-	if (!soc || !pdev || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
-				"%s: Invalid Instance:", __func__);
-		QDF_BUG(0);
-		return false;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_start_inact_timer)
-		return false;
-
-	return soc->ops->ctrl_ops->txrx_start_inact_timer
-			(pdev, enable);
-}
-
-/**
- * @brief Set the overload status of the radio
- * @details
- *   Set the overload status of the radio, updating the inactivity
- *   threshold and inactivity count for each node.
- *
- * @param pdev - the data physical device object
- * @param overload - whether the radio is overloaded or not
- */
-static inline void
-cdp_set_overload(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
-	bool overload)
-{
-	if (!soc || !pdev || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
-				"%s: Invalid Instance:", __func__);
-		QDF_BUG(0);
-		return;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_set_overload)
-		return;
-
-	soc->ops->ctrl_ops->txrx_set_overload(pdev, overload);
-}
-
-/**
- * @brief Check the inactivity status of the peer/node
- *
- * @param peer - pointer to the node's object
- * @return true if the node is inactive; otherwise return false
- */
-static inline bool
-cdp_peer_is_inact(ol_txrx_soc_handle soc, void *peer)
-{
-	if (!soc || !peer || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
-				"%s: Invalid Instance:", __func__);
-		QDF_BUG(0);
-		return false;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_peer_is_inact)
-		return false;
-
-	return soc->ops->ctrl_ops->txrx_peer_is_inact(peer);
-}
-
-/**
- * @brief Mark inactivity status of the peer/node
- * @details
- *   If it becomes active, reset inactivity count to reload value;
- *   if the inactivity status changed, notify umac band steering.
- *
- * @param peer - pointer to the node's object
- * @param inactive - whether the node is inactive or not
- */
-static inline void
-cdp_mark_peer_inact(ol_txrx_soc_handle soc,
-	void *peer,
-	bool inactive)
-{
-	if (!soc || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
-				"%s: Invalid Instance:", __func__);
-		QDF_BUG(0);
-		return;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_mark_peer_inact)
-		return;
-
-	soc->ops->ctrl_ops->txrx_mark_peer_inact
-			(peer, inactive);
-}
-
-
 /* Should be ol_txrx_ctrl_api.h */
 static inline void cdp_set_mesh_mode
 (ol_txrx_soc_handle soc, struct cdp_vdev *vdev, u_int32_t val)
@@ -530,6 +409,27 @@ static inline void cdp_tx_flush_buffers
 	soc->ops->ctrl_ops->tx_flush_buffers(vdev);
 }
 
+static inline uint32_t cdp_txrx_get_vdev_param(ol_txrx_soc_handle soc,
+					       struct cdp_vdev *vdev,
+					       enum cdp_vdev_param_type type)
+{
+	if (!soc || !soc->ops) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
+		QDF_BUG(0);
+		return -1;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->txrx_get_vdev_param) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: callback not registered:", __func__);
+		return -1;
+	}
+
+	return soc->ops->ctrl_ops->txrx_get_vdev_param(vdev, type);
+}
+
 static inline void cdp_txrx_set_vdev_param(ol_txrx_soc_handle soc,
 		struct cdp_vdev *vdev, enum cdp_vdev_param_type type,
 		uint32_t val)
@@ -567,23 +467,97 @@ cdp_peer_set_nawds(ol_txrx_soc_handle soc,
 			(peer, value);
 }
 
-static inline void cdp_txrx_set_pdev_param(ol_txrx_soc_handle soc,
-		struct cdp_pdev *pdev, enum cdp_pdev_param_type type,
-		uint8_t val)
+/**
+ * cdp_txrx_set_pdev_param() - set pdev parameter
+ * @soc: opaque soc handle
+ * @pdev: data path pdev handle
+ * @type: param type
+ * @val: value of pdev_tx_capture
+ *
+ * Return: status: 0 - Success, non-zero: Failure
+ */
+static inline QDF_STATUS cdp_txrx_set_pdev_param(ol_txrx_soc_handle soc,
+						 struct cdp_pdev *pdev,
+						 enum cdp_pdev_param_type type,
+						 uint8_t val)
 {
 	if (!soc || !soc->ops) {
 		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
 				"%s: Invalid Instance:", __func__);
 		QDF_BUG(0);
-		return;
+		return QDF_STATUS_SUCCESS;
 	}
 
 	if (!soc->ops->ctrl_ops ||
 	    !soc->ops->ctrl_ops->txrx_set_pdev_param)
-		return;
+		return QDF_STATUS_SUCCESS;
 
-	soc->ops->ctrl_ops->txrx_set_pdev_param
+	return soc->ops->ctrl_ops->txrx_set_pdev_param
 			(pdev, type, val);
+}
+
+/**
+ * cdp_enable_peer_based_pktlog()- Set flag in peer structure
+ *
+ * @soc: pointer to the soc
+ * @pdev: the data physical device object
+ * @enable: enable or disable peer based filter based pktlog
+ * @peer_macaddr: Mac address of peer which needs to be
+ * filtered
+ *
+ * This function will set flag in peer structure if peer based filtering
+ * is enabled for pktlog
+ *
+ * Return: int
+ */
+static inline int
+cdp_enable_peer_based_pktlog(ol_txrx_soc_handle soc,
+			     struct cdp_pdev *pdev, char *peer_macaddr,
+			     uint8_t enable)
+{
+	if (!soc || !soc->ops) {
+		QDF_TRACE_ERROR(QDF_MODULE_ID_DP,
+				"%s invalid instance", __func__);
+		QDF_BUG(0);
+		return 0;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->enable_peer_based_pktlog)
+		return 0;
+
+	return soc->ops->ctrl_ops->enable_peer_based_pktlog
+			(pdev, peer_macaddr, enable);
+}
+
+/**
+ * cdp_calculate_delay_stats()- get rx delay stats
+ *
+ * @soc: pointer to the soc
+ * @vdev: vdev handle
+ * @nbuf: nbuf which is passed
+ *
+ * This function will calculate rx delay statistics.
+ */
+static inline void
+cdp_calculate_delay_stats(ol_txrx_soc_handle soc, struct cdp_vdev *vdev,
+			  qdf_nbuf_t nbuf)
+{
+	if (!soc || !soc->ops) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
+		QDF_BUG(0);
+		return;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->calculate_delay_stats) {
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: callback not registered:", __func__);
+		return;
+	}
+
+	return soc->ops->ctrl_ops->calculate_delay_stats(vdev, nbuf);
 }
 
 /**
@@ -729,6 +703,67 @@ cdp_get_pldev(ol_txrx_soc_handle soc,
 	return soc->ops->ctrl_ops->txrx_get_pldev(pdev);
 }
 
+#ifdef WLAN_SUPPORT_RX_PROTOCOL_TYPE_TAG
+/**
+ * cdp_update_pdev_rx_protocol_tag() - wrapper function to set the protocol
+ *                                    tag in CDP layer from cfg layer
+ * @soc: SOC TXRX handle
+ * @pdev: CDP pdev pointer
+ * @protocol_mask: Bitmap for protocol for which tagging is enabled
+ * @protocol_type: Protocol type for which the tag should be update
+ * @tag: Actual tag value for the given prototype
+ * Return: Returns QDF_STATUS_SUCCESS/FAILURE
+ */
+static inline QDF_STATUS
+cdp_update_pdev_rx_protocol_tag(ol_txrx_soc_handle soc,
+				struct cdp_pdev *pdev, uint32_t protocol_mask,
+				uint16_t protocol_type, uint16_t tag)
+{
+	if (!soc || !soc->ops) {
+		dp_err("Invalid SOC instance");
+		QDF_BUG(0);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->txrx_update_pdev_rx_protocol_tag)
+		return QDF_STATUS_E_FAILURE;
+
+	return soc->ops->ctrl_ops->txrx_update_pdev_rx_protocol_tag
+			(pdev, protocol_mask, protocol_type, tag);
+}
+
+#ifdef WLAN_SUPPORT_RX_TAG_STATISTICS
+/**
+ * cdp_dump_pdev_rx_protocol_tag_stats() - wrapper function to dump the protocol
+				tag statistics for given or all protocols
+ * @soc: SOC TXRX handle
+ * @pdev: CDP pdev pointer
+ * @protocol_type: Protocol type for which the tag should be update
+ * Return: Returns QDF_STATUS_SUCCESS/FAILURE
+ */
+static inline QDF_STATUS
+cdp_dump_pdev_rx_protocol_tag_stats(ol_txrx_soc_handle soc,
+				    struct cdp_pdev *pdev,
+				    uint16_t protocol_type)
+{
+	if (!soc || !soc->ops) {
+		dp_err("Invalid SOC instance");
+		QDF_BUG(0);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->txrx_dump_pdev_rx_protocol_tag_stats)
+		return QDF_STATUS_E_FAILURE;
+
+	soc->ops->ctrl_ops->txrx_dump_pdev_rx_protocol_tag_stats(pdev,
+						protocol_type);
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* WLAN_SUPPORT_RX_TAG_STATISTICS */
+#endif /* WLAN_SUPPORT_RX_PROTOCOL_TYPE_TAG */
+
 #ifdef ATH_SUPPORT_NAC_RSSI
 /**
   * cdp_vdev_config_for_nac_rssi(): To invoke dp callback for nac rssi config
@@ -758,6 +793,35 @@ static inline QDF_STATUS cdp_vdev_config_for_nac_rssi(ol_txrx_soc_handle soc,
 
 	return soc->ops->ctrl_ops->txrx_vdev_config_for_nac_rssi(vdev,
 			nac_cmd, bssid, client_macaddr, chan_num);
+}
+
+/*
+ * cdp_vdev_get_neighbour_rssi(): To invoke dp callback to get rssi value of nac
+ * @soc: soc pointer
+ * @vdev: vdev pointer
+ * @macaddr: Non-Associated client MAC
+ * @rssi: rssi
+ *
+ * Return: QDF_STATUS
+ */
+static inline QDF_STATUS cdp_vdev_get_neighbour_rssi(ol_txrx_soc_handle soc,
+						     struct cdp_vdev *vdev,
+						     char *macaddr,
+						     uint8_t *rssi)
+{
+	if (!soc || !soc->ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		QDF_BUG(0);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->txrx_vdev_get_neighbour_rssi)
+		return QDF_STATUS_E_FAILURE;
+
+	return soc->ops->ctrl_ops->txrx_vdev_get_neighbour_rssi(vdev, macaddr,
+								rssi);
 }
 #endif
 #endif

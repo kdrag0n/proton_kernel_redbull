@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -180,7 +180,7 @@ cdp_peer_remove_for_vdev_no_lock(ol_txrx_soc_handle soc,
  */
 static inline void
 *cdp_peer_get_ref_by_addr(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
-			  u8 *peer_addr, u8 *peer_id,
+			  uint8_t *peer_addr, uint8_t *peer_id,
 			  enum peer_debug_id_type debug_id)
 {
 	if (!soc || !soc->ops || !soc->ops->peer_ops) {
@@ -606,7 +606,7 @@ cdp_peer_is_vdev_restore_last_peer(ol_txrx_soc_handle soc, void *peer)
  */
 static inline void
 cdp_peer_update_last_real_peer(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
-		void *peer, uint8_t *peer_id, bool restore_last_peer)
+		void *vdev, uint8_t *peer_id, bool restore_last_peer)
 {
 	if (!soc || !soc->ops || !soc->ops->peer_ops) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
@@ -615,7 +615,7 @@ cdp_peer_update_last_real_peer(ol_txrx_soc_handle soc, struct cdp_pdev *pdev,
 	}
 
 	if (soc->ops->peer_ops->update_last_real_peer)
-		return soc->ops->peer_ops->update_last_real_peer(pdev, peer,
+		return soc->ops->peer_ops->update_last_real_peer(pdev, vdev,
 			peer_id, restore_last_peer);
 
 	return;
@@ -645,5 +645,32 @@ static inline void cdp_peer_detach_force_delete(ol_txrx_soc_handle soc,
 		return soc->ops->peer_ops->peer_detach_force_delete(peer);
 
 	return;
+}
+
+/**
+ * is_cdp_peer_detach_force_delete_supported() - To check if force delete
+ *						 operation is supported
+ * @soc: pointer to SOC handle
+ *
+ * Some of the platforms support force delete operation and some of them
+ * don't. This API returns true if API which handles force delete operation
+ * is registered and false otherwise.
+ *
+ * Return: true if API which handles force delete operation is registered
+ *	   false in all other cases
+ */
+static inline bool
+is_cdp_peer_detach_force_delete_supported(ol_txrx_soc_handle soc)
+{
+	if (!soc || !soc->ops || !soc->ops->peer_ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		return false;
+	}
+
+	if (soc->ops->peer_ops->peer_detach_force_delete)
+		return true;
+
+	return false;
 }
 #endif /* _CDP_TXRX_PEER_H_ */

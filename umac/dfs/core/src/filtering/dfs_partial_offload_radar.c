@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  * Copyright (c) 2011, Atheros Communications Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -22,6 +22,7 @@
 
 #include "../dfs.h"
 #include "wlan_dfs_mlme_api.h"
+#include <wlan_objmgr_vdev_obj.h>
 #include "wlan_dfs_utils_api.h"
 #include "wlan_dfs_lmac_api.h"
 #include "../dfs_internal.h"
@@ -253,7 +254,6 @@ static struct dfs_pulse dfs_korea_radars[] = {
 };
 
 #define RSSI_THERSH_AR900B    15
-#define RSSI_THERSH_ADRASTEA  18
 
 /**
  * dfs_assign_fcc_pulse_table() - Assign FCC pulse table
@@ -284,37 +284,6 @@ static inline void dfs_assign_fcc_pulse_table(
 	}
 }
 
-#ifdef DFS_OVERRIDE_RF_THRESHOLD
-static void dfs_set_adrastea_rf_thrshold(
-		struct wlan_objmgr_psoc *psoc,
-		int dfsdomain,
-		uint32_t target_type,
-		struct wlan_dfs_radar_tab_info *rinfo)
-{
-	int i;
-	struct wlan_lmac_if_target_tx_ops *tx_ops;
-
-	tx_ops = &psoc->soc_cb.tx_ops.target_tx_ops;
-
-	if (tx_ops->tgt_is_tgt_type_adrastea(target_type) &&
-	    dfsdomain == DFS_ETSI_DOMAIN) {
-		for (i = 0; i < rinfo->numradars; i++) {
-			rinfo->dfs_radars[i].rp_rssithresh =
-				DFS_MIN(rinfo->dfs_radars[i].rp_rssithresh,
-					RSSI_THERSH_ADRASTEA);
-		}
-	}
-}
-#else
-static inline void dfs_set_adrastea_rf_thrshold(
-		struct wlan_objmgr_psoc *psoc,
-		int dfsdomain,
-		uint32_t target_type,
-		struct wlan_dfs_radar_tab_info *rinfo)
-{
-}
-#endif
-
 void dfs_get_po_radars(struct wlan_dfs *dfs)
 {
 	struct wlan_dfs_radar_tab_info rinfo;
@@ -323,8 +292,6 @@ void dfs_get_po_radars(struct wlan_dfs *dfs)
 	int i;
 	uint32_t target_type;
 	int dfsdomain = DFS_FCC_DOMAIN;
-	uint16_t ch_freq;
-	uint16_t regdmn;
 
 	/* Fetch current radar patterns from the lmac */
 	qdf_mem_zero(&rinfo, sizeof(rinfo));
@@ -368,14 +335,7 @@ void dfs_get_po_radars(struct wlan_dfs *dfs)
 		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "ETSI domain");
 		rinfo.dfsdomain = DFS_ETSI_DOMAIN;
 
-		ch_freq = dfs->dfs_curchan->dfs_ch_freq;
-		regdmn = utils_dfs_get_cur_rd(dfs->dfs_pdev_obj);
-
-		if (((regdmn == ETSI11_WORLD_REGDMN_PAIR_ID) ||
-		    (regdmn == ETSI12_WORLD_REGDMN_PAIR_ID) ||
-		    (regdmn == ETSI13_WORLD_REGDMN_PAIR_ID) ||
-		    (regdmn == ETSI14_WORLD_REGDMN_PAIR_ID)) &&
-		    DFS_CURCHAN_IS_58GHz(ch_freq)) {
+		if (dfs_is_en302_502_applicable(dfs)) {
 			rinfo.dfs_radars = dfs_etsi_radars;
 			rinfo.numradars = QDF_ARRAY_SIZE(dfs_etsi_radars);
 		} else {
@@ -458,9 +418,9 @@ void dfs_get_po_radars(struct wlan_dfs *dfs)
 			rinfo.dfs_radars[i].rp_rssithresh = RSSI_THERSH_AR900B;
 	}
 
-	dfs_set_adrastea_rf_thrshold(psoc, dfsdomain, target_type, &rinfo);
-
+	WLAN_DFS_DATA_STRUCT_LOCK(dfs);
 	dfs_init_radar_filters(dfs, &rinfo);
+	WLAN_DFS_DATA_STRUCT_UNLOCK(dfs);
 }
 
 #if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
