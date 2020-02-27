@@ -288,6 +288,26 @@ struct dsi_panel_vendor_info {
 	u8 *extinfo;
 };
 
+struct dsi_panel_te2_edge {
+	u16 rising;
+	u16 falling;
+};
+
+enum dsi_panel_te2_type {
+	TE2_EDGE_90HZ,
+	TE2_EDGE_60HZ,
+	TE2_EDGE_LP_HIGH,
+	TE2_EDGE_LP_LOW,
+	TE2_EDGE_MAX
+};
+
+struct dsi_panel_te2_config {
+	struct dsi_panel_te2_edge te2_edge[TE2_EDGE_MAX];
+	enum dsi_panel_te2_type current_type;
+	bool te2_ready;
+	u32 lp_threshold;
+};
+
 struct dsi_panel {
 	const char *name;
 	const char *type;
@@ -316,6 +336,7 @@ struct dsi_panel {
 	struct dsi_regulator_info power_info;
 	struct dsi_backlight_config bl_config;
 	struct dsi_panel_reset_config reset_config;
+	struct dsi_panel_te2_config te2_config;
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
@@ -365,6 +386,7 @@ struct dsi_panel {
  * @idle: called when updates haven't been received for a while (idle)
  * @wakeup: called when coming out of idle state
  * @pre_lp1: called before power mode is going to be lp1
+ * @update_te2: called when te2 configuration needs to be updated
  *
  * Note: none of these functions above should be called while holding panel_lock
  *
@@ -381,6 +403,7 @@ struct dsi_panel_funcs {
 	int (*idle)(struct dsi_panel *);
 	int (*wakeup)(struct dsi_panel *);
 	int (*pre_lp1)(struct dsi_panel *);
+	int (*update_te2)(struct dsi_panel *panel);
 	int (*update_hbm)(struct dsi_panel *);
 	int (*update_irc)(struct dsi_panel *, bool);
 	int (*send_nolp)(struct dsi_panel *);

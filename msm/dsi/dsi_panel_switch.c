@@ -53,6 +53,7 @@ struct panel_switch_funcs {
 	void (*perform_switch)(struct panel_switch_data *pdata,
 			       const struct dsi_display_mode *mode);
 	int (*post_enable)(struct panel_switch_data *pdata);
+	int (*support_update_te2)(struct dsi_panel *panel);
 	int (*support_update_hbm)(struct dsi_panel *);
 	int (*send_nolp_cmds)(struct dsi_panel *panel);
 	ssize_t (*support_cali_gamma_store)(struct dsi_panel *panel,
@@ -502,6 +503,116 @@ static int panel_update_hbm(struct dsi_panel *panel)
 	return pdata->funcs->support_update_hbm(panel);
 }
 
+static int s6e3hc2_te2_set_edge_info(struct dsi_panel *panel)
+{
+	struct dsi_panel_te2_config *te2;
+	enum dsi_panel_te2_type current_type;
+	u8 payload[5] = { 0xB9, 0x00, 0x77, 0xBA, 0xBC };
+	u8 rising_low_byte, rising_high_byte;
+	u8 falling_low_byte, falling_high_byte;
+
+	if (unlikely(!panel))
+		return -EINVAL;
+
+	te2 = &panel->te2_config;
+	current_type = te2->current_type;
+
+	rising_low_byte = te2->te2_edge[current_type].rising & 0xff;
+	rising_high_byte = (te2->te2_edge[current_type].rising >> 8) & 0xff;
+	falling_low_byte = te2->te2_edge[current_type].falling & 0xff;
+	falling_high_byte = (te2->te2_edge[current_type].falling >> 8) & 0xff;
+
+	payload[2] = (rising_high_byte << 4) | falling_high_byte;
+	payload[3] = rising_low_byte;
+	payload[4] = falling_low_byte;
+
+	return panel_dsi_write_buf(panel,
+				&payload, sizeof(payload), true);
+}
+
+static int s6e3hc2_te2_update(struct dsi_panel *panel)
+{
+	struct mipi_dsi_device *dsi = &panel->mipi_device;
+	const u8 global_para[] = { 0xB0, 0x2C, 0xF2 };
+	const u8 tout_enable[] = { 0xF2, 0x01 };
+
+	if (DSI_WRITE_CMD_BUF(dsi, global_para))
+		goto error;
+
+	if (DSI_WRITE_CMD_BUF(dsi, tout_enable))
+		goto error;
+
+	if (s6e3hc2_te2_set_edge_info(panel))
+		goto error;
+
+	return 0;
+
+error:
+	pr_err("TE2: Failed to te2 setting update\n");
+	return -EFAULT;
+}
+
+/*
+ * s6e3hc2_te2_update_reg_locked() write the TE2 register data
+ * into panel. Control TE2 signal timing.
+ */
+static int s6e3hc2_te2_update_reg_locked(struct dsi_panel *panel)
+{
+	struct mipi_dsi_device *dsi;
+	int rc;
+
+	if (unlikely(!panel || !panel->private_data))
+		return -EINVAL;
+
+	dsi = &panel->mipi_device;
+
+	if (DSI_WRITE_CMD_BUF(dsi, unlock_cmd))
+		return -EFAULT;
+
+	rc = s6e3hc2_te2_update(panel);
+	if (rc < 0)
+		pr_warn("TE2: setting update fail\n");
+
+	if (DSI_WRITE_CMD_BUF(dsi, lock_cmd))
+		return -EFAULT;
+
+	return rc;
+}
+
+static int panel_update_te2(struct dsi_panel *panel)
+{
+	struct panel_switch_data *pdata = panel->private_data;
+
+	if (unlikely(!panel || !pdata || !pdata->funcs))
+		return -EINVAL;
+
+	if (!pdata->funcs->support_update_te2)
+		return -EOPNOTSUPP;
+
+	return pdata->funcs->support_update_te2(panel);
+}
+
+static int s6e3hc2_te2_normal_mode_update(struct dsi_panel *panel,
+					bool reg_locked)
+{
+	const struct dsi_display_mode *mode;
+
+	if (unlikely(!panel || !panel->te2_config.te2_ready))
+		return -EINVAL;
+
+	mode = panel->cur_mode;
+	panel->te2_config.current_type =
+		((mode->timing.refresh_rate == S6E3HC2_DEFAULT_FPS)
+			? TE2_EDGE_60HZ : TE2_EDGE_90HZ);
+
+	if (reg_locked == true)
+		s6e3hc2_te2_update_reg_locked(panel);
+	else
+		s6e3hc2_te2_update(panel);
+
+	return 0;
+}
+
 static int panel_send_nolp(struct dsi_panel *panel)
 {
 	struct panel_switch_data *pdata = panel->private_data;
@@ -653,6 +764,7 @@ static const struct dsi_panel_funcs panel_funcs = {
 	.wakeup      = panel_wakeup,
 	.post_enable = panel_post_enable,
 	.pre_lp1     = panel_flush_switch_queue,
+	.update_te2  = panel_update_te2,
 	.update_hbm  = panel_update_hbm,
 	.send_nolp   = panel_send_nolp,
 };
@@ -1609,6 +1721,8 @@ static void s6e3hc2_perform_switch(struct panel_switch_data *pdata,
 	s6e3hc2_switch_mode_update(panel, mode, false);
 	s6e3hc2_gamma_update(pdata, mode);
 
+	s6e3hc2_te2_normal_mode_update(panel, false);
+
 	DSI_WRITE_CMD_BUF(dsi, lock_cmd);
 }
 
@@ -1635,6 +1749,8 @@ int s6e3hc2_send_nolp_cmds(struct dsi_panel *panel)
 
 	s6e3hc2_gamma_update(pdata, cur_mode);
 
+	s6e3hc2_te2_normal_mode_update(panel, false);
+
 	cmd = &cur_mode->priv_info->cmd_sets[DSI_CMD_SET_POST_NOLP];
 	rc = dsi_panel_cmd_set_transfer(panel, cmd);
 	if (rc)
@@ -1660,6 +1776,7 @@ static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 {
 	struct gamma_switch_data *sdata;
 	const struct dsi_display_mode *mode;
+	struct dsi_panel *panel = pdata->panel;
 
 	if (unlikely(!pdata || !pdata->panel))
 		return -ENOENT;
@@ -1677,6 +1794,12 @@ static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 		pr_debug("Updated gamma for %dhz\n", mode->timing.refresh_rate);
 	}
 
+	if (!(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS)) {
+		mutex_lock(&panel->panel_lock);
+		s6e3hc2_te2_normal_mode_update(panel, true);
+		mutex_unlock(&panel->panel_lock);
+	}
+
 	return 0;
 }
 
@@ -1685,6 +1808,7 @@ const struct panel_switch_funcs s6e3hc2_switch_funcs = {
 	.destroy                  = s6e3hc2_switch_data_destroy,
 	.perform_switch           = s6e3hc2_perform_switch,
 	.post_enable              = s6e3hc2_post_enable,
+	.support_update_te2       = s6e3hc2_te2_update_reg_locked,
 	.support_update_hbm       = s6e3hc2_update_hbm,
 	.send_nolp_cmds           = s6e3hc2_send_nolp_cmds,
 	.support_cali_gamma_store = s6e3hc2_gamma_store,

@@ -3278,6 +3278,61 @@ error:
 	return rc;
 }
 
+static int dsi_panel_parse_te2_config(struct dsi_panel *panel)
+{
+	u8 i;
+	int rc;
+	u32 length, number_of_te2, val;
+	const char *data;
+	struct dsi_parser_utils *utils;
+	u32 arr_32[TE2_EDGE_MAX * 2] = {0};
+
+	if (unlikely(!panel))
+		return -EINVAL;
+
+	utils = &panel->utils;
+	data = utils->get_property(utils->data,
+			"google,mdss-dsi-te2-info", &length);
+	if (!data) {
+		DSI_INFO("[%s] dsi-te2-info not found\n", panel->name);
+		return -EINVAL;
+	}
+
+	number_of_te2 = length / sizeof(u32);
+
+	if (number_of_te2 != (TE2_EDGE_MAX * 2)) {
+		DSI_INFO("[%s] dsi-te2-info invalid parameters, number:%u\n",
+			panel->name, number_of_te2);
+		return -EINVAL;
+	}
+
+	rc = utils->read_u32_array(utils->data, "google,mdss-dsi-te2-info",
+					arr_32, number_of_te2);
+	if (rc) {
+		DSI_INFO("[%s] cannot read google,mdss-dsi-te2-info\n",
+			panel->name);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < TE2_EDGE_MAX; i++) {
+		panel->te2_config.te2_edge[i].rising = arr_32[i * 2];
+		panel->te2_config.te2_edge[i].falling = arr_32[i * 2 + 1];
+	}
+
+	rc = utils->read_u32(utils->data, "google,mdss-dsi-te2-lp-threshold",
+		&val);
+	if (rc) {
+		DSI_INFO("[%s] google,mdss-dsi-te2-lp-threshold unspecified\n",
+			 panel->name);
+		return -EINVAL;
+	}
+
+	panel->te2_config.lp_threshold = val;
+	panel->te2_config.te2_ready = true;
+
+	return 0;
+}
+
 static void dsi_panel_update_util(struct dsi_panel *panel,
 				  struct device_node *parser_node)
 {
@@ -3422,6 +3477,10 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	rc = dsi_panel_parse_esd_config(panel);
 	if (rc)
 		DSI_DEBUG("failed to parse esd config, rc=%d\n", rc);
+
+	rc = dsi_panel_parse_te2_config(panel);
+	if (rc)
+		DSI_DEBUG("failed to parse te2 config, rc=%d\n", rc);
 
 	panel->power_mode = SDE_MODE_DPMS_OFF;
 	drm_panel_init(&panel->drm_panel);

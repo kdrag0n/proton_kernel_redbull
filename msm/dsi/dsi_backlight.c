@@ -976,6 +976,29 @@ struct binned_lp_data {
 	struct binned_lp_node priv_pool[MAX_BINNED_BL_MODES];
 };
 
+static int dsi_panel_te2_lp_mode_update(struct dsi_panel *panel,
+				struct binned_lp_node *node)
+{
+	int rc;
+
+	if (unlikely(!panel->funcs || !panel->funcs->update_te2))
+		return -EINVAL;
+
+	if (unlikely(!panel->te2_config.te2_ready))
+		return -EINVAL;
+
+	if (node->bl_threshold > panel->te2_config.lp_threshold)
+		panel->te2_config.current_type = TE2_EDGE_LP_HIGH;
+	else
+		panel->te2_config.current_type = TE2_EDGE_LP_LOW;
+
+	rc = panel->funcs->update_te2(panel);
+	if (rc < 0)
+		pr_warn("TE2: LP '%s' mode failed, rc=%d\n", node->name, rc);
+
+	return rc;
+}
+
 static int dsi_panel_binned_bl_update(struct dsi_backlight_config *bl,
 				      u32 bl_lvl)
 {
@@ -1003,6 +1026,8 @@ static int dsi_panel_binned_bl_update(struct dsi_backlight_config *bl,
 			pr_debug("switching display lp mode: %s (%d)\n",
 				node->name, props->brightness);
 			dsi_panel_cmd_set_transfer(panel, &node->dsi_cmd);
+
+			dsi_panel_te2_lp_mode_update(panel, node);
 		} else {
 			/* ensure update after lpm */
 			bl->bl_actual = -1;
