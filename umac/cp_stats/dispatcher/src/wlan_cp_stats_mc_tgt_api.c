@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -542,8 +542,8 @@ complete:
 
 	tgt_mc_cp_stats_extract_peer_extd_stats(psoc, ev);
 	if (tgt_mc_cp_stats_is_last_event(ev, TYPE_PEER_STATS)) {
-		tgt_mc_cp_stats_prepare_raw_peer_rssi(psoc, &last_req);
 		ucfg_mc_cp_stats_reset_pending_req(psoc, TYPE_PEER_STATS);
+		tgt_mc_cp_stats_prepare_raw_peer_rssi(psoc, &last_req);
 	}
 }
 
@@ -847,9 +847,9 @@ static void tgt_mc_cp_stats_extract_station_stats(
 	 * reset type_map bit for station stats .
 	 */
 	if (tgt_mc_cp_stats_is_last_event(ev, TYPE_STATION_STATS)) {
+		ucfg_mc_cp_stats_reset_pending_req(psoc, TYPE_STATION_STATS);
 		tgt_mc_cp_stats_prepare_n_send_raw_station_stats(psoc,
 								 &last_req);
-		ucfg_mc_cp_stats_reset_pending_req(psoc, TYPE_STATION_STATS);
 	}
 }
 
