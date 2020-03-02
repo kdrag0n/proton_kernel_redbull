@@ -39,6 +39,8 @@
 #define DSI_WRITE_CMD_BUF(dsi, cmd) \
 	(IS_ERR_VALUE(mipi_dsi_dcs_write_buffer(dsi, cmd, ARRAY_SIZE(cmd))))
 
+#define CALI_GAMMA_HEADER_SIZE	3
+
 #define S6E3HC2_DEFAULT_FPS 60
 
 static const u8 unlock_cmd[] = { 0xF0, 0x5A, 0x5A };
@@ -53,6 +55,8 @@ struct panel_switch_funcs {
 	int (*post_enable)(struct panel_switch_data *pdata);
 	int (*support_update_hbm)(struct dsi_panel *);
 	int (*send_nolp_cmds)(struct dsi_panel *panel);
+	ssize_t (*support_cali_gamma_store)(struct dsi_panel *panel,
+				const char *buf, size_t count);
 };
 
 struct panel_switch_data {
@@ -733,11 +737,18 @@ const struct panel_switch_funcs panel_switch_default_funcs = {
 	.perform_switch = panel_switch_cmd_set_transfer,
 };
 
-struct s6e3hc2_switch_data {
-	struct panel_switch_data base;
+struct gamma_calibration_info {
+	u8 *data;
+	size_t len;
+};
 
-	bool gamma_ready;
+struct gamma_switch_data {
+	struct panel_switch_data base;
 	struct kthread_work gamma_work;
+	struct gamma_calibration_info cali_gamma;
+	u8 num_of_cali_gamma;
+	bool native_gamma_ready;
+
 };
 
 #define S6E3HC2_GAMMA_BAND_LEN 45
@@ -1102,7 +1113,7 @@ static int s6e3hc2_gamma_set_prefixes(struct panel_switch_data *pdata)
 
 static int s6e3hc2_gamma_read_tables(struct panel_switch_data *pdata)
 {
-	struct s6e3hc2_switch_data *sdata;
+	struct gamma_switch_data *sdata;
 	const struct dsi_display_mode *mode;
 	struct mipi_dsi_device *dsi;
 	int i, rc = 0;
@@ -1110,8 +1121,8 @@ static int s6e3hc2_gamma_read_tables(struct panel_switch_data *pdata)
 	if (unlikely(!pdata || !pdata->panel))
 		return -ENOENT;
 
-	sdata = container_of(pdata, struct s6e3hc2_switch_data, base);
-	if (sdata->gamma_ready)
+	sdata = container_of(pdata, struct gamma_switch_data, base);
+	if (sdata->native_gamma_ready)
 		return 0;
 
 	dsi = &pdata->panel->mipi_device;
@@ -1132,29 +1143,13 @@ static int s6e3hc2_gamma_read_tables(struct panel_switch_data *pdata)
 		goto abort;
 	}
 
-	sdata->gamma_ready = true;
+	sdata->native_gamma_ready = true;
 
 abort:
 	if (DSI_WRITE_CMD_BUF(dsi, lock_cmd))
 		return -EFAULT;
 
 	return rc;
-}
-
-static void s6e3hc2_gamma_work(struct kthread_work *work)
-{
-	struct s6e3hc2_switch_data *sdata;
-	struct dsi_panel *panel;
-
-	sdata = container_of(work, struct s6e3hc2_switch_data, gamma_work);
-	panel = sdata->base.panel;
-
-	if (!panel)
-		return;
-
-	mutex_lock(&panel->panel_lock);
-	s6e3hc2_gamma_read_tables(&sdata->base);
-	mutex_unlock(&panel->panel_lock);
 }
 
 static void s6e3hc2_gamma_print(struct seq_file *seq,
@@ -1221,15 +1216,15 @@ ssize_t debugfs_s6e3hc2_gamma_write(struct file *file,
 {
 	struct seq_file *seq = file->private_data;
 	struct panel_switch_data *pdata = seq->private;
-	struct s6e3hc2_switch_data *sdata;
+	struct gamma_switch_data *sdata;
 
 	if (!pdata || !pdata->panel)
 		return -EINVAL;
 
-	sdata = container_of(pdata, struct s6e3hc2_switch_data, base);
+	sdata = container_of(pdata, struct gamma_switch_data, base);
 
 	mutex_lock(&pdata->panel->panel_lock);
-	sdata->gamma_ready = false;
+	sdata->native_gamma_ready = false;
 	mutex_unlock(&pdata->panel->panel_lock);
 
 	return count;
@@ -1271,9 +1266,293 @@ static int s6e3hc2_check_gamma_infos(const struct s6e3hc2_gamma_info *infos,
 	return 0;
 }
 
+static int parse_payload_len(const u8 *payload, size_t len, size_t *out_size)
+{
+	size_t payload_len;
+
+	if (!out_size || len <= CALI_GAMMA_HEADER_SIZE)
+		return -EINVAL;
+
+	*out_size = payload_len = (payload[1] << 8) + payload[2];
+
+	return payload_len &&
+		(payload_len + CALI_GAMMA_HEADER_SIZE <= len) ? 0 : -EINVAL;
+}
+
+/* ID (1 byte) | payload size (2 bytes) | payload */
+static int s6e3hc2_check_gamma_payload(const u8 *src, size_t len)
+{
+	size_t total_len = 0;
+	int num_payload = 0;
+
+	if (!src)
+		return -EINVAL;
+
+	while (len > total_len) {
+		const u8 *payload = src + total_len;
+		size_t payload_len;
+		int rc;
+
+		rc = parse_payload_len(payload, len - total_len, &payload_len);
+		if (rc)
+			return -EINVAL;
+
+		total_len += CALI_GAMMA_HEADER_SIZE + payload_len;
+		num_payload++;
+	}
+
+	return num_payload;
+}
+
+static int s6e3hc2_overwrite_gamma_bands(u8 **gamma_data,
+					 const u8 *src, size_t len)
+{
+	int i, num_of_reg;
+	size_t payload_len, read_len = 0;
+
+	if (!gamma_data || !src)
+		return -EINVAL;
+
+	num_of_reg = s6e3hc2_check_gamma_payload(src, len);
+	if (num_of_reg != S6E3HC2_NUM_GAMMA_TABLES - 1) {
+		pr_err("Invalid gamma bands\n");
+		return -EINVAL;
+	}
+
+	/* reg (1 byte) | band size (2 bytes) | band */
+	for (i = 0; i < num_of_reg; i++) {
+		const struct s6e3hc2_gamma_info *gamma_info =
+			&s6e3hc2_gamma_tables[i];
+		const u8 *payload = src + read_len;
+		const u8 cmd = *payload;
+		u8 *tmp_buf = gamma_data[i] + sizeof(cmd)
+				+ gamma_info->prefix_len;
+
+		parse_payload_len(payload, len - read_len, &payload_len);
+		if (gamma_info->cmd != cmd ||
+		    payload_len != (gamma_info->len - gamma_info->prefix_len)) {
+			pr_err("Failed to overwrite 0x%02X reg\n", cmd);
+			return -EINVAL;
+		}
+
+		memcpy(tmp_buf, payload + CALI_GAMMA_HEADER_SIZE, payload_len);
+		read_len = CALI_GAMMA_HEADER_SIZE + payload_len;
+	}
+
+	return 0;
+}
+
+static int s6e3hc2_overwrite_gamma_data(struct gamma_switch_data *sdata)
+{
+	struct panel_switch_data *pdata;
+	struct dsi_panel *panel;
+	u8 *payload, **old_gamma_data;
+	size_t payload_len, total_len;
+	int rc = 0, num_of_fps;
+	u8 cali_fps, count = 0;
+
+	if (unlikely(!sdata))
+		return -EINVAL;
+
+	pdata = &sdata->base;
+	payload = sdata->cali_gamma.data;
+
+	if (unlikely(!pdata->panel || !payload))
+		return -EINVAL;
+
+	total_len = sdata->cali_gamma.len;
+	num_of_fps = s6e3hc2_check_gamma_payload(payload, total_len);
+	if (num_of_fps <= 0) {
+		pr_err("Invalid gamma data\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * 60Hz's gamma table and 90Hz's gamma table are the same size,
+	 * so we won't recalculate payload_len.
+	 */
+	parse_payload_len(payload, total_len, &payload_len);
+
+	panel = pdata->panel;
+
+	/* FPS (1 byte) | gamma size (2 bytes) | gamma */
+	while (count < num_of_fps) {
+		cali_fps = *payload;
+		rc = find_gamma_data_for_refresh_rate(panel,
+					cali_fps, &old_gamma_data);
+		if (rc) {
+			pr_err("Not support %ufps, err %d\n", cali_fps, rc);
+			return rc;
+		}
+		payload += CALI_GAMMA_HEADER_SIZE;
+		rc = s6e3hc2_overwrite_gamma_bands(old_gamma_data,
+							payload, payload_len);
+		if (rc) {
+			pr_err("Failed to overwrite gamma\n");
+			return rc;
+		}
+		payload += payload_len;
+		count++;
+	}
+
+	sdata->num_of_cali_gamma = count;
+	s6e3hc2_gamma_update_reg_locked(pdata, panel->cur_mode);
+	pr_info("Finished overwriting gamma\n");
+
+	return rc;
+}
+
+static void s6e3hc2_release_cali_gamma(struct gamma_switch_data *sdata)
+{
+	if (!sdata)
+		return;
+
+	kfree(sdata->cali_gamma.data);
+	sdata->cali_gamma.data = NULL;
+	sdata->cali_gamma.len = 0;
+}
+
+static int s6e3hc2_create_cali_gamma(struct gamma_switch_data *sdata,
+					size_t len, char *buf, size_t buf_len)
+{
+	int rc = 0;
+
+	if (unlikely(!sdata || !buf))
+		return -EINVAL;
+
+	if (sdata->cali_gamma.data)
+		s6e3hc2_release_cali_gamma(sdata);
+
+	sdata->cali_gamma.data = kzalloc(len, GFP_KERNEL);
+	if (!sdata->cali_gamma.data)
+		return -ENOMEM;
+
+	rc = parse_byte_buf(sdata->cali_gamma.data, len, buf, buf_len);
+	if (rc <= 0) {
+		pr_err("Invalid gamma data\n");
+		s6e3hc2_release_cali_gamma(sdata);
+		return -EINVAL;
+	}
+	sdata->cali_gamma.len = rc;
+
+	return 0;
+}
+
+static void s6e3hc2_gamma_work(struct kthread_work *work)
+{
+	struct gamma_switch_data *sdata;
+	struct dsi_panel *panel;
+
+	sdata = container_of(work, struct gamma_switch_data, gamma_work);
+	panel = sdata->base.panel;
+
+	if (!panel)
+		return;
+
+	mutex_lock(&panel->panel_lock);
+
+	s6e3hc2_gamma_read_tables(&sdata->base);
+	if (sdata->cali_gamma.data) {
+		s6e3hc2_overwrite_gamma_data(sdata);
+		s6e3hc2_release_cali_gamma(sdata);
+	}
+
+	mutex_unlock(&panel->panel_lock);
+}
+
+static ssize_t
+s6e3hc2_gamma_store(struct dsi_panel *panel, const char *buf, size_t count)
+{
+	struct panel_switch_data *pdata;
+	struct gamma_switch_data *sdata;
+	size_t len, buf_dup_len;
+	int rc = 0;
+	char *buf_dup;
+
+	if (unlikely(!panel || !panel->private_data))
+		return -EINVAL;
+
+	pdata = panel->private_data;
+	sdata = container_of(pdata, struct gamma_switch_data, base);
+
+	/* calculate length for worst case (1 digit per byte + whitespace) */
+	len = (count + 1) / 2;
+	buf_dup = kstrndup(buf, count, GFP_KERNEL);
+	if (!buf_dup)
+		return -ENOMEM;
+
+	buf_dup_len = strlen(buf_dup) + 1;
+
+	mutex_lock(&panel->panel_lock);
+
+	rc = s6e3hc2_create_cali_gamma(sdata, len, buf_dup, buf_dup_len);
+	if (rc)
+		goto error;
+
+	if (!sdata->native_gamma_ready) {
+		pr_info("Gamma table is not ready!\n");
+		goto done;
+	}
+
+	if (!dsi_panel_initialized(panel)) {
+		pr_warn("Panel not yet initialized.\n");
+		rc = -EINVAL;
+		goto error;
+	}
+
+	rc = s6e3hc2_overwrite_gamma_data(sdata);
+	if (rc)
+		pr_warn("Failed to update calibrated gamma.\n");
+
+	s6e3hc2_release_cali_gamma(sdata);
+
+error:
+done:
+	mutex_unlock(&panel->panel_lock);
+	kfree(buf_dup);
+
+	return rc ? rc : count;
+}
+
+static ssize_t
+gamma_store(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	const struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct panel_switch_data *pdata;
+
+	display = dev_get_drvdata(dev);
+	if (unlikely(!display || !display->panel ||
+		     !display->panel->private_data))
+		return -EINVAL;
+
+	panel = display->panel;
+	pdata = panel->private_data;
+
+	if (unlikely(!pdata || !pdata->funcs))
+		return -EINVAL;
+
+	if (!pdata->funcs->support_cali_gamma_store)
+		return -EOPNOTSUPP;
+
+	return pdata->funcs->support_cali_gamma_store(panel, buf, count);
+}
+
+struct device_attribute dev_attr_gamma = __ATTR_WO(gamma);
+
+static struct attribute *gamma_attrs[] = {
+	&dev_attr_gamma.attr,
+	NULL
+};
+
+static const struct attribute_group gamma_group = {
+	.attrs = gamma_attrs,
+};
+
 static struct panel_switch_data *s6e3hc2_switch_create(struct dsi_panel *panel)
 {
-	struct s6e3hc2_switch_data *sdata;
+	struct gamma_switch_data *sdata;
 	int rc;
 
 	rc = s6e3hc2_check_gamma_infos(s6e3hc2_gamma_tables,
@@ -1298,9 +1577,9 @@ static struct panel_switch_data *s6e3hc2_switch_create(struct dsi_panel *panel)
 
 static void s6e3hc2_switch_data_destroy(struct panel_switch_data *pdata)
 {
-	struct s6e3hc2_switch_data *sdata;
+	struct gamma_switch_data *sdata;
 
-	sdata = container_of(pdata, struct s6e3hc2_switch_data, base);
+	sdata = container_of(pdata, struct gamma_switch_data, base);
 
 	panel_switch_data_deinit(pdata);
 	if (pdata->panel && pdata->panel->parent)
@@ -1363,32 +1642,37 @@ int s6e3hc2_send_nolp_cmds(struct dsi_panel *panel)
 	return rc;
 }
 
-static inline bool s6e3hc2_need_update_gamma(
-			const struct panel_switch_data *pdata,
+static bool s6e3hc2_need_update_gamma(
+			const struct gamma_switch_data *sdata,
 			const struct dsi_display_mode *mode)
 {
+	const struct panel_switch_data *pdata = &sdata->base;
+
 	return mode && pdata && pdata->panel &&
-		(mode->timing.refresh_rate != S6E3HC2_DEFAULT_FPS) &&
 		!(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) &&
-		(pdata->panel->power_mode == SDE_MODE_DPMS_ON);
+		(pdata->panel->power_mode == SDE_MODE_DPMS_ON) &&
+		!((mode->timing.refresh_rate == S6E3HC2_DEFAULT_FPS) &&
+		!sdata->num_of_cali_gamma);
 }
 
 static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 {
-	struct s6e3hc2_switch_data *sdata;
+	struct gamma_switch_data *sdata;
 	const struct dsi_display_mode *mode;
 
 	if (unlikely(!pdata || !pdata->panel))
 		return -ENOENT;
 
-	sdata = container_of(pdata, struct s6e3hc2_switch_data, base);
+	sdata = container_of(pdata, struct gamma_switch_data, base);
 	mode = pdata->panel->cur_mode;
 
 	kthread_flush_work(&sdata->gamma_work);
-	if (!sdata->gamma_ready) {
+	if (!sdata->native_gamma_ready) {
 		kthread_queue_work(&pdata->worker, &sdata->gamma_work);
-	} else if (s6e3hc2_need_update_gamma(pdata, mode)) {
+	} else if (s6e3hc2_need_update_gamma(sdata, mode)) {
+		mutex_lock(&pdata->panel->panel_lock);
 		s6e3hc2_gamma_update_reg_locked(pdata, mode);
+		mutex_unlock(&pdata->panel->panel_lock);
 		pr_debug("Updated gamma for %dhz\n", mode->timing.refresh_rate);
 	}
 
@@ -1396,12 +1680,13 @@ static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 }
 
 const struct panel_switch_funcs s6e3hc2_switch_funcs = {
-	.create             = s6e3hc2_switch_create,
-	.destroy            = s6e3hc2_switch_data_destroy,
-	.perform_switch     = s6e3hc2_perform_switch,
-	.post_enable        = s6e3hc2_post_enable,
-	.support_update_hbm = s6e3hc2_update_hbm,
-	.send_nolp_cmds     = s6e3hc2_send_nolp_cmds,
+	.create                   = s6e3hc2_switch_create,
+	.destroy                  = s6e3hc2_switch_data_destroy,
+	.perform_switch           = s6e3hc2_perform_switch,
+	.post_enable              = s6e3hc2_post_enable,
+	.support_update_hbm       = s6e3hc2_update_hbm,
+	.send_nolp_cmds           = s6e3hc2_send_nolp_cmds,
+	.support_cali_gamma_store = s6e3hc2_gamma_store,
 };
 
 static const struct of_device_id panel_switch_dt_match[] = {
@@ -1439,6 +1724,12 @@ int dsi_panel_switch_init(struct dsi_panel *panel)
 
 	pdata->funcs = funcs;
 
+	if (pdata->funcs->support_cali_gamma_store) {
+		if (sysfs_create_group(&panel->parent->kobj,
+					&gamma_group))
+			pr_warn("unable to create gamma_group\n");
+	}
+
 	return 0;
 }
 
@@ -1459,6 +1750,10 @@ void dsi_panel_switch_destroy(struct dsi_panel *panel)
 	struct panel_switch_data *pdata = panel->private_data;
 	struct dsi_display_mode *mode;
 	int i;
+
+	if (pdata->funcs->support_cali_gamma_store)
+		sysfs_remove_group(&pdata->panel->parent->kobj,
+					&gamma_group);
 
 	for_each_display_mode(i, mode, pdata->panel)
 		dsi_panel_switch_put_mode(mode);

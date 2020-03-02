@@ -3460,14 +3460,21 @@ void dsi_panel_put(struct dsi_panel *panel)
 	kfree(panel);
 }
 
-static ssize_t parse_byte_buf(u8 *out, size_t len, char *src)
+/* src_len should include the null termination */
+ssize_t parse_byte_buf(u8 *out, size_t out_len, char *src, size_t src_len)
 {
 	const char *skip = "\n ";
 	size_t i = 0;
 	int rc = 0;
 	char *s;
 
-	while (src && !rc && i < len) {
+	if (unlikely(!src || !src_len || !out || !out_len))
+		return -EINVAL;
+
+	if (strnlen(src, src_len) == src_len)
+		return -EINVAL;
+
+	while (src && !rc && i < out_len) {
 		s = strsep(&src, skip);
 		if (*s != '\0') {
 			rc = kstrtou8(s, 16, out + i);
@@ -3486,16 +3493,17 @@ ssize_t dsi_panel_debugfs_write_reg(struct file *file,
 	struct dsi_panel *panel = seq->private;
 	char *buf;
 	char *payload;
-	size_t len;
+	size_t len, buf_len;
 	int rc = 0;
 
 	if (!panel || !panel->panel_initialized)
 		return -EPERM;
 
+	buf_len = count + 1;
 	/* calculate length for worst case (1 digit per byte + whitespace) */
-	len = (count + 1) / 2;
+	len = buf_len / 2;
 
-	buf = kmalloc(count + 1, GFP_KERNEL);
+	buf = kmalloc(buf_len, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -3512,7 +3520,7 @@ ssize_t dsi_panel_debugfs_write_reg(struct file *file,
 
 	buf[count] = 0; /* terminate end of string */
 
-	rc = parse_byte_buf(payload, len, buf);
+	rc = parse_byte_buf(payload, len, buf, buf_len);
 	if (rc <= 0) {
 		rc = -EINVAL;
 		goto done;
@@ -3619,19 +3627,19 @@ struct {
 };
 
 static inline ssize_t parse_cmdset(struct dsi_panel_cmd_set *set, char *buf,
-				   size_t count)
+				   size_t buf_len)
 {
 	char *tmp;
 	size_t len;
 	ssize_t rc;
 
 	/* calculate length for worst case (1 digit per byte + whitespace) */
-	len = (count + 1) / 2;
+	len = buf_len / 2;
 	tmp = kmalloc(len, GFP_KERNEL);
 	if (!tmp)
 		return -ENOMEM;
 
-	rc = parse_byte_buf(tmp, len, buf);
+	rc = parse_byte_buf(tmp, len, buf, buf_len);
 	if (rc <= 0) {
 		rc = -EINVAL;
 		goto done;
@@ -3670,6 +3678,7 @@ ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 	struct dsi_panel_cmd_set tmp_set;
 	struct dsi_panel_cmd_set *set;
 	char *buf = NULL;
+	size_t buf_len;
 	int rc = 0;
 
 	mutex_lock(&panel->panel_lock);
@@ -3680,8 +3689,8 @@ ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 	}
 
 	tmp_set = *set;
-
-	buf = kmalloc(count + 1, GFP_KERNEL);
+	buf_len = count + 1;
+	buf = kmalloc(buf_len, GFP_KERNEL);
 	if (!buf) {
 		rc = -ENOMEM;
 		goto done;
@@ -3693,7 +3702,7 @@ ssize_t dsi_panel_debugfs_write_cmdset(struct file *file,
 	}
 	buf[count] = '\0';
 
-	rc = parse_cmdset(&tmp_set, buf, count);
+	rc = parse_cmdset(&tmp_set, buf, buf_len);
 	if (rc)
 		goto done;
 
