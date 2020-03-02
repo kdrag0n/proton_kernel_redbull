@@ -1312,7 +1312,8 @@ void pe_register_callbacks_with_wma(struct mac_context *mac,
 			ready_req->csr_roam_synch_cb,
 			ready_req->csr_roam_auth_event_handle_cb,
 			ready_req->pe_roam_synch_cb,
-			ready_req->pe_disconnect_cb);
+			ready_req->pe_disconnect_cb,
+			ready_req->csr_roam_pmkid_req_cb);
 	if (status != QDF_STATUS_SUCCESS)
 		pe_err("Registering roaming callbacks with WMA failed");
 }
@@ -2133,9 +2134,6 @@ lim_roam_fill_bss_descr(struct mac_context *mac,
 		 roam_synch_ind_ptr->isBeacon,
 		 roam_synch_ind_ptr->bssid.bytes,
 		 mac_hdr->bssId);
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			   bcn_proberesp_ptr,
-			   roam_synch_ind_ptr->beaconProbeRespLength);
 
 	status = lim_roam_gen_beacon_descr(mac,
 					   roam_synch_ind_ptr,
@@ -2202,9 +2200,7 @@ lim_roam_fill_bss_descr(struct mac_context *mac,
 				(uint8_t *)parsed_frm_ptr->mdie,
 				SIR_MDIE_SIZE);
 	}
-	pe_debug("LFR3: BssDescr Info:");
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			bss_desc_ptr->bssId, sizeof(tSirMacAddr));
+
 	pe_debug("chan: %d rssi: %d ie_len %d", bss_desc_ptr->channelId,
 		 bss_desc_ptr->rssi, ie_len);
 	if (ie_len) {
@@ -2383,8 +2379,9 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 	status = QDF_STATUS_E_FAILURE;
 	ft_session_ptr = pe_create_session(mac_ctx, bss_desc->bssId,
 					   &session_id, mac_ctx->lim.maxStation,
-					   eSIR_INFRASTRUCTURE_MODE,
-					   session_ptr->smeSessionId);
+					   session_ptr->bssType,
+					   session_ptr->vdev_id,
+					   session_ptr->opmode);
 	if (!ft_session_ptr) {
 		pe_err("LFR3:Cannot create PE Session");
 		lim_print_mac_addr(mac_ctx, bss_desc->bssId, LOGE);
@@ -2459,10 +2456,6 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 			roam_sync_ind_ptr->reassocRespOffset,
 			mac_ctx->roam.reassocRespLen);
 
-	pe_debug("LFR3: Reassoc resp frame data:");
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			mac_ctx->roam.pReassocResp,
-			mac_ctx->roam.reassocRespLen);
 	ft_session_ptr->bRoamSynchInProgress = true;
 
 	lim_process_assoc_rsp_frame(mac_ctx, mac_ctx->roam.pReassocResp,
@@ -2759,7 +2752,8 @@ void lim_mon_init_session(struct mac_context *mac_ptr,
 					   &session_id,
 					   mac_ptr->lim.maxStation,
 					   eSIR_MONITOR_MODE,
-					   msg->vdev_id);
+					   msg->vdev_id,
+					   QDF_MONITOR_MODE);
 	if (!psession_entry) {
 		pe_err("Monitor mode: Session Can not be created");
 		lim_print_mac_addr(mac_ptr, msg->bss_id.bytes, LOGE);
@@ -2846,7 +2840,7 @@ QDF_STATUS lim_update_ext_cap_ie(struct mac_context *mac_ctx, uint8_t *ie_data,
 		populate_dot11f_twt_extended_caps(mac_ctx, session,
 						  &driver_ext_cap);
 	else
-		pe_err("Session NULL, cannot set TWT caps");
+		pe_debug("Session NULL, cannot set TWT caps");
 
 	local_ie_buf[*local_ie_len + 1] = driver_ext_cap.num_bytes;
 

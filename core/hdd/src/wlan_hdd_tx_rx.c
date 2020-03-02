@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -63,6 +63,7 @@
 #include "cfg_ucfg_api.h"
 #include "target_type.h"
 #include "wlan_hdd_object_manager.h"
+#include <wlan_hdd_sar_limits.h>
 
 #ifdef QCA_LL_TX_FLOW_CONTROL_V2
 /*
@@ -554,7 +555,7 @@ static void hdd_get_transmit_sta_id(struct hdd_adapter *adapter,
  */
 static void hdd_clear_tx_rx_connectivity_stats(struct hdd_adapter *adapter)
 {
-	hdd_info("Clear txrx connectivity stats");
+	hdd_debug("Clear txrx connectivity stats");
 	qdf_mem_zero(&adapter->hdd_stats.hdd_arp_stats,
 		     sizeof(adapter->hdd_stats.hdd_arp_stats));
 	qdf_mem_zero(&adapter->hdd_stats.hdd_dns_stats,
@@ -1132,6 +1133,8 @@ static void __hdd_hard_start_xmit(struct sk_buff *skb,
 
 	netif_trans_update(dev);
 
+	wlan_hdd_sar_unsolicited_timer_start(hdd_ctx);
+
 	return;
 
 drop_pkt_and_release_skb:
@@ -1354,18 +1357,7 @@ QDF_STATUS hdd_deinit_tx_rx(struct hdd_adapter *adapter)
 }
 
 #ifdef FEATURE_MONITOR_MODE_SUPPORT
-/**
- * hdd_mon_rx_packet_cbk() - Receive callback registered with OL layer.
- * @context: [in] pointer to qdf context
- * @rxBuf:      [in] pointer to rx qdf_nbuf
- *
- * TL will call this to notify the HDD when one or more packets were
- * received for a registered STA.
- *
- * Return: QDF_STATUS_E_FAILURE if any errors encountered, QDF_STATUS_SUCCESS
- * otherwise
- */
-static QDF_STATUS hdd_mon_rx_packet_cbk(void *context, qdf_nbuf_t rxbuf)
+QDF_STATUS hdd_mon_rx_packet_cbk(void *context, qdf_nbuf_t rxbuf)
 {
 	struct hdd_adapter *adapter;
 	int rxstat;
@@ -1551,14 +1543,14 @@ static void hdd_resolve_rx_ol_mode(struct hdd_context *hdd_ctx)
 	    cdp_cfg_get(soc, cfg_dp_gro_enable))) {
 		cdp_cfg_get(soc, cfg_dp_lro_enable) &&
 			cdp_cfg_get(soc, cfg_dp_gro_enable) ?
-		hdd_err("Can't enable both LRO and GRO, disabling Rx offload") :
-		hdd_info("LRO and GRO both are disabled");
+		hdd_debug("Can't enable both LRO and GRO, disabling Rx offload") :
+		hdd_debug("LRO and GRO both are disabled");
 		hdd_ctx->ol_enable = 0;
 	} else if (cdp_cfg_get(soc, cfg_dp_lro_enable)) {
 		hdd_debug("Rx offload LRO is enabled");
 		hdd_ctx->ol_enable = CFG_LRO_ENABLED;
 	} else {
-		hdd_info("Rx offload: GRO is enabled");
+		hdd_debug("Rx offload: GRO is enabled");
 		hdd_ctx->ol_enable = CFG_GRO_ENABLED;
 	}
 }
@@ -1821,9 +1813,9 @@ static int hdd_rx_ol_send_config(struct hdd_context *hdd_ctx)
 	if (wma_lro_init(&lro_config))
 		return -EAGAIN;
 	else
-		hdd_dp_info("LRO Config: lro_enable: 0x%x tcp_flag 0x%x tcp_flag_mask 0x%x",
-			    lro_config.lro_enable, lro_config.tcp_flag,
-			    lro_config.tcp_flag_mask);
+		hdd_debug("LRO Config: lro_enable: 0x%x tcp_flag 0x%x tcp_flag_mask 0x%x",
+			  lro_config.lro_enable, lro_config.tcp_flag,
+			  lro_config.tcp_flag_mask);
 
 	return 0;
 }
@@ -2799,11 +2791,11 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter)
 	hdd_ctxt = WLAN_HDD_GET_CTX(adapter);
 	rps_data.num_queues = NUM_TX_QUEUES;
 
-	hdd_info("cpu_map_list '%s'", hdd_ctxt->config->cpu_map_list);
+	hdd_debug("cpu_map_list '%s'", hdd_ctxt->config->cpu_map_list);
 
 	/* in case no cpu map list is provided, simply return */
 	if (!strlen(hdd_ctxt->config->cpu_map_list)) {
-		hdd_err("no cpu map list found");
+		hdd_debug("no cpu map list found");
 		goto err;
 	}
 
@@ -2821,7 +2813,7 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter)
 				cpu_map_list_len : rps_data.num_queues;
 
 	for (i = 0; i < rps_data.num_queues; i++) {
-		hdd_info("cpu_map_list[%d] = 0x%x",
+		hdd_debug("cpu_map_list[%d] = 0x%x",
 			i, rps_data.cpu_map_list[i]);
 	}
 
@@ -2836,7 +2828,7 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter)
 	return;
 
 err:
-	hdd_err("Wrong RPS configuration. enabling rx_thread");
+	hdd_debug("Wrong RPS configuration. enabling rx_thread");
 	cds_cfg->rps_enabled = false;
 }
 
@@ -3143,6 +3135,8 @@ void hdd_dp_cfg_update(struct wlan_objmgr_psoc *psoc,
 	hdd_ini_tcp_settings(config, psoc);
 	config->napi_cpu_affinity_mask =
 		cfg_get(psoc, CFG_DP_NAPI_CE_CPU_MASK);
+	config->rx_thread_ul_affinity_mask =
+		cfg_get(psoc, CFG_DP_RX_THREAD_UL_CPU_MASK);
 	config->rx_thread_affinity_mask =
 		cfg_get(psoc, CFG_DP_RX_THREAD_CPU_MASK);
 	qdf_uint8_array_parse(cfg_get(psoc, CFG_DP_RPS_RX_QUEUE_CPU_MAP_LIST),

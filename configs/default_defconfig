@@ -172,6 +172,14 @@ CONFIG_QCACLD_FEATURE_METERING := y
 CONFIG_WDI3_STATS_UPDATE := y
 endif
 
+ifeq ($(CONFIG_ARCH_LITO), y)
+CONFIG_QCACLD_FEATURE_METERING := y
+endif
+
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+CONFIG_QCACLD_FEATURE_METERING := y
+endif
+
 #Flag to enable Fast Transition (11r) feature
 CONFIG_QCOM_VOWIFI_11R := y
 
@@ -519,6 +527,15 @@ ifeq ($(CONFIG_HELIUMPLUS), y)
 CONFIG_PKTLOG_LEGACY := y
 endif
 
+#Customize DSCP_to-UP map based on RFC8325
+ifeq ($(CONFIG_HELIUMPLUS), y)
+CONFIG_WLAN_CUSTOM_DSCP_UP_MAP := y
+CONFIG_WLAN_SEND_DSCP_UP_MAP_TO_FW := y
+endif
+ifeq ($(CONFIG_LITHIUM), y)
+CONFIG_WLAN_CUSTOM_DSCP_UP_MAP := y
+endif
+
 ifeq ($(CONFIG_ROME_IF), sdio)
 CONFIG_PKTLOG_LEGACY := y
 endif
@@ -625,6 +642,12 @@ CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
 endif
 endif
 
+ifeq ($(CONFIG_ARCH_ATOLL), y)
+ifeq ($(CONFIG_IPA_OFFLOAD), y)
+CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
+endif
+endif
+
 ifeq ($(CONFIG_ARCH_TRINKET), y)
 ifeq ($(CONFIG_IPA_OFFLOAD), y)
 CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
@@ -638,6 +661,12 @@ endif
 endif
 
 ifeq ($(CONFIG_ARCH_KONA), y)
+ifeq ($(CONFIG_IPA_OFFLOAD), y)
+CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
+endif
+endif
+
+ifeq ($(CONFIG_ARCH_BENGAL), y)
 ifeq ($(CONFIG_IPA_OFFLOAD), y)
 CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
 endif

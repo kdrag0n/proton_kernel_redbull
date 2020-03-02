@@ -421,6 +421,8 @@ static void mlme_init_generic_cfg(struct wlan_objmgr_psoc *psoc,
 	gen->enable_ring_buffer = cfg_get(psoc, CFG_ENABLE_RING_BUFFER);
 	gen->enable_peer_unmap_conf_support =
 		cfg_get(psoc, CFG_DP_ENABLE_PEER_UMAP_CONF_SUPPORT);
+	gen->disable_4way_hs_offload =
+		cfg_get(psoc, CFG_DISABLE_4WAY_HS_OFFLOAD);
 }
 
 static void mlme_init_edca_ani_cfg(struct wlan_mlme_edca_params *edca_params)
@@ -1875,6 +1877,8 @@ static void mlme_init_scoring_cfg(struct wlan_objmgr_psoc *psoc,
 				cfg_get(psoc, CFG_ROAM_TRIGGER_BITMAP);
 	scoring_cfg->roam_score_delta = cfg_get(psoc, CFG_ROAM_SCORE_DELTA);
 	scoring_cfg->apsd_enabled = (bool)cfg_default(CFG_APSD_ENABLED);
+	scoring_cfg->min_roam_score_delta =
+				cfg_get(psoc, CFG_CAND_MIN_ROAM_SCORE_DELTA);
 }
 
 static void mlme_init_oce_cfg(struct wlan_objmgr_psoc *psoc,
@@ -2243,6 +2247,10 @@ static void mlme_init_mwc_cfg(struct wlan_objmgr_psoc *psoc,
 		cfg_get(psoc, CFG_MWS_COEX_4G_QUICK_FTDM);
 	mwc->mws_coex_5g_nr_pwr_limit =
 		cfg_get(psoc, CFG_MWS_COEX_5G_NR_PWR_LIMIT);
+	mwc->mws_coex_pcc_channel_avoid_delay =
+		cfg_get(psoc, CFG_MWS_COEX_PCC_CHANNEL_AVOID_DELAY);
+	mwc->mws_coex_scc_channel_avoid_delay =
+		cfg_get(psoc, CFG_MWS_COEX_SCC_CHANNEL_AVOID_DELAY);
 }
 #else
 static void mlme_init_mwc_cfg(struct wlan_objmgr_psoc *psoc,

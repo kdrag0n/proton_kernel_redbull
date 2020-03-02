@@ -424,6 +424,13 @@ void sme_cleanup_session(mac_handle_t mac_handle, uint8_t vdev_id);
 void sme_set_curr_device_mode(mac_handle_t mac_handle,
 			      enum QDF_OPMODE curr_device_mode);
 
+/**
+ * sme_update_nud_config() - update nud config
+ * @mac_handle: The handle returned by mac_open.
+ * @nud_fail_behavior: Vlaue of nud fail behaviour
+ */
+void sme_update_nud_config(mac_handle_t mac_handle, uint8_t nud_fail_behavior);
+
 QDF_STATUS sme_update_roam_params(mac_handle_t mac_handle,
 				  uint8_t session_id,
 				  struct roam_ext_params *roam_params_src,
@@ -2966,6 +2973,17 @@ int sme_set_no_ack_policy(mac_handle_t mac_handle, uint8_t session_id,
  */
 int sme_set_auto_rate_he_sgi(mac_handle_t mac_handle, uint8_t session_id,
 			     uint8_t cfg_val);
+
+/**
+ * sme_set_auto_rate_ldpc() - Sets LDPC for auto rate
+ * @mac_handle: Opaque handle to the global MAC context
+ * @session_id: SME session id
+ * @ldpc_disable: LDPC configuration value
+ *
+ * Return: 0 on success else err code
+ */
+int sme_set_auto_rate_ldpc(mac_handle_t mac_handle, uint8_t session_id,
+			   uint8_t ldpc_disable);
 
 /**
  * sme_set_auto_rate_he_ltf() - Sets HE LTF for auto rate

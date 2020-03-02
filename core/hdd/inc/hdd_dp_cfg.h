@@ -738,6 +738,31 @@
 
 /*
  * <ini>
+ * RX_THREAD_UL_CPU_AFFINITY_MASK - CPU mask to affine Rx_thread
+ *
+ * @Min: 0
+ * @Max: 0xFF
+ * @Default: 0x0
+ *
+ * This ini is used to set Rx_thread CPU affinity for uplink traffic
+ *
+ * Supported Feature: Rx_thread
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_DP_RX_THREAD_UL_CPU_MASK \
+		CFG_INI_UINT( \
+		"RX_THREAD_UL_CPU_AFFINITY_MASK", \
+		0, \
+		0xFF, \
+		0x0, \
+		CFG_VALUE_OR_DEFAULT, \
+		"CPU mask to affine Rx_thread for uplink traffic")
+
+/*
+ * <ini>
  * rpsRxQueueCpuMapList - RPS map for different RX queues
  *
  * @Default: e
@@ -1097,7 +1122,7 @@
  * <ini>
  * gEnableNUDTracking - Will enable or disable NUD tracking within driver
  * @Min: 0
- * @Max: 2
+ * @Max: 3
  * @Default: 2
  *
  * This ini is used to specify the behaviour of the driver for NUD tracking.
@@ -1107,7 +1132,7 @@
  * the connected BSSID.
  * 2: Driver will track the NUD failures and if honoured will roam away from
  * the connected BSSID to a new BSSID to retain the data connectivity.
- *
+ * 3: Driver will try to roam to a new AP but if roam fails, disconnect.
  * Related: None
  *
  * Supported Feature: STA
@@ -1116,15 +1141,11 @@
  *
  * <ini>
  */
-#define CFG_DP_ROAM_AFTER_NUD_FAIL                   2
-#define CFG_DP_DISCONNECT_AFTER_NUD_FAIL             1
-#define CFG_DP_DISABLE_NUD_TRACKING                  0
-
 #define CFG_DP_ENABLE_NUD_TRACKING \
 		CFG_INI_UINT("gEnableNUDTracking", \
-		 CFG_DP_DISABLE_NUD_TRACKING, \
-		 CFG_DP_ROAM_AFTER_NUD_FAIL, \
-		 CFG_DP_ROAM_AFTER_NUD_FAIL, \
+		 0, \
+		 3, \
+		 2, \
 		 CFG_VALUE_OR_DEFAULT, "Driver NUD tracking behaviour")
 
 #define CFG_DP_ENABLE_NUD_TRACKING_ALL \
@@ -1196,6 +1217,7 @@
 #define CFG_HDD_DP_ALL \
 	CFG(CFG_DP_NAPI_CE_CPU_MASK) \
 	CFG(CFG_DP_RX_THREAD_CPU_MASK) \
+	CFG(CFG_DP_RX_THREAD_UL_CPU_MASK) \
 	CFG(CFG_DP_RPS_RX_QUEUE_CPU_MAP_LIST) \
 	CFG(CFG_DP_TX_ORPHAN_ENABLE) \
 	CFG(CFG_DP_RX_MODE) \

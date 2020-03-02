@@ -212,12 +212,14 @@ static QDF_STATUS sme_process_set_hw_mode_resp(struct mac_context *mac, uint8_t 
 		csr_saved_scan_cmd_free_fields(mac, session);
 	}
 	if (reason == POLICY_MGR_UPDATE_REASON_CHANNEL_SWITCH_STA) {
-		sme_info("Continue channel switch for STA");
+		sme_info("Continue channel switch for STA on vdev %d",
+			 session_id);
 		csr_sta_continue_csa(mac, session_id);
 	}
 
 	if (reason == POLICY_MGR_UPDATE_REASON_CHANNEL_SWITCH) {
-		sme_info("Continue channel switch for SAP");
+		sme_info("Continue channel switch for SAP on vdev %d",
+			 session_id);
 		csr_csa_restart(mac, session_id);
 	}
 	if (reason == POLICY_MGR_UPDATE_REASON_LFR2_ROAM)
@@ -845,6 +847,13 @@ void sme_update_fine_time_measurement_capab(mac_handle_t mac_handle,
 	}
 }
 
+void sme_update_nud_config(mac_handle_t mac_handle, uint8_t nud_fail_behavior)
+{
+	struct mac_context *mac = MAC_CONTEXT(mac_handle);
+
+	mac->nud_fail_behaviour = nud_fail_behavior;
+}
+
 /**
  * sme_update_neighbor_report_config() - Update CSR config for 11k params
  * @mac_handle: Pointer to MAC context
@@ -1081,6 +1090,7 @@ QDF_STATUS sme_hdd_ready_ind(mac_handle_t mac_handle)
 		msg->stop_roaming_cb = sme_stop_roaming;
 		msg->csr_roam_auth_event_handle_cb =
 				csr_roam_auth_offload_callback;
+		msg->csr_roam_pmkid_req_cb = csr_roam_pmkid_req_callback;
 
 		status = u_mac_post_ctrl_msg(mac_handle, (tSirMbMsg *)msg);
 		if (QDF_IS_STATUS_ERROR(status)) {
@@ -1259,9 +1269,6 @@ static QDF_STATUS dfs_msg_processor(struct mac_context *mac,
 		session_id = csa_ie_tx_complete_rsp->sessionId;
 		roam_status = eCSR_ROAM_DFS_CHAN_SW_NOTIFY;
 		roam_result = eCSR_ROAM_RESULT_DFS_CHANSW_UPDATE_SUCCESS;
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			  "eWNI_SME_DFS_CSAIE_TX_COMPLETE_IND session=%d",
-			  session_id);
 		break;
 	}
 	case eWNI_SME_DFS_CAC_COMPLETE:
@@ -6182,13 +6189,13 @@ void sme_free_join_rsp_fils_params(struct csr_roam_info *roam_info)
 	struct fils_join_rsp_params *roam_fils_params;
 
 	if (!roam_info) {
-		sme_err("FILS Roam Info NULL");
+		sme_debug("FILS Roam Info NULL");
 		return;
 	}
 
 	roam_fils_params = roam_info->fils_join_rsp;
 	if (!roam_fils_params) {
-		sme_err("FILS Roam Param NULL");
+		sme_debug("FILS Roam Param NULL");
 		return;
 	}
 
@@ -6963,10 +6970,6 @@ static void
 sme_restore_default_roaming_params(struct mac_context *mac,
 				   tCsrNeighborRoamControlInfo *roam_info)
 {
-	sme_debug("%s default roam scoring",
-		  mac->mlme_cfg->scoring.enable_scoring_for_roam ?
-		  "Enable" : "Disable");
-
 	roam_info->cfgParams.enable_scoring_for_roam =
 			mac->mlme_cfg->scoring.enable_scoring_for_roam;
 	roam_info->cfgParams.emptyScanRefreshPeriod =
@@ -7027,20 +7030,16 @@ QDF_STATUS sme_roam_control_restore_default_config(mac_handle_t mac_handle,
 		goto out;
 	}
 
-	sme_debug("Cleanup roam scan control");
 	mac->roam.configParam.nRoamScanControl = false;
 
 	neighbor_roam_info = &mac->roam.neighborRoamInfo[vdev_id];
 
-	sme_debug("Cleanup Preferred frequency list");
 	chan_info = &neighbor_roam_info->cfgParams.pref_chan_info;
 	csr_flush_cfg_bg_scan_roam_channel_list(chan_info);
 
-	sme_debug("Cleanup specific frequency list");
 	chan_info = &neighbor_roam_info->cfgParams.specific_chan_info;
 	csr_flush_cfg_bg_scan_roam_channel_list(chan_info);
 
-	sme_debug("Cleanup roam control config related lfr params");
 	mlme_reinit_control_config_lfr_params(mac->psoc, &mac->mlme_cfg->lfr);
 
 	sme_restore_default_roaming_params(mac, neighbor_roam_info);
@@ -8791,6 +8790,30 @@ int sme_set_auto_rate_he_sgi(mac_handle_t mac_handle, uint8_t session_id,
 
 	sme_debug("auto rate HE SGI_LTF is set to 0x%08X",
 			mac_ctx->he_sgi_ltf_cfg_bit_mask);
+
+	return 0;
+}
+
+int sme_set_auto_rate_ldpc(mac_handle_t mac_handle, uint8_t session_id,
+			   uint8_t ldpc_disable)
+{
+	struct mac_context *mac_ctx = MAC_CONTEXT(mac_handle);
+	uint32_t set_val;
+	int status;
+
+	set_val = mac_ctx->he_sgi_ltf_cfg_bit_mask;
+
+	set_val |= (ldpc_disable << AUTO_RATE_LDPC_DIS_BIT);
+
+	status = wma_cli_set_command(session_id,
+				     WMI_VDEV_PARAM_AUTORATE_MISC_CFG,
+				     set_val, VDEV_CMD);
+	if (status) {
+		sme_err("failed to set auto rate LDPC cfg");
+		return status;
+	}
+
+	sme_debug("auto rate misc cfg set to 0x%08X", set_val);
 
 	return 0;
 }
@@ -13727,7 +13750,7 @@ QDF_STATUS sme_enable_disable_chanavoidind_event(mac_handle_t mac_handle,
 	struct scheduler_msg msg = {0};
 
 	if (!mac_ctx->mlme_cfg->gen.optimize_ca_event) {
-		sme_err("optimize_ca_event not enabled in ini");
+		sme_debug("optimize_ca_event not enabled in ini");
 		return QDF_STATUS_E_NOSUPPORT;
 	}
 

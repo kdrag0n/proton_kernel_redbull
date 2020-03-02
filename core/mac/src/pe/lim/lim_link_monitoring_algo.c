@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -373,8 +373,8 @@ lim_tear_down_link_with_ap(struct mac_context *mac, uint8_t sessionId,
 	 */
 	pe_session->pmmOffloadInfo.bcnmiss = false;
 
-	pe_info("No ProbeRsp from AP after HB failure for pe/sme id %d/%d",
-		pe_session->peSessionId, pe_session->smeSessionId);
+	pe_info("No ProbeRsp from AP after HB failure for pe/sme id %d/%d reason code %d",
+		pe_session->peSessionId, pe_session->smeSessionId, reasonCode);
 
 	/* Announce loss of link to Roaming algorithm */
 	/* and cleanup by sending SME_DISASSOC_REQ to SME */
@@ -534,7 +534,6 @@ void lim_handle_heart_beat_failure(struct mac_context *mac_ctx,
 					session->dot11mode, NULL, NULL);
 			}
 		} else {
-			pe_debug("HB missed from AP on DFS channel");
 			/*
 			 * Connected on DFS channel so should not send the
 			 * probe request tear down the link directly
@@ -587,7 +586,7 @@ void lim_rx_invalid_peer_process(struct mac_context *mac_ctx,
 	}
 
 	/* only if SAP mode */
-	if (session_entry->operMode == BSS_OPERATIONAL_MODE_AP) {
+	if (session_entry->bssType == eSIR_INFRA_AP_MODE) {
 		pe_debug("send deauth frame to non-assoc STA");
 		lim_send_deauth_mgmt_frame(mac_ctx,
 					   reason_code,

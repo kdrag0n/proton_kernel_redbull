@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -602,6 +602,10 @@ QDF_STATUS wma_form_unit_test_cmd_and_send(uint32_t vdev_id,
 	QDF_STATUS status;
 
 	WMA_LOGD(FL("enter"));
+
+	if (!wma_is_vdev_valid(vdev_id))
+		return QDF_STATUS_E_FAILURE;
+
 	if (arg_count > WMA_MAX_NUM_ARGS) {
 		WMA_LOGE(FL("arg_count is crossed the boundary"));
 		return QDF_STATUS_E_FAILURE;
@@ -958,9 +962,7 @@ static void wma_process_cli_set_cmd(tp_wma_handle wma,
 	struct target_psoc_info *tgt_hdl;
 	struct sir_set_tx_rx_aggregation_size aggr;
 
-	WMA_LOGD("wmihandle %pK", wma->wmi_handle);
 	qdf_mem_zero(&aggr, sizeof(aggr));
-
 	if (!mac) {
 		WMA_LOGE("%s: Failed to get mac", __func__);
 		return;
@@ -3683,6 +3685,13 @@ QDF_STATUS wma_open(struct wlan_objmgr_psoc *psoc,
 					   wmi_roam_auth_offload_event_id,
 					   wma_roam_auth_offload_event_handler,
 					   WMA_RX_SERIALIZER_CTX);
+
+	wmi_unified_register_event_handler(wma_handle->wmi_handle,
+					   wmi_roam_stats_event_id,
+					   wma_roam_stats_event_handler,
+					   WMA_RX_SERIALIZER_CTX);
+
+	wma_register_pmkid_req_event_handler(wma_handle);
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
 	wmi_unified_register_event_handler(wma_handle->wmi_handle,
 				wmi_rssi_breach_event_id,
