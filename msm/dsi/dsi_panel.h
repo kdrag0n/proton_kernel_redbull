@@ -337,7 +337,11 @@ struct dsi_panel {
  * @wakeup: called when coming out of idle state
  * @pre_lp1: called before power mode is going to be lp1
  *
- * Note: none of these functions should be called while holding panel_lock
+ * Note: none of these functions above should be called while holding panel_lock
+ *
+ * @update_hbm: for certain projects hbm/dimming configuration may need to be
+ * kept in sync depending on current mode. This function should be called with
+ * updated hbm/dimming params
  * @send_nolp: called when sending nolp commands
  */
 struct dsi_panel_funcs {
@@ -348,6 +352,7 @@ struct dsi_panel_funcs {
 	int (*idle)(struct dsi_panel *);
 	int (*wakeup)(struct dsi_panel *);
 	int (*pre_lp1)(struct dsi_panel *);
+	int (*update_hbm)(struct dsi_panel *);
 	int (*send_nolp)(struct dsi_panel *);
 };
 

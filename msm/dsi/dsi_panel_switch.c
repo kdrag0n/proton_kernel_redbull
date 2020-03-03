@@ -51,6 +51,7 @@ struct panel_switch_funcs {
 	void (*perform_switch)(struct panel_switch_data *pdata,
 			       const struct dsi_display_mode *mode);
 	int (*post_enable)(struct panel_switch_data *pdata);
+	int (*support_update_hbm)(struct dsi_panel *);
 	int (*send_nolp_cmds)(struct dsi_panel *panel);
 };
 
@@ -187,11 +188,17 @@ static int s6e3hc2_switch_mode_update(struct dsi_panel *panel,
 				      const struct dsi_display_mode *mode,
 				      bool send_last)
 {
+	const struct hbm_data *hbm = panel->bl_config.hbm;
 	struct s6e3hc2_wrctrl_data data = {0};
 
-	if (unlikely(!mode))
+	if (unlikely(!mode || !hbm))
 		return -EINVAL;
 
+	/* display is expected not to operate in HBM mode for the first bl range
+	 * (cur_range = 0) when panel->hbm_mode is true
+	 */
+	data.hbm_enable = panel->hbm_mode == true && hbm->cur_range != 0;
+	data.dimming_active = panel->bl_config.hbm->dimming_active;
 	data.refresh_rate = mode->timing.refresh_rate;
 
 	return s6e3hc2_write_ctrld_reg(panel, &data, send_last);
@@ -476,6 +483,19 @@ static int panel_wakeup(struct dsi_panel *panel)
 	return 0;
 }
 
+static int panel_update_hbm(struct dsi_panel *panel)
+{
+	struct panel_switch_data *pdata = panel->private_data;
+
+	if (unlikely(!pdata || !pdata->funcs))
+		return -EINVAL;
+
+	if (!pdata->funcs->support_update_hbm)
+		return -EOPNOTSUPP;
+
+	return pdata->funcs->support_update_hbm(panel);
+}
+
 static int panel_send_nolp(struct dsi_panel *panel)
 {
 	struct panel_switch_data *pdata = panel->private_data;
@@ -627,6 +647,7 @@ static const struct dsi_panel_funcs panel_funcs = {
 	.wakeup      = panel_wakeup,
 	.post_enable = panel_post_enable,
 	.pre_lp1     = panel_flush_switch_queue,
+	.update_hbm  = panel_update_hbm,
 	.send_nolp   = panel_send_nolp,
 };
 
@@ -1285,6 +1306,13 @@ static void s6e3hc2_switch_data_destroy(struct panel_switch_data *pdata)
 		devm_kfree(pdata->panel->parent, sdata);
 }
 
+static int s6e3hc2_update_hbm(struct dsi_panel *panel)
+{
+	const struct panel_switch_data *pdata = panel->private_data;
+
+	return s6e3hc2_switch_mode_update(panel, pdata->display_mode, true);
+}
+
 static void s6e3hc2_perform_switch(struct panel_switch_data *pdata,
 				   const struct dsi_display_mode *mode)
 {
@@ -1367,11 +1395,12 @@ static int s6e3hc2_post_enable(struct panel_switch_data *pdata)
 }
 
 const struct panel_switch_funcs s6e3hc2_switch_funcs = {
-	.create = s6e3hc2_switch_create,
-	.destroy = s6e3hc2_switch_data_destroy,
-	.perform_switch = s6e3hc2_perform_switch,
-	.post_enable = s6e3hc2_post_enable,
-	.send_nolp_cmds = s6e3hc2_send_nolp_cmds,
+	.create             = s6e3hc2_switch_create,
+	.destroy            = s6e3hc2_switch_data_destroy,
+	.perform_switch     = s6e3hc2_perform_switch,
+	.post_enable        = s6e3hc2_post_enable,
+	.support_update_hbm = s6e3hc2_update_hbm,
+	.send_nolp_cmds     = s6e3hc2_send_nolp_cmds,
 };
 
 static const struct of_device_id panel_switch_dt_match[] = {
