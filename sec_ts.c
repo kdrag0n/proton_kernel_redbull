@@ -1328,6 +1328,204 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 }
 #endif
 
+static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
+				struct sec_ts_event_coordinate *p_event_coord)
+{
+	u8 t_id;
+
+	if (ts->input_closed) {
+		input_err(true, &ts->client->dev, "%s: device is closed\n",
+			__func__);
+		return;
+	}
+
+	t_id = (p_event_coord->tid - 1);
+
+	if (t_id < MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT) {
+		ts->coord[t_id].id = t_id;
+		ts->coord[t_id].action = p_event_coord->tchsta;
+		ts->coord[t_id].x = (p_event_coord->x_11_4 << 4) |
+					(p_event_coord->x_3_0);
+		ts->coord[t_id].y = (p_event_coord->y_11_4 << 4) |
+					(p_event_coord->y_3_0);
+		ts->coord[t_id].z = p_event_coord->z &
+					SEC_TS_PRESSURE_MAX;
+		ts->coord[t_id].ttype = p_event_coord->ttype_3_2 << 2 |
+					p_event_coord->ttype_1_0 << 0;
+		ts->coord[t_id].major = p_event_coord->major;
+		ts->coord[t_id].minor = p_event_coord->minor;
+
+		if (!ts->coord[t_id].palm &&
+			(ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_PALM))
+			ts->coord[t_id].palm_count++;
+
+		ts->coord[t_id].palm =
+			(ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_PALM);
+		ts->coord[t_id].left_event = p_event_coord->left_event;
+
+		if (ts->coord[t_id].z <= 0)
+			ts->coord[t_id].z = 1;
+
+		if ((ts->coord[t_id].ttype ==
+		     SEC_TS_TOUCHTYPE_NORMAL) ||
+		    (ts->coord[t_id].ttype ==
+		     SEC_TS_TOUCHTYPE_PALM) ||
+		    (ts->coord[t_id].ttype ==
+		     SEC_TS_TOUCHTYPE_WET) ||
+		    (ts->coord[t_id].ttype ==
+		     SEC_TS_TOUCHTYPE_GLOVE)) {
+
+			if (ts->coord[t_id].action ==
+				SEC_TS_COORDINATE_ACTION_RELEASE) {
+
+				do_gettimeofday(&ts->time_released[t_id]);
+
+				if (ts->time_longest <
+					(ts->time_released[t_id].tv_sec -
+						ts->time_pressed[t_id].tv_sec))
+					ts->time_longest =
+					(ts->time_released[t_id].tv_sec
+					  - ts->time_pressed[t_id].tv_sec);
+
+				input_mt_slot(ts->input_dev, t_id);
+				if (ts->plat_data->support_mt_pressure)
+					input_report_abs(ts->input_dev,
+						ABS_MT_PRESSURE, 0);
+				input_mt_report_slot_state(ts->input_dev,
+					MT_TOOL_FINGER, 0);
+
+				if (ts->touch_count > 0)
+					ts->touch_count--;
+				if (ts->touch_count == 0) {
+					input_report_key(ts->input_dev,
+						BTN_TOUCH, 0);
+					input_report_key(ts->input_dev,
+						BTN_TOOL_FINGER, 0);
+					ts->check_multi = 0;
+				}
+
+			} else if (ts->coord[t_id].action ==
+					SEC_TS_COORDINATE_ACTION_PRESS) {
+				do_gettimeofday(&ts->time_pressed[t_id]);
+
+				ts->touch_count++;
+				ts->all_finger_count++;
+
+				ts->max_z_value = max_t(unsigned int,
+							ts->coord[t_id].z,
+							ts->max_z_value);
+				ts->min_z_value = min_t(unsigned int,
+							ts->coord[t_id].z,
+							ts->min_z_value);
+				ts->sum_z_value +=
+						(unsigned int)ts->coord[t_id].z;
+
+				input_mt_slot(ts->input_dev, t_id);
+				input_mt_report_slot_state(ts->input_dev,
+					MT_TOOL_FINGER, 1);
+				input_report_key(ts->input_dev, BTN_TOUCH, 1);
+				input_report_key(ts->input_dev,
+							BTN_TOOL_FINGER, 1);
+
+				input_report_abs(ts->input_dev,
+					ABS_MT_POSITION_X, ts->coord[t_id].x);
+				input_report_abs(ts->input_dev,
+					ABS_MT_POSITION_Y, ts->coord[t_id].y);
+				input_report_abs(ts->input_dev,
+						ABS_MT_TOUCH_MAJOR,
+						ts->coord[t_id].major);
+				input_report_abs(ts->input_dev,
+						ABS_MT_TOUCH_MINOR,
+						ts->coord[t_id].minor);
+#ifdef ABS_MT_CUSTOM
+				if (ts->brush_mode)
+					input_report_abs(ts->input_dev,
+						ABS_MT_CUSTOM,
+						(ts->coord[t_id].z << 1) |
+							ts->coord[t_id].palm);
+				else
+					input_report_abs(ts->input_dev,
+						ABS_MT_CUSTOM,
+						(BRUSH_Z_DATA << 1) |
+							ts->coord[t_id].palm);
+#endif
+				if (ts->plat_data->support_mt_pressure)
+					input_report_abs(ts->input_dev,
+						ABS_MT_PRESSURE,
+						ts->coord[t_id].z);
+
+				if ((ts->touch_count > 4) &&
+					(ts->check_multi == 0)) {
+					ts->check_multi = 1;
+					ts->multi_count++;
+				}
+
+			} else if (ts->coord[t_id].action ==
+					SEC_TS_COORDINATE_ACTION_MOVE) {
+#ifdef SW_GLOVE
+				if ((ts->coord[t_id].ttype ==
+					SEC_TS_TOUCHTYPE_GLOVE) &&
+				    !ts->touchkey_glove_mode_status) {
+					ts->touchkey_glove_mode_status = true;
+					input_report_switch(ts->input_dev,
+						SW_GLOVE, 1);
+				} else if ((ts->coord[t_id].ttype !=
+						SEC_TS_TOUCHTYPE_GLOVE) &&
+					   ts->touchkey_glove_mode_status) {
+					ts->touchkey_glove_mode_status = false;
+					input_report_switch(ts->input_dev,
+						SW_GLOVE, 0);
+				}
+#endif
+				input_mt_slot(ts->input_dev, t_id);
+				input_mt_report_slot_state(ts->input_dev,
+					MT_TOOL_FINGER, 1);
+				input_report_key(ts->input_dev, BTN_TOUCH, 1);
+				input_report_key(ts->input_dev,
+							BTN_TOOL_FINGER, 1);
+
+				input_report_abs(ts->input_dev,
+					ABS_MT_POSITION_X, ts->coord[t_id].x);
+				input_report_abs(ts->input_dev,
+					ABS_MT_POSITION_Y, ts->coord[t_id].y);
+				input_report_abs(ts->input_dev,
+						ABS_MT_TOUCH_MAJOR,
+						ts->coord[t_id].major);
+				input_report_abs(ts->input_dev,
+						ABS_MT_TOUCH_MINOR,
+						ts->coord[t_id].minor);
+#ifdef ABS_MT_CUSTOM
+				if (ts->brush_mode)
+					input_report_abs(ts->input_dev,
+						ABS_MT_CUSTOM,
+						(ts->coord[t_id].z << 1) |
+							ts->coord[t_id].palm);
+				else
+					input_report_abs(ts->input_dev,
+						ABS_MT_CUSTOM,
+						(BRUSH_Z_DATA << 1) |
+							ts->coord[t_id].palm);
+#endif
+				if (ts->plat_data->support_mt_pressure)
+					input_report_abs(ts->input_dev,
+							ABS_MT_PRESSURE,
+							ts->coord[t_id].z);
+				ts->coord[t_id].mcount++;
+			} else
+				input_dbg(true, &ts->client->dev,
+					"%s: do not support coordinate action(%d)\n",
+					__func__, ts->coord[t_id].action);
+		} else
+			input_dbg(true, &ts->client->dev,
+				"%s: do not support coordinate type(%d)\n",
+				__func__, ts->coord[t_id].ttype);
+	} else
+		input_err(true, &ts->client->dev,
+				"%s: tid(%d) is out of range\n",
+				__func__, t_id);
+}
+
+
 #define MAX_EVENT_COUNT 32
 static void sec_ts_read_event(struct sec_ts_data *ts)
 {
@@ -1337,7 +1535,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	u8 left_event_count;
 	u8 read_event_buff[MAX_EVENT_COUNT][SEC_TS_EVENT_BUFF_SIZE] = { { 0 } };
 	u8 *event_buff;
-	struct sec_ts_event_coordinate *p_event_coord;
 	struct sec_ts_gesture_status *p_gesture_status;
 	struct sec_ts_event_status *p_event_status;
 	int curr_pos;
@@ -1384,8 +1581,11 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	left_event_count = read_event_buff[0][7] & 0x3F;
 	remain_event_count = left_event_count;
 
-	if (left_event_count > MAX_EVENT_COUNT - 1 || left_event_count == 0xFF) {
-		input_err(true, &ts->client->dev, "%s: event buffer overflow\n", __func__);
+	if (left_event_count > MAX_EVENT_COUNT - 1 ||
+		left_event_count == 0xFF) {
+		input_err(true, &ts->client->dev,
+			"%s: event buffer overflow %d\n",
+			__func__, left_event_count);
 
 		/* write clear event stack command when read_event_count > MAX_EVENT_COUNT */
 		ret = sec_ts_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
@@ -1560,135 +1760,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 		case SEC_TS_COORDINATE_EVENT:
 			processed_pointer_event = true;
-			if (ts->input_closed) {
-				input_err(true, &ts->client->dev, "%s: device is closed\n", __func__);
-				break;
-			}
-			p_event_coord = (struct sec_ts_event_coordinate *)event_buff;
-
-			t_id = (p_event_coord->tid - 1);
-
-			if (t_id < MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT) {
-				ts->coord[t_id].id = t_id;
-				ts->coord[t_id].action = p_event_coord->tchsta;
-				ts->coord[t_id].x = (p_event_coord->x_11_4 << 4) | (p_event_coord->x_3_0);
-				ts->coord[t_id].y = (p_event_coord->y_11_4 << 4) | (p_event_coord->y_3_0);
-				ts->coord[t_id].z = p_event_coord->z &
-							SEC_TS_PRESSURE_MAX;
-				ts->coord[t_id].ttype = p_event_coord->ttype_3_2 << 2 | p_event_coord->ttype_1_0 << 0;
-				ts->coord[t_id].major = p_event_coord->major;
-				ts->coord[t_id].minor = p_event_coord->minor;
-
-				if (!ts->coord[t_id].palm && (ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_PALM))
-					ts->coord[t_id].palm_count++;
-
-				ts->coord[t_id].palm = (ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_PALM);
-				ts->coord[t_id].left_event = p_event_coord->left_event;
-
-				if (ts->coord[t_id].z <= 0)
-					ts->coord[t_id].z = 1;
-
-				if ((ts->coord[t_id].ttype ==
-				     SEC_TS_TOUCHTYPE_NORMAL) ||
-				    (ts->coord[t_id].ttype ==
-				     SEC_TS_TOUCHTYPE_PALM) ||
-				    (ts->coord[t_id].ttype ==
-				     SEC_TS_TOUCHTYPE_WET) ||
-				    (ts->coord[t_id].ttype ==
-				     SEC_TS_TOUCHTYPE_GLOVE)) {
-
-					if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_RELEASE) {
-
-						do_gettimeofday(&ts->time_released[t_id]);
-
-						if (ts->time_longest < (ts->time_released[t_id].tv_sec - ts->time_pressed[t_id].tv_sec))
-							ts->time_longest = (ts->time_released[t_id].tv_sec - ts->time_pressed[t_id].tv_sec);
-
-						input_mt_slot(ts->input_dev, t_id);
-						if (ts->plat_data->support_mt_pressure)
-							input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-						input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
-
-						if (ts->touch_count > 0)
-							ts->touch_count--;
-						if (ts->touch_count == 0) {
-							input_report_key(ts->input_dev, BTN_TOUCH, 0);
-							input_report_key(ts->input_dev, BTN_TOOL_FINGER, 0);
-							ts->check_multi = 0;
-						}
-
-					} else if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_PRESS) {
-						do_gettimeofday(&ts->time_pressed[t_id]);
-
-						ts->touch_count++;
-						ts->all_finger_count++;
-
-						ts->max_z_value = max((unsigned int)ts->coord[t_id].z, ts->max_z_value);
-						ts->min_z_value = min((unsigned int)ts->coord[t_id].z, ts->min_z_value);
-						ts->sum_z_value += (unsigned int)ts->coord[t_id].z;
-
-						input_mt_slot(ts->input_dev, t_id);
-						input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
-						input_report_key(ts->input_dev, BTN_TOUCH, 1);
-						input_report_key(ts->input_dev, BTN_TOOL_FINGER, 1);
-
-						input_report_abs(ts->input_dev, ABS_MT_POSITION_X, ts->coord[t_id].x);
-						input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, ts->coord[t_id].y);
-						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, ts->coord[t_id].major);
-						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, ts->coord[t_id].minor);
-#ifdef ABS_MT_CUSTOM
-						if (ts->brush_mode)
-							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (ts->coord[t_id].z << 1) | ts->coord[t_id].palm);
-						else
-							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (BRUSH_Z_DATA << 1) | ts->coord[t_id].palm);
-#endif
-						if (ts->plat_data->support_mt_pressure)
-							input_report_abs(ts->input_dev, ABS_MT_PRESSURE, ts->coord[t_id].z);
-
-						if ((ts->touch_count > 4) && (ts->check_multi == 0)) {
-							ts->check_multi = 1;
-							ts->multi_count++;
-						}
-
-					} else if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_MOVE) {
-#ifdef SW_GLOVE
-						if ((ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_GLOVE) && !ts->touchkey_glove_mode_status) {
-							ts->touchkey_glove_mode_status = true;
-							input_report_switch(ts->input_dev, SW_GLOVE, 1);
-						} else if ((ts->coord[t_id].ttype != SEC_TS_TOUCHTYPE_GLOVE) && ts->touchkey_glove_mode_status) {
-							ts->touchkey_glove_mode_status = false;
-							input_report_switch(ts->input_dev, SW_GLOVE, 0);
-						}
-#endif
-						input_mt_slot(ts->input_dev, t_id);
-						input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
-						input_report_key(ts->input_dev, BTN_TOUCH, 1);
-						input_report_key(ts->input_dev, BTN_TOOL_FINGER, 1);
-
-						input_report_abs(ts->input_dev, ABS_MT_POSITION_X, ts->coord[t_id].x);
-						input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, ts->coord[t_id].y);
-						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, ts->coord[t_id].major);
-						input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, ts->coord[t_id].minor);
-#ifdef ABS_MT_CUSTOM
-						if (ts->brush_mode)
-							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (ts->coord[t_id].z << 1) | ts->coord[t_id].palm);
-						else
-							input_report_abs(ts->input_dev, ABS_MT_CUSTOM, (BRUSH_Z_DATA << 1) | ts->coord[t_id].palm);
-#endif
-						if (ts->plat_data->support_mt_pressure)
-							input_report_abs(ts->input_dev, ABS_MT_PRESSURE, ts->coord[t_id].z);
-						ts->coord[t_id].mcount++;
-					} else {
-						input_dbg(true, &ts->client->dev,
-								"%s: do not support coordinate action(%d)\n", __func__, ts->coord[t_id].action);
-					}
-				} else {
-					input_dbg(true, &ts->client->dev,
-							"%s: do not support coordinate type(%d)\n", __func__, ts->coord[t_id].ttype);
-				}
-			} else {
-				input_err(true, &ts->client->dev, "%s: tid(%d) is out of range\n", __func__, t_id);
-			}
+			sec_ts_handle_coord_event(ts,
+				(struct sec_ts_event_coordinate *)event_buff);
 			break;
 
 

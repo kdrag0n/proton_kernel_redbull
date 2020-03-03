@@ -6866,7 +6866,7 @@ static void force_touch_active(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	int active;
+	int active, ret;
 
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
 
@@ -6889,10 +6889,13 @@ static void force_touch_active(void *device_data)
 	else
 		pm_relax(&ts->client->dev);
 
-	if (sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_FORCE_ACTIVE, active) == 0) {
+	ret = sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_FORCE_ACTIVE, active);
+	if (ret == 0) {
 		sec_cmd_set_cmd_result(sec, "OK", 2);
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	} else {
+		input_info(true, &ts->client->dev,
+			"%s: failed! ret %d\n", __func__, ret);
 		sec_cmd_set_cmd_result(sec, "NG", 2);
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	}
