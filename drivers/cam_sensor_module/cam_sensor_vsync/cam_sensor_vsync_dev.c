@@ -38,8 +38,10 @@ struct vsync_ctx_type {
 	struct workqueue_struct *work_queue;
 	struct list_head pending_reqs;
 	struct mutex  list_lock;
+#ifdef CONFIG_DEBUG_FS
 	struct dentry *de_dir;
 	struct dentry *de_data;
+#endif
 	int64_t timeout_cnt;
 };
 
@@ -496,6 +498,7 @@ out:
 	kfree(payload);
 }
 
+#ifdef CONFIG_DEBUG_FS
 static int cam_vsync_read(void *data, u64 *val)
 {
 	*val = 0;
@@ -516,6 +519,7 @@ static int cam_vsync_write(void *data, u64 val)
 
 	return ret;
 }
+#endif /* CONFIG_DEBUG_FS */
 
 static void vsync_event_cb(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
 			 struct qmi_txn *txn, const void *data)
@@ -604,11 +608,13 @@ free_n_go:
 	mutex_unlock(&ctx->list_lock);
 }
 
+#ifdef CONFIG_DEBUG_FS
 DEFINE_SIMPLE_ATTRIBUTE(cam_vsync_qmi_fops,
 	cam_vsync_read,
 	cam_vsync_write, "%16llu");
 
 static struct dentry *cam_vsync_debug_dir;
+#endif /* CONFIG_DEBUG_FS */
 
 static struct qmi_msg_handler cam_vsync_handlers[] = {
 	{
@@ -645,6 +651,7 @@ static int cam_vsync_probe(struct platform_device *pdev)
 
 	snprintf(path, sizeof(path), "%d:%d", sq->sq_node, sq->sq_port);
 
+#ifdef CONFIG_DEBUG_FS
 	ctx->de_dir = debugfs_create_dir(path, cam_vsync_debug_dir);
 	if (IS_ERR(ctx->de_dir)) {
 		ret = PTR_ERR(ctx->de_dir);
@@ -657,6 +664,7 @@ static int cam_vsync_probe(struct platform_device *pdev)
 		ret = PTR_ERR(ctx->de_data);
 		goto err_remove_de_dir;
 	}
+#endif
 
 	ctx->timeout_cnt = 0;
 	INIT_LIST_HEAD(&ctx->pending_reqs);
@@ -665,8 +673,10 @@ static int cam_vsync_probe(struct platform_device *pdev)
 
 	return 0;
 
+#ifdef CONFIG_DEBUG_FS
 err_remove_de_dir:
 	debugfs_remove(ctx->de_dir);
+#endif
 err_release_qmi_handle:
 	qmi_handle_release(&ctx->qmi);
 
@@ -679,8 +689,10 @@ static int cam_vsync_remove(struct platform_device *pdev)
 	struct cam_sensor_vsync_req *vsync_req = NULL;
 	struct cam_sensor_vsync_req *vsync_req_temp = NULL;
 
+#ifdef CONFIG_DEBUG_FS
 	debugfs_remove(ctx->de_data);
 	debugfs_remove(ctx->de_dir);
+#endif
 
 	qmi_handle_release(&ctx->qmi);
 	mutex_lock(&ctx->list_lock);
@@ -753,11 +765,13 @@ static int cam_vsync_init(void)
 {
 	int ret;
 
+#ifdef CONFIG_DEBUG_FS
 	cam_vsync_debug_dir = debugfs_create_dir("cam_vsync_qmi", NULL);
 	if (IS_ERR(cam_vsync_debug_dir)) {
 		CAM_ERR(CAM_SENSOR, "failed to create qmi_vsync dir\n");
 		return PTR_ERR(cam_vsync_debug_dir);
 	}
+#endif
 
 	ret = platform_driver_register(&cam_vsync_driver);
 	if (ret)
@@ -778,7 +792,9 @@ static int cam_vsync_init(void)
 err_unregister_driver:
 	platform_driver_unregister(&cam_vsync_driver);
 err_remove_debug_dir:
+#ifdef CONFIG_DEBUG_FS
 	debugfs_remove(cam_vsync_debug_dir);
+#endif
 
 	return ret;
 }
@@ -792,7 +808,9 @@ static void cam_vsync_exit(void)
 
 	platform_driver_unregister(&cam_vsync_driver);
 
+#ifdef CONFIG_DEBUG_FS
 	debugfs_remove(cam_vsync_debug_dir);
+#endif
 }
 
 module_init(cam_vsync_init);
