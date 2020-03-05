@@ -140,6 +140,7 @@ struct dsi_backlight_config {
 	bool big_endian;
 	u32 high_byte_offset;
 	unsigned int last_state;
+	struct mutex state_lock;
 
 	struct bl_notifier_data *bl_notifier;
 	struct hbm_data *hbm;
