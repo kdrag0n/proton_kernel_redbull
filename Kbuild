@@ -1010,6 +1010,9 @@ ifeq ($(CONFIG_WLAN_FEATURE_PKT_CAPTURE), y)
 PKT_CAPTURE_OBJS := $(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_main.o \
 		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_mon_thread.o \
 		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_ucfg_api.o \
+		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_mgmt_txrx.o \
+		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_data_txrx.o \
+		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_ucfg_api.o \
 		$(PKT_CAPTURE_TARGET_IF_DIR)/src/target_if_pkt_capture.o
 endif
 
@@ -2610,6 +2613,8 @@ endif
 ifeq ($(CONFIG_LITHIUM), y)
 cppflags-$(CONFIG_WLAN_TX_FLOW_CONTROL_V2) += -DQCA_AC_BASED_FLOW_CONTROL
 cppflags-y += -DHAL_DISABLE_NON_BA_2K_JUMP_ERROR
+cppflags-y += -DENABLE_HAL_SOC_STATS
+cppflags-y += -DENABLE_HAL_REG_WR_HISTORY
 endif
 
 cppflags-$(CONFIG_WLAN_CLD_PM_QOS) += -DCLD_PM_QOS

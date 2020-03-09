@@ -197,6 +197,20 @@ struct rsn_caps {
 };
 
 /**
+ * struct roam_scan_ch_resp - roam scan chan list response to userspace
+ * @vdev_id: vdev id
+ * @num_channels: number of roam scan channels
+ * @command_resp: command response or async event
+ * @chan_list: list of roam scan channels
+ */
+struct roam_scan_ch_resp {
+	uint16_t vdev_id;
+	uint16_t num_channels;
+	uint32_t command_resp;
+	uint32_t *chan_list;
+};
+
+/**
  * struct wlan_beacon_report - Beacon info to be send to userspace
  * @vdev_id: vdev id
  * @ssid: ssid present in beacon
@@ -395,7 +409,8 @@ struct sme_ready_req {
 	QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 					uint8_t vdev_id,
 					uint8_t *deauth_disassoc_frame,
-					uint16_t deauth_disassoc_frame_len);
+					uint16_t deauth_disassoc_frame_len,
+					uint16_t reason_code);
 	void *csr_roam_pmkid_req_cb;
 };
 
@@ -1272,6 +1287,7 @@ struct disassoc_ind {
 	struct qdf_mac_addr peer_macaddr;
 	uint16_t staId;
 	uint32_t reasonCode;
+	bool from_ap;
 };
 
 /* / Definition for Disassociation confirm */
@@ -1332,6 +1348,7 @@ struct deauth_ind {
 	uint16_t staId;
 	uint32_t reasonCode;
 	int8_t rssi;
+	bool from_ap;
 };
 
 /* / Definition for Deauthetication confirm */

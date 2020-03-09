@@ -24,6 +24,9 @@
 #include "wlan_pkt_capture_main.h"
 #include "wlan_pkt_capture_ucfg_api.h"
 #include "wlan_pkt_capture_mon_thread.h"
+#include "wlan_pkt_capture_mgmt_txrx.h"
+#include "target_if_pkt_capture.h"
+#include "wlan_pkt_capture_data_txrx.h"
 
 enum pkt_capture_mode ucfg_pkt_capture_get_mode(struct wlan_objmgr_psoc *psoc)
 {
@@ -72,14 +75,13 @@ void ucfg_pkt_capture_set_pktcap_mode(struct wlan_objmgr_psoc *psoc,
 
 /**
  * ucfg_pkt_capture_get_pktcap_mode - Get packet capture mode
- * @psoc: pointer to psoc object
  *
  * Return: enum pkt_capture_mode
  */
 enum pkt_capture_mode
-ucfg_pkt_capture_get_pktcap_mode(struct wlan_objmgr_psoc *psoc)
+ucfg_pkt_capture_get_pktcap_mode(void)
 {
-	return pkt_capture_get_pktcap_mode(psoc);
+	return pkt_capture_get_pktcap_mode();
 }
 
 /**
@@ -183,4 +185,156 @@ int ucfg_pkt_capture_suspend_mon_thread(struct wlan_objmgr_vdev *vdev)
 void ucfg_pkt_capture_resume_mon_thread(struct wlan_objmgr_vdev *vdev)
 {
 	pkt_capture_resume_mon_thread(vdev);
+}
+
+/**
+ * ucfg_process_pktcapture_mgmt_tx_data() - process management tx packets
+ * @pdev: pointer to pdev object
+ * @params: management offload event params
+ * @nbuf: netbuf
+ * @status: status
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+ucfg_pkt_capture_process_mgmt_tx_data(struct wlan_objmgr_pdev *pdev,
+				      struct mgmt_offload_event_params *params,
+				      qdf_nbuf_t nbuf,
+				      uint8_t status)
+{
+	return pkt_capture_process_mgmt_tx_data(
+					pdev, params, nbuf,
+					pkt_capture_mgmt_status_map(status));
+}
+
+void
+ucfg_pkt_capture_mgmt_tx(struct wlan_objmgr_pdev *pdev,
+			 qdf_nbuf_t nbuf,
+			 uint16_t chan_freq,
+			 uint8_t preamble_type)
+{
+	pkt_capture_mgmt_tx(pdev, nbuf, chan_freq, preamble_type);
+}
+
+/**
+ * ucfg_process_pktcapture_mgmt_tx_completion(): process mgmt tx completion
+ * for pkt capture mode
+ * @pdev: pointer to pdev object
+ * @desc_id: desc_id
+ * @status: status
+ * @params: management offload event params
+ *
+ * Return: none
+ */
+void
+ucfg_pkt_capture_mgmt_tx_completion(struct wlan_objmgr_pdev *pdev,
+				    uint32_t desc_id,
+				    uint32_t status,
+				    struct mgmt_offload_event_params *params)
+{
+	pkt_capture_mgmt_tx_completion(pdev, desc_id, status, params);
+}
+
+int ucfg_pkt_capture_enable_ops(struct wlan_objmgr_vdev *vdev)
+{
+	struct pkt_capture_vdev_priv *vdev_priv;
+	struct wlan_pkt_capture_rx_ops *rx_ops;
+	struct wlan_pkt_capture_tx_ops *tx_ops;
+	struct wlan_objmgr_psoc *psoc;
+	enum pkt_capture_mode mode;
+	QDF_STATUS status;
+	int ret;
+
+	if (!vdev)
+		return -EINVAL;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc)
+		return -EINVAL;
+
+	vdev_priv = pkt_capture_vdev_get_priv(vdev);
+	if (!vdev_priv) {
+		pkt_capture_err("vdev_priv got NULL");
+		return -EINVAL;
+	}
+
+	if (vdev_priv->is_ops_registered)
+		return 0;
+
+	rx_ops = &vdev_priv->rx_ops;
+	tx_ops = &vdev_priv->tx_ops;
+
+	status = rx_ops->pkt_capture_register_mgmt_data_offload_event(psoc);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		pkt_capture_err("Unable to register mgmt offload handler");
+		return -EINVAL;
+	}
+
+	mode = pkt_capture_get_mode(psoc);
+	ret = tx_ops->pkt_capture_send_mode(psoc,
+					    vdev->vdev_objmgr.vdev_id,
+					    mode);
+	if (ret) {
+		pkt_capture_err("Unable to send packet capture mode to fw");
+		return ret;
+	}
+	vdev_priv->is_ops_registered = true;
+
+	return 0;
+}
+
+void ucfg_pkt_capture_rx_msdu_process(
+				uint8_t *bssid,
+				qdf_nbuf_t head_msdu,
+				uint8_t vdev_id, htt_pdev_handle pdev)
+{
+		pkt_capture_msdu_process_pkts(bssid, head_msdu,
+					      vdev_id, pdev);
+}
+
+bool ucfg_pkt_capture_rx_offloaded_pkt(qdf_nbuf_t rx_ind_msg)
+{
+	return pkt_capture_rx_in_order_offloaded_pkt(rx_ind_msg);
+}
+
+void ucfg_pkt_capture_rx_drop_offload_pkt(qdf_nbuf_t head_msdu)
+{
+	pkt_capture_rx_in_order_drop_offload_pkt(head_msdu);
+}
+
+void
+ucfg_pkt_capture_offload_deliver_indication_handler(
+					void *msg, uint8_t vdev_id,
+					uint8_t *bssid, htt_pdev_handle pdev)
+{
+	pkt_capture_offload_deliver_indication_handler(msg, vdev_id,
+						       bssid, pdev);
+}
+
+struct htt_tx_data_hdr_information *ucfg_pkt_capture_tx_get_txcomplete_data_hdr(
+							uint32_t *msg_word,
+							int num_msdus)
+{
+	return pkt_capture_tx_get_txcomplete_data_hdr(msg_word, num_msdus);
+}
+
+void
+ucfg_pkt_capture_tx_completion_process(
+			uint8_t vdev_id,
+			qdf_nbuf_t mon_buf_list,
+			enum pkt_capture_data_process_type type,
+			uint8_t tid, uint8_t status, bool pkt_format,
+			uint8_t *bssid, htt_pdev_handle pdev,
+			uint8_t tx_retry_cnt)
+{
+	pkt_capture_datapkt_process(
+				vdev_id,
+				mon_buf_list, TXRX_PROCESS_TYPE_DATA_TX_COMPL,
+				tid, status, pkt_format, bssid, pdev,
+				tx_retry_cnt);
+}
+
+void ucfg_pkt_capture_record_channel(struct wlan_objmgr_vdev *vdev)
+{
+	pkt_capture_record_channel(vdev);
 }

@@ -94,12 +94,15 @@
 
 #define ACS_SCAN_EXPIRY_TIMEOUT_S 4
 
-/* Defines the BIT position of HT caps is support mode field of stainfo */
-#define HDD_HT_CAPS_PRESENT 0
-/* Defines the BIT position of VHT caps is support mode field of stainfo */
-#define HDD_VHT_CAPS_PRESENT 1
-/* Defines the BIT position of HE caps is support mode field of stainfo */
-#define HDD_HE_CAPS_PRESENT 2
+/*
+ * Defines the BIT position of 11bg/11abg/11abgn 802.11 support mode field
+ * of stainfo
+ */
+#define HDD_80211_MODE_ABGN 0
+/* Defines the BIT position of 11ac support mode field of stainfo */
+#define HDD_80211_MODE_AC 1
+/* Defines the BIT position of 11ax support mode field of stainfo */
+#define HDD_80211_MODE_AX 2
 
 #define HDD_MAX_CUSTOM_START_EVENT_SIZE 64
 
@@ -521,6 +524,9 @@ static int __hdd_hostapd_stop(struct net_device *dev)
 	wlan_hdd_netif_queue_control(adapter,
 				     WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
 				     WLAN_CONTROL_PATH);
+
+	if (!hdd_is_any_interface_open(hdd_ctx))
+		hdd_psoc_idle_timer_start(hdd_ctx);
 
 	hdd_exit();
 	return 0;
@@ -1437,6 +1443,7 @@ static void hdd_fill_station_info(struct hdd_adapter *adapter,
 	struct hdd_station_info *stainfo;
 	uint8_t i = 0, oldest_disassoc_sta_idx = WLAN_MAX_STA_COUNT + 1;
 	qdf_time_t oldest_disassoc_sta_ts = 0;
+	bool is_dot11_mode_abgn;
 
 	if (event->staId >= WLAN_MAX_STA_COUNT) {
 		hdd_err("invalid sta id");
@@ -1483,20 +1490,27 @@ static void hdd_fill_station_info(struct hdd_adapter *adapter,
 	/* expect max_phy_rate report in kbps */
 	stainfo->max_phy_rate *= 100;
 
+	/*
+	 * Connected Peer always supports atleast one of the
+	 * 802.11 mode out of 11bg/11abg/11abgn, hence this field
+	 * should always be true.
+	 */
+	is_dot11_mode_abgn = true;
+	stainfo->support_mode |= is_dot11_mode_abgn << HDD_80211_MODE_ABGN;
+
 	if (event->vht_caps.present) {
 		stainfo->vht_present = true;
 		hdd_copy_vht_caps(&stainfo->vht_caps, &event->vht_caps);
 		stainfo->support_mode |=
-				(stainfo->vht_present << HDD_VHT_CAPS_PRESENT);
+				(stainfo->vht_present << HDD_80211_MODE_AC);
 	}
 	if (event->ht_caps.present) {
 		stainfo->ht_present = true;
 		hdd_copy_ht_caps(&stainfo->ht_caps, &event->ht_caps);
-		stainfo->support_mode |=
-				(stainfo->ht_present << HDD_HT_CAPS_PRESENT);
 	}
+
 	stainfo->support_mode |=
-			(event->he_caps_present << HDD_HE_CAPS_PRESENT);
+			(event->he_caps_present << HDD_80211_MODE_AX);
 
 	/* Initialize DHCP info */
 	stainfo->dhcp_phase = DHCP_PHASE_ACK;
@@ -2307,6 +2321,11 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 						disassoc_comp->rx_mc_bc_cnt;
 			cache_stainfo->reason_code = disassoc_comp->reason_code;
 			cache_stainfo->disassoc_ts = qdf_system_ticks();
+			hdd_debug("Cache_stainfo rssi %d txrate %d rxrate %d reason_code %d",
+				  cache_stainfo->rssi,
+				  cache_stainfo->tx_rate,
+				  cache_stainfo->rx_rate,
+				  cache_stainfo->reason_code);
 		}
 		hdd_nofl_info("SAP disassociated " QDF_MAC_ADDR_STR,
 			      QDF_MAC_ADDR_ARRAY(wrqu.addr.sa_data));
@@ -3106,6 +3125,8 @@ QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
 	struct hdd_adapter *ap_adapter = wlan_hdd_get_adapter_from_vdev(
 					psoc, vdev_id);
 	struct sap_context *sap_context;
+	enum sap_csa_reason_code csa_reason =
+		CSA_REASON_CONCURRENT_STA_CHANGED_CHANNEL;
 
 	if (!ap_adapter) {
 		hdd_err("ap_adapter is NULL");
@@ -3144,6 +3165,11 @@ QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	intf_ch = wlansap_get_chan_band_restrict(sap_context);
+	if (intf_ch) {
+		csa_reason = CSA_REASON_BAND_RESTRICTED;
+		goto sap_restart;
+	}
 	if (policy_mgr_get_connection_count(psoc) == 1) {
 		/*
 		 * If STA+SAP sessions are on DFS channel and STA+SAP SCC is
@@ -3156,6 +3182,12 @@ QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
 				  intf_ch);
 			goto sap_restart;
 		}
+	}
+	if (ap_adapter->device_mode == QDF_P2P_GO_MODE &&
+	    !policy_mgr_go_scc_enforced(psoc)) {
+		wlansap_context_put(sap_context);
+		hdd_debug("p2p go no scc required");
+		return QDF_STATUS_E_FAILURE;
 	}
 	ucfg_policy_mgr_get_mcc_scc_switch(hdd_ctx->psoc,
 					   &mcc_to_scc_switch);
@@ -3183,16 +3215,11 @@ QDF_STATUS wlan_hdd_get_channel_for_sap_restart(
 
 sap_restart:
 	if (!intf_ch) {
-		intf_ch = wlansap_get_chan_band_restrict(hdd_ap_ctx->sap_context);
-		if (intf_ch == sap_ch)
-			intf_ch = 0;
-	} else if (hdd_ap_ctx->sap_context)
-		hdd_ap_ctx->sap_context->csa_reason =
-				CSA_REASON_CONCURRENT_STA_CHANGED_CHANNEL;
-	if (!intf_ch) {
 		wlansap_context_put(sap_context);
 		hdd_debug("interface channel is 0");
 		return QDF_STATUS_E_FAILURE;
+	} else {
+		sap_context->csa_reason = csa_reason;
 	}
 
 	hdd_debug("SAP restart orig chan: %d, new chan: %d",
@@ -4599,8 +4626,9 @@ static int wlan_hdd_setup_driver_overrides(struct hdd_adapter *ap_adapter)
 		return 0;
 }
 
-void hdd_check_and_disconnect_sta_on_invalid_channel(
-		struct hdd_context *hdd_ctx)
+void
+hdd_check_and_disconnect_sta_on_invalid_channel(struct hdd_context *hdd_ctx,
+						tSirMacReasonCodes reason)
 {
 	struct hdd_adapter *sta_adapter;
 	uint8_t sta_chan;
@@ -4628,7 +4656,7 @@ void hdd_check_and_disconnect_sta_on_invalid_channel(
 
 	hdd_err("chan %d not valid, issue disconnect", sta_chan);
 	/* Issue Disconnect request */
-	wlan_hdd_disconnect(sta_adapter, eCSR_DISCONNECT_REASON_DEAUTH);
+	wlan_hdd_disconnect(sta_adapter, eCSR_DISCONNECT_REASON_DEAUTH, reason);
 }
 
 #ifdef DISABLE_CHANNEL_LIST
@@ -5070,7 +5098,8 @@ int wlan_hdd_cfg80211_start_bss(struct hdd_adapter *adapter,
 		/* check if STA is on indoor channel*/
 		if (policy_mgr_is_force_scc(hdd_ctx->psoc))
 			hdd_check_and_disconnect_sta_on_invalid_channel(
-								       hdd_ctx);
+					hdd_ctx,
+					eSIR_MAC_OPER_CHANNEL_DISABLED_INDOOR);
 	}
 
 	beacon = adapter->session.ap.beacon;

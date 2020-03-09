@@ -1469,6 +1469,7 @@ static void hdd_update_tgt_services(struct hdd_context *hdd_ctx,
 				   mawc_enabled & cfg->is_fw_mawc_capable);
 	hdd_update_tdls_config(hdd_ctx);
 	sme_update_tgt_services(hdd_ctx->mac_handle, cfg);
+	hdd_ctx->roam_ch_from_fw_supported = cfg->is_roam_scan_ch_to_host;
 }
 
 /**
@@ -2373,6 +2374,7 @@ static int __hdd_pktcapture_open(struct net_device *dev)
 	int ret;
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	struct hdd_adapter *sta_adapter;
 
 	hdd_enter_dev(dev);
 
@@ -2380,11 +2382,27 @@ static int __hdd_pktcapture_open(struct net_device *dev)
 	if (ret)
 		return ret;
 
+	sta_adapter = hdd_get_adapter(hdd_ctx, QDF_STA_MODE);
+	if (!sta_adapter) {
+		hdd_err("No station interface found");
+		return -EINVAL;
+	}
+
+	adapter->vdev = hdd_objmgr_get_vdev(sta_adapter);
+	if (!adapter->vdev)
+		return -EINVAL;
+
 	hdd_mon_mode_ether_setup(dev);
 
 	ret = ucfg_pkt_capture_register_callbacks(adapter->vdev,
 						  hdd_mon_rx_packet_cbk,
 						  adapter);
+	if (ret) {
+		hdd_objmgr_put_vdev(sta_adapter->vdev);
+		return ret;
+	}
+
+	ret = ucfg_pkt_capture_enable_ops(adapter->vdev);
 	if (!ret)
 		set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
 
@@ -3588,8 +3606,11 @@ static int __hdd_stop(struct net_device *dev)
 	if (adapter->device_mode == QDF_STA_MODE)
 		hdd_lpass_notify_stop(hdd_ctx);
 
-	if (wlan_hdd_is_session_type_monitor(adapter->device_mode))
+	if (wlan_hdd_is_session_type_monitor(adapter->device_mode)) {
 		ucfg_pkt_capture_deregister_callbacks(adapter->vdev);
+		hdd_objmgr_put_vdev(adapter->vdev);
+		adapter->vdev = NULL;
+	}
 
 	/*
 	 * NAN data interface is different in some sense. The traffic on NDI is
@@ -5770,6 +5791,7 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 	struct sap_config *sap_config;
 	mac_handle_t mac_handle;
 	struct wlan_objmgr_vdev *vdev;
+	enum eSirMacReasonCodes reason = eSIR_MAC_IFACE_DOWN;
 
 	hdd_enter();
 
@@ -5803,22 +5825,28 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 			INIT_COMPLETION(adapter->disconnect_comp_var);
 
 			roam_profile = hdd_roam_profile(adapter);
+			if (cds_is_driver_recovering())
+				reason = eSIR_MAC_DEVICE_RECOVERY;
+
 			/* For NDI do not use roam_profile */
 			if (adapter->device_mode == QDF_NDI_MODE)
 				status = sme_roam_disconnect(
 					mac_handle,
 					adapter->vdev_id,
-					eCSR_DISCONNECT_REASON_NDI_DELETE);
+					eCSR_DISCONNECT_REASON_NDI_DELETE,
+					reason);
 			else if (roam_profile->BSSType ==
 						eCSR_BSS_TYPE_START_IBSS)
 				status = sme_roam_disconnect(
 					mac_handle,
 					adapter->vdev_id,
-					eCSR_DISCONNECT_REASON_IBSS_LEAVE);
+					eCSR_DISCONNECT_REASON_IBSS_LEAVE,
+					reason);
 			else if (adapter->device_mode == QDF_STA_MODE) {
 				rc = wlan_hdd_disconnect(
 						adapter,
-						eCSR_DISCONNECT_REASON_DEAUTH);
+						eCSR_DISCONNECT_REASON_DEAUTH,
+						reason);
 				if (rc != 0 && ucfg_ipa_is_enabled()) {
 					hdd_err("STA disconnect failed");
 					ucfg_ipa_uc_cleanup_sta(hdd_ctx->pdev,
@@ -5828,7 +5856,8 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 				status = sme_roam_disconnect(
 					mac_handle,
 					adapter->vdev_id,
-					eCSR_DISCONNECT_REASON_UNSPECIFIED);
+					eCSR_DISCONNECT_REASON_UNSPECIFIED,
+					reason);
 			}
 			/* success implies disconnect is queued */
 			if (QDF_IS_STATUS_SUCCESS(status) &&
@@ -5903,6 +5932,16 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 		break;
 
 	case QDF_MONITOR_MODE:
+		if (wlan_hdd_is_session_type_monitor(QDF_MONITOR_MODE)) {
+			adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
+
+			if (adapter->vdev) {
+				ucfg_pkt_capture_deregister_callbacks(
+						adapter->vdev);
+				hdd_objmgr_put_vdev(adapter->vdev);
+				adapter->vdev = NULL;
+			}
+		}
 		wlan_hdd_scan_abort(adapter);
 		hdd_deregister_hl_netdev_fc_timer(adapter);
 		hdd_deregister_tx_flow_control(adapter);
@@ -6985,9 +7024,9 @@ QDF_STATUS hdd_start_all_adapters(struct hdd_context *hdd_ctx)
 
 				/* indicate disconnected event to nl80211 */
 				wlan_hdd_cfg80211_indicate_disconnect(
-						adapter->dev, false,
-						WLAN_REASON_UNSPECIFIED,
-						NULL, 0);
+					adapter, true,
+					eSIR_MAC_DEVICE_RECOVERY,
+					NULL, 0);
 			} else if (eConnectionState_Connecting == conn_state) {
 				/*
 				 * Indicate connect failure to supplicant if we
@@ -7882,7 +7921,6 @@ static void wlan_hdd_cache_chann_mutex_destroy(struct hdd_context *hdd_ctx)
 void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 {
 	struct wiphy *wiphy = hdd_ctx->wiphy;
-	struct hdd_adapter *adapter;
 
 	hdd_enter();
 
@@ -7920,13 +7958,6 @@ void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 		 */
 		hdd_abort_mac_scan_all_adapters(hdd_ctx);
 		hdd_abort_sched_scan_all_adapters(hdd_ctx);
-
-		if (wlan_hdd_is_session_type_monitor(QDF_MONITOR_MODE)) {
-			adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
-			if (adapter)
-				ucfg_pkt_capture_deregister_callbacks(
-						adapter->vdev);
-		}
 
 		hdd_stop_all_adapters(hdd_ctx);
 		hdd_deinit_all_adapters(hdd_ctx, false);
@@ -13062,6 +13093,7 @@ int hdd_register_cb(struct hdd_context *hdd_ctx)
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
 
 	sme_set_oem_data_event_handler_cb(mac_handle, hdd_oem_event_handler_cb);
+	sme_set_roam_scan_ch_event_cb(mac_handle, hdd_get_roam_scan_ch_cb);
 
 	hdd_exit();
 
@@ -16093,6 +16125,11 @@ void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
 	wlan_hdd_release_intf_addr(hdd_ctx, adapter->mac_addr.bytes);
 	hdd_stop_adapter(hdd_ctx, adapter);
 	hdd_close_adapter(hdd_ctx, adapter, true);
+
+	if (adapter->vdev) {
+		hdd_objmgr_put_vdev(adapter->vdev);
+		adapter->vdev = NULL;
+	}
 
 	hdd_open_p2p_interface(hdd_ctx);
 }

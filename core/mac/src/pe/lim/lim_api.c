@@ -1517,13 +1517,6 @@ lim_enc_type_matched(struct mac_context *mac_ctx,
 	if (!bcn || !session)
 		return false;
 
-	pe_debug("Beacon/Probe:: Privacy: %d WPA Present: %d RSN Present: %d",
-		bcn->capabilityInfo.privacy, bcn->wpaPresent, bcn->rsnPresent);
-	pe_debug("session:: Privacy: %d EncyptionType: %d OSEN: %d WPS: %d",
-		SIR_MAC_GET_PRIVACY(session->limCurrentBssCaps),
-		session->encryptType, session->isOSENConnection,
-		session->wps_registration);
-
 	/*
 	 * This is handled by sending probe req due to IOT issues so
 	 * return TRUE
@@ -1573,6 +1566,12 @@ lim_enc_type_matched(struct mac_context *mac_ctx,
 	if (session->isOSENConnection ||
 	   session->wps_registration)
 		return true;
+
+	pe_debug("AP:: Privacy %d WPA %d RSN %d, SELF:: Privacy %d Enc %d OSEN %d WPS %d",
+		 bcn->capabilityInfo.privacy, bcn->wpaPresent, bcn->rsnPresent,
+		 SIR_MAC_GET_PRIVACY(session->limCurrentBssCaps),
+		 session->encryptType, session->isOSENConnection,
+		 session->wps_registration);
 
 	return false;
 }
@@ -2257,7 +2256,8 @@ lim_copy_and_free_hlp_data_from_session(struct pe_session *session_ptr,
 QDF_STATUS
 pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 		       uint8_t *deauth_disassoc_frame,
-		       uint16_t deauth_disassoc_frame_len)
+		       uint16_t deauth_disassoc_frame_len,
+		       uint16_t reason_code)
 {
 	struct pe_session *session;
 
@@ -2267,10 +2267,27 @@ pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	lim_extract_ies_from_deauth_disassoc(session, deauth_disassoc_frame,
-					     deauth_disassoc_frame_len);
+	if (!((session->limMlmState == eLIM_MLM_LINK_ESTABLISHED_STATE) &&
+	      (session->limSmeState != eLIM_SME_WT_DISASSOC_STATE) &&
+	      (session->limSmeState != eLIM_SME_WT_DEAUTH_STATE))) {
+		pe_info("Cannot handle in mlmstate %d sme state %d as vdev_id:%d is not in connected state",
+			session->limMlmState, session->limSmeState, vdev_id);
+		return QDF_STATUS_SUCCESS;
+	}
+
+	if (deauth_disassoc_frame &&
+	    deauth_disassoc_frame_len > SIR_MAC_MIN_IE_LEN) {
+		lim_extract_ies_from_deauth_disassoc(session,
+						     deauth_disassoc_frame,
+						     deauth_disassoc_frame_len);
+
+		reason_code = sir_read_u16(deauth_disassoc_frame +
+					   sizeof(struct wlan_frame_hdr));
+	}
+
 	lim_tear_down_link_with_ap(mac, session->peSessionId,
-				   eSIR_MAC_UNSPEC_FAILURE_REASON);
+				   reason_code,
+				   eLIM_PEER_ENTITY_DEAUTH);
 
 	return QDF_STATUS_SUCCESS;
 }

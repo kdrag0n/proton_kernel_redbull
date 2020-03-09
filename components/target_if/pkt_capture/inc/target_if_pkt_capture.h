@@ -25,18 +25,27 @@
 #ifndef _TARGET_IF_PKT_CAPTURE_H_
 #define _TARGET_IF_PKT_CAPTURE_H_
 
-#include <qdf_types.h>
-#include "wlan_pkt_capture_public_structs.h"
+#include <wlan_pkt_capture_main.h>
+#include <wlan_pkt_capture_ucfg_api.h>
+#include <wlan_pkt_capture_mgmt_txrx.h>
+#include <wlan_pkt_capture_public_structs.h>
+#include <target_if.h>
+#include <linux/ieee80211.h>
 
 /**
- * target_if_set_packet_capture_mode() - set packet capture mode
- * @psoc: pointer to psoc object
- * @vdev_id: vdev id
- * @mode: mode to set
- *
- * Return: QDF_STATUS
+ * target_if_pkt_capture_register_rx_ops() - Register packet capture RX ops
+ * @rx_ops: packet capture component reception ops
+ * Return: None
  */
-QDF_STATUS target_if_set_packet_capture_mode(struct wlan_objmgr_psoc *psoc,
-					     uint8_t vdev_id,
-					     enum pkt_capture_mode mode);
+void
+target_if_pkt_capture_register_rx_ops(struct wlan_pkt_capture_rx_ops *rx_ops);
+
+/**
+ * target_if_pkt_capture_register_tx_ops() - Register packet capture TX ops
+ * @tx_ops: pkt capture component transmit ops
+ *
+ * Return: None
+ */
+void target_if_pkt_capture_register_tx_ops(struct wlan_pkt_capture_tx_ops
+					   *tx_ops);
 #endif /* _TARGET_IF_PKT_CAPTURE_H_ */
