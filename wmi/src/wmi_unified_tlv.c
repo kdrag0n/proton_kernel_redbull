@@ -3027,6 +3027,40 @@ error:
 	return ret;
 }
 
+#define WMI_MAX_CHAN_INFO_LOG 192
+
+/**
+ * wmi_scan_chanlist_dump() - Dump scan channel list info
+ * @scan_chan_list: scan channel list
+ *
+ * Return: void
+ */
+static void wmi_scan_chanlist_dump(struct scan_chan_list_params *scan_chan_list)
+{
+	uint32_t i;
+	uint8_t info[WMI_MAX_CHAN_INFO_LOG];
+	uint32_t len = 0;
+	struct channel_param *chan;
+	int ret;
+
+	wmi_debug("Total chan %d", scan_chan_list->nallchans);
+	for (i = 0; i < scan_chan_list->nallchans; i++) {
+		chan = &scan_chan_list->ch_param[i];
+		ret = qdf_scnprintf(info + len, sizeof(info) - len,
+				    " %d[%d][%d]", chan->mhz, chan->maxregpower,
+				    chan->dfs_set);
+		if (ret <= 0)
+			break;
+		len += ret;
+		if (len >= (sizeof(info) - 20)) {
+			wmi_nofl_debug("Chan[TXPwr][DFS]:%s", info);
+			len = 0;
+		}
+	}
+	if (len)
+		wmi_nofl_debug("Chan[TXPwr][DFS]:%s", info);
+}
+
 static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 				struct scan_chan_list_params *chan_list)
 {
@@ -3039,6 +3073,7 @@ static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 	struct channel_param *tchan_info;
 	uint16_t len = sizeof(*cmd) + WMI_TLV_HDR_SIZE;
 
+	wmi_scan_chanlist_dump(chan_list);
 	len += sizeof(wmi_channel) * chan_list->nallchans;
 	buf = wmi_buf_alloc(wmi_handle, len);
 	if (!buf) {
@@ -3052,8 +3087,6 @@ static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 		       WMITLV_TAG_STRUC_wmi_scan_chan_list_cmd_fixed_param,
 		       WMITLV_GET_STRUCT_TLVLEN
 			       (wmi_scan_chan_list_cmd_fixed_param));
-
-	WMI_LOGD("no of channels = %d, len = %d", chan_list->nallchans, len);
 
 	if (chan_list->append)
 		cmd->flags |= APPEND_TO_EXISTING_CHAN_LIST;
@@ -3122,7 +3155,6 @@ static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 					     tchan_info->maxregpower);
 		WMI_SET_CHANNEL_MAX_BANDWIDTH(chan_info,
 					      tchan_info->max_bw_supported);
-		WMI_LOGD("chan[%d] = %u", i, chan_info->mhz);
 
 		tchan_info++;
 		chan_info++;
@@ -6623,6 +6655,10 @@ void wmi_copy_resource_config(wmi_resource_config *resource_cfg,
 		WMI_RSRC_CFG_FLAG_TX_COMPLETION_TX_TSF64_ENABLE_SET(
 						resource_cfg->flag1, 1);
 
+	if (tgt_res_cfg->pktcapture_support)
+		WMI_RSRC_CFG_FLAG_PACKET_CAPTURE_SUPPORT_SET(
+				resource_cfg->flag1, 1);
+
 	wmi_copy_twt_resource_config(resource_cfg, tgt_res_cfg);
 	resource_cfg->peer_map_unmap_v2_support =
 		tgt_res_cfg->peer_map_unmap_v2;
@@ -8014,6 +8050,37 @@ QDF_STATUS send_obss_spatial_reuse_set_cmd_tlv(wmi_unified_t wmi_handle,
 }
 #endif
 
+#ifdef WLAN_FEATURE_PKT_CAPTURE
+static QDF_STATUS
+extract_vdev_mgmt_offload_event_tlv(void *handle, void *evt_buf,
+				    struct mgmt_offload_event_params *params)
+{
+	WMI_VDEV_MGMT_OFFLOAD_EVENTID_param_tlvs *param_tlvs;
+	wmi_mgmt_hdr *hdr;
+
+	param_tlvs = (WMI_VDEV_MGMT_OFFLOAD_EVENTID_param_tlvs *)evt_buf;
+	if (!param_tlvs)
+		return QDF_STATUS_E_INVAL;
+
+	hdr = param_tlvs->fixed_param;
+	if (!hdr)
+		return QDF_STATUS_E_INVAL;
+
+	if (hdr->buf_len > param_tlvs->num_bufp)
+		return QDF_STATUS_E_INVAL;
+
+	params->tsf_l32 = hdr->tsf_l32;
+	params->chan_freq = hdr->chan_freq;
+	params->rate_kbps = hdr->rate_kbps;
+	params->rssi = hdr->rssi;
+	params->buf_len = hdr->buf_len;
+	params->tx_status = hdr->tx_status;
+	params->buf = param_tlvs->bufp;
+	params->tx_retry_cnt = hdr->tx_retry_cnt;
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* WLAN_FEATURE_PKT_CAPTURE */
+
 #ifdef QCA_SUPPORT_CP_STATS
 /**
  * extract_cca_stats_tlv - api to extract congestion stats from event buffer
@@ -8031,10 +8098,8 @@ static QDF_STATUS extract_cca_stats_tlv(wmi_unified_t wmi_handle,
 
 	param_buf = (WMI_UPDATE_STATS_EVENTID_param_tlvs *)evt_buf;
 	congestion_stats = param_buf->congestion_stats;
-	if (!congestion_stats) {
-		WMI_LOGD("%s: no cca stats in event buffer", __func__);
+	if (!congestion_stats)
 		return QDF_STATUS_E_INVAL;
-	}
 
 	out_buff->vdev_id = congestion_stats->vdev_id;
 	out_buff->congestion = congestion_stats->congestion;
@@ -11016,6 +11081,47 @@ send_roam_scan_stats_cmd_tlv(wmi_unified_t wmi_handle,
 }
 
 /**
+ * send_roam_scan_ch_list_req_cmd_tlv() - send wmi cmd to get roam scan
+ * channel list from firmware
+ * @wmi_handle: wmi handler
+ * @vdev_id: vdev id
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS send_roam_scan_ch_list_req_cmd_tlv(wmi_unified_t wmi_handle,
+						     uint32_t vdev_id)
+{
+	wmi_buf_t buf;
+	wmi_roam_get_scan_channel_list_cmd_fixed_param *cmd;
+	uint16_t len = sizeof(*cmd);
+	int ret;
+
+	buf = wmi_buf_alloc(wmi_handle, len);
+	if (!buf) {
+		WMI_LOGE("%s: Failed to allocate wmi buffer", __func__);
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	cmd = (wmi_roam_get_scan_channel_list_cmd_fixed_param *)
+					wmi_buf_data(buf);
+	WMITLV_SET_HDR(&cmd->tlv_header,
+	WMITLV_TAG_STRUC_wmi_roam_get_scan_channel_list_cmd_fixed_param,
+	WMITLV_GET_STRUCT_TLVLEN(
+		wmi_roam_get_scan_channel_list_cmd_fixed_param));
+	cmd->vdev_id = vdev_id;
+	wmi_mtrace(WMI_ROAM_GET_SCAN_CHANNEL_LIST_CMDID, vdev_id, 0);
+	ret = wmi_unified_cmd_send(wmi_handle, buf, len,
+				   WMI_ROAM_GET_SCAN_CHANNEL_LIST_CMDID);
+	if (QDF_IS_STATUS_ERROR(ret)) {
+		WMI_LOGE("Failed to send get roam scan channels request = %d",
+			 ret);
+		wmi_buf_free(buf);
+	}
+
+	return ret;
+}
+
+/**
  * extract_roam_scan_stats_res_evt_tlv() - Extract roam scan stats event
  * @wmi_handle: wmi handle
  * @evt_buf: pointer to event buffer
@@ -12341,6 +12447,10 @@ struct wmi_ops tlv_ops =  {
 	.extract_roam_scan_stats = extract_roam_scan_stats_tlv,
 	.extract_roam_result_stats = extract_roam_result_stats_tlv,
 	.extract_roam_11kv_stats = extract_roam_11kv_stats_tlv,
+	.send_roam_scan_ch_list_req_cmd = send_roam_scan_ch_list_req_cmd_tlv,
+#ifdef WLAN_FEATURE_PKT_CAPTURE
+	.extract_vdev_mgmt_offload_event = extract_vdev_mgmt_offload_event_tlv,
+#endif /* WLAN_FEATURE_PKT_CAPTURE */
 };
 
 /**
@@ -12683,6 +12793,10 @@ static void populate_tlv_events_id(uint32_t *event_ids)
 	event_ids[wmi_roam_stats_event_id] = WMI_ROAM_STATS_EVENTID;
 	event_ids[wmi_roam_pmkid_request_event_id] =
 				WMI_ROAM_PMKID_REQUEST_EVENTID;
+	event_ids[wmi_roam_scan_chan_list_id] =
+			WMI_ROAM_SCAN_CHANNEL_LIST_EVENTID;
+	event_ids[wmi_mgmt_offload_data_event_id] =
+				WMI_VDEV_MGMT_OFFLOAD_EVENTID;
 }
 
 /**
@@ -12954,6 +13068,10 @@ static void populate_tlv_service(uint32_t *wmi_service)
 	wmi_service[wmi_service_6ghz_support] =
 			WMI_SERVICE_6GHZ_SUPPORT;
 	wmi_service[wmi_service_nan_vdev] = WMI_SERVICE_NAN_VDEV_SUPPORT;
+	wmi_service[wmi_roam_scan_chan_list_to_host_support] =
+		WMI_SERVICE_ROAM_SCAN_CHANNEL_LIST_TO_HOST_SUPPORT;
+	wmi_service[wmi_service_packet_capture_support] =
+			WMI_SERVICE_PACKET_CAPTURE_SUPPORT;
 }
 
 /**

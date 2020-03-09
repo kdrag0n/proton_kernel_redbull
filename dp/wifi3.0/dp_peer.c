@@ -2473,6 +2473,16 @@ int dp_addba_resp_tx_completion_wifi3(void *peer_handle,
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	if (dp_rx_tid_update_wifi3(peer, tid,
+				   rx_tid->ba_win_size,
+				   rx_tid->startseqnum)) {
+		dp_err("%s: failed update REO SSN", __func__);
+	}
+
+	dp_info("%s: tid %u window_size %u start_seq_num %u",
+		__func__, tid, rx_tid->ba_win_size,
+		rx_tid->startseqnum);
+
 	/* First Session */
 	if (peer->active_ba_session_cnt == 0) {
 		if (rx_tid->ba_win_size > 64 && rx_tid->ba_win_size <= 256)
@@ -3368,17 +3378,19 @@ uint8_t dp_get_peer_mac_addr_frm_id(struct cdp_soc_t *soc_handle,
  * @dp_stats_cmd_cb: REO command callback function
  * @cb_ctxt: Callback context
  *
- * Return: none
+ * Return: count of tid stats cmd send succeeded
  */
-void dp_peer_rxtid_stats(struct dp_peer *peer, void (*dp_stats_cmd_cb),
+int dp_peer_rxtid_stats(struct dp_peer *peer, void (*dp_stats_cmd_cb),
 			void *cb_ctxt)
 {
 	struct dp_soc *soc = peer->vdev->pdev->soc;
 	struct hal_reo_cmd_params params;
 	int i;
+	int stats_cmd_sent_cnt = 0;
+	QDF_STATUS status;
 
 	if (!dp_stats_cmd_cb)
-		return;
+		return stats_cmd_sent_cnt;
 
 	qdf_mem_zero(&params, sizeof(params));
 	for (i = 0; i < DP_MAX_TIDS; i++) {
@@ -3391,12 +3403,19 @@ void dp_peer_rxtid_stats(struct dp_peer *peer, void (*dp_stats_cmd_cb),
 				(uint64_t)(rx_tid->hw_qdesc_paddr) >> 32;
 
 			if (cb_ctxt) {
-				dp_reo_send_cmd(soc, CMD_GET_QUEUE_STATS,
-					&params, dp_stats_cmd_cb, cb_ctxt);
+				status = dp_reo_send_cmd(
+						soc, CMD_GET_QUEUE_STATS,
+						&params, dp_stats_cmd_cb,
+						cb_ctxt);
 			} else {
-				dp_reo_send_cmd(soc, CMD_GET_QUEUE_STATS,
-					&params, dp_stats_cmd_cb, rx_tid);
+				status = dp_reo_send_cmd(
+						soc, CMD_GET_QUEUE_STATS,
+						&params, dp_stats_cmd_cb,
+						rx_tid);
 			}
+
+			if (QDF_IS_STATUS_SUCCESS(status))
+				stats_cmd_sent_cnt++;
 
 			/* Flush REO descriptor from HW cache to update stats
 			 * in descriptor memory. This is to help debugging */
@@ -3411,6 +3430,8 @@ void dp_peer_rxtid_stats(struct dp_peer *peer, void (*dp_stats_cmd_cb),
 				NULL);
 		}
 	}
+
+	return stats_cmd_sent_cnt;
 }
 
 void dp_set_michael_key(struct cdp_peer *peer_handle,
