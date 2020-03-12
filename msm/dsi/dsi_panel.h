@@ -30,6 +30,9 @@
 #define DSI_MODE_MAX 32
 #define HBM_RANGE_MAX 4
 
+#define BL_STATE_STANDBY	BL_CORE_FBBLANK
+#define BL_STATE_LP		BL_CORE_LP1
+#define BL_STATE_LP2		BL_CORE_LP2
 /*
  * Defining custom dsi msg flag,
  * continued from drm_mipi_dsi.h
@@ -432,6 +435,11 @@ static inline void dsi_panel_release_panel_lock(struct dsi_panel *panel)
 static inline bool dsi_panel_is_type_oled(struct dsi_panel *panel)
 {
 	return (panel->panel_type == DSI_DISPLAY_PANEL_TYPE_OLED);
+}
+
+static inline bool is_standby_mode(unsigned long state)
+{
+	return (state & BL_STATE_STANDBY) != 0;
 }
 
 struct dsi_panel *dsi_panel_get(struct device *parent,

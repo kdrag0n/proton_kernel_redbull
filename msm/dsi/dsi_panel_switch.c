@@ -683,6 +683,115 @@ static const struct file_operations panel_switch_fops = {
 	.release = single_release,
 };
 
+static ssize_t te2_table_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	const struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct dsi_backlight_config *bl;
+	struct backlight_device *bd;
+	u32 table[TE2_EDGE_MAX * 2] = {0};
+	char *buf_dup;
+	ssize_t rc, buf_dup_len;
+	u8 i, table_len;
+
+	display = dev_get_drvdata(dev);
+	if (unlikely(!display || !display->panel || !count))
+		return -EINVAL;
+
+	panel = display->panel;
+	bl = &panel->bl_config;
+	bd = bl->bl_device;
+	if (unlikely(!bd))
+		return -EINVAL;
+
+	if (!panel->te2_config.te2_ready)
+		return -EOPNOTSUPP;
+
+	buf_dup = kstrndup(buf, count, GFP_KERNEL);
+	if (!buf_dup)
+		return -ENOMEM;
+
+	buf_dup_len = strlen(buf_dup) + 1;
+
+	rc = parse_u32_buf(buf_dup, buf_dup_len, table, TE2_EDGE_MAX * 2);
+	if (rc < 0) {
+		kfree(buf_dup);
+		pr_warn("incorrect parameters from te2 table node, rc=%d\n",
+			rc);
+		return rc;
+	}
+
+	table_len = rc / 2;
+	if (table_len != ARRAY_SIZE(panel->te2_config.te2_edge)) {
+		kfree(buf_dup);
+		pr_warn("incorrect array size of te2 table.\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&panel->panel_lock);
+	for (i = 0; i < table_len; i++) {
+		panel->te2_config.te2_edge[i].rising = table[i * 2];
+		panel->te2_config.te2_edge[i].falling = table[i * 2 + 1];
+	}
+
+	if (!is_standby_mode(bd->props.state)) {
+		pr_debug("te2_config.current_type =%d\n",
+			 panel->te2_config.current_type);
+		s6e3hc2_te2_update_reg_locked(panel);
+	}
+
+	mutex_unlock(&panel->panel_lock);
+
+	kfree(buf_dup);
+
+	return count;
+}
+
+static ssize_t te2_table_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	const struct dsi_display *display;
+	struct dsi_panel *panel;
+	int i;
+	ssize_t len = 0;
+
+	display = dev_get_drvdata(dev);
+	if (unlikely(!display || !display->panel))
+		return -EINVAL;
+
+	panel = display->panel;
+	if (!panel->te2_config.te2_ready)
+		return -EOPNOTSUPP;
+
+	mutex_lock(&panel->panel_lock);
+
+	for (i = 0; i < TE2_EDGE_MAX; i++) {
+		len += scnprintf((buf + len), PAGE_SIZE - len, "%u %u ",
+				 panel->te2_config.te2_edge[i].rising,
+				 panel->te2_config.te2_edge[i].falling);
+	}
+
+	mutex_unlock(&panel->panel_lock);
+
+	len += scnprintf(buf + len, PAGE_SIZE - len, "\n");
+
+	return len;
+}
+
+static DEVICE_ATTR_RW(te2_table);
+
+static struct attribute *panel_te2_sysfs_attrs[] = {
+	&dev_attr_te2_table.attr,
+	NULL,
+};
+
+static struct attribute_group panel_te2_attrs_group = {
+	.attrs = panel_te2_sysfs_attrs,
+};
+
+
 static ssize_t sysfs_idle_mode_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
@@ -809,6 +918,8 @@ static int panel_switch_data_init(struct dsi_panel *panel,
 
 	sysfs_create_group(&panel->parent->kobj,
 			   &panel_switch_sysfs_attrs_group);
+	sysfs_create_group(&panel->parent->kobj,
+			   &panel_te2_attrs_group);
 
 	return 0;
 }
@@ -819,6 +930,8 @@ static void panel_switch_data_deinit(struct panel_switch_data *pdata)
 	kthread_stop(pdata->thread);
 	sysfs_remove_group(&pdata->panel->parent->kobj,
 			   &panel_switch_sysfs_attrs_group);
+	sysfs_remove_group(&pdata->panel->parent->kobj,
+			   &panel_te2_attrs_group);
 }
 
 static void panel_switch_data_destroy(struct panel_switch_data *pdata)

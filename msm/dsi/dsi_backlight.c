@@ -32,10 +32,6 @@
 #define BL_NODE_NAME_SIZE 32
 #define BL_BRIGHTNESS_BUF_SIZE 2
 
-#define BL_STATE_STANDBY	BL_CORE_FBBLANK
-#define BL_STATE_LP		BL_CORE_LP1
-#define BL_STATE_LP2		BL_CORE_LP2
-
 struct dsi_backlight_pwm_config {
 	struct pwm_device *pwm_bl;
 	bool pwm_enabled;
@@ -50,11 +46,6 @@ static void dsi_panel_bl_notifier_free(struct device *dev,
 
 static int dsi_panel_bl_find_range(struct dsi_backlight_config *bl,
 		int brightness, u32 *range);
-
-static inline bool is_standby_mode(unsigned long state)
-{
-	return (state & BL_STATE_STANDBY) != 0;
-}
 
 static inline bool is_lp_mode(unsigned long state)
 {
@@ -719,7 +710,8 @@ int parse_u32_buf(char *src, size_t src_len, u32 *out, size_t out_len)
 	if (unlikely(!src || !src_len || !out || !out_len))
 		return -EINVAL;
 
-	if (strlen(src) != src_len)
+	/* src_len is the length of src including null character '\0' */
+	if (strnlen(src, src_len) == src_len)
 		return -EINVAL;
 
 	for (str = strsep(&src, delim); str != NULL; str = strsep(&src, delim)) {
@@ -743,7 +735,7 @@ static ssize_t als_table_store(struct device *dev,
 
 	struct backlight_device *bd = to_backlight_device(dev);
 	struct dsi_backlight_config *bl = bl_get_data(bd);
-	ssize_t als_count;
+	ssize_t als_count, buf_dup_len;
 	u8 i;
 	u32 ranges[BL_RANGE_MAX] = {0};
 	char *buf_dup;
@@ -758,10 +750,9 @@ static ssize_t als_table_store(struct device *dev,
 	if (!buf_dup)
 		return -ENOMEM;
 
-	if (strlen(buf_dup) != count)
-		return -EINVAL;
+	buf_dup_len = strlen(buf_dup) + 1;
 
-	als_count = parse_u32_buf(buf_dup, count, ranges, BL_RANGE_MAX);
+	als_count = parse_u32_buf(buf_dup, buf_dup_len, ranges, BL_RANGE_MAX);
 	if ((als_count < 0) || (als_count > BL_RANGE_MAX)) {
 		kfree(buf_dup);
 		pr_warn("als: incorrect parameters from als table node\n");
