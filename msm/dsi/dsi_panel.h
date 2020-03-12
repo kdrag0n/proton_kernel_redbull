@@ -127,6 +127,16 @@ struct hbm_range {
 };
 
 struct hbm_data {
+	/* IRC register address */
+	u8 irc_addr;
+	u8 *irc_data;
+	u32 irc_bit_offset;
+
+	/* Command to be sent to the panel to irc unlock */
+	struct dsi_panel_cmd_set irc_unlock_cmd;
+	/* Command to be sent to the panel to irc lock  */
+	struct dsi_panel_cmd_set irc_lock_cmd;
+
 	/* Command to be sent to the panel when exiting HBM */
 	struct dsi_panel_cmd_set exit_cmd;
 	/* Command to be sent to the panel to stop brightness dimming */
@@ -518,9 +528,12 @@ void dsi_panel_bl_debugfs_init(struct dentry *parent, struct dsi_panel *panel);
 int dsi_panel_update_hbm(struct dsi_panel *panel, enum hbm_mode_type);
 enum hbm_mode_type dsi_panel_get_hbm(struct dsi_panel *panel);
 
+int dsi_panel_bl_update_irc(struct dsi_backlight_config *bl, bool enable);
+
 int dsi_panel_switch_init(struct dsi_panel *panel);
 void dsi_panel_switch_destroy(struct dsi_panel *panel);
 void dsi_panel_switch_put_mode(struct dsi_display_mode *mode);
+int dsi_panel_switch_update_hbm(struct dsi_panel *panel);
 
 int dsi_panel_idle(struct dsi_panel *panel);
 int dsi_panel_wakeup(struct dsi_panel *panel);

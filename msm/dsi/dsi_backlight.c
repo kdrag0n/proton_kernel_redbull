@@ -170,6 +170,13 @@ static u32 dsi_backlight_calculate_normal(struct dsi_backlight_config *bl,
 
 	return bl_lvl;
 }
+int dsi_panel_switch_update_hbm(struct dsi_panel *panel)
+{
+	if (!panel || !panel->funcs || !panel->funcs->update_hbm)
+		return -EOPNOTSUPP;
+
+	return panel->funcs->update_hbm(panel);
+}
 
 int dsi_backlight_hbm_dimming_start(struct dsi_backlight_config *bl,
 	u32 num_frames, struct dsi_panel_cmd_set *stop_cmd)
@@ -222,6 +229,7 @@ void dsi_backlight_hbm_dimming_stop(struct dsi_backlight_config *bl)
 	struct dsi_display *display;
 	struct hbm_data *hbm = bl->hbm;
 	struct dsi_panel *panel = container_of(bl, struct dsi_panel, bl_config);
+	int rc = 0;
 
 	if (!hbm || !hbm->dimming_active)
 		return;
@@ -240,8 +248,7 @@ void dsi_backlight_hbm_dimming_stop(struct dsi_backlight_config *bl)
 	hbm->dimming_active = false;
 
 	if (hbm->dimming_stop_cmd) {
-		int rc = panel->funcs->update_hbm(panel);
-
+		rc = dsi_panel_switch_update_hbm(panel);
 		if (rc == -EOPNOTSUPP)
 			rc = dsi_panel_cmd_set_transfer(hbm->panel,
 				hbm->dimming_stop_cmd);
@@ -252,10 +259,10 @@ void dsi_backlight_hbm_dimming_stop(struct dsi_backlight_config *bl)
 	hbm->dimming_stop_cmd = NULL;
 
 	if (panel->hbm_pending_irc_on) {
-		int rc = panel->funcs->update_irc(panel, true);
+		rc = dsi_panel_bl_update_irc(bl, true);
 
 		if (rc)
-			pr_err("hmb sv: failed to enble IRC.\n");
+			pr_err("hmb sv: failed to enable IRC.\n");
 		panel->hbm_pending_irc_on = false;
 	}
 
@@ -384,7 +391,7 @@ static u32 dsi_backlight_calculate_hbm(struct dsi_backlight_config *bl,
 		pr_info("hbm: range %d -> %d\n", hbm->cur_range, target_range);
 		hbm->cur_range = target_range;
 
-		rc = panel->funcs->update_hbm(panel);
+		rc = dsi_panel_switch_update_hbm(panel);
 		if (rc == -EOPNOTSUPP)
 			rc = dsi_panel_cmd_set_transfer(panel,
 				&range->entry_cmd);
@@ -1340,6 +1347,10 @@ static void dsi_panel_bl_hbm_free(struct device *dev,
 	dsi_panel_destroy_cmd_packets(&hbm->exit_dimming_stop_cmd);
 	dsi_panel_dealloc_cmd_packets(&hbm->exit_dimming_stop_cmd);
 
+	dsi_panel_destroy_cmd_packets(&hbm->irc_unlock_cmd);
+	dsi_panel_destroy_cmd_packets(&hbm->irc_lock_cmd);
+	kfree(hbm->irc_data);
+
 	for (i = 0; i < hbm->num_ranges; i++) {
 		dsi_panel_destroy_cmd_packets(&hbm->ranges[i].entry_cmd);
 		dsi_panel_dealloc_cmd_packets(&hbm->ranges[i].entry_cmd);
@@ -1419,6 +1430,45 @@ static int dsi_panel_bl_parse_hbm(struct device *parent,
 		 bl->hbm->exit_num_dimming_frames)) {
 		pr_err("HBM dimming requires both stop command and number of frames.\n");
 		goto exit_free;
+	}
+
+	rc = of_property_read_u32(hbm_ranges_np,
+		"google,dsi-irc-addr", &val);
+	if (rc) {
+		pr_debug("Unable to parse dsi-irc-addr\n");
+		bl->hbm->irc_addr = 0;
+	} else {
+		bl->hbm->irc_addr = val;
+		rc = of_property_read_u32(hbm_ranges_np,
+			"google,dsi-irc-bit-offset", &val);
+		if (rc) {
+			bl->hbm->irc_bit_offset = 0;
+			bl->hbm->irc_addr = 0;
+			pr_warn("Unable to parse dsi-irc-bit-offset\n");
+		} else {
+			bl->hbm->irc_bit_offset = val;
+		}
+
+		rc = dsi_panel_parse_dt_cmd_set(hbm_ranges_np,
+			"google,dsi-irc-unlock-command",
+			"google,dsi-irc-unlock-commands-state",
+			&bl->hbm->irc_unlock_cmd);
+		if (rc)
+			pr_debug("Unable to parse optional dsi-irc-unlock-command\n");
+
+		rc = dsi_panel_parse_dt_cmd_set(hbm_ranges_np,
+			"google,dsi-irc-lock-command",
+			"google,dsi-irc-lock-commands-state",
+			&bl->hbm->irc_lock_cmd);
+		if (rc)
+			pr_debug("Unable to parse optional dsi-irc-lock-command\n");
+
+		if (!bl->hbm->irc_unlock_cmd.count != !bl->hbm->irc_lock_cmd.count) {
+			dsi_panel_destroy_cmd_packets(&bl->hbm->irc_unlock_cmd);
+			dsi_panel_destroy_cmd_packets(&bl->hbm->irc_lock_cmd);
+			bl->hbm->irc_addr = 0;
+			pr_warn("Unable to get a pair of dsi-irc-unlock/lock command\n");
+		}
 	}
 
 	for_each_child_of_node(hbm_ranges_np, child_np) {
@@ -1718,3 +1768,50 @@ int dsi_panel_bl_brightness_handoff(struct dsi_panel *panel)
 	return rc;
 }
 
+int dsi_panel_bl_update_irc(struct dsi_backlight_config *bl, bool enable)
+{
+	struct hbm_data *hbm = bl->hbm;
+	int rc = 0;
+	u32 byte_offset;
+	u32 bit_mask;
+	u32 irc_data_size;
+
+	if (!hbm || hbm->irc_addr == 0)
+		return -EOPNOTSUPP;
+
+	byte_offset = hbm->irc_bit_offset / BITS_PER_BYTE;
+	bit_mask = BIT(hbm->irc_bit_offset % BITS_PER_BYTE);
+	irc_data_size = byte_offset + 1;
+
+	pr_info("irc update: %d\n", enable);
+	dsi_panel_cmd_set_transfer(hbm->panel, &hbm->irc_unlock_cmd);
+	if (hbm->irc_data == NULL) {
+		hbm->irc_data = kzalloc(irc_data_size, GFP_KERNEL);
+		if (hbm->irc_data == NULL) {
+			pr_err("failed to alloc irc_data.\n");
+			goto done;
+		}
+
+		rc = mipi_dsi_dcs_read(&hbm->panel->mipi_device, hbm->irc_addr,
+				hbm->irc_data, irc_data_size);
+		if (rc != irc_data_size) {
+			pr_err("failed to read irc.\n");
+			goto done;
+		}
+		pr_info("Read back irc initial configuration\n");
+	}
+
+	if (enable)
+		hbm->irc_data[byte_offset] |= bit_mask;
+	else
+		hbm->irc_data[byte_offset] &= ~bit_mask;
+
+	rc = mipi_dsi_dcs_write(&hbm->panel->mipi_device,
+			hbm->irc_addr, hbm->irc_data, irc_data_size);
+
+	if (rc)
+		pr_err("failed to send irc cmd.\n");
+done:
+	dsi_panel_cmd_set_transfer(hbm->panel, &hbm->irc_lock_cmd);
+	return rc;
+}
