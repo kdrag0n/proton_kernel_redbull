@@ -2211,7 +2211,7 @@ static int swrm_get_logical_dev_num(struct swr_master *mstr, u64 dev_id,
 						ret = 0;
 					}
 					dev_dbg(swrm->dev,
-						"%s: devnum %d is assigned for dev addr %lx\n",
+						"%s: devnum %d is assigned for dev addr %llx\n",
 						__func__, i, swr_dev->addr);
 				}
 			}
@@ -2988,7 +2988,23 @@ static int swrm_runtime_suspend(struct device *dev)
 			mutex_unlock(&swrm->reslock);
 			enable_bank_switch(swrm, 0, SWR_ROW_50, SWR_MIN_COL);
 			mutex_lock(&swrm->reslock);
-			swrm_clk_pause(swrm);
+			if (!swrm->clk_stop_mode0_supp) {
+				swrm_clk_pause(swrm);
+			} else {
+				/* Mask bus clash interrupt */
+				swrm->intr_mask &= ~((u32)0x08);
+				swr_master_write(swrm,
+					SWRM_INTERRUPT_MASK_ADDR,
+					swrm->intr_mask);
+				swr_master_write(swrm,
+					 SWR_MSTR_RX_SWRM_CPU_INTERRUPT_EN,
+					 swrm->intr_mask);
+				mutex_unlock(&swrm->reslock);
+				/* clock stop sequence */
+				swrm_cmd_fifo_wr_cmd(swrm, 0x2, 0xF, 0xF,
+						SWRS_SCP_CONTROL);
+				mutex_lock(&swrm->reslock);
+			}
 			swr_master_write(swrm, SWRM_COMP_CFG_ADDR, 0x00);
 			list_for_each_entry(swr_dev, &mstr->devices, dev_list) {
 				ret = swr_device_down(swr_dev);
@@ -3264,12 +3280,19 @@ int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 		break;
 	case SWR_DEVICE_SSR_DOWN:
 		trace_printk("%s: swr device down called\n", __func__);
+		mutex_lock(&swrm->mlock);
+		if (swrm->state == SWR_MSTR_DOWN)
+			dev_dbg(swrm->dev, "%s:SWR master is already Down:%d\n",
+				__func__, swrm->state);
+		else
+			swrm_device_down(&pdev->dev);
 		mutex_lock(&swrm->devlock);
 		swrm->dev_up = false;
 		mutex_unlock(&swrm->devlock);
 		mutex_lock(&swrm->reslock);
 		swrm->state = SWR_MSTR_SSR;
 		mutex_unlock(&swrm->reslock);
+		mutex_unlock(&swrm->mlock);
 		break;
 	case SWR_DEVICE_SSR_UP:
 		/* wait for clk voting to be zero */
