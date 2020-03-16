@@ -253,6 +253,10 @@ ifeq ($(CONFIG_QCACLD_FEATURE_HW_CAPABILITY), y)
 HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_hw_capability.o
 endif
 
+ifeq ($(CONFIG_FW_THERMAL_THROTTLE), y)
+HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_thermal.o
+endif
+
 ###### OSIF_SYNC ########
 SYNC_DIR := os_if/sync
 SYNC_INC_DIR := $(SYNC_DIR)/inc
@@ -992,6 +996,24 @@ ACTION_OUI_OBJS := $(ACTION_OUI_DIR)/core/src/wlan_action_oui_main.o \
 		$(ACTION_OUI_DIR)/core/src/wlan_action_oui_parse.o \
 		$(ACTION_OUI_DIR)/dispatcher/src/wlan_action_oui_tgt_api.o \
 		$(ACTION_OUI_DIR)/dispatcher/src/wlan_action_oui_ucfg_api.o
+endif
+
+######## PACKET CAPTURE ########
+
+PKT_CAPTURE_DIR := components/pkt_capture
+PKT_CAPTURE_TARGET_IF_DIR := components/target_if/pkt_capture/
+PKT_CAPTURE_INC := -I$(WLAN_ROOT)/$(PKT_CAPTURE_DIR)/core/inc \
+		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_DIR)/dispatcher/inc \
+		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_TARGET_IF_DIR)/inc
+
+ifeq ($(CONFIG_WLAN_FEATURE_PKT_CAPTURE), y)
+PKT_CAPTURE_OBJS := $(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_main.o \
+		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_mon_thread.o \
+		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_ucfg_api.o \
+		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_mgmt_txrx.o \
+		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_data_txrx.o \
+		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_ucfg_api.o \
+		$(PKT_CAPTURE_TARGET_IF_DIR)/src/target_if_pkt_capture.o
 endif
 
 ########## CLD TARGET_IF #######
@@ -1896,6 +1918,7 @@ INCS +=		$(HOST_DIAG_LOG_INC)
 
 INCS +=		$(DISA_INC)
 INCS +=		$(ACTION_OUI_INC)
+INCS +=		$(PKT_CAPTURE_INC)
 
 INCS +=		$(UMAC_DISP_INC)
 INCS +=		$(UMAC_SCAN_INC)
@@ -1998,6 +2021,10 @@ endif
 
 ifeq ($(CONFIG_WLAN_FEATURE_ACTION_OUI), y)
 OBJS +=		$(ACTION_OUI_OBJS)
+endif
+
+ifeq ($(CONFIG_WLAN_FEATURE_PKT_CAPTURE), y)
+OBJS +=		$(PKT_CAPTURE_OBJS)
 endif
 
 OBJS +=		$(UMAC_DISP_OBJS)
@@ -2551,6 +2578,8 @@ cppflags-$(CONFIG_MCC_TO_SCC_SWITCH) += -DFEATURE_WLAN_MCC_TO_SCC_SWITCH
 
 cppflags-$(CONFIG_FEATURE_WLAN_D0WOW) += -DFEATURE_WLAN_D0WOW
 
+cppflags-$(CONFIG_WLAN_FEATURE_PKT_CAPTURE) += -DWLAN_FEATURE_PKT_CAPTURE
+
 cppflags-$(CONFIG_QCA_WIFI_NAPIER_EMULATION) += -DQCA_WIFI_NAPIER_EMULATION
 cppflags-$(CONFIG_SHADOW_V2) += -DCONFIG_SHADOW_V2
 cppflags-$(CONFIG_QCA6290_HEADERS_DEF) += -DQCA6290_HEADERS_DEF
@@ -2584,6 +2613,8 @@ endif
 ifeq ($(CONFIG_LITHIUM), y)
 cppflags-$(CONFIG_WLAN_TX_FLOW_CONTROL_V2) += -DQCA_AC_BASED_FLOW_CONTROL
 cppflags-y += -DHAL_DISABLE_NON_BA_2K_JUMP_ERROR
+cppflags-y += -DENABLE_HAL_SOC_STATS
+cppflags-y += -DENABLE_HAL_REG_WR_HISTORY
 endif
 
 cppflags-$(CONFIG_WLAN_CLD_PM_QOS) += -DCLD_PM_QOS
@@ -2591,6 +2622,7 @@ cppflags-$(CONFIG_REO_DESC_DEFER_FREE) += -DREO_DESC_DEFER_FREE
 cppflags-$(CONFIG_WLAN_FEATURE_11AX) += -DWLAN_FEATURE_11AX
 cppflags-$(CONFIG_WLAN_FEATURE_11AX) += -DWLAN_FEATURE_11AX_BSS_COLOR
 cppflags-$(CONFIG_WLAN_FEATURE_11AX) += -DSUPPORT_11AX_D3
+cppflags-$(CONFIG_RXDMA_ERR_PKT_DROP) += -DRXDMA_ERR_PKT_DROP
 
 cppflags-$(CONFIG_LITHIUM) += -DFEATURE_AST
 cppflags-$(CONFIG_LITHIUM) += -DPEER_PROTECTED_ACCESS
@@ -2671,6 +2703,9 @@ cppflags-$(CONFIG_DISABLE_CHANNEL_LIST) += -DDISABLE_CHANNEL_LIST
 #Flag to enable/disable WIPS feature
 cppflags-$(CONFIG_WLAN_BCN_RECV_FEATURE) += -DWLAN_BCN_RECV_FEATURE
 
+#Flag to enable/disable thermal mitigation
+cppflags-$(CONFIG_FW_THERMAL_THROTTLE) += -DFW_THERMAL_THROTTLE
+
 #Flag to enable/disable LTE COEX support
 cppflags-$(CONFIG_LTE_COEX) += -DLTE_COEX
 
@@ -2702,6 +2737,9 @@ cppflags-$(CONFIG_DATA_CE_SW_INDEX_NO_INLINE_UPDATE) += -DDATA_CE_SW_INDEX_NO_IN
 
 #Flag to enable Multi page memory allocation for RX descriptor pool
 cppflags-$(CONFIG_QCACLD_RX_DESC_MULTI_PAGE_ALLOC) += -DRX_DESC_MULTI_PAGE_ALLOC
+
+#Flag to enable SAR Safety Feature
+cppflags-$(CONFIG_SAR_SAFETY_FEATURE) += -DSAR_SAFETY_FEATURE
 
 cppflags-$(CONFIG_WLAN_FEATURE_DP_EVENT_HISTORY) += -DWLAN_FEATURE_DP_EVENT_HISTORY
 cppflags-$(CONFIG_WLAN_DP_PER_RING_TYPE_CONFIG) += -DWLAN_DP_PER_RING_TYPE_CONFIG
@@ -2783,7 +2821,7 @@ ccflags-y += -DWLAN_MAX_PSOCS=$(CONFIG_WLAN_MAX_PSOCS)
 CONFIG_WLAN_MAX_PDEVS ?= 1
 ccflags-y += -DWLAN_MAX_PDEVS=$(CONFIG_WLAN_MAX_PDEVS)
 
-CONFIG_WLAN_MAX_VDEVS ?= 5
+CONFIG_WLAN_MAX_VDEVS ?= 6
 ccflags-y += -DWLAN_MAX_VDEVS=$(CONFIG_WLAN_MAX_VDEVS)
 
 #Maximum pending commands for a vdev is calculated in vdev create handler
@@ -2869,6 +2907,9 @@ cppflags-$(CONFIG_SLUB_DEBUG_ON) += -DHAL_CONFIG_SLUB_DEBUG_ON
 
 cppflags-$(CONFIG_WDI3_STATS_UPDATE) += -DWDI3_STATS_UPDATE
 ccflags-$(CONFIG_WMI_SEND_RECV_QMI) += -DWLAN_FEATURE_WMI_SEND_RECV_QMI
+
+cppflags-$(CONFIG_WLAN_CUSTOM_DSCP_UP_MAP) += -DWLAN_CUSTOM_DSCP_UP_MAP
+cppflags-$(CONFIG_WLAN_SEND_DSCP_UP_MAP_TO_FW) += -DWLAN_SEND_DSCP_UP_MAP_TO_FW
 
 KBUILD_CPPFLAGS += $(cppflags-y)
 

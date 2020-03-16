@@ -79,6 +79,7 @@
 #include <wlan_cp_stats_mc_ucfg_api.h>
 #include <wlan_crypto_global_api.h>
 #include <wlan_mlme_main.h>
+#include "wlan_pkt_capture_ucfg_api.h"
 
 struct wma_search_rate {
 	int32_t rate;
@@ -2876,8 +2877,6 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 		chanfreq = 0;
 	}
 
-	WMA_LOGD("%s: chan freq %d vdev:%d subType:%d",
-		 __func__, chanfreq, vdev_id, pFc->subType);
 	if (mac->mlme_cfg->gen.debug_packet_log & 0x1) {
 		if ((pFc->type == SIR_MAC_MGMT_FRAME) &&
 		    (pFc->subType != SIR_MAC_MGMT_PROBE_REQ) &&
@@ -2932,6 +2931,10 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 		peer = wlan_objmgr_get_peer(psoc, pdev_id, mac_addr,
 					WLAN_MGMT_NB_ID);
 	}
+
+	ucfg_pkt_capture_mgmt_tx(wma_handle->pdev,
+				 tx_frame, wma_handle->interfaces[vdev_id].mhz,
+				 mgmt_param.tx_param.preamble_type);
 
 	status = wlan_mgmt_txrx_mgmt_frame_tx(peer, wma_handle->mac_context,
 					      (qdf_nbuf_t)tx_frame, NULL,

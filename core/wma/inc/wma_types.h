@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -144,9 +144,6 @@
 
 #define WMA_MISSED_BEACON_IND          SIR_HAL_MISSED_BEACON_IND
 
-#define WMA_ENTER_PS_REQ               SIR_HAL_ENTER_PS_REQ
-#define WMA_EXIT_PS_REQ                SIR_HAL_EXIT_PS_REQ
-
 #define WMA_HIDDEN_SSID_RESTART_RSP    SIR_HAL_HIDDEN_SSID_RESTART_RSP
 #define WMA_SWITCH_CHANNEL_RSP         SIR_HAL_SWITCH_CHANNEL_RSP
 #define WMA_P2P_NOA_ATTR_IND           SIR_HAL_P2P_NOA_ATTR_IND
@@ -173,6 +170,8 @@
 #define WMA_TSM_STATS_REQ              SIR_HAL_TSM_STATS_REQ
 #define WMA_TSM_STATS_RSP              SIR_HAL_TSM_STATS_RSP
 #endif
+
+#define WMA_ROAM_SCAN_CH_REQ              SIR_HAL_ROAM_SCAN_CH_REQ
 
 #define WMA_HT40_OBSS_SCAN_IND                  SIR_HAL_HT40_OBSS_SCAN_IND
 
@@ -740,7 +739,10 @@ QDF_STATUS wma_register_roaming_callbacks(
 		QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 			uint8_t vdev_id,
 			uint8_t *deauth_disassoc_frame,
-			uint16_t deauth_disassoc_frame_len));
+			uint16_t deauth_disassoc_frame_len,
+			uint16_t reason_code),
+		QDF_STATUS (*csr_roam_pmkid_req_cb)(uint8_t vdev_id,
+			struct roam_pmkid_req_event *bss_list));
 #else
 static inline QDF_STATUS wma_register_roaming_callbacks(
 		QDF_STATUS (*csr_roam_synch_cb)(struct mac_context *mac,
@@ -758,7 +760,10 @@ static inline QDF_STATUS wma_register_roaming_callbacks(
 		QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 			uint8_t vdev_id,
 			uint8_t *deauth_disassoc_frame,
-			uint16_t deauth_disassoc_frame_len))
+			uint16_t deauth_disassoc_frame_len,
+			uint16_t reason_code),
+		QDF_STATUS (*csr_roam_pmkid_req_cb)(uint8_t vdev_id,
+			struct roam_pmkid_req_event *bss_list))
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }

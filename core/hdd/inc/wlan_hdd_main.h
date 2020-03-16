@@ -1139,6 +1139,8 @@ struct hdd_context;
  * @event_flags: a bitmap of hdd_adapter_flags
  * @latency_level: 0 - normal, 1 - moderate, 2 - low, 3 - ultralow
  * @acs_complete_event: acs complete event
+ * @last_disconnect_reason: Last disconnected internal reason code
+ *                          as per enum eSirMacReasonCodes
  */
 struct hdd_adapter {
 	/* Magic cookie for adapter sanity verification.  Note that this
@@ -1389,6 +1391,7 @@ struct hdd_adapter {
 #ifdef WLAN_FEATURE_MOTION_DETECTION
 	bool motion_detection_mode;
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
+	enum eSirMacReasonCodes last_disconnect_reason;
 };
 
 #define WLAN_HDD_GET_STATION_CTX_PTR(adapter) (&(adapter)->session.station)
@@ -1809,6 +1812,11 @@ struct hdd_context {
 	/* IPv4 notifier callback for handling ARP offload on change in IP */
 	struct notifier_block ipv4_notifier;
 
+#ifdef FEATURE_RUNTIME_PM
+	struct notifier_block pm_qos_notifier;
+	bool runtime_pm_prevented;
+	qdf_spinlock_t pm_qos_lock;
+#endif
 	/* number of rf chains supported by target */
 	uint32_t  num_rf_chains;
 	/* Is htTxSTBC supported by target */
@@ -1946,11 +1954,18 @@ struct hdd_context {
 
 	struct sar_limit_cmd_params *sar_cmd_params;
 
+#ifdef SAR_SAFETY_FEATURE
+	qdf_mc_timer_t sar_safety_timer;
+	qdf_mc_timer_t sar_safety_unsolicited_timer;
+	qdf_event_t sar_safety_req_resp_event;
+#endif
+
 #ifdef CLD_PM_QOS
 	struct pm_qos_request pm_qos_req;
 #endif
 	qdf_time_t runtime_resume_start_time_stamp;
 	qdf_time_t runtime_suspend_done_time_stamp;
+	bool roam_ch_from_fw_supported;
 };
 
 /**
@@ -4044,5 +4059,82 @@ int hdd_psoc_idle_shutdown(struct device *dev);
  * Return: 0 for success non-zero error code for failure
  */
 int hdd_psoc_idle_restart(struct device *dev);
+
+#ifdef WLAN_FEATURE_PKT_CAPTURE
+/**
+ * wlan_hdd_is_session_type_monitor() - check if session type is MONITOR
+ * @session_type: session type
+ *
+ * Return: True - if session type for adapter is monitor, else False
+ *
+ */
+bool wlan_hdd_is_session_type_monitor(uint8_t session_type);
+
+/**
+ * wlan_hdd_check_mon_concurrency() - check if MONITOR and STA concurrency
+ * is UP when packet capture mode is enabled.
+ *
+ * Return: True - if STA and monitor concurrency is there, else False
+ *
+ */
+bool wlan_hdd_check_mon_concurrency(void);
+
+/**
+ * wlan_hdd_add_monitor_check() - check for monitor intf and add if needed
+ * @hdd_ctx: pointer to hdd context
+ * @adapter: output pointer to hold created monitor adapter
+ * @type: type of the interface
+ * @name: name of the interface
+ * @rtnl_held: True if RTNL lock is held
+ * @name_assign_type: the name of assign type of the netdev
+ *
+ * Return: 0 - on success
+ *         err code - on failure
+ */
+int wlan_hdd_add_monitor_check(struct hdd_context *hdd_ctx,
+			       struct hdd_adapter **adapter,
+			       enum nl80211_iftype type, const char *name,
+			       bool rtnl_held, unsigned char name_assign_type);
+
+/**
+ * wlan_hdd_del_monitor() - delete monitor interface
+ * @hdd_ctx: pointer to hdd context
+ * @adapter: adapter to be deleted
+ * @rtnl_held: rtnl lock held
+ *
+ * This function is invoked to delete monitor interface.
+ *
+ * Return: None
+ */
+void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
+			  struct hdd_adapter *adapter, bool rtnl_held);
+#else
+static inline
+bool wlan_hdd_is_session_type_monitor(uint8_t session_type)
+{
+	return false;
+}
+
+static inline
+bool wlan_hdd_check_mon_concurrency(void)
+{
+	return false;
+}
+
+static inline
+int wlan_hdd_add_monitor_check(struct hdd_context *hdd_ctx,
+			       struct hdd_adapter **adapter,
+			       enum nl80211_iftype type, const char *name,
+			       bool rtnl_held, unsigned char name_assign_type)
+{
+	return 0;
+}
+
+static inline
+void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
+			  struct hdd_adapter *adapter, bool rtnl_held)
+{
+}
+#endif /* WLAN_FEATURE_PKT_CAPTURE */
 
 #endif /* end #if !defined(WLAN_HDD_MAIN_H) */

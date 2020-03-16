@@ -41,6 +41,14 @@
 #define CFG_VHT_TX_MCS_MAP_STAMAX    0xFFFF
 #define CFG_VHT_TX_MCS_MAP_STADEF    0xFFFE
 
+/* Roam debugging related macro defines */
+#define MAX_ROAM_DEBUG_BUF_SIZE    250
+#define MAX_ROAM_EVENTS_SUPPORTED  5
+#define ROAM_FAILURE_BUF_SIZE      40
+#define TIME_STRING_LEN            24
+
+#define ROAM_CHANNEL_BUF_SIZE      300
+#define LINE_STR "========================================="
 /*
  * MLME_CFG_VHT_CSN_BEAMFORMEE_ANT_SUPPORTED_FW_DEF + 1 is
  * assumed to be the default fw supported BF antennas, if fw
@@ -1109,6 +1117,8 @@ struct wlan_mlme_chainmask {
  * @bmiss_skip_full_scan: Decide if full scan can be skipped in firmware if no
  * candidate is found in partial scan based on channel map
  * @enable_ring_buffer: Decide to enable/disable ring buffer for bug report
+ * @enable_peer_unmap_conf_support: Indicate whether to send conf for peer unmap
+ * @disable_4way_hs_offload: enable/disable 4 way handshake offload to firmware
  */
 struct wlan_mlme_generic {
 	enum band_info band_capability;
@@ -1143,6 +1153,8 @@ struct wlan_mlme_generic {
 	uint8_t mgmt_retry_max;
 	bool bmiss_skip_full_scan;
 	bool enable_ring_buffer;
+	bool enable_peer_unmap_conf_support;
+	bool disable_4way_hs_offload;
 };
 
 /*
@@ -1827,6 +1839,8 @@ struct wlan_mlme_per_slot_scoring {
  * @roam_score_delta: percentage delta in roam score
  * @apsd_enabled: Enable automatic power save delivery
  * @vendor_roam_score_algorithm: Preferred vendor roam score algorithm
+ * @min_roam_score_delta: Minimum difference between connected AP's and
+ *			candidate AP's roam score to start roaming.
  */
 struct wlan_mlme_scoring_cfg {
 	bool enable_scoring_for_roam;
@@ -1841,6 +1855,7 @@ struct wlan_mlme_scoring_cfg {
 	uint32_t roam_score_delta;
 	bool apsd_enabled;
 	uint32_t vendor_roam_score_algorithm;
+	uint32_t min_roam_score_delta;
 };
 
 /* struct wlan_mlme_threshold - Threshold related config items
@@ -2069,10 +2084,14 @@ struct wlan_mlme_fe_rrm {
  * struct wlan_mlme_mwc - MWC related configs
  * @mws_coex_4g_quick_tdm:  bitmap to set mws-coex 5g-nr power limit
  * @mws_coex_5g_nr_pwr_limit: bitmap to set mws-coex 5g-nr power limit
+ * @mws_coex_pcc_channel_avoid_delay: PCC avoidance delay in seconds
+ * @mws_coex_scc_channel_avoid_delay: SCC avoidance delay in seconds
  **/
 struct wlan_mlme_mwc {
 	uint32_t mws_coex_4g_quick_tdm;
 	uint32_t mws_coex_5g_nr_pwr_limit;
+	uint32_t mws_coex_pcc_channel_avoid_delay;
+	uint32_t mws_coex_scc_channel_avoid_delay;
 };
 #else
 struct wlan_mlme_mwc {
@@ -2238,6 +2257,20 @@ struct wlan_mlme_cfg {
 	struct wlan_mlme_reg reg;
 	struct roam_trigger_score_delta trig_score_delta[NUM_OF_ROAM_TRIGGERS];
 	struct roam_trigger_min_rssi trig_min_rssi[NUM_OF_ROAM_TRIGGERS];
+};
+
+/**
+ * struct mlme_roam_debug_info - Roam debug information storage structure.
+ * @trigger:            Roam trigger related data
+ * @scan:               Roam scan related data structure.
+ * @result:             Roam result parameters.
+ * @data_11kv:          Neighbor report/BTM parameters.
+ */
+struct mlme_roam_debug_info {
+	struct wmi_roam_trigger_info trigger;
+	struct wmi_roam_scan_data scan;
+	struct wmi_roam_result result;
+	struct wmi_neighbor_report_data data_11kv;
 };
 
 #endif

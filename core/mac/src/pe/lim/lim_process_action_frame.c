@@ -79,9 +79,6 @@ void lim_stop_tx_and_switch_channel(struct mac_context *mac, uint8_t sessionId)
 		return;
 	}
 
-	pe_debug("Channel switch Mode: %d",
-		       pe_session->gLimChannelSwitch.switchMode);
-
 	mac->lim.limTimers.gLimChannelSwitchTimer.sessionId = sessionId;
 	status = policy_mgr_check_and_set_hw_mode_for_channel_switch(mac->psoc,
 				pe_session->smeSessionId,
@@ -1316,8 +1313,8 @@ __lim_process_radio_measure_request(struct mac_context *mac, uint8_t *pRxPacketI
 				   pBody, frameLen);
 		goto err;
 	} else if (DOT11F_WARNED(nStatus)) {
-		pe_debug("There were warnings while unpacking a Radio Measure request (0x%08x, %d bytes):",
-			nStatus, frameLen);
+		pe_debug("Warnings while unpacking a Radio Measure request (0x%08x, %d bytes):",
+			 nStatus, frameLen);
 	}
 	/* Call rrm function to handle the request. */
 

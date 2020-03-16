@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -230,6 +230,7 @@ QDF_STATUS cds_init(void)
 
 	qdf_register_self_recovery_callback(__cds_trigger_recovery);
 	qdf_register_fw_down_callback(cds_is_fw_down);
+	qdf_register_is_driver_unloading_callback(cds_is_driver_unloading);
 	qdf_register_recovering_state_query_callback(cds_is_driver_recovering);
 	qdf_register_drv_connected_callback(cds_is_drv_connected);
 	qdf_register_wmi_send_recv_qmi_callback(cds_wmi_send_recv_qmi);
@@ -256,6 +257,7 @@ void cds_deinit(void)
 
 	qdf_register_recovering_state_query_callback(NULL);
 	qdf_register_fw_down_callback(NULL);
+	qdf_register_is_driver_unloading_callback(NULL);
 	qdf_register_self_recovery_callback(NULL);
 	qdf_register_wmi_send_recv_qmi_callback(NULL);
 
@@ -379,11 +381,13 @@ static void cds_cdp_cfg_attach(struct wlan_objmgr_psoc *psoc)
 		cfg_get(psoc, CFG_DP_FLOW_STEERING_ENABLED);
 	cdp_cfg.disable_intra_bss_fwd =
 		cfg_get(psoc, CFG_DP_AP_STA_SECURITY_SEPERATION);
+	cdp_cfg.pktlog_buffer_size =
+		cfg_get(psoc, CFG_DP_PKTLOG_BUFFER_SIZE);
 
 	gp_cds_context->cfg_ctx = cdp_cfg_attach(soc, gp_cds_context->qdf_ctx,
 					(void *)(&cdp_cfg));
 	if (!gp_cds_context->cfg_ctx) {
-		WMA_LOGP("%s: failed to init cfg handle", __func__);
+		WMA_LOGD("%s: failed to init cfg handle", __func__);
 		return;
 	}
 
@@ -1107,7 +1111,7 @@ QDF_STATUS cds_post_disable(void)
 	 * - Clean up CE tasklets.
 	 */
 
-	cds_info("send deinit sequence to firmware");
+	cds_debug("send deinit sequence to firmware");
 	if (!(cds_is_driver_recovering() || cds_is_driver_in_bad_state()))
 		cds_suspend_target(wma_handle);
 	hif_disable_isr(hif_ctx);
@@ -1180,11 +1184,6 @@ QDF_STATUS cds_close(struct wlan_objmgr_psoc *psoc)
 	}
 
 	gp_cds_context->mac_context = NULL;
-	/*
-	 * Call this before cdp soc detatch as it used the cdp soc to free the
-	 * cdp vdev if any.
-	 */
-	wma_release_pending_vdev_refs();
 
 	cdp_soc_detach(gp_cds_context->dp_soc);
 	gp_cds_context->dp_soc = NULL;
@@ -1655,6 +1654,9 @@ QDF_STATUS cds_get_vdev_types(enum QDF_OPMODE mode, uint32_t *type,
 		break;
 	case QDF_NDI_MODE:
 		*type = WMI_VDEV_TYPE_NDI;
+		break;
+	case QDF_NAN_DISC_MODE:
+		*type = WMI_VDEV_TYPE_NAN;
 		break;
 	default:
 		cds_err("Invalid device mode %d", mode);
@@ -2362,7 +2364,7 @@ QDF_STATUS cds_flush_logs(uint32_t is_fatal,
 		  is_fatal, indicator, reason_code);
 
 	if (dump_mac_trace)
-		qdf_trace_dump_all(p_cds_context->mac_context, 0, 0, 500, 0);
+		qdf_trace_dump_all(p_cds_context->mac_context, 0, 0, 100, 0);
 
 	if (WLAN_LOG_INDICATOR_HOST_ONLY == indicator) {
 		cds_wlan_flush_host_logs_for_fatal();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -189,6 +189,42 @@ void wma_process_roam_synch_fail(WMA_HANDLE handle,
 int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 					uint32_t len);
 
+#ifdef WLAN_FEATURE_FIPS
+/**
+ * wma_register_pmkid_req_event_handler() - Register pmkid request event handler
+ * @wma_handle: wma_handle
+ *
+ * This function register pmkid request event handler.
+ */
+void wma_register_pmkid_req_event_handler(tp_wma_handle wma_handle);
+
+/**
+ * wma_roam_pmkid_request_event_handler() - Handles roam pmkid request event
+ * @handle: wma_handle
+ * @event: pmkid request event data pointer
+ * @len: length of the data
+ *
+ * Handles pmkid request event from firmware which is triggered after roam
+ * candidate selection.
+ */
+int wma_roam_pmkid_request_event_handler(void *handle,
+					 uint8_t *event,
+					 uint32_t len);
+#else
+static inline void
+wma_register_pmkid_req_event_handler(tp_wma_handle wma_handle)
+{
+}
+
+static inline int
+wma_roam_pmkid_request_event_handler(void *handle,
+				     uint8_t *event,
+				     uint32_t len)
+{
+	return 0;
+}
+#endif /* WLAN_FEATURE_FIPS */
+
 /**
  * wma_roam_auth_offload_event_handler() - Handle LFR-3.0 Roam authentication
  * offload event.
@@ -201,6 +237,22 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
  */
 int wma_roam_auth_offload_event_handler(WMA_HANDLE handle, uint8_t *event,
 					uint32_t len);
+
+/**
+ * wma_roam_stats_event_handler() - Handle the WMI_ROAM_STATS_EVENTID
+ * from target
+ * @handle: wma_handle
+ * @event:  roam debug stats event data pointer
+ * @len: length of the data
+ *
+ * This function handles the roam debug stats from the target and logs it
+ * to kmsg. This WMI_ROAM_STATS_EVENTID event is received whenever roam
+ * scan trigger happens or when neighbor report is sent by the firmware.
+ *
+ * Return: Success or Failure status
+ */
+int wma_roam_stats_event_handler(WMA_HANDLE handle, uint8_t *event,
+				 uint32_t len);
 
 /**
  * wma_mlme_roam_synch_event_handler_cb() - roam synch event handler
@@ -232,6 +284,42 @@ int wma_roam_synch_frame_event_handler(void *handle, uint8_t *event,
 static inline int wma_mlme_roam_synch_event_handler_cb(void *handle,
 						       uint8_t *event,
 						       uint32_t len)
+{
+	return 0;
+}
+
+static inline int
+wma_roam_stats_event_handler(WMA_HANDLE handle, uint8_t *event,
+			     uint32_t len)
+{
+	return 0;
+}
+
+static inline int
+wma_roam_pmkid_request_event_handler(void *handle,
+				     uint8_t *event,
+				     uint32_t len)
+{
+	return 0;
+}
+#endif
+
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+/**
+ * wma_roam_scan_chan_list_event_handler() - roam scan chan list event handler
+ * @handle: wma handle
+ * @event: pointer to fw event
+ * @len: length of event
+ *
+ * Return: Success or Failure status
+ */
+int wma_roam_scan_chan_list_event_handler(WMA_HANDLE handle,
+					  uint8_t *event,
+					  uint32_t len);
+#else
+static inline int
+wma_roam_scan_chan_list_event_handler(WMA_HANDLE handle, uint8_t *event,
+				      uint32_t len)
 {
 	return 0;
 }
@@ -837,7 +925,13 @@ void wma_hidden_ssid_vdev_restart(tp_wma_handle wma_handle,
  * wma_power.c functions declarations
  */
 
-void wma_enable_sta_ps_mode(tp_wma_handle wma, tpEnablePsParams ps_req);
+/**
+ * wma_enable_sta_ps_mode() - enable sta powersave params in fw
+ * @ps_req: power save request
+ *
+ * Return: none
+ */
+void wma_enable_sta_ps_mode(tpEnablePsParams ps_req);
 
 QDF_STATUS wma_unified_set_sta_ps_param(wmi_unified_t wmi_handle,
 					    uint32_t vdev_id, uint32_t param,
@@ -860,7 +954,7 @@ void wma_set_tx_power(WMA_HANDLE handle,
 void wma_set_max_tx_power(WMA_HANDLE handle,
 				 tMaxTxPowerParams *tx_pwr_params);
 
-void wma_disable_sta_ps_mode(tp_wma_handle wma, tpDisablePsParams ps_req);
+void wma_disable_sta_ps_mode(tpDisablePsParams ps_req);
 
 void wma_enable_uapsd_mode(tp_wma_handle wma, tpEnableUapsdParams ps_req);
 
@@ -1560,6 +1654,16 @@ int wma_fill_beacon_interval_reset_req(tp_wma_handle wma, uint8_t vdev_id,
  * Return: 'true' on valid vdev else 'false'
  */
 bool wma_is_vdev_valid(uint32_t vdev_id);
+
+/*
+ * wma_is_vdev_started() - check whether vdev is started or not
+ * @vdev: pointer to vdev object
+ *
+ * This function verifies the vdev is started nor not
+ *
+ * Return: 'true' if vdev is started else 'false'
+ */
+bool wma_is_vdev_started(struct wlan_objmgr_vdev *vdev);
 
 /**
  * wma_vdev_obss_detection_info_handler - event handler to handle obss detection
