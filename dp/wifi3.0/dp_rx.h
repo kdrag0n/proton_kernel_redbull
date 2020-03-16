@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -510,14 +510,13 @@ dp_rx_wbm_err_process(struct dp_intr *int_ctx, struct dp_soc *soc,
  * dp_rx_sg_create() - create a frag_list for MSDUs which are spread across
  *		     multiple nbufs.
  * @nbuf: pointer to the first msdu of an amsdu.
- * @rx_tlv_hdr: pointer to the start of RX TLV headers.
  *
  * This function implements the creation of RX frag_list for cases
  * where an MSDU is spread across multiple nbufs.
  *
  * Return: returns the head nbuf which contains complete frag_list.
  */
-qdf_nbuf_t dp_rx_sg_create(qdf_nbuf_t nbuf, uint8_t *rx_tlv_hdr);
+qdf_nbuf_t dp_rx_sg_create(qdf_nbuf_t nbuf);
 
 /*
  * dp_rx_desc_pool_alloc() - create a pool of software rx_descs
@@ -1247,4 +1246,22 @@ static inline void dp_rx_flush_rx_cached(struct dp_peer *peer, bool drop)
 {
 }
 #endif
+
+/**
+ * dp_rx_deliver_to_stack() - deliver pkts to network stack
+ * Caller to hold peer refcount and check for valid peer
+ * @soc: soc
+ * @vdev: vdev
+ * @peer: peer
+ * @nbuf_head: skb list head
+ * @nbuf_tail: skb list tail
+ *
+ * Return: None
+ */
+void dp_rx_deliver_to_stack(struct dp_soc *soc,
+			    struct dp_vdev *vdev,
+			    struct dp_peer *peer,
+			    qdf_nbuf_t nbuf_head,
+			    qdf_nbuf_t nbuf_tail);
+
 #endif /* _DP_RX_H */

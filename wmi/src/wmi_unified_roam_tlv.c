@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -854,7 +854,6 @@ static QDF_STATUS send_roam_invoke_cmd_tlv(wmi_unified_t wmi_handle,
 	cmd->flags |= (1 << WMI_ROAM_INVOKE_FLAG_REPORT_FAILURE);
 	if (roaminvoke->is_same_bssid)
 		cmd->flags |= (1 << WMI_ROAM_INVOKE_FLAG_NO_NULL_FRAME_TO_AP);
-	WMI_LOGD(FL("is_same_bssid flag: %d"), roaminvoke->is_same_bssid);
 
 	if (roaminvoke->frame_len) {
 		cmd->roam_scan_mode = WMI_ROAM_INVOKE_SCAN_MODE_SKIP;
@@ -906,15 +905,11 @@ static QDF_STATUS send_roam_invoke_cmd_tlv(wmi_unified_t wmi_handle,
 		     roaminvoke->frame_buf,
 		     roaminvoke->frame_len);
 
-	WMI_LOGD(FL("bcn/prb_rsp frame, length: %d"), roaminvoke->frame_len);
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_WMI, QDF_TRACE_LEVEL_DEBUG,
-			   buf_ptr + WMI_TLV_HDR_SIZE,
-			   roaminvoke->frame_len);
-	WMI_LOGD(FL("flag:%d, MODE scn:%d, ap:%d, dly:%d, n_ch:%d, n_bssid:%d"),
-		    cmd->flags, cmd->roam_scan_mode,
-		    cmd->roam_ap_sel_mode, cmd->roam_delay,
-		    cmd->num_chan, cmd->num_bssid);
-	WMI_LOGD(FL("BSSID: %pM, channel: %d"), roaminvoke->bssid, ch_hz);
+	WMI_LOGD(FL("flag:%d, MODE scn:%d, ap:%d, dly:%d, n_ch:%d, n_bssid:%d, channel:%d, is_same_bssid:%d"),
+		 cmd->flags, cmd->roam_scan_mode,
+		 cmd->roam_ap_sel_mode, cmd->roam_delay,
+		 cmd->num_chan, cmd->num_bssid, ch_hz,
+		 roaminvoke->is_same_bssid);
 
 	wmi_mtrace(WMI_ROAM_INVOKE_CMDID, cmd->vdev_id, 0);
 	if (wmi_unified_cmd_send(wmi_handle, wmi_buf, len,
@@ -1087,7 +1082,7 @@ send_roam_scan_offload_mode_cmd_tlv(wmi_unified_t wmi_handle,
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
 	      sizeof(wmi_start_scan_cmd_fixed_param);
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
-	WMI_LOGD("auth_mode = %d", auth_mode);
+	wmi_debug("auth_mode = %d", auth_mode);
 	if (roam_req->is_roam_req_valid &&
 	    roam_req->roam_offload_enabled) {
 		len += sizeof(wmi_roam_offload_tlv_param);
@@ -1131,8 +1126,6 @@ send_roam_scan_offload_mode_cmd_tlv(wmi_unified_t wmi_handle,
 		if (roam_req->is_roam_req_valid)
 			WMI_LOGD("%s : roam offload = %d", __func__,
 				 roam_req->roam_offload_enabled);
-		else
-			WMI_LOGD("%s : roam_req is NULL", __func__);
 
 		len += (4 * WMI_TLV_HDR_SIZE);
 	}
@@ -1547,7 +1540,7 @@ send_roam_scan_offload_ap_profile_cmd_tlv(wmi_unified_t wmi_handle,
 				ap_profile->profile.rsn_mcastmgmtcipherset;
 	profile->rssi_abs_thresh = ap_profile->profile.rssi_abs_thresh;
 
-	WMI_LOGD("AP profile: flags %x rssi_threshold %d ssid:%.*s authmode %d uc cipher %d mc cipher %d mc mgmt cipher %d rssi abs thresh %d",
+	WMI_LOGD("AP PROFILE: flags %x rssi_threshold %d ssid:%.*s authmode %d uc cipher %d mc cipher %d mc mgmt cipher %d rssi abs thresh %d",
 		 profile->flags, profile->rssi_threshold,
 		 profile->ssid.ssid_len, ap_profile->profile.ssid.mac_ssid,
 		 profile->rsn_authmode, profile->rsn_ucastcipherset,
@@ -1670,9 +1663,12 @@ send_roam_scan_offload_ap_profile_cmd_tlv(wmi_unified_t wmi_handle,
 	score_param->roam_score_delta_pcnt = ap_profile->param.roam_score_delta;
 	score_param->roam_score_delta_mask =
 				ap_profile->param.roam_trigger_bitmap;
-	WMI_LOGD("Roam score delta:%d Roam_trigger_bitmap:%x",
+	score_param->candidate_min_roam_score_delta =
+				ap_profile->param.cand_min_roam_score_delta;
+	WMI_LOGD("Roam score delta:%d Roam_trigger_bitmap:%x cand min score delta = %d",
 		 score_param->roam_score_delta_pcnt,
-		 score_param->roam_score_delta_mask);
+		 score_param->roam_score_delta_mask,
+		 score_param->candidate_min_roam_score_delta);
 
 	buf_ptr += sizeof(*score_param);
 	WMITLV_SET_HDR(buf_ptr, WMITLV_TAG_ARRAY_STRUC,
@@ -1738,8 +1734,6 @@ send_roam_scan_offload_ap_profile_cmd_tlv(wmi_unified_t wmi_handle,
 			status);
 		wmi_buf_free(buf);
 	}
-
-	WMI_LOGD("WMI --> WMI_ROAM_AP_PROFILE and other parameters");
 
 	return status;
 }
@@ -1920,12 +1914,9 @@ static QDF_STATUS send_roam_scan_offload_chan_list_cmd_tlv(wmi_unified_t wmi_han
 	WMITLV_SET_HDR(buf_ptr, WMITLV_TAG_ARRAY_UINT32,
 		       (chan_list_fp->num_chan * sizeof(uint32_t)));
 	roam_chan_list_array = (uint32_t *) (buf_ptr + WMI_TLV_HDR_SIZE);
-	WMI_LOGD("%s: %d channels = ", __func__, chan_list_fp->num_chan);
 	for (i = 0; ((i < chan_list_fp->num_chan) &&
-		     (i < WMI_ROAM_MAX_CHANNELS)); i++) {
+		     (i < WMI_ROAM_MAX_CHANNELS)); i++)
 		roam_chan_list_array[i] = chan_list[i];
-		WMI_LOGD("%d,", roam_chan_list_array[i]);
-	}
 
 	wmi_mtrace(WMI_ROAM_CHAN_LIST, NO_SESSION, 0);
 	status = wmi_unified_cmd_send(wmi_handle, buf,
@@ -1936,7 +1927,6 @@ static QDF_STATUS send_roam_scan_offload_chan_list_cmd_tlv(wmi_unified_t wmi_han
 		goto error;
 	}
 
-	WMI_LOGD("%s: WMI --> WMI_ROAM_SCAN_CHAN_LIST", __func__);
 	return QDF_STATUS_SUCCESS;
 error:
 	wmi_buf_free(buf);
@@ -1996,9 +1986,10 @@ static QDF_STATUS send_roam_scan_offload_rssi_change_cmd_tlv(wmi_unified_t wmi_h
 		goto error;
 	}
 
-	WMI_LOGD(FL("roam_scan_rssi_change_thresh=%d, bcn_rssi_weight=%d"),
-		 rssi_change_thresh, bcn_rssi_weight);
-	WMI_LOGD(FL("hirssi_delay_btw_scans=%d"), hirssi_delay_btw_scans);
+	wmi_nofl_debug("roam_scan_rssi_change_thresh %d bcn_rssi_weight %d hirssi_delay_btw_scans %d",
+		       rssi_change_thresh, bcn_rssi_weight,
+		       hirssi_delay_btw_scans);
+
 	return QDF_STATUS_SUCCESS;
 error:
 	wmi_buf_free(buf);
