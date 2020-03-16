@@ -718,6 +718,9 @@ struct dp_soc_stats {
 		uint32_t hp_oos2;
 		/* Rx ring near full */
 		uint32_t near_full;
+		/* Break ring reaping as not all scattered msdu received */
+		uint32_t msdu_scatter_wait_break;
+
 		struct {
 			/* Invalid RBM error count */
 			uint32_t invalid_rbm;
@@ -758,6 +761,8 @@ struct dp_soc_stats {
 			uint32_t hal_rxdma_err_dup;
 			/* REO cmd send fail/requeue count */
 			uint32_t reo_cmd_send_fail;
+			/* RX msdu drop count due to scatter */
+			uint32_t scatter_msdu;
 		} err;
 
 		/* packet count per core - per ring */
@@ -1152,10 +1157,9 @@ struct dp_soc {
 		uint32_t rx_mpdu_missed;
 	} ext_stats;
 	qdf_event_t rx_hw_stats_event;
-
-	/* Ignore reo command queue status during peer delete */
-	bool ignore_reo_status_cb;
-#endif
+	qdf_spinlock_t rx_hw_stats_lock;
+	bool is_last_stats_ctx_init;
+#endif /* WLAN_FEATURE_STATS_EXT */
 
 	/* Smart monitor capability for HKv2 */
 	uint8_t hw_nac_monitor_support;
@@ -1873,6 +1877,9 @@ struct dp_vdev {
 	uint8_t tidmap_prty;
 	/* Self Peer in STA mode */
 	struct dp_peer *vap_self_peer;
+
+	/* vap bss peer mac addr */
+	uint8_t vap_bss_peer_mac_addr[QDF_MAC_ADDR_SIZE];
 };
 
 
@@ -2033,5 +2040,17 @@ struct dp_tx_me_buf_t {
 	struct dp_tx_me_buf_t *next;
 	uint8_t data[QDF_MAC_ADDR_SIZE];
 };
+
+#ifdef WLAN_FEATURE_STATS_EXT
+/*
+ * dp_req_rx_hw_stats_t: RX peer HW stats query structure
+ * @pending_tid_query_cnt: pending tid stats count which waits for REO status
+ * @is_query_timeout: flag to show is stats query timeout
+ */
+struct dp_req_rx_hw_stats_t {
+	qdf_atomic_t pending_tid_stats_cnt;
+	bool is_query_timeout;
+};
+#endif
 
 #endif /* _DP_TYPES_H_ */
