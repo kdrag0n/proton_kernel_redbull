@@ -5638,6 +5638,7 @@ static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"QUIN_TDM_TX_0", "QUIN_TDM_RX_0",
 	"SEN_MI2S_RX",
 	"SENARY_MI2S_TX",
+	"QUIN_TDM_TX_0",
 };
 
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
