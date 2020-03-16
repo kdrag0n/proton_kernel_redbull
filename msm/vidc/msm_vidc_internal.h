@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _MSM_VIDC_INTERNAL_H_
@@ -35,8 +35,8 @@
 
 #define MAX_DEBUGFS_NAME 50
 #define DEFAULT_TIMEOUT 3
-#define DEFAULT_HEIGHT 1088
-#define DEFAULT_WIDTH 1920
+#define DEFAULT_HEIGHT 240
+#define DEFAULT_WIDTH 320
 #define MIN_SUPPORTED_WIDTH 32
 #define MIN_SUPPORTED_HEIGHT 32
 #define DEFAULT_FPS 30
@@ -269,6 +269,7 @@ enum vpu_version {
 	VPU_VERSION_AR50 = 1,
 	VPU_VERSION_IRIS1,
 	VPU_VERSION_IRIS2,
+	VPU_VERSION_IRIS2_1,
 	VPU_VERSION_AR50_LITE,
 };
 
@@ -303,6 +304,7 @@ struct msm_vidc_platform_data {
 	unsigned int efuse_data_length;
 	unsigned int sku_version;
 	uint32_t vpu_ver;
+	uint32_t num_vpp_pipes;
 	struct msm_vidc_ubwc_config_data *ubwc_config;
 };
 
