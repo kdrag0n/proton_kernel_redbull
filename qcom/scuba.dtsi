@@ -37,6 +37,7 @@
 			next-level-cache = <&L2_0>;
 			L2_0: l2-cache {
 				compatible = "arm,arch-cache";
+				cache-size = <0x80000>;
 				cache-level = <2>;
 			};
 
@@ -227,6 +228,14 @@
 			compatible = "removed-dma-pool";
 			no-map;
 			reg = <0x0 0x5f800000 0x0 0x4100000>;
+		};
+
+		adsp_mem: adsp_region {
+			compatible = "shared-dma-pool";
+			alloc-ranges = <0 0x00000000 0 0xffffffff>;
+			reusable;
+			alignment = <0 0x400000>;
+			size = <0 0x800000>;
 		};
 
 		dump_mem: mem_dump_region {
@@ -524,11 +533,21 @@
 		compatible = "qcom,msm-watchdog";
 		reg = <0xf017000 0x1000>;
 		reg-names = "wdt-base";
-		interrupts = <0 3 0>, <0 4 0>;
+		interrupts = <GIC_SPI 3 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
 		qcom,bark-time = <11000>;
 		qcom,pet-time = <9360>;
 		qcom,ipi-ping;
 		qcom,wakeup-enable;
+	};
+
+	qfprom: qfprom@1b40000 {
+		compatible = "qcom,qfprom";
+		reg = <0x1b40000 0x7000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		read-only;
+		ranges;
 	};
 
 	qcom,sps {
@@ -824,29 +843,11 @@
 			clock-output-names = "chip_sleep_clk";
 			#clock-cells = <0>;
 		};
-
-		bi_tcxo: bi_tcxo {
-			compatible = "fixed-factor-clock";
-			clock-mult = <1>;
-			clock-div = <2>;
-			clocks = <&xo_board>;
-			#clock-cells = <0>;
-		};
-
-		bi_tcxo_ao: bi_tcxo_ao {
-			compatible = "fixed-factor-clock";
-			clock-mult = <1>;
-			clock-div = <2>;
-			clocks = <&xo_board>;
-			#clock-cells = <0>;
-		};
 	};
 
 	rpmcc: qcom,rpmcc {
-		compatible = "qcom,dummycc";
-		clock-output-names = "rpmcc_clocks";
+		compatible = "qcom,rpmcc-scuba";
 		#clock-cells = <1>;
-		#reset-cells = <1>;
 	};
 
 	qcom,rmtfs_sharedmem@0 {
@@ -906,6 +907,61 @@
 		reg = <0xF111000 0x1000>;
 
 		#mbox-cells = <1>;
+	};
+
+	qcom,msm-adsprpc-mem {
+		compatible = "qcom,msm-adsprpc-mem-region";
+		memory-region = <&adsp_mem>;
+		restrict-access;
+	};
+
+	qcom,msm_fastrpc {
+		compatible = "qcom,msm-fastrpc-compute";
+		qcom,rpc-latency-us = <611>;
+		qcom,adsp-remoteheap-vmid = <22 37>;
+		qcom,fastrpc-adsp-audio-pdr;
+		qcom,fastrpc-adsp-sensors-pdr;
+
+		qcom,msm_fastrpc_compute_cb1 {
+			compatible = "qcom,msm-fastrpc-compute-cb";
+			label = "adsprpc-smd";
+			iommus = <&apps_smmu 0x01C3 0x0>;
+			qcom,iommu-dma-addr-pool = <0x80000000 0x78000000>;
+			qcom,iommu-faults = "stall-disable";
+		};
+
+		qcom,msm_fastrpc_compute_cb2 {
+			compatible = "qcom,msm-fastrpc-compute-cb";
+			label = "adsprpc-smd";
+			iommus = <&apps_smmu 0x01C4 0x0>;
+			qcom,iommu-dma-addr-pool = <0x80000000 0x78000000>;
+			qcom,iommu-faults = "stall-disable";
+		};
+
+		qcom,msm_fastrpc_compute_cb3 {
+			compatible = "qcom,msm-fastrpc-compute-cb";
+			label = "adsprpc-smd";
+			iommus = <&apps_smmu 0x01C5 0x0>;
+			qcom,iommu-dma-addr-pool = <0x80000000 0x78000000>;
+			qcom,iommu-faults = "stall-disable";
+		};
+
+		qcom,msm_fastrpc_compute_cb4 {
+			compatible = "qcom,msm-fastrpc-compute-cb";
+			label = "adsprpc-smd";
+			iommus = <&apps_smmu 0x01C6 0x0>;
+			qcom,iommu-dma-addr-pool = <0x80000000 0x78000000>;
+			qcom,iommu-faults = "stall-disable";
+		};
+
+		qcom,msm_fastrpc_compute_cb5 {
+			compatible = "qcom,msm-fastrpc-compute-cb";
+			label = "adsprpc-smd";
+			iommus = <&apps_smmu 0x01C7 0x0>;
+			qcom,iommu-dma-addr-pool = <0x80000000 0x78000000>;
+			qcom,iommu-faults = "stall-disable";
+		};
+
 	};
 
 	rpm-glink {
