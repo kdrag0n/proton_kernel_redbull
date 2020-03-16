@@ -675,15 +675,7 @@ int msm_vdec_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		memcpy(f, &fmt->v4l2_fmt, sizeof(struct v4l2_format));
 	}
 
-	/*
-	 * if batching enabled previously then you may chose
-	 * to disable it based on recent configuration changes.
-	 * if batching already disabled do not enable it again
-	 * as sufficient extra buffers (required for batch mode
-	 * on both ports) may not have been updated to client.
-	 */
-	if (inst->batch.enable)
-		inst->batch.enable = is_batching_allowed(inst);
+	inst->batch.enable = is_batching_allowed(inst);
 	msm_dcvs_try_enable(inst);
 
 err_invalid_fmt:
@@ -884,6 +876,7 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		if (ctrl->val)
 			inst->flags |= VIDC_THUMBNAIL;
 
+		inst->batch.enable = is_batching_allowed(inst);
 		rc = msm_vidc_calculate_buffer_counts(inst);
 		if (rc) {
 			s_vpr_e(inst->sid,
@@ -905,16 +898,6 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_FRAME_RATE:
 		inst->clk_data.frame_rate = ctrl->val;
-		if (inst->state >= MSM_VIDC_LOAD_RESOURCES)
-			break;
-		/* Only recalculate buffer counts before buffers allocated */
-		rc = msm_vidc_calculate_buffer_counts(inst);
-		if (rc) {
-			s_vpr_e(inst->sid,
-				"%s failed to calculate buffer count after set fps\n",
-				__func__);
-			return rc;
-		}
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_EXTRADATA:
 		if (ctrl->val == EXTRADATA_NONE)
@@ -935,13 +918,15 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE:
 		if (!is_valid_operating_rate(inst, ctrl->val))
 			break;
-		inst->clk_data.operating_rate = ctrl->val;
 		inst->flags &= ~VIDC_TURBO;
 		if (ctrl->val == INT_MAX)
 			inst->flags |= VIDC_TURBO;
+		else
+			inst->clk_data.operating_rate = ctrl->val;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_LOWLATENCY_MODE:
 		inst->clk_data.low_latency_mode = !!ctrl->val;
+		inst->batch.enable = is_batching_allowed(inst);
 		break;
 	default:
 		s_vpr_e(inst->sid, "Unknown control %#x\n", ctrl->id);
@@ -1379,6 +1364,11 @@ int msm_vdec_set_extradata(struct msm_vidc_inst *inst)
 	msm_comm_set_extradata(inst,
 		HFI_PROPERTY_PARAM_VDEC_INTERLACE_VIDEO_EXTRADATA, 0x1);
 	msm_comm_set_extradata(inst, display_info, 0x1);
+
+	if (codec == V4L2_PIX_FMT_VP9 || codec == V4L2_PIX_FMT_HEVC) {
+		msm_comm_set_extradata(inst,
+			HFI_PROPERTY_PARAM_VDEC_HDR10_HIST_EXTRADATA, 0x1);
+	}
 
 	msm_comm_set_extradata(inst,
 		HFI_PROPERTY_PARAM_VDEC_NUM_CONCEALED_MB, 0x1);
