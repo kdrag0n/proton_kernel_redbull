@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -180,6 +180,9 @@
 #define policymgr_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_POLICY_MGR, params)
 
+#define policy_mgr_rl_debug(params...) \
+	QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_POLICY_MGR, params)
+
 #define PM_CONC_CONNECTION_LIST_VALID_INDEX(index) \
 		((MAX_NUMBER_OF_CONC_CONNECTIONS > index) && \
 			(pm_conc_connection_list[index].in_use))
@@ -239,6 +242,7 @@ struct sta_ap_intf_check_work_ctx {
  * @enable_mcc_adaptive_sch: Enable/Disable MCC adaptive scheduler
  * @enable_sta_cxn_5g_band: Enable/Disable STA connection in 5G band
  * @prefer_5g_scc_to_dbs: Prefer to work in 5G SCC mode.
+ * @go_force_scc: Enable/Disable P2P GO force SCC
  */
 struct policy_mgr_cfg {
 	uint8_t mcc_to_scc_switch;
@@ -261,6 +265,7 @@ struct policy_mgr_cfg {
 	uint32_t vdev_priority_list;
 	uint32_t chnl_select_plcy;
 	uint32_t prefer_5g_scc_to_dbs;
+	uint8_t go_force_scc;
 };
 
 /**

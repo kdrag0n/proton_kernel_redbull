@@ -23,6 +23,8 @@
 #ifndef __HDD_CONFIG_H
 #define __HDD_CONFIG_H
 
+#include "hdd_sar_safety_config.h"
+
 #if defined(CONFIG_HL_SUPPORT)
 #include "wlan_tgt_def_config_hl.h"
 #else
@@ -388,6 +390,19 @@ enum hdd_dot11_mode {
 #endif
 
 #ifdef FEATURE_RUNTIME_PM
+
+/**
+ * enum hdd_runtime_pm_cfg - Runtime PM (RTPM) configuration options
+ * @hdd_runtime_pm_disabled: RTPM and CxPC aware RTPM  disabled
+ * @hdd_runtime_pm_static: RTPM enabled, but CxPC aware RTPM disabled
+ * @hdd_runtime_pm_dynamic: RTPM and CxPC aware RTPM enabled
+ */
+enum hdd_runtime_pm_cfg {
+	hdd_runtime_pm_disabled = 0,
+	hdd_runtime_pm_static = 1,
+	hdd_runtime_pm_dynamic = 2,
+};
+
 /*
  * <ini>
  * gRuntimePM - enable runtime suspend
@@ -1436,5 +1451,6 @@ enum host_log_level {
 	CFG(CFG_ENABLE_DISABLE_CHANNEL) \
 	CFG(CFG_SAR_CONVERSION) \
 	CFG(CFG_WOW_DISABLE) \
-	CFG(CFG_ENABLE_HOST_MODULE_LOG_LEVEL)
+	CFG(CFG_ENABLE_HOST_MODULE_LOG_LEVEL) \
+	SAR_SAFETY_FEATURE_ALL
 #endif

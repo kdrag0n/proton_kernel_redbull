@@ -562,8 +562,8 @@ bool hdd_get_interface_info(struct hdd_adapter *adapter,
 		}
 		if (eConnectionState_Connecting ==
 		    sta_ctx->conn_info.conn_state) {
-			hdd_err("Session ID %d, Connection is in progress",
-				adapter->vdev_id);
+			hdd_debug("Session ID %d, Connection is in progress",
+				  adapter->vdev_id);
 			info->state = WIFI_ASSOCIATING;
 		}
 		if ((eConnectionState_Associated ==
@@ -621,14 +621,12 @@ static void hdd_link_layer_process_peer_stats(struct hdd_adapter *adapter,
 	struct nlattr *peers;
 	int num_rate;
 
-	hdd_enter();
-
 	status = wlan_hdd_validate_context(hdd_ctx);
 	if (0 != status)
 		return;
 
-	hdd_debug("LL_STATS_PEER_ALL : num_peers %u, more data = %u",
-		  peer_stat->num_peers, more_data);
+	hdd_nofl_debug("LL_STATS_PEER_ALL : num_peers %u, more data = %u",
+		       peer_stat->num_peers, more_data);
 
 	/*
 	 * Allocate a size of 4096 for the peer stats comprising
@@ -701,7 +699,6 @@ static void hdd_link_layer_process_peer_stats(struct hdd_adapter *adapter,
 	}
 
 	cfg80211_vendor_cmd_reply(vendor_event);
-	hdd_exit();
 }
 
 /**
@@ -724,8 +721,6 @@ hdd_link_layer_process_iface_stats(struct hdd_adapter *adapter,
 	struct sk_buff *vendor_event;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	int status;
-
-	hdd_enter();
 
 	status = wlan_hdd_validate_context(hdd_ctx);
 	if (0 != status)
@@ -761,7 +756,6 @@ hdd_link_layer_process_iface_stats(struct hdd_adapter *adapter,
 	}
 
 	cfg80211_vendor_cmd_reply(vendor_event);
-	hdd_exit();
 }
 
 /**
@@ -961,16 +955,12 @@ hdd_link_layer_process_radio_stats(struct hdd_adapter *adapter,
 	struct wifi_radio_stats *radio_stat_save = radio_stat;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 
-	hdd_enter();
-
 	status = wlan_hdd_validate_context(hdd_ctx);
 	if (0 != status)
 		return;
 
-	hdd_debug("LL_STATS_RADIO: number of radios: %u", num_radio);
-
 	for (i = 0; i < num_radio; i++) {
-		hdd_debug("LL_STATS_RADIO"
+		hdd_nofl_debug("LL_STATS_RADIO"
 		       " radio: %u on_time: %u tx_time: %u rx_time: %u"
 		       " on_time_scan: %u on_time_nbd: %u"
 		       " on_time_gscan: %u on_time_roam_scan: %u"
@@ -1001,7 +991,6 @@ hdd_link_layer_process_radio_stats(struct hdd_adapter *adapter,
 		radio_stat++;
 	}
 
-	hdd_exit();
 }
 
 /**
@@ -1096,18 +1085,13 @@ void wlan_hdd_cfg80211_link_layer_stats_callback(hdd_handle_t hdd_handle,
 		return;
 	}
 
-	hdd_debug("Link Layer Indication Type: %d", indication_type);
-
 	switch (indication_type) {
 	case SIR_HAL_LL_STATS_RESULTS_RSP:
 	{
-		hdd_debug("LL_STATS RESP paramID = 0x%x, ifaceId = %u, respId= %u , moreResultToFollow = %u, num radio = %u result = %pK",
-			results->paramId,
-			results->ifaceId,
-			results->rspId,
-			results->moreResultToFollow,
-			results->num_radio,
-			results->results);
+		hdd_nofl_debug("LL_STATS RESP paramID = 0x%x, ifaceId = %u, respId= %u , moreResultToFollow = %u, num radio = %u result = %pK",
+			       results->paramId, results->ifaceId,
+			       results->rspId, results->moreResultToFollow,
+			       results->num_radio, results->results);
 
 		request = osif_request_get(cookie);
 		if (!request) {
@@ -1478,8 +1462,8 @@ __wlan_hdd_cfg80211_ll_stats_get(struct wiphy *wiphy,
 		return -EINVAL;
 
 	if (!adapter->is_link_layer_stats_set) {
-		hdd_warn("is_link_layer_stats_set: %d",
-			 adapter->is_link_layer_stats_set);
+		hdd_nofl_debug("is_link_layer_stats_set: %d",
+			       adapter->is_link_layer_stats_set);
 		return -EINVAL;
 	}
 
@@ -3922,7 +3906,7 @@ static int wlan_hdd_get_station_remote(struct wiphy *wiphy,
 	if (status != 0)
 		return status;
 
-	hdd_debug("get peer %pM info", mac);
+	hdd_debug("Peer %pM", mac);
 
 	for (i = 0; i < WLAN_MAX_STA_COUNT; i++) {
 		if (!qdf_mem_cmp(adapter->sta_info[i].sta_mac.bytes,
@@ -4585,18 +4569,16 @@ static int wlan_hdd_get_sta_stats(struct wiphy *wiphy,
 			rx_mcs_index = 0;
 	}
 
-	hdd_debug("RSSI %d, RLMS %u, rssi high %d, rssi mid %d, rssi low %d",
+	hdd_debug("[RSSI %d, RLMS %u, rssi high %d, rssi mid %d, rssi low %d]-"
+		  "[Rate info: TX: %d, RX: %d]-[Rate flags: TX: 0x%x, RX: 0x%x]"
+		  "-[MCS Index: TX: %d, RX: %d]-[NSS: TX: %d, RX: %d]-"
+		  "[dcm: TX: %d, RX: %d]-[guard interval: TX: %d, RX: %d",
 		  sinfo->signal, link_speed_rssi_report,
 		  link_speed_rssi_high, link_speed_rssi_mid,
-		  link_speed_rssi_low);
-	hdd_debug("Rate info: TX: %d, RX: %d", my_tx_rate, my_rx_rate);
-	hdd_debug("Rate flags: TX: 0x%x, RX: 0x%x", (int)tx_rate_flags,
-		  (int)rx_rate_flags);
-	hdd_debug("MCS Index: TX: %d, RX: %d", (int)tx_mcs_index,
-		  (int)rx_mcs_index);
-	hdd_debug("NSS: TX: %d, RX: %d", (int)tx_nss, (int)rx_nss);
-	hdd_debug("dcm: TX: %d, RX: %d", (int)tx_dcm, (int)rx_dcm);
-	hdd_debug("guard interval: TX: %d, RX: %d", (int)tx_gi, (int)rx_gi);
+		  link_speed_rssi_low, my_tx_rate, my_rx_rate,
+		  (int)tx_rate_flags, (int)rx_rate_flags, (int)tx_mcs_index,
+		  (int)rx_mcs_index, (int)tx_nss, (int)rx_nss,
+		  (int)tx_dcm, (int)rx_dcm, (int)tx_gi, (int)rx_gi);
 
 	if (!ucfg_mlme_stats_is_link_speed_report_actual(hdd_ctx->psoc)) {
 		bool tx_rate_calc, rx_rate_calc;
@@ -4667,19 +4649,18 @@ static int wlan_hdd_get_sta_stats(struct wiphy *wiphy,
 			 HDD_INFO_RX_PACKETS;
 
 	if (tx_rate_flags & TX_RATE_LEGACY) {
-		hdd_debug("TX: Reporting legacy rate %d pkt cnt %d",
-			  sinfo->txrate.legacy, sinfo->tx_packets);
-		hdd_debug("RX: Reporting legacy rate %d pkt cnt %d",
+		hdd_debug("[TX: Reporting legacy rate %d pkt cnt %d]-"
+			  "[RX: Reporting legacy rate %d pkt cnt %d]",
+			  sinfo->txrate.legacy, sinfo->tx_packets,
 			  sinfo->rxrate.legacy, sinfo->rx_packets);
 	} else {
-		hdd_debug("TX: Reporting MCS rate %d, flags 0x%x pkt cnt %d, nss %d, bw %d",
+		hdd_debug("[TX: Reporting MCS rate %d, flags 0x%x pkt cnt %d, nss %d, bw %d]-"
+			  "[RX: Reporting MCS rate %d, flags 0x%x pkt cnt %d, nss %d, bw %d]",
 			  sinfo->txrate.mcs, sinfo->txrate.flags,
 			  sinfo->tx_packets, sinfo->txrate.nss,
-			  sinfo->rxrate.bw);
-		hdd_debug("RX: Reporting MCS rate %d, flags 0x%x pkt cnt %d, nss %d, bw %d",
-			  sinfo->rxrate.mcs, sinfo->rxrate.flags,
-			  sinfo->rx_packets, sinfo->rxrate.nss,
-			  sinfo->rxrate.bw);
+			  sinfo->rxrate.bw, sinfo->rxrate.mcs,
+			  sinfo->rxrate.flags, sinfo->rx_packets,
+			  sinfo->rxrate.nss, sinfo->rxrate.bw);
 	}
 
 	hdd_wlan_fill_per_chain_rssi_stats(sinfo, adapter);
@@ -5000,9 +4981,6 @@ static int __wlan_hdd_cfg80211_dump_survey(struct wiphy *wiphy,
 	int status;
 	bool filled = false;
 
-	hdd_enter_dev(dev);
-
-	hdd_debug("dump survey index: %d", idx);
 	if (idx > QDF_MAX_NUM_CHAN - 1)
 		return -EINVAL;
 
@@ -5035,7 +5013,7 @@ static int __wlan_hdd_cfg80211_dump_survey(struct wiphy *wiphy,
 
 	if (!filled)
 		return -ENONET;
-	hdd_exit();
+
 	return 0;
 }
 

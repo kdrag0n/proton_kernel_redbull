@@ -1312,7 +1312,8 @@ void pe_register_callbacks_with_wma(struct mac_context *mac,
 			ready_req->csr_roam_synch_cb,
 			ready_req->csr_roam_auth_event_handle_cb,
 			ready_req->pe_roam_synch_cb,
-			ready_req->pe_disconnect_cb);
+			ready_req->pe_disconnect_cb,
+			ready_req->csr_roam_pmkid_req_cb);
 	if (status != QDF_STATUS_SUCCESS)
 		pe_err("Registering roaming callbacks with WMA failed");
 }
@@ -1516,13 +1517,6 @@ lim_enc_type_matched(struct mac_context *mac_ctx,
 	if (!bcn || !session)
 		return false;
 
-	pe_debug("Beacon/Probe:: Privacy: %d WPA Present: %d RSN Present: %d",
-		bcn->capabilityInfo.privacy, bcn->wpaPresent, bcn->rsnPresent);
-	pe_debug("session:: Privacy: %d EncyptionType: %d OSEN: %d WPS: %d",
-		SIR_MAC_GET_PRIVACY(session->limCurrentBssCaps),
-		session->encryptType, session->isOSENConnection,
-		session->wps_registration);
-
 	/*
 	 * This is handled by sending probe req due to IOT issues so
 	 * return TRUE
@@ -1572,6 +1566,12 @@ lim_enc_type_matched(struct mac_context *mac_ctx,
 	if (session->isOSENConnection ||
 	   session->wps_registration)
 		return true;
+
+	pe_debug("AP:: Privacy %d WPA %d RSN %d, SELF:: Privacy %d Enc %d OSEN %d WPS %d",
+		 bcn->capabilityInfo.privacy, bcn->wpaPresent, bcn->rsnPresent,
+		 SIR_MAC_GET_PRIVACY(session->limCurrentBssCaps),
+		 session->encryptType, session->isOSENConnection,
+		 session->wps_registration);
 
 	return false;
 }
@@ -2133,9 +2133,6 @@ lim_roam_fill_bss_descr(struct mac_context *mac,
 		 roam_synch_ind_ptr->isBeacon,
 		 roam_synch_ind_ptr->bssid.bytes,
 		 mac_hdr->bssId);
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			   bcn_proberesp_ptr,
-			   roam_synch_ind_ptr->beaconProbeRespLength);
 
 	status = lim_roam_gen_beacon_descr(mac,
 					   roam_synch_ind_ptr,
@@ -2202,9 +2199,7 @@ lim_roam_fill_bss_descr(struct mac_context *mac,
 				(uint8_t *)parsed_frm_ptr->mdie,
 				SIR_MDIE_SIZE);
 	}
-	pe_debug("LFR3: BssDescr Info:");
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			bss_desc_ptr->bssId, sizeof(tSirMacAddr));
+
 	pe_debug("chan: %d rssi: %d ie_len %d", bss_desc_ptr->channelId,
 		 bss_desc_ptr->rssi, ie_len);
 	if (ie_len) {
@@ -2261,7 +2256,8 @@ lim_copy_and_free_hlp_data_from_session(struct pe_session *session_ptr,
 QDF_STATUS
 pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 		       uint8_t *deauth_disassoc_frame,
-		       uint16_t deauth_disassoc_frame_len)
+		       uint16_t deauth_disassoc_frame_len,
+		       uint16_t reason_code)
 {
 	struct pe_session *session;
 
@@ -2271,10 +2267,27 @@ pe_disconnect_callback(struct mac_context *mac, uint8_t vdev_id,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	lim_extract_ies_from_deauth_disassoc(session, deauth_disassoc_frame,
-					     deauth_disassoc_frame_len);
+	if (!((session->limMlmState == eLIM_MLM_LINK_ESTABLISHED_STATE) &&
+	      (session->limSmeState != eLIM_SME_WT_DISASSOC_STATE) &&
+	      (session->limSmeState != eLIM_SME_WT_DEAUTH_STATE))) {
+		pe_info("Cannot handle in mlmstate %d sme state %d as vdev_id:%d is not in connected state",
+			session->limMlmState, session->limSmeState, vdev_id);
+		return QDF_STATUS_SUCCESS;
+	}
+
+	if (deauth_disassoc_frame &&
+	    deauth_disassoc_frame_len > SIR_MAC_MIN_IE_LEN) {
+		lim_extract_ies_from_deauth_disassoc(session,
+						     deauth_disassoc_frame,
+						     deauth_disassoc_frame_len);
+
+		reason_code = sir_read_u16(deauth_disassoc_frame +
+					   sizeof(struct wlan_frame_hdr));
+	}
+
 	lim_tear_down_link_with_ap(mac, session->peSessionId,
-				   eSIR_MAC_UNSPEC_FAILURE_REASON);
+				   reason_code,
+				   eLIM_PEER_ENTITY_DEAUTH);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -2383,8 +2396,9 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 	status = QDF_STATUS_E_FAILURE;
 	ft_session_ptr = pe_create_session(mac_ctx, bss_desc->bssId,
 					   &session_id, mac_ctx->lim.maxStation,
-					   eSIR_INFRASTRUCTURE_MODE,
-					   session_ptr->smeSessionId);
+					   session_ptr->bssType,
+					   session_ptr->vdev_id,
+					   session_ptr->opmode);
 	if (!ft_session_ptr) {
 		pe_err("LFR3:Cannot create PE Session");
 		lim_print_mac_addr(mac_ctx, bss_desc->bssId, LOGE);
@@ -2459,10 +2473,6 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 			roam_sync_ind_ptr->reassocRespOffset,
 			mac_ctx->roam.reassocRespLen);
 
-	pe_debug("LFR3: Reassoc resp frame data:");
-	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			mac_ctx->roam.pReassocResp,
-			mac_ctx->roam.reassocRespLen);
 	ft_session_ptr->bRoamSynchInProgress = true;
 
 	lim_process_assoc_rsp_frame(mac_ctx, mac_ctx->roam.pReassocResp,
@@ -2759,7 +2769,8 @@ void lim_mon_init_session(struct mac_context *mac_ptr,
 					   &session_id,
 					   mac_ptr->lim.maxStation,
 					   eSIR_MONITOR_MODE,
-					   msg->vdev_id);
+					   msg->vdev_id,
+					   QDF_MONITOR_MODE);
 	if (!psession_entry) {
 		pe_err("Monitor mode: Session Can not be created");
 		lim_print_mac_addr(mac_ptr, msg->bss_id.bytes, LOGE);
@@ -2846,7 +2857,7 @@ QDF_STATUS lim_update_ext_cap_ie(struct mac_context *mac_ctx, uint8_t *ie_data,
 		populate_dot11f_twt_extended_caps(mac_ctx, session,
 						  &driver_ext_cap);
 	else
-		pe_err("Session NULL, cannot set TWT caps");
+		pe_debug("Session NULL, cannot set TWT caps");
 
 	local_ie_buf[*local_ie_len + 1] = driver_ext_cap.num_bytes;
 

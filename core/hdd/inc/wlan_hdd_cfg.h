@@ -191,6 +191,7 @@ struct hdd_config {
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */
 	uint32_t napi_cpu_affinity_mask;
 	/* CPU affinity mask for rx_thread */
+	uint32_t rx_thread_ul_affinity_mask;
 	uint32_t rx_thread_affinity_mask;
 	uint8_t cpu_map_list[CFG_DP_RPS_RX_QUEUE_CPU_MAP_LIST_LEN];
 	bool multicast_replay_filter;
@@ -200,9 +201,7 @@ struct hdd_config {
 	bool enable_dp_trace;
 	uint8_t dp_trace_config[DP_TRACE_CONFIG_STRING_LENGTH];
 #endif
-#ifdef WLAN_NUD_TRACKING
 	uint8_t enable_nud_tracking;
-#endif
 	uint8_t operating_channel;
 	uint8_t num_vdevs;
 	uint8_t enable_concurrent_sta[CFG_CONCURRENT_IFACE_MAX_LEN];
@@ -221,6 +220,19 @@ struct hdd_config {
 #ifdef WLAN_FEATURE_TSF_PLUS
 	uint8_t tsf_ptp_options;
 #endif /* WLAN_FEATURE_TSF_PLUS */
+	uint32_t dp_proto_event_bitmap;
+
+#ifdef SAR_SAFETY_FEATURE
+	uint32_t sar_safety_timeout;
+	uint32_t sar_safety_unsolicited_timeout;
+	uint32_t sar_safety_req_resp_timeout;
+	uint32_t sar_safety_req_resp_retry;
+	uint32_t sar_safety_index;
+	uint32_t sar_safety_sleep_index;
+	bool enable_sar_safety;
+	bool config_sar_safety_sleep_index;
+#endif
+	bool get_roam_chan_from_fw;
 };
 
 /**
