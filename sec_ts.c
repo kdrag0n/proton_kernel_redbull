@@ -129,7 +129,7 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 
 #endif
 
-	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+	for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 #ifdef I2C_INTERFACE
 		if ((ret = i2c_transfer(ts->client->adapter, &msg, 1)) == 1)
 			break;
@@ -154,7 +154,7 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 
 	mutex_unlock(&ts->io_mutex);
 
-	if (retry == SEC_TS_I2C_RETRY_CNT) {
+	if (retry == SEC_TS_IO_RETRY_CNT) {
 		input_err(true, &ts->client->dev, "%s: write over retry limit\n", __func__);
 		ret = -EIO;
 #ifdef USE_POR_AFTER_I2C_RETRY
@@ -256,7 +256,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 #endif
 	if (len <= ts->io_burstmax) {
 #ifdef I2C_INTERFACE
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, msg, 2);
 			if (ret == 2)
 				break;
@@ -276,7 +276,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		if (ret == 2 && dma_safe == false)
 			memcpy(data, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE], len);
 #else
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			spi_message_init(&msg);
 			// spi transfer size should be multiple of 4
 			transfer[0].len = spi_write_len;
@@ -310,7 +310,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 					goto err;
 				}
 
-				if (retry == SEC_TS_I2C_RETRY_CNT - 1) {
+				if (retry == SEC_TS_IO_RETRY_CNT - 1) {
 					input_err(true, &ts->client->dev,
 						"%s: write reg retry over retry limit, skip read\n",
 						__func__);
@@ -387,7 +387,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		 * So, try to seperate reading data about 256 bytes.
 		 */
 #ifdef I2C_INTERFACE
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, msg, 1);
 			if (ret == 1)
 				break;
@@ -417,7 +417,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 
 			remain -= ts->io_burstmax;
 
-			for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+			for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 				ret = i2c_transfer(ts->client->adapter, &msg[1], 1);
 				if (ret == 1)
 					break;
@@ -445,7 +445,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		if (ret == 1 && dma_safe == false)
 			memcpy(data, ts->io_read_buf, len);
 #else
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			spi_message_init(&msg);
 			// spi transfer size should be multiple of 4
 			transfer[0].len = spi_write_len;
@@ -475,7 +475,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 					goto err;
 				}
 
-				if (retry == SEC_TS_I2C_RETRY_CNT - 1) {
+				if (retry == SEC_TS_IO_RETRY_CNT - 1) {
 					input_err(true, &ts->client->dev,
 						"%s: write reg retry over retry limit, skip read\n",
 						__func__);
@@ -593,15 +593,24 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 skip_spi_read:
 	mutex_unlock(&ts->io_mutex);
 
-	if (retry == SEC_TS_I2C_RETRY_CNT) {
+	if (retry == SEC_TS_IO_RETRY_CNT) {
 		input_err(true, &ts->client->dev,
-			"%s: read reg(%#x) over retry limit\n", __func__, reg);
+			"%s: read reg(%#x) over retry limit, comm_err_count %d, io_err_count %d\n",
+			__func__, reg, ts->comm_err_count, ts->io_err_count);
 		ret = -EIO;
+		ts->io_err_count++;
 #ifdef USE_POR_AFTER_I2C_RETRY
 		if (ts->probe_done && !ts->reset_is_on_going)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #endif
 
+	} else
+		ts->io_err_count = 0;
+
+	/* do hw reset if continuously failed over SEC_TS_IO_RESET_CNT times */
+	if (ts->io_err_count >= SEC_TS_IO_RESET_CNT) {
+		ts->io_err_count = 0;
+		sec_ts_hw_reset(ts);
 	}
 
 	return ret;
@@ -683,7 +692,7 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 
 #endif
 
-	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+	for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 #ifdef I2C_INTERFACE
 		if ((ret = i2c_master_send(ts->client, data, len)) == len)
 			break;
@@ -701,7 +710,7 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 	}
 
 	mutex_unlock(&ts->io_mutex);
-	if (retry == SEC_TS_I2C_RETRY_CNT) {
+	if (retry == SEC_TS_IO_RETRY_CNT) {
 		input_err(true, &ts->client->dev, "%s: write over retry limit\n", __func__);
 		ret = -EIO;
 	}
@@ -753,7 +762,7 @@ static int sec_ts_read_bulk_internal(struct sec_ts_data *ts,
 
 		remain -= ts->io_burstmax;
 
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, &msg, 1);
 			if (ret == 1)
 				break;
@@ -765,7 +774,7 @@ static int sec_ts_read_bulk_internal(struct sec_ts_data *ts,
 			}
 		}
 
-		if (retry == SEC_TS_I2C_RETRY_CNT) {
+		if (retry == SEC_TS_IO_RETRY_CNT) {
 			input_err(true, &ts->client->dev,
 				  "%s: read over retry limit\n", __func__);
 			ret = -EIO;
@@ -798,7 +807,7 @@ retry_message:
 		copy_size += copy_cur;
 		remain -= copy_cur;
 
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
+		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			ret = spi_sync(ts->client, &msg);
 			if (ret == 0)
 				break;
@@ -827,7 +836,7 @@ retry_message:
 		input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(S) %X, chksum(M) %X, chksum(S) %X\n",
 			__func__, ret, ts->io_read_buf[0], ts->io_read_buf[5],
 			checksum, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
-		if (retry_msg++ < SEC_TS_I2C_RETRY_CNT)
+		if (retry_msg++ < SEC_TS_IO_RETRY_CNT)
 			goto retry_message;
 	}
 #endif
@@ -1673,18 +1682,44 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						event_buff[7]);
 			}
 
-			/* watchdog reset -> send SENSEON command */ /*=>?????*/
-			if ((p_event_status->stype == TYPE_STATUS_EVENT_INFO) &&
-				(p_event_status->status_id == SEC_TS_ACK_BOOT_COMPLETE) &&
-				(p_event_status->status_data_1 == 0x20)) {
+			if ((p_event_status->stype ==
+					TYPE_STATUS_EVENT_INFO) &&
+				(p_event_status->status_id ==
+					SEC_TS_ACK_BOOT_COMPLETE)) {
+				u8 status_data_1 =
+					p_event_status->status_data_1;
 
-				sec_ts_unlocked_release_all_finger(ts);
+				switch (status_data_1) {
+				case 0x20:
+					/* watchdog reset !? */
+					sec_ts_unlocked_release_all_finger(ts);
+					ret = sec_ts_write(ts,
+						SEC_TS_CMD_SENSE_ON, NULL, 0);
+					if (ret < 0)
+						input_err(true,
+							&ts->client->dev,
+							"%s: fail to write Sense_on\n",
+							__func__);
+						sec_ts_reinit(ts);
+					break;
+				case 0x40:
+					input_info(true, &ts->client->dev,
+						"%s: sw_reset done\n",
+						__func__);
+					sec_ts_unlocked_release_all_finger(ts);
+					complete_all(&ts->boot_completed);
+					break;
+				case 0x10:
+					input_info(true, &ts->client->dev,
+						"%s: hw_reset done\n",
+						__func__);
+					sec_ts_unlocked_release_all_finger(ts);
+					complete_all(&ts->boot_completed);
+					break;
+				default:
+					break;
+				}
 
-				ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
-				if (ret < 0)
-					input_err(true, &ts->client->dev, "%s: fail to write Sense_on\n", __func__);
-
-				sec_ts_reinit(ts);
 			}
 
 			/* event queue full-> all finger release */
@@ -2902,6 +2937,9 @@ static int sec_ts_probe(struct spi_device *client)
 
 	init_completion(&ts->resume_done);
 	complete_all(&ts->resume_done);
+
+	init_completion(&ts->boot_completed);
+	complete_all(&ts->boot_completed);
 
 	if (pdata->always_lpmode)
 		ts->lowpower_mode |= SEC_TS_MODE_CUSTOMLIB_FORCE_KEY;

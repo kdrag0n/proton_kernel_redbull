@@ -551,7 +551,8 @@ enum {
 
 #define CMD_RESULT_WORD_LEN		10
 
-#define SEC_TS_I2C_RETRY_CNT		3
+#define SEC_TS_IO_RESET_CNT		3
+#define SEC_TS_IO_RETRY_CNT		3
 #define SEC_TS_WAIT_RETRY_CNT		100
 
 #define SEC_TS_MODE_CUSTOMLIB_SPAY			(1 << 1)
@@ -784,6 +785,7 @@ struct sec_ts_data {
 	struct mutex bus_mutex;
 	u16 bus_refmask;
 	struct completion bus_resumed;
+	struct completion boot_completed;
 
 	int touch_count;
 	int tx_count;
@@ -874,6 +876,7 @@ struct sec_ts_data {
 	unsigned int wet_count;			/* wet mode count */
 	unsigned int dive_count;		/* dive mode count */
 	unsigned int comm_err_count;	/* comm error count */
+	unsigned int io_err_count;	/* io error count */
 	unsigned int checksum_result;	/* checksum result */
 	unsigned char module_id[4];
 	unsigned int all_finger_count;

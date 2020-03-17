@@ -1685,14 +1685,19 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 			goto ErrorRelease;
 		}
 
+		/* read data and check ret later */
+		ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_RAWDATA, pRead,
+					readbytes);
 		enable_irq(ts->client->irq);
-	}
+	} else
+		/* read data and check ret later */
+		ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_RAWDATA, pRead,
+					readbytes);
 
-	/* read data */
-	ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_RAWDATA, pRead,
-				readbytes);
+	/* check read data */
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read rawdata failed!\n", __func__);
+		input_err(true, &ts->client->dev,
+				  "%s: read rawdata failed!\n", __func__);
 		goto ErrorRelease;
 	}
 
@@ -1928,15 +1933,21 @@ static int sec_ts_read_channel(struct sec_ts_data *ts, u8 type, short *min,
 			enable_irq(ts->client->irq);
 			goto err_read_data;
 		}
+
+		/* read data and check ret later */
+		ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_SELF_RAWDATA,
+					pRead, data_length);
 		enable_irq(ts->client->irq);
 		/* end */
-	}
+	} else
+		/* read data and check ret later */
+		ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_SELF_RAWDATA,
+					pRead, data_length);
 
-	/* read data */
-	ret = ts->sec_ts_read_heap(ts, SEC_TS_READ_TOUCH_SELF_RAWDATA,
-				pRead, data_length);
+	/* check read data */
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read rawdata failed!\n", __func__);
+		input_err(true, &ts->client->dev,
+				  "%s: read rawdata failed!\n", __func__);
 		goto err_read_data;
 	}
 
@@ -7144,13 +7155,9 @@ static void set_touch_mode(void *device_data)
 		break;
 	case 7:
 		input_info(true, &ts->client->dev,
-			"%s: param = %d, SW Reset\n",
+			"%s: param = %d, do touch system reset\n",
 			__func__, sec->cmd_param[0]);
-		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SW_RESET, NULL, 0);
-		if (ret < 0)
-			input_err(true, &ts->client->dev,
-				"%s: fail to write SW Reset\n", __func__);
-		sec_ts_delay(300);
+		sec_ts_system_reset(ts);
 		break;
 	case 8:
 		input_info(true, &ts->client->dev,

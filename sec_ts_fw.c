@@ -100,6 +100,8 @@ int sec_ts_hw_reset(struct sec_ts_data *ts)
 {
 	int reset_gpio = ts->plat_data->reset_gpio;
 
+	input_info(true, &ts->client->dev, "%s\n", __func__);
+
 	if (!gpio_is_valid(reset_gpio)) {
 		input_err(true, &ts->client->dev, "%s: invalid gpio %d\n",
 			__func__, reset_gpio);
@@ -109,6 +111,8 @@ int sec_ts_hw_reset(struct sec_ts_data *ts)
 	gpio_set_value(reset_gpio, 0);
 	sec_ts_delay(10);
 	gpio_set_value(reset_gpio, 1);
+	/* wait 70 ms at least from bootloader to applicateion mode */
+	sec_ts_delay(70);
 
 	return 0;
 }
@@ -117,13 +121,16 @@ int sec_ts_sw_reset(struct sec_ts_data *ts)
 {
 	int ret;
 
+	input_info(true, &ts->client->dev, "%s\n", __func__);
+
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SW_RESET, NULL, 0);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: write fail, sw_reset\n", __func__);
 		return 0;
 	}
 
-	sec_ts_delay(100);
+	/* wait 70 ms at least from bootloader to applicateion mode */
+	sec_ts_delay(70);
 
 	ret = sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
 	if (ret < 0) {
@@ -147,17 +154,27 @@ int sec_ts_system_reset(struct sec_ts_data *ts)
 {
 	int ret = -1;
 
+	reinit_completion(&ts->boot_completed);
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SW_RESET, NULL, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: write fail, sw_reset\n",
 			__func__);
 	else {
-		sec_ts_delay(100);
-		/* Normally it should not happen with any retry.
-		 * But, if happened, retry less time to wait ack
-		 */
-		ret = sec_ts_wait_for_ready_with_count(ts,
-						SEC_TS_ACK_BOOT_COMPLETE, 10);
+		/* wait 70 ms at least from bootloader to applicateion mode */
+		sec_ts_delay(70);
+		if (completion_done(&ts->bus_resumed) &&
+			ts->probe_done == true) {
+			if (!completion_done(&ts->boot_completed) &&
+				wait_for_completion_timeout(&ts->boot_completed,
+				msecs_to_jiffies(200) == 0))
+				ret = -ETIME;
+		} else
+			/* Normally it should not happen with any retry.
+			 * But, if happened, retry less time to wait ack
+			 */
+			ret = sec_ts_wait_for_ready_with_count(ts,
+				SEC_TS_ACK_BOOT_COMPLETE, 10);
+
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
 				"%s: sw_reset time out!\n", __func__);
@@ -171,7 +188,7 @@ int sec_ts_system_reset(struct sec_ts_data *ts)
 		if (!gpio_is_valid(ts->plat_data->reset_gpio)) {
 			input_err(true, &ts->client->dev,
 				"%s: reset gpio is unavailable!\n", __func__);
-			return ret;
+			goto err_system_reset;
 		}
 
 		input_err(true, &ts->client->dev,
@@ -181,16 +198,24 @@ int sec_ts_system_reset(struct sec_ts_data *ts)
 		if (ret) {
 			input_err(true, &ts->client->dev,
 				"%s: hw_reset failed\n", __func__);
-			return ret;
+			goto err_system_reset;
 		}
 
-		ret = sec_ts_wait_for_ready_with_count(ts,
-						SEC_TS_ACK_BOOT_COMPLETE, 10);
+		if (completion_done(&ts->bus_resumed) &&
+			ts->probe_done == true) {
+			if (!completion_done(&ts->boot_completed) &&
+				wait_for_completion_timeout(&ts->boot_completed,
+				msecs_to_jiffies(200) == 0))
+				ret = -ETIME;
+		} else
+			ret = sec_ts_wait_for_ready_with_count(ts,
+				SEC_TS_ACK_BOOT_COMPLETE, 10);
+
 		if (ret < 0) {
 			input_err(true,
 				  &ts->client->dev, "%s: hw_reset time out\n",
 				  __func__);
-			return ret;
+			goto err_system_reset;
 		}
 		input_info(true, &ts->client->dev, "%s: hw_reset done\n",
 			__func__);
@@ -201,10 +226,15 @@ int sec_ts_system_reset(struct sec_ts_data *ts)
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: write fail, Sense_on\n",
 			__func__);
-		return ret;
+		goto err_system_reset;
 	}
 
 	return 0;
+
+err_system_reset:
+
+	complete_all(&ts->boot_completed);
+	return ret;
 }
 
 static void sec_ts_save_version_of_bin(struct sec_ts_data *ts, const fw_header *fw_hd)
