@@ -376,7 +376,8 @@ qdf_export_symbol(qdf_wake_lock_release);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
 QDF_STATUS qdf_wake_lock_destroy(qdf_wake_lock_t *lock)
 {
-	wakeup_source_trash(lock);
+	wakeup_source_remove(lock);
+	__pm_relax(lock);
 	return QDF_STATUS_SUCCESS;
 }
 #else
