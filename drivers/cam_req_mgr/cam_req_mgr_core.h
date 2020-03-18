@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 #ifndef _CAM_REQ_MGR_CORE_H_
 #define _CAM_REQ_MGR_CORE_H_
@@ -13,7 +13,7 @@
 #define CAM_REQ_MGR_MAX_LINKED_DEV     16
 #define MAX_REQ_SLOTS                  48
 
-#define CAM_REQ_MGR_WATCHDOG_TIMEOUT       1000
+#define CAM_REQ_MGR_WATCHDOG_TIMEOUT       5000
 #define CAM_REQ_MGR_WATCHDOG_TIMEOUT_MAX   50000
 #define CAM_REQ_MGR_SCHED_REQ_TIMEOUT      1000
 #define CAM_REQ_MGR_SIMULATE_SCHED_REQ     30
@@ -33,7 +33,7 @@
 
 #define MAXIMUM_LINKS_PER_SESSION  4
 
-#define MAXIMUM_RETRY_ATTEMPTS 3
+#define MAXIMUM_RETRY_ATTEMPTS 2
 
 #define VERSION_1  1
 #define VERSION_2  2
@@ -408,10 +408,12 @@ struct cam_req_mgr_core_session {
  * - Core camera request manager data struct
  * @session_head : list head holding sessions
  * @crm_lock     : mutex lock to protect session creation & destruction
+ * @recovery_on_apply_fail : Recovery on apply failure using debugfs.
  */
 struct cam_req_mgr_core_device {
 	struct list_head             session_head;
 	struct mutex                 crm_lock;
+	bool                         recovery_on_apply_fail;
 };
 
 /**
@@ -505,4 +507,10 @@ void cam_req_mgr_handle_core_shutdown(void);
  */
 int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control);
 
+/**
+ * cam_req_mgr_dump_request()
+ * @brief:   Dumps the request information
+ * @dump_req: Dump request
+ */
+int cam_req_mgr_dump_request(struct cam_dump_req_cmd *dump_req);
 #endif

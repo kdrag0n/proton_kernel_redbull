@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/iopoll.h>
@@ -414,7 +414,6 @@ static int cam_ife_csid_cid_get(struct cam_ife_csid_hw *csid_hw,
 	return -EINVAL;
 }
 
-
 static int cam_ife_csid_global_reset(struct cam_ife_csid_hw *csid_hw)
 {
 	struct cam_hw_soc_info                *soc_info;
@@ -518,6 +517,7 @@ static int cam_ife_csid_global_reset(struct cam_ife_csid_hw *csid_hw)
 			csid_hw->hw_intf->hw_idx, val);
 	csid_hw->error_irq_count = 0;
 	csid_hw->prev_boot_timestamp = 0;
+	csid_hw->epd_supported = 0;
 
 end:
 	return rc;
@@ -527,6 +527,7 @@ static int cam_ife_csid_path_reset(struct cam_ife_csid_hw *csid_hw,
 	struct cam_csid_reset_cfg_args  *reset)
 {
 	int rc = 0;
+	unsigned long rem_jiffies;
 	struct cam_hw_soc_info                    *soc_info;
 	struct cam_isp_resource_node              *res;
 	const struct cam_ife_csid_reg_offset      *csid_reg;
@@ -646,14 +647,13 @@ static int cam_ife_csid_path_reset(struct cam_ife_csid_hw *csid_hw,
 	cam_io_w_mb(reset_strb_val, soc_info->reg_map[0].mem_base +
 				reset_strb_addr);
 
-	rc = wait_for_completion_timeout(complete,
+	rem_jiffies = wait_for_completion_timeout(complete,
 		msecs_to_jiffies(IFE_CSID_TIMEOUT));
-	if (rc <= 0) {
+	if (!rem_jiffies) {
+		rc = -ETIMEDOUT;
 		CAM_ERR(CAM_ISP, "CSID:%d Res id %d fail rc = %d",
 			 csid_hw->hw_intf->hw_idx,
 			res->res_id,  rc);
-		if (rc == 0)
-			rc = -ETIMEDOUT;
 	}
 
 end:
@@ -763,6 +763,7 @@ int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 	case CAM_CPAS_TITAN_170_V100:
 	case CAM_CPAS_TITAN_170_V110:
 	case CAM_CPAS_TITAN_170_V120:
+	case CAM_CPAS_TITAN_170_V200:
 		if (cid_reserv->in_port->res_type == CAM_ISP_IFE_IN_RES_PHY_3 &&
 			csid_hw->hw_intf->hw_idx != 2) {
 			rc = -EINVAL;
@@ -770,17 +771,39 @@ int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 		}
 		break;
 	case CAM_CPAS_TITAN_480_V100:
-		if (cid_reserv->in_port->cust_node == 1) {
-			if (cid_reserv->in_port->usage_type == 1) {
-				CAM_ERR(CAM_ISP, "Dual IFE is not supported");
+		/*
+		 * Assigning existing two IFEs for custom in KONA,
+		 * this needs to be addressed accordingly for
+		 * upcoming targets
+		 */
+		if (cid_reserv->in_port->cust_node) {
+			if (cid_reserv->in_port->usage_type ==
+				CAM_ISP_RES_USAGE_DUAL) {
+				CAM_ERR(CAM_ISP,
+					"Dual IFE is not supported for cust_node %u",
+					cid_reserv->in_port->cust_node);
 				rc = -EINVAL;
 				goto end;
 			}
-			if (csid_hw->hw_intf->hw_idx != 0) {
-				CAM_DBG(CAM_ISP, "CSID%d not eligible",
-					csid_hw->hw_intf->hw_idx);
-				rc = -EINVAL;
-				goto end;
+
+			if (cid_reserv->in_port->cust_node ==
+				CAM_ISP_ACQ_CUSTOM_PRIMARY) {
+				if (csid_hw->hw_intf->hw_idx != 0) {
+					CAM_ERR(CAM_ISP, "CSID%d not eligible",
+						csid_hw->hw_intf->hw_idx);
+					rc = -EINVAL;
+					goto end;
+				}
+			}
+
+			if (cid_reserv->in_port->cust_node ==
+				CAM_ISP_ACQ_CUSTOM_SECONDARY) {
+				if (csid_hw->hw_intf->hw_idx != 1) {
+					CAM_ERR(CAM_ISP, "CSID%d not eligible",
+						csid_hw->hw_intf->hw_idx);
+					rc = -EINVAL;
+					goto end;
+				}
 			}
 		}
 		break;
@@ -796,28 +819,31 @@ int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 			goto end;
 		}
 
-		if (cid_reserv->in_port->res_type != CAM_ISP_IFE_IN_RES_TPG) {
-			if (csid_hw->csi2_rx_cfg.lane_cfg !=
-				cid_reserv->in_port->lane_cfg  ||
-				csid_hw->csi2_rx_cfg.lane_type !=
-				cid_reserv->in_port->lane_type ||
-				csid_hw->csi2_rx_cfg.lane_num !=
-				cid_reserv->in_port->lane_num) {
-				rc = -EINVAL;
-				goto end;
-				}
-		} else {
-			if (csid_hw->tpg_cfg.in_format !=
-				cid_reserv->in_port->format     ||
-				csid_hw->tpg_cfg.width !=
-				cid_reserv->in_port->left_width ||
-				csid_hw->tpg_cfg.height !=
-				cid_reserv->in_port->height     ||
-				csid_hw->tpg_cfg.test_pattern !=
-				cid_reserv->in_port->test_pattern) {
-				rc = -EINVAL;
-				goto end;
-			}
+		if ((cid_reserv->in_port->res_type !=
+			CAM_ISP_IFE_IN_RES_TPG) &&
+			(csid_hw->csi2_rx_cfg.lane_cfg !=
+			cid_reserv->in_port->lane_cfg  ||
+			csid_hw->csi2_rx_cfg.lane_type !=
+			cid_reserv->in_port->lane_type ||
+			csid_hw->csi2_rx_cfg.lane_num !=
+			cid_reserv->in_port->lane_num)) {
+
+			rc = -EINVAL;
+			goto end;
+		}
+		if ((cid_reserv->in_port->res_type ==
+			CAM_ISP_IFE_IN_RES_TPG) &&
+			(csid_hw->tpg_cfg.in_format !=
+			cid_reserv->in_port->format     ||
+			csid_hw->tpg_cfg.width !=
+			cid_reserv->in_port->left_width ||
+			csid_hw->tpg_cfg.height !=
+			cid_reserv->in_port->height     ||
+			csid_hw->tpg_cfg.test_pattern !=
+			cid_reserv->in_port->test_pattern)) {
+
+			rc = -EINVAL;
+			goto end;
 		}
 	}
 
@@ -825,7 +851,7 @@ int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 	case CAM_IFE_PIX_PATH_RES_IPP:
 		if (csid_hw->ipp_res.res_state !=
 			CAM_ISP_RESOURCE_STATE_AVAILABLE) {
-			CAM_DBG(CAM_ISP,
+			CAM_ERR(CAM_ISP,
 				"CSID:%d IPP resource not available",
 				csid_hw->hw_intf->hw_idx);
 			rc = -EINVAL;
@@ -902,39 +928,45 @@ int cam_ife_csid_cid_reserve(struct cam_ife_csid_hw *csid_hw,
 		csid_hw->csi2_rx_cfg.lane_num =
 			cid_reserv->in_port->lane_num;
 
-		if (cid_reserv->in_port->res_type == CAM_ISP_IFE_IN_RES_TPG) {
-			csid_hw->csi2_rx_cfg.phy_sel = 0;
-			if (cid_reserv->in_port->format >
-			    CAM_FORMAT_MIPI_RAW_16) {
-				CAM_ERR(CAM_ISP, " Wrong TPG format");
-				rc = -EINVAL;
-				goto end;
-			}
-			csid_hw->tpg_cfg.in_format =
-				cid_reserv->in_port->format;
-			csid_hw->tpg_cfg.usage_type =
-				cid_reserv->in_port->usage_type;
-			if (cid_reserv->in_port->usage_type)
-				csid_hw->tpg_cfg.width =
-					(cid_reserv->in_port->right_stop + 1);
-			else
-				csid_hw->tpg_cfg.width =
-					cid_reserv->in_port->left_width;
-
-			csid_hw->tpg_cfg.height = cid_reserv->in_port->height;
-			csid_hw->tpg_cfg.test_pattern =
-				cid_reserv->in_port->test_pattern;
-
-			CAM_DBG(CAM_ISP, "CSID:%d TPG width:%d height:%d",
-				csid_hw->hw_intf->hw_idx,
-				csid_hw->tpg_cfg.width,
-				csid_hw->tpg_cfg.height);
-
-			cid_data->tpg_set = 1;
-		} else {
+		if (cid_reserv->in_port->res_type != CAM_ISP_IFE_IN_RES_TPG) {
 			csid_hw->csi2_rx_cfg.phy_sel =
 				(cid_reserv->in_port->res_type & 0xFF) - 1;
+			csid_hw->csi2_reserve_cnt++;
+			CAM_DBG(CAM_ISP, "CSID:%d CID:%d acquired",
+				csid_hw->hw_intf->hw_idx,
+				cid_reserv->node_res->res_id);
+			goto end;
 		}
+
+		/* Below code is executed only for TPG in_res type */
+		csid_hw->csi2_rx_cfg.phy_sel = 0;
+		if (cid_reserv->in_port->format >
+		    CAM_FORMAT_MIPI_RAW_16) {
+			CAM_ERR(CAM_ISP, " Wrong TPG format");
+			rc = -EINVAL;
+			goto end;
+		}
+		csid_hw->tpg_cfg.in_format =
+			cid_reserv->in_port->format;
+		csid_hw->tpg_cfg.usage_type =
+			cid_reserv->in_port->usage_type;
+		if (cid_reserv->in_port->usage_type)
+			csid_hw->tpg_cfg.width =
+				(cid_reserv->in_port->right_stop + 1);
+		else
+			csid_hw->tpg_cfg.width =
+				cid_reserv->in_port->left_width;
+
+		csid_hw->tpg_cfg.height = cid_reserv->in_port->height;
+		csid_hw->tpg_cfg.test_pattern =
+			cid_reserv->in_port->test_pattern;
+
+		CAM_DBG(CAM_ISP, "CSID:%d TPG width:%d height:%d",
+			csid_hw->hw_intf->hw_idx,
+			csid_hw->tpg_cfg.width,
+			csid_hw->tpg_cfg.height);
+
+		cid_data->tpg_set = 1;
 	}
 
 	csid_hw->csi2_reserve_cnt++;
@@ -1324,6 +1356,7 @@ static int cam_ife_csid_disable_hw(struct cam_ife_csid_hw *csid_hw)
 	csid_hw->hw_info->hw_state = CAM_HW_STATE_POWER_DOWN;
 	csid_hw->error_irq_count = 0;
 	csid_hw->prev_boot_timestamp = 0;
+	csid_hw->epd_supported = 0;
 
 	return rc;
 }
@@ -1504,8 +1537,8 @@ static int cam_ife_csid_enable_csi2(
 
 	csid_reg = csid_hw->csid_info->csid_reg;
 	soc_info = &csid_hw->hw_info->soc_info;
-	CAM_DBG(CAM_ISP, "CSID:%d count:%d config csi2 rx",
-		csid_hw->hw_intf->hw_idx, csid_hw->csi2_cfg_cnt);
+	CAM_DBG(CAM_ISP, "CSID:%d count:%d config csi2 rx  res_id:%d",
+		csid_hw->hw_intf->hw_idx, csid_hw->csi2_cfg_cnt, res->res_id);
 
 	/* overflow check before increment */
 	if (csid_hw->csi2_cfg_cnt == UINT_MAX) {
@@ -1515,7 +1548,7 @@ static int cam_ife_csid_enable_csi2(
 	}
 
 	cid_data = (struct cam_ife_csid_cid_data *)res->res_priv;
-
+	cid_data->init_cnt++;
 	res->res_state  = CAM_ISP_RESOURCE_STATE_STREAMING;
 	csid_hw->csi2_cfg_cnt++;
 	if (csid_hw->csi2_cfg_cnt > 1)
@@ -1559,7 +1592,6 @@ static int cam_ife_csid_enable_csi2(
 		CSID_CSI2_RX_ERROR_LANE1_FIFO_OVERFLOW |
 		CSID_CSI2_RX_ERROR_LANE2_FIFO_OVERFLOW |
 		CSID_CSI2_RX_ERROR_LANE3_FIFO_OVERFLOW |
-		CSID_CSI2_RX_ERROR_CPHY_EOT_RECEPTION |
 		CSID_CSI2_RX_ERROR_CPHY_SOT_RECEPTION |
 		CSID_CSI2_RX_ERROR_CRC |
 		CSID_CSI2_RX_ERROR_ECC |
@@ -1567,6 +1599,12 @@ static int cam_ife_csid_enable_csi2(
 		CSID_CSI2_RX_ERROR_STREAM_UNDERFLOW |
 		CSID_CSI2_RX_ERROR_UNBOUNDED_FRAME |
 		CSID_CSI2_RX_ERROR_CPHY_PH_CRC;
+
+	if (csid_hw->epd_supported == 1)
+		CAM_INFO(CAM_ISP,
+			"Disable CSID_CSI2_RX_ERROR_CPHY_EOT_RECEPTION for EPD");
+	else
+		val = val | CSID_CSI2_RX_ERROR_CPHY_EOT_RECEPTION;
 
 	/* Enable the interrupt based on csid debug info set */
 	if (csid_hw->csid_debug & CSID_DEBUG_ENABLE_SOT_IRQ)
@@ -1601,6 +1639,7 @@ static int cam_ife_csid_disable_csi2(
 {
 	const struct cam_ife_csid_reg_offset      *csid_reg;
 	struct cam_hw_soc_info                    *soc_info;
+	struct cam_ife_csid_cid_data              *cid_data;
 
 	if (res->res_id >= CAM_IFE_CSID_CID_MAX) {
 		CAM_ERR(CAM_ISP, "CSID:%d Invalid res id :%d",
@@ -1610,11 +1649,19 @@ static int cam_ife_csid_disable_csi2(
 
 	csid_reg = csid_hw->csid_info->csid_reg;
 	soc_info = &csid_hw->hw_info->soc_info;
-	CAM_DBG(CAM_ISP, "CSID:%d cnt : %d Disable csi2 rx",
-		csid_hw->hw_intf->hw_idx, csid_hw->csi2_cfg_cnt);
+	cid_data = (struct cam_ife_csid_cid_data *)res->res_priv;
+	CAM_DBG(CAM_ISP, "CSID:%d cnt : %d Disable csi2 rx res->res_id:%d",
+		csid_hw->hw_intf->hw_idx, csid_hw->csi2_cfg_cnt, res->res_id);
+
+	if (cid_data->init_cnt)
+		cid_data->init_cnt--;
+	if (!cid_data->init_cnt)
+		res->res_state = CAM_ISP_RESOURCE_STATE_RESERVED;
 
 	if (csid_hw->csi2_cfg_cnt)
 		csid_hw->csi2_cfg_cnt--;
+	CAM_DBG(CAM_ISP, "res_id %d res_state=%d",
+		res->res_id, res->res_state);
 
 	if (csid_hw->csi2_cfg_cnt)
 		return 0;
@@ -1971,17 +2018,26 @@ static int cam_ife_csid_enable_pxl_path(
 
 	CAM_DBG(CAM_ISP, "Enable %s path", (is_ipp) ? "IPP" : "PPP");
 
+
 	/* Set master or slave path */
-	if (path_data->sync_mode == CAM_ISP_HW_SYNC_MASTER)
+	if (path_data->sync_mode == CAM_ISP_HW_SYNC_MASTER) {
 		/*Set halt mode as master */
-		val = CSID_HALT_MODE_MASTER << 2;
-	else if (path_data->sync_mode == CAM_ISP_HW_SYNC_SLAVE)
+		if (pxl_reg->halt_master_sel_en)
+			val = pxl_reg->halt_sel_internal_master_val << 4 |
+				CSID_HALT_MODE_MASTER << 2;
+		else
+			val = CSID_HALT_MODE_MASTER << 2;
+	} else if (path_data->sync_mode == CAM_ISP_HW_SYNC_SLAVE) {
 		/*Set halt mode as slave and set master idx */
-		val = path_data->master_idx  << 4 | CSID_HALT_MODE_SLAVE << 2;
-	else
+		if (pxl_reg->halt_master_sel_en)
+			val = CSID_HALT_MODE_SLAVE << 2;
+		else
+			val = path_data->master_idx  << 4 |
+				CSID_HALT_MODE_SLAVE << 2;
+	} else {
 		/* Default is internal halt mode */
 		val = 0;
-
+	}
 	/*
 	 * Resume at frame boundary if Master or No Sync.
 	 * Slave will get resume command from Master.
@@ -3228,7 +3284,7 @@ static int cam_ife_csid_reset_regs(
 		csid_hw->csid_info->csid_reg;
 	struct cam_hw_soc_info          *soc_info;
 	uint32_t val = 0;
-	unsigned long flags;
+	unsigned long flags, rem_jiffies = 0;
 
 	soc_info = &csid_hw->hw_info->soc_info;
 
@@ -3271,9 +3327,9 @@ static int cam_ife_csid_reset_regs(
 
 	spin_unlock_irqrestore(&csid_hw->hw_info->hw_lock, flags);
 	CAM_DBG(CAM_ISP, "CSID reset start");
-	rc = wait_for_completion_timeout(&csid_hw->csid_top_complete,
+	rem_jiffies = wait_for_completion_timeout(&csid_hw->csid_top_complete,
 		msecs_to_jiffies(IFE_CSID_TIMEOUT));
-	if (rc <= 0) {
+	if (rem_jiffies == 0) {
 		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
 			csid_reg->cmn_reg->csid_top_irq_status_addr);
 		if (val & 0x1) {
@@ -3285,19 +3341,18 @@ static int cam_ife_csid_reset_regs(
 			CAM_DBG(CAM_ISP, "CSID:%d %s reset completed %d",
 				csid_hw->hw_intf->hw_idx,
 				reset_hw ? "hw" : "sw",
-				rc);
-			rc = 0;
+				rem_jiffies);
 			goto end;
 		}
 		CAM_ERR(CAM_ISP, "CSID:%d csid_reset %s fail rc = %d",
-			csid_hw->hw_intf->hw_idx, reset_hw ? "hw" : "sw", rc);
+			csid_hw->hw_intf->hw_idx, reset_hw ? "hw" : "sw",
+			rem_jiffies);
 		rc = -ETIMEDOUT;
 		goto end;
-	} else {
+	} else
 		CAM_DBG(CAM_ISP, "CSID:%d %s reset completed %d",
-			csid_hw->hw_intf->hw_idx, reset_hw ? "hw" : "sw", rc);
-		rc = 0;
-	}
+			csid_hw->hw_intf->hw_idx, reset_hw ? "hw" : "sw",
+			rem_jiffies);
 
 end:
 	return rc;
@@ -3757,6 +3812,87 @@ static int cam_ife_csid_set_csid_qcfa(
 	return 0;
 }
 
+static int cam_ife_csid_dump_hw(
+	struct cam_ife_csid_hw *csid_hw, void *cmd_args)
+{
+	int                             i;
+	uint8_t                        *dst;
+	uint32_t                       *addr, *start;
+	uint32_t                        min_len;
+	uint32_t                        num_reg;
+	size_t                          remain_len;
+	struct cam_isp_hw_dump_header  *hdr;
+	struct cam_isp_hw_dump_args    *dump_args =
+		(struct cam_isp_hw_dump_args *)cmd_args;
+	struct cam_hw_soc_info         *soc_info;
+
+	if (!dump_args) {
+		CAM_ERR(CAM_ISP, "Invalid args");
+		return -EINVAL;
+	}
+	if (!dump_args->cpu_addr || !dump_args->buf_len) {
+		CAM_ERR(CAM_ISP,
+			"Invalid params %pK %zu",
+			(void *)dump_args->cpu_addr,
+			dump_args->buf_len);
+		return -EINVAL;
+	}
+	soc_info = &csid_hw->hw_info->soc_info;
+	if (dump_args->buf_len <= dump_args->offset) {
+		CAM_WARN(CAM_ISP,
+			"Dump offset overshoot offset %zu buf_len %zu",
+			dump_args->offset, dump_args->buf_len);
+		return -ENOSPC;
+	}
+	min_len = soc_info->reg_map[0].size +
+		sizeof(struct cam_isp_hw_dump_header) +
+		sizeof(uint32_t);
+	remain_len = dump_args->buf_len - dump_args->offset;
+	if (remain_len < min_len) {
+		CAM_WARN(CAM_ISP, "Dump buffer exhaust remain %zu, min %u",
+			remain_len, min_len);
+		return -ENOSPC;
+	}
+	dst = (uint8_t *)dump_args->cpu_addr + dump_args->offset;
+	hdr = (struct cam_isp_hw_dump_header *)dst;
+	scnprintf(hdr->tag, CAM_ISP_HW_DUMP_TAG_MAX_LEN, "CSID_REG:");
+	addr = (uint32_t *)(dst + sizeof(struct cam_isp_hw_dump_header));
+
+	start = addr;
+	num_reg = soc_info->reg_map[0].size/4;
+	hdr->word_size = sizeof(uint32_t);
+	*addr = soc_info->index;
+	addr++;
+	for (i = 0; i < num_reg; i++) {
+		addr[0] = soc_info->mem_block[0]->start + (i*4);
+		addr[1] = cam_io_r(soc_info->reg_map[0].mem_base
+			+ (i*4));
+		addr += 2;
+	}
+	hdr->size = hdr->word_size * (addr - start);
+	dump_args->offset +=  hdr->size +
+		sizeof(struct cam_isp_hw_dump_header);
+	CAM_DBG(CAM_ISP, "offset %zu", dump_args->offset);
+	return 0;
+}
+
+static int cam_ife_csid_set_epd_config(
+	struct cam_ife_csid_hw *csid_hw, void *cmd_args)
+{
+	struct cam_ife_csid_epd_update_args *epd_update = NULL;
+
+	if ((!csid_hw) || (!cmd_args))
+		return -EINVAL;
+
+	epd_update =
+		(struct cam_ife_csid_epd_update_args *)cmd_args;
+
+	csid_hw->epd_supported = epd_update->epd_supported;
+	CAM_DBG(CAM_ISP, "CSID EPD supported %d", csid_hw->epd_supported);
+
+	return 0;
+}
+
 static int cam_ife_csid_process_cmd(void *hw_priv,
 	uint32_t cmd_type, void *cmd_args, uint32_t arg_size)
 {
@@ -3793,6 +3929,12 @@ static int cam_ife_csid_process_cmd(void *hw_priv,
 		break;
 	case CAM_ISP_HW_CMD_CSID_QCFA_SUPPORTED:
 		rc = cam_ife_csid_set_csid_qcfa(csid_hw, cmd_args);
+		break;
+	case CAM_ISP_HW_CMD_DUMP_HW:
+		rc = cam_ife_csid_dump_hw(csid_hw, cmd_args);
+		break;
+	case CAM_IFE_CSID_SET_CONFIG:
+		rc = cam_ife_csid_set_epd_config(csid_hw, cmd_args);
 		break;
 	default:
 		CAM_ERR(CAM_ISP, "CSID:%d unsupported cmd:%d",

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _CAM_IFE_HW_MGR_H_
@@ -137,9 +137,13 @@ struct cam_ife_hw_mgr_debug {
  * @last_dump_flush_req_id  Last req id for which reg dump on flush was called
  * @last_dump_err_req_id    Last req id for which reg dump on error was called
  * @init_done               indicate whether init hw is done
- * @is_fe_enable            indicate whether fetch engine\read path is enabled
+ * @is_fe_enabled           Indicate whether fetch engine\read path is enabled
  * @is_dual                 indicate whether context is in dual VFE mode
+ * @custom_enabled          update the flag if context is connected to custom HW
+ * @use_frame_header_ts     obtain qtimer ts using frame header
  * @ts                      captured timestamp when the ctx is acquired
+ * @is_offline              Indicate whether context is for offline IFE
+ * @dsp_enabled             Indicate whether dsp is enabled in this context
  */
 struct cam_ife_hw_mgr_ctx {
 	struct list_head                list;
@@ -184,9 +188,13 @@ struct cam_ife_hw_mgr_ctx {
 	uint64_t                        last_dump_flush_req_id;
 	uint64_t                        last_dump_err_req_id;
 	bool                            init_done;
-	bool                            is_fe_enable;
+	bool                            is_fe_enabled;
 	bool                            is_dual;
+	bool                            custom_enabled;
+	bool                            use_frame_header_ts;
 	struct timespec64               ts;
+	bool                            is_offline;
+	bool                            dsp_enabled;
 };
 
 /**
