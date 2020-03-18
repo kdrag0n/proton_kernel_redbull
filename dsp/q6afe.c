@@ -9279,7 +9279,8 @@ void afe_exit(void)
 	mutex_destroy(&this_afe.afe_cmd_lock);
 	mutex_destroy(&this_afe.afe_apr_lock);
 	mutex_destroy(&this_afe.afe_clk_lock);
-	wakeup_source_trash(&wl.ws);
+	wakeup_source_remove(&wl.ws);
+	__pm_relax(&wl.ws);
 }
 
 /*

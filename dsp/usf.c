@@ -2401,7 +2401,8 @@ static int usf_release(struct inode *inode, struct file *file)
 
 	atomic_set(&s_opened_devs[usf->dev_ind], 0);
 
-	wakeup_source_trash(&usf_wakeup_source);
+	wakeup_source_remove(&usf_wakeup_source);
+	__pm_relax(&usf_wakeup_source);
 	mutex_unlock(&usf->mutex);
 	mutex_destroy(&usf->mutex);
 	kfree(usf);
