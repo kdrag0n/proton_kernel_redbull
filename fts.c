@@ -5845,7 +5845,8 @@ ProbeErrorExit_5:
 
 ProbeErrorExit_4:
 	/* destroy_workqueue(info->fwu_workqueue); */
-	wakeup_source_trash(&info->wakesrc);
+	wakeup_source_remove(&info->wakesrc);
+	__pm_relax(&info->wakesrc);
 
 	fts_pinctrl_get(info, false);
 
@@ -5913,7 +5914,8 @@ static int fts_remove(struct spi_device *client)
 
 	/* Remove the work thread */
 	destroy_workqueue(info->event_wq);
-	wakeup_source_trash(&info->wakesrc);
+	wakeup_source_remove(&info->wakesrc);
+	__pm_relax(&info->wakesrc);
 
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
