@@ -268,7 +268,7 @@ qdf_export_symbol(qdf_wake_lock_name);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
 QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t **lock, const char *name)
 {
-	*lock = wakeup_source_register(name);
+	*lock = wakeup_source_register(NULL, name);
 	return QDF_STATUS_SUCCESS;
 }
 #else
