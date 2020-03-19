@@ -88,7 +88,7 @@ struct osif_scan_pdev{
 	qdf_mutex_t scan_req_q_lock;
 	wlan_scan_requester req_id;
 	qdf_runtime_lock_t runtime_pm_lock;
-	qdf_wake_lock_t scan_wake_lock;
+	qdf_wake_lock_t *scan_wake_lock;
 };
 
 /*

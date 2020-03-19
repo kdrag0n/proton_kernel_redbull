@@ -482,7 +482,7 @@ static inline int qdf_semaphore_acquire_intr(qdf_semaphore_t *m)
 	return __qdf_semaphore_acquire_intr(m);
 }
 
-QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name);
+QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t **lock, const char *name);
 
 QDF_STATUS qdf_wake_lock_acquire(qdf_wake_lock_t *lock, uint32_t reason);
 

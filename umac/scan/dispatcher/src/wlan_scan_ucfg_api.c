@@ -275,7 +275,7 @@ wlan_pno_global_init(struct wlan_objmgr_psoc *psoc,
 static QDF_STATUS
 wlan_pno_global_deinit(struct wlan_scan_obj *scan_obj)
 {
-	qdf_wake_lock_destroy(&scan_obj->pno_cfg.pno_wake_lock);
+	qdf_wake_lock_destroy(scan_obj->pno_cfg.pno_wake_lock);
 
 	return QDF_STATUS_SUCCESS;
 }

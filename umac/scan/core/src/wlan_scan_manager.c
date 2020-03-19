@@ -1305,17 +1305,17 @@ scm_pno_event_handler(struct wlan_objmgr_vdev *vdev,
 	case SCAN_EVENT_TYPE_NLO_COMPLETE:
 		if (!scan_vdev_obj->pno_match_evt_received)
 			return QDF_STATUS_SUCCESS;
-		qdf_wake_lock_release(&scan_psoc_obj->pno_cfg.pno_wake_lock,
+		qdf_wake_lock_release(scan_psoc_obj->pno_cfg.pno_wake_lock,
 			WIFI_POWER_EVENT_WAKELOCK_PNO);
 		qdf_wake_lock_timeout_acquire(
-			&scan_psoc_obj->pno_cfg.pno_wake_lock,
+			scan_psoc_obj->pno_cfg.pno_wake_lock,
 			SCAN_PNO_SCAN_COMPLETE_WAKE_LOCK_TIMEOUT);
 		scan_vdev_obj->pno_match_evt_received = false;
 		break;
 	case SCAN_EVENT_TYPE_NLO_MATCH:
 		scan_vdev_obj->pno_match_evt_received = true;
 		qdf_wake_lock_timeout_acquire(
-			&scan_psoc_obj->pno_cfg.pno_wake_lock,
+			scan_psoc_obj->pno_cfg.pno_wake_lock,
 			SCAN_PNO_MATCH_WAKE_LOCK_TIMEOUT);
 		return QDF_STATUS_SUCCESS;
 	default:

@@ -192,7 +192,7 @@ struct mgmt_txrx_priv_pdev_context {
 	struct wlan_objmgr_pdev *pdev;
 	struct mgmt_desc_pool_t mgmt_desc_pool;
 	struct mgmt_txrx_stats_t *mgmt_txrx_stats;
-	qdf_wake_lock_t wakelock_tx_cmp;
+	qdf_wake_lock_t *wakelock_tx_cmp;
 	qdf_runtime_lock_t wakelock_tx_runtime_cmp;
 };
 

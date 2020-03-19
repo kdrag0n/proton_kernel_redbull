@@ -253,7 +253,7 @@ struct pno_def_config {
 	uint32_t max_sched_scan_plan_interval;
 	uint32_t max_sched_scan_plan_iterations;
 	uint8_t scan_backoff_multiplier;
-	qdf_wake_lock_t pno_wake_lock;
+	qdf_wake_lock_t *pno_wake_lock;
 	struct cb_handler pno_cb;
 	struct nlo_mawc_params mawc_params;
 };

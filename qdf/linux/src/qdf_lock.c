@@ -266,13 +266,13 @@ qdf_export_symbol(qdf_wake_lock_name);
  * QDF status failure: if wake lock was not initialized
  */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
-QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name)
+QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t **lock, const char *name)
 {
-	wakeup_source_init(lock, name);
+	*lock = wakeup_source_register(name);
 	return QDF_STATUS_SUCCESS;
 }
 #else
-QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name)
+QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t **lock, const char *name)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -376,8 +376,7 @@ qdf_export_symbol(qdf_wake_lock_release);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
 QDF_STATUS qdf_wake_lock_destroy(qdf_wake_lock_t *lock)
 {
-	wakeup_source_remove(lock);
-	__pm_relax(lock);
+	wakeup_source_unregister(lock);
 	return QDF_STATUS_SUCCESS;
 }
 #else

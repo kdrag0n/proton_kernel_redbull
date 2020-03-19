@@ -203,7 +203,7 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_create_notification(
 
 err_pdev_attach:
 	qdf_runtime_lock_deinit(&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
-	qdf_wake_lock_destroy(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
+	qdf_wake_lock_destroy(mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
 	qdf_mem_free(mgmt_txrx_stats);
 err_mgmt_txrx_stats:
 	wlan_mgmt_txrx_desc_pool_deinit(mgmt_txrx_pdev_ctx);
@@ -254,7 +254,7 @@ static QDF_STATUS wlan_mgmt_txrx_pdev_obj_destroy_notification(
 	wlan_mgmt_txrx_desc_pool_deinit(mgmt_txrx_pdev_ctx);
 	qdf_mem_free(mgmt_txrx_pdev_ctx->mgmt_txrx_stats);
 	qdf_runtime_lock_deinit(&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
-	qdf_wake_lock_destroy(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
+	qdf_wake_lock_destroy(mgmt_txrx_pdev_ctx->wakelock_tx_cmp);
 	qdf_mem_free(mgmt_txrx_pdev_ctx);
 
 	mgmt_txrx_info("mgmt txrx deletion successful, pdev: %pK", pdev);

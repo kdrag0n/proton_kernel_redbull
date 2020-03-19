@@ -1027,7 +1027,7 @@ allow_suspend:
 
 		psoc = wlan_pdev_get_psoc(pdev);
 		wlan_scan_release_wake_lock(psoc,
-					&osif_priv->osif_scan->scan_wake_lock);
+					osif_priv->osif_scan->scan_wake_lock);
 		/*
 		 * Acquire wakelock to handle the case where APP's tries
 		 * to suspend immediately after the driver gets connect
@@ -1036,7 +1036,7 @@ allow_suspend:
 		 * request to AP
 		 */
 		wlan_scan_acquire_wake_lock_timeout(psoc,
-					&osif_priv->osif_scan->scan_wake_lock,
+					osif_priv->osif_scan->scan_wake_lock,
 					SCAN_WAKE_LOCK_CONNECT_DURATION);
 	}
 }
@@ -1106,7 +1106,7 @@ QDF_STATUS wlan_cfg80211_scan_priv_deinit(struct wlan_objmgr_pdev *pdev)
 
 	wlan_cfg80211_cleanup_scan_queue(pdev, NULL);
 	scan_priv = osif_priv->osif_scan;
-	qdf_wake_lock_destroy(&scan_priv->scan_wake_lock);
+	qdf_wake_lock_destroy(scan_priv->scan_wake_lock);
 	qdf_mutex_destroy(&scan_priv->scan_req_q_lock);
 	qdf_list_destroy(&scan_priv->scan_req_q);
 	ucfg_scan_unregister_requester(psoc, scan_priv->req_id);
@@ -1537,7 +1537,7 @@ int wlan_cfg80211_scan(struct wlan_objmgr_vdev *vdev,
 	 * framework.
 	 */
 	wlan_scan_acquire_wake_lock_timeout(psoc,
-					&osif_priv->osif_scan->scan_wake_lock,
+					osif_priv->osif_scan->scan_wake_lock,
 					SCAN_WAKE_LOCK_SCAN_DURATION);
 
 	qdf_runtime_pm_prevent_suspend(
@@ -1554,7 +1554,7 @@ int wlan_cfg80211_scan(struct wlan_objmgr_vdev *vdev,
 			qdf_runtime_pm_allow_suspend(
 				&osif_priv->osif_scan->runtime_pm_lock);
 			wlan_scan_release_wake_lock(psoc,
-				&osif_priv->osif_scan->scan_wake_lock);
+				osif_priv->osif_scan->scan_wake_lock);
 		}
 	}
 
