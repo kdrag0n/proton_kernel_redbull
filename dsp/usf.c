@@ -173,7 +173,7 @@ static const int s_button_map[] = {
 /* The opened devices container */
 static atomic_t s_opened_devs[MAX_DEVS_NUMBER];
 
-static struct wakeup_source usf_wakeup_source;
+static struct wakeup_source *g_usf_wakeup_source;
 
 #define USF_NAME_PREFIX "usf_"
 #define USF_NAME_PREFIX_SIZE 4
@@ -442,7 +442,7 @@ static void usf_tx_cb(uint32_t opcode, uint32_t token,
 	case Q6USM_EVENT_READ_DONE:
 		pr_debug("%s: acquiring %d msec wake lock\n", __func__,
 				STAY_AWAKE_AFTER_READ_MSECS);
-		__pm_wakeup_event(&usf_wakeup_source,
+		__pm_wakeup_event(g_usf_wakeup_source,
 				  STAY_AWAKE_AFTER_READ_MSECS);
 		if (token == USM_WRONG_TOKEN)
 			usf_xx->usf_state = USF_ERROR_STATE;
@@ -2370,7 +2370,12 @@ static int usf_open(struct inode *inode, struct file *file)
 	if (usf == NULL)
 		return -ENOMEM;
 
-	wakeup_source_init(&usf_wakeup_source, "usf");
+	g_usf_wakeup_source = wakeup_source_register("usf");
+	if (!g_usf_wakeup_source) {
+		pr_err("%s: device %u failed to register wakeup_src\n", __func__, dev_ind);
+		kfree(usf);
+		return -ENODEV;
+	}
 
 	file->private_data = usf;
 	usf->dev_ind = dev_ind;
@@ -2401,8 +2406,7 @@ static int usf_release(struct inode *inode, struct file *file)
 
 	atomic_set(&s_opened_devs[usf->dev_ind], 0);
 
-	wakeup_source_remove(&usf_wakeup_source);
-	__pm_relax(&usf_wakeup_source);
+	wakeup_source_unregister(g_usf_wakeup_source);
 	mutex_unlock(&usf->mutex);
 	mutex_destroy(&usf->mutex);
 	kfree(usf);
