@@ -1726,8 +1726,8 @@ struct hdd_context {
 	/** P2P Device MAC Address for the adapter  */
 	struct qdf_mac_addr p2p_device_address;
 
-	qdf_wake_lock_t rx_wake_lock;
-	qdf_wake_lock_t sap_wake_lock;
+	qdf_wake_lock_t *rx_wake_lock;
+	qdf_wake_lock_t *sap_wake_lock;
 
 	/* Flag keeps track of wiphy suspend/resume */
 	bool is_wiphy_suspended;
@@ -1791,7 +1791,7 @@ struct hdd_context {
 	qdf_spinlock_t acs_skip_lock;
 #endif
 
-	qdf_wake_lock_t sap_dfs_wakelock;
+	qdf_wake_lock_t *sap_dfs_wakelock;
 	atomic_t sap_dfs_ref_cnt;
 
 #ifdef WLAN_FEATURE_EXTWOW_SUPPORT
@@ -1919,7 +1919,7 @@ struct hdd_context {
 	qdf_atomic_t disable_rx_ol_in_low_tput;
 	bool en_tcp_delack_no_lro;
 	bool force_rsne_override;
-	qdf_wake_lock_t monitor_mode_wakelock;
+	qdf_wake_lock_t *monitor_mode_wakelock;
 	bool lte_coex_ant_share;
 	bool obss_scan_offload;
 	int sscan_pid;

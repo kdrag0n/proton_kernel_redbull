@@ -1347,7 +1347,7 @@ void pmo_core_psoc_target_suspend_acknowledge(void *context, bool wow_nack)
 	if (!pmo_tgt_psoc_get_runtime_pm_in_progress(psoc)) {
 		if (wow_nack)
 			qdf_wake_lock_timeout_acquire(
-				&psoc_ctx->wow.wow_wake_lock,
+				psoc_ctx->wow.wow_wake_lock,
 				PMO_WAKE_LOCK_TIMEOUT);
 		else
 			cdp_process_wow_ack_rsp(dp_soc, txrx_pdev);

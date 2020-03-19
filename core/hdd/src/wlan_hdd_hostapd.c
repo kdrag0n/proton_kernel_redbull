@@ -334,7 +334,7 @@ static void hdd_hostapd_channel_allow_suspend(struct hdd_adapter *adapter,
 	/* Release wakelock when no more DFS channels are used */
 	if (atomic_dec_and_test(&hdd_ctx->sap_dfs_ref_cnt)) {
 		hdd_err("DFS: allowing suspend (chan: %d)", channel);
-		qdf_wake_lock_release(&hdd_ctx->sap_dfs_wakelock,
+		qdf_wake_lock_release(hdd_ctx->sap_dfs_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_DFS);
 		qdf_runtime_pm_allow_suspend(&hdd_ctx->runtime_context.dfs);
 
@@ -372,7 +372,7 @@ static void hdd_hostapd_channel_prevent_suspend(struct hdd_adapter *adapter,
 	if (atomic_inc_return(&hdd_ctx->sap_dfs_ref_cnt) == 1) {
 		hdd_err("DFS: preventing suspend (chan: %d)", channel);
 		qdf_runtime_pm_prevent_suspend(&hdd_ctx->runtime_context.dfs);
-		qdf_wake_lock_acquire(&hdd_ctx->sap_dfs_wakelock,
+		qdf_wake_lock_acquire(hdd_ctx->sap_dfs_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_DFS);
 	}
 }
@@ -389,17 +389,17 @@ static void hdd_hostapd_channel_prevent_suspend(struct hdd_adapter *adapter,
 void hdd_sap_context_destroy(struct hdd_context *hdd_ctx)
 {
 	if (atomic_read(&hdd_ctx->sap_dfs_ref_cnt)) {
-		qdf_wake_lock_release(&hdd_ctx->sap_dfs_wakelock,
+		qdf_wake_lock_release(hdd_ctx->sap_dfs_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_DRIVER_EXIT);
 
 		atomic_set(&hdd_ctx->sap_dfs_ref_cnt, 0);
 		hdd_debug("DFS: Allowing suspend");
 	}
 
-	qdf_wake_lock_destroy(&hdd_ctx->sap_dfs_wakelock);
+	qdf_wake_lock_destroy(hdd_ctx->sap_dfs_wakelock);
 
 	mutex_destroy(&hdd_ctx->sap_lock);
-	qdf_wake_lock_destroy(&hdd_ctx->sap_wake_lock);
+	qdf_wake_lock_destroy(hdd_ctx->sap_wake_lock);
 }
 
 /**
@@ -2252,10 +2252,10 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 #ifdef FEATURE_WLAN_AUTO_SHUTDOWN
 		wlan_hdd_auto_shutdown_enable(hdd_ctx, false);
 #endif
-		cds_host_diag_log_work(&hdd_ctx->sap_wake_lock,
+		cds_host_diag_log_work(hdd_ctx->sap_wake_lock,
 				       HDD_SAP_WAKE_LOCK_DURATION,
 				       WIFI_POWER_EVENT_WAKELOCK_SAP);
-		qdf_wake_lock_timeout_acquire(&hdd_ctx->sap_wake_lock,
+		qdf_wake_lock_timeout_acquire(hdd_ctx->sap_wake_lock,
 					      HDD_SAP_WAKE_LOCK_DURATION);
 		{
 			struct station_info *sta_info;
@@ -2385,10 +2385,10 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 		wlan_hdd_auto_shutdown_enable(hdd_ctx, true);
 #endif
 
-		cds_host_diag_log_work(&hdd_ctx->sap_wake_lock,
+		cds_host_diag_log_work(hdd_ctx->sap_wake_lock,
 				       HDD_SAP_WAKE_LOCK_DURATION,
 				       WIFI_POWER_EVENT_WAKELOCK_SAP);
-		qdf_wake_lock_timeout_acquire(&hdd_ctx->sap_wake_lock,
+		qdf_wake_lock_timeout_acquire(hdd_ctx->sap_wake_lock,
 			 HDD_SAP_CLIENT_DISCONNECT_WAKE_LOCK_DURATION);
 
 		/*

@@ -876,7 +876,7 @@ void pe_delete_session(struct mac_context *mac_ctx, struct pe_session *session)
 
 	if (LIM_IS_AP_ROLE(session)) {
 		qdf_runtime_lock_deinit(&session->ap_ecsa_runtime_lock);
-		qdf_wake_lock_destroy(&session->ap_ecsa_wakelock);
+		qdf_wake_lock_destroy(session->ap_ecsa_wakelock);
 		qdf_mc_timer_stop(&session->protection_fields_reset_timer);
 		qdf_mc_timer_destroy(&session->protection_fields_reset_timer);
 		session->dfsIncludeChanSwIe = 0;

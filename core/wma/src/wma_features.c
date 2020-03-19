@@ -2602,37 +2602,37 @@ static void wma_acquire_wow_wakelock(t_wma_handle *wma, int wake_reason)
 
 	switch (wake_reason) {
 	case WOW_REASON_AUTH_REQ_RECV:
-		wl = &wma->wow_auth_req_wl;
+		wl = wma->wow_auth_req_wl;
 		ms = WMA_AUTH_REQ_RECV_WAKE_LOCK_TIMEOUT;
 		break;
 	case WOW_REASON_ASSOC_REQ_RECV:
-		wl = &wma->wow_assoc_req_wl;
+		wl = wma->wow_assoc_req_wl;
 		ms = WMA_ASSOC_REQ_RECV_WAKE_LOCK_DURATION;
 		break;
 	case WOW_REASON_DEAUTH_RECVD:
-		wl = &wma->wow_deauth_rec_wl;
+		wl = wma->wow_deauth_rec_wl;
 		ms = WMA_DEAUTH_RECV_WAKE_LOCK_DURATION;
 		break;
 	case WOW_REASON_DISASSOC_RECVD:
-		wl = &wma->wow_disassoc_rec_wl;
+		wl = wma->wow_disassoc_rec_wl;
 		ms = WMA_DISASSOC_RECV_WAKE_LOCK_DURATION;
 		break;
 	case WOW_REASON_AP_ASSOC_LOST:
-		wl = &wma->wow_ap_assoc_lost_wl;
+		wl = wma->wow_ap_assoc_lost_wl;
 		ms = WMA_BMISS_EVENT_WAKE_LOCK_DURATION;
 		break;
 #ifdef FEATURE_WLAN_AUTO_SHUTDOWN
 	case WOW_REASON_HOST_AUTO_SHUTDOWN:
-		wl = &wma->wow_auto_shutdown_wl;
+		wl = wma->wow_auto_shutdown_wl;
 		ms = WMA_AUTO_SHUTDOWN_WAKE_LOCK_DURATION;
 		break;
 #endif
 	case WOW_REASON_ROAM_HO:
-		wl = &wma->roam_ho_wl;
+		wl = wma->roam_ho_wl;
 		ms = WMA_ROAM_HO_WAKE_LOCK_DURATION;
 		break;
 	case WOW_REASON_ROAM_PREAUTH_START:
-		wl = &wma->roam_preauth_wl;
+		wl = wma->roam_preauth_wl;
 		ms = WMA_ROAM_PREAUTH_WAKE_LOCK_DURATION;
 	default:
 		return;
@@ -5854,7 +5854,7 @@ void wma_update_set_key(uint8_t session_id, bool pairwise,
 		wma_debug("Release set key wake lock");
 		qdf_runtime_pm_allow_suspend(
 				&iface->vdev_set_key_runtime_wakelock);
-		wma_release_wakelock(&iface->vdev_set_key_wakelock);
+		wma_release_wakelock(iface->vdev_set_key_wakelock);
 	}
 
 	wma_send_set_key_rsp(session_id, pairwise, key_index);

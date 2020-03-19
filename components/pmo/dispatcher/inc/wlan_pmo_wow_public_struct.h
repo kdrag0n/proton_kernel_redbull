@@ -236,7 +236,7 @@ struct pmo_wow {
 	qdf_event_t target_resume;
 	int wow_nack;
 	atomic_t wow_initial_wake_up;
-	qdf_wake_lock_t wow_wake_lock;
+	qdf_wake_lock_t *wow_wake_lock;
 	/*
 	 * currently supports only vdev 0.
 	 * cache has two entries: one for TCP and one for UDP.

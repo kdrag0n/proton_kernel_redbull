@@ -841,9 +841,9 @@ struct wma_txrx_node {
 	bool in_bmps;
 	struct beacon_filter_param beacon_filter;
 	bool beacon_filter_enabled;
-	qdf_wake_lock_t vdev_start_wakelock;
-	qdf_wake_lock_t vdev_stop_wakelock;
-	qdf_wake_lock_t vdev_set_key_wakelock;
+	qdf_wake_lock_t *vdev_start_wakelock;
+	qdf_wake_lock_t *vdev_stop_wakelock;
+	qdf_wake_lock_t *vdev_set_key_wakelock;
 	qdf_runtime_lock_t vdev_start_runtime_wakelock;
 	qdf_runtime_lock_t vdev_stop_runtime_wakelock;
 	qdf_runtime_lock_t vdev_set_key_runtime_wakelock;
@@ -1114,17 +1114,17 @@ typedef struct {
 	tSetBssKeyParams ibsskey_info;
 	txFailIndCallback hddTxFailCb;
 #ifdef FEATURE_WLAN_EXTSCAN
-	qdf_wake_lock_t extscan_wake_lock;
+	qdf_wake_lock_t *extscan_wake_lock;
 #endif
-	qdf_wake_lock_t wow_wake_lock;
-	qdf_wake_lock_t wow_auth_req_wl;
-	qdf_wake_lock_t wow_assoc_req_wl;
-	qdf_wake_lock_t wow_deauth_rec_wl;
-	qdf_wake_lock_t wow_disassoc_rec_wl;
-	qdf_wake_lock_t wow_ap_assoc_lost_wl;
-	qdf_wake_lock_t wow_auto_shutdown_wl;
-	qdf_wake_lock_t roam_ho_wl;
-	qdf_wake_lock_t roam_preauth_wl;
+	qdf_wake_lock_t *wow_wake_lock;
+	qdf_wake_lock_t *wow_auth_req_wl;
+	qdf_wake_lock_t *wow_assoc_req_wl;
+	qdf_wake_lock_t *wow_deauth_rec_wl;
+	qdf_wake_lock_t *wow_disassoc_rec_wl;
+	qdf_wake_lock_t *wow_ap_assoc_lost_wl;
+	qdf_wake_lock_t *wow_auto_shutdown_wl;
+	qdf_wake_lock_t *roam_ho_wl;
+	qdf_wake_lock_t *roam_preauth_wl;
 	int wow_nack;
 	qdf_atomic_t is_wow_bus_suspended;
 	bool suitable_ap_hb_failure;
@@ -1169,7 +1169,7 @@ typedef struct {
 					uint16_t reason_code);
 	QDF_STATUS (*csr_roam_pmkid_req_cb)(uint8_t vdev_id,
 		struct roam_pmkid_req_event *bss_list);
-	qdf_wake_lock_t wmi_cmd_rsp_wake_lock;
+	qdf_wake_lock_t *wmi_cmd_rsp_wake_lock;
 	qdf_runtime_lock_t wmi_cmd_rsp_runtime_lock;
 	qdf_runtime_lock_t sap_prevent_runtime_pm_lock;
 	enum active_apf_mode active_uc_apf_mode;

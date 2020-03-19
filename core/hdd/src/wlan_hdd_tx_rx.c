@@ -2184,10 +2184,10 @@ QDF_STATUS hdd_rx_packet_cbk(void *adapter_context,
 			wake_lock = hdd_is_rx_wake_lock_needed(skb);
 
 		if (wake_lock) {
-			cds_host_diag_log_work(&hdd_ctx->rx_wake_lock,
+			cds_host_diag_log_work(hdd_ctx->rx_wake_lock,
 						   hdd_ctx->config->rx_wakelock_timeout,
 						   WIFI_POWER_EVENT_WAKELOCK_HOLD_RX);
-			qdf_wake_lock_timeout_acquire(&hdd_ctx->rx_wake_lock,
+			qdf_wake_lock_timeout_acquire(hdd_ctx->rx_wake_lock,
 							  hdd_ctx->config->
 								  rx_wakelock_timeout);
 		}

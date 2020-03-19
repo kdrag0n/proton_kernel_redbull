@@ -5784,7 +5784,7 @@ skip_vht:
 
 	/* Take a wakelock for CSA for 5 seconds and release in vdev start */
 
-	qdf_wake_lock_timeout_acquire(&session_entry->ap_ecsa_wakelock,
+	qdf_wake_lock_timeout_acquire(session_entry->ap_ecsa_wakelock,
 				      MAX_WAKELOCK_FOR_CSA);
 	qdf_runtime_pm_prevent_suspend(&session_entry->ap_ecsa_runtime_lock);
 

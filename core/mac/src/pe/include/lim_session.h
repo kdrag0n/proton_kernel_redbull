@@ -493,7 +493,7 @@ struct pe_session {
 	qdf_mc_timer_t protection_fields_reset_timer;
 	/* timer to decrement CSA/ECSA count */
 	qdf_mc_timer_t ap_ecsa_timer;
-	qdf_wake_lock_t ap_ecsa_wakelock;
+	qdf_wake_lock_t *ap_ecsa_wakelock;
 	qdf_runtime_lock_t ap_ecsa_runtime_lock;
 	struct mac_context *mac_ctx;
 	/*

@@ -2898,10 +2898,10 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 			reassoc_req_len,
 			reassoc_rsp_len);
 
-	cds_host_diag_log_work(&wma->roam_ho_wl,
+	cds_host_diag_log_work(wma->roam_ho_wl,
 			       WMA_ROAM_HO_WAKE_LOCK_DURATION,
 			       WIFI_POWER_EVENT_WAKELOCK_WOW);
-	qdf_wake_lock_timeout_acquire(&wma->roam_ho_wl,
+	qdf_wake_lock_timeout_acquire(wma->roam_ho_wl,
 				      WMA_ROAM_HO_WAKE_LOCK_DURATION);
 
 	wma->interfaces[synch_event->vdev_id].roam_synch_in_progress = true;
@@ -3243,10 +3243,10 @@ int wma_roam_auth_offload_event_handler(WMA_HANDLE handle, uint8_t *event,
 		return -EINVAL;
 	}
 
-	cds_host_diag_log_work(&wma->roam_preauth_wl,
+	cds_host_diag_log_work(wma->roam_preauth_wl,
 			       WMA_ROAM_PREAUTH_WAKE_LOCK_DURATION,
 			       WIFI_POWER_EVENT_WAKELOCK_WOW);
-	qdf_wake_lock_timeout_acquire(&wma->roam_ho_wl,
+	qdf_wake_lock_timeout_acquire(wma->roam_ho_wl,
 				      WMA_ROAM_HO_WAKE_LOCK_DURATION);
 
 	WMI_MAC_ADDR_TO_CHAR_ARRAY(&rso_auth_start_ev->candidate_ap_bssid,
@@ -4659,10 +4659,10 @@ int wma_extscan_operations_event_handler(void *handle,
 			return -EINVAL;
 		}
 
-		cds_host_diag_log_work(&wma->extscan_wake_lock,
+		cds_host_diag_log_work(wma->extscan_wake_lock,
 				       WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION,
 				       WIFI_POWER_EVENT_WAKELOCK_EXT_SCAN);
-		qdf_wake_lock_timeout_acquire(&wma->extscan_wake_lock,
+		qdf_wake_lock_timeout_acquire(wma->extscan_wake_lock,
 				      WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION);
 		oprn_ind->scanEventType = WIFI_EXTSCAN_CYCLE_STARTED_EVENT;
 		oprn_ind->status = 0;
@@ -4677,7 +4677,7 @@ int wma_extscan_operations_event_handler(void *handle,
 	case WMI_EXTSCAN_CYCLE_COMPLETED_EVENT:
 		WMA_LOGD("%s: received WMI_EXTSCAN_CYCLE_COMPLETED_EVENT",
 			 __func__);
-		qdf_wake_lock_release(&wma->extscan_wake_lock,
+		qdf_wake_lock_release(wma->extscan_wake_lock,
 				      WIFI_POWER_EVENT_WAKELOCK_EXT_SCAN);
 		oprn_ind->scanEventType = WIFI_EXTSCAN_CYCLE_COMPLETED_EVENT;
 		oprn_ind->status = 0;

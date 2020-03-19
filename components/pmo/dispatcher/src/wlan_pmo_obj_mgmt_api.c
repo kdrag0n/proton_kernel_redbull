@@ -219,7 +219,7 @@ QDF_STATUS pmo_psoc_object_destroyed_notification(
 	qdf_spinlock_destroy(&psoc_ctx->lock);
 	qdf_event_destroy(&psoc_ctx->wow.target_suspend);
 	qdf_event_destroy(&psoc_ctx->wow.target_resume);
-	qdf_wake_lock_destroy(&psoc_ctx->wow.wow_wake_lock);
+	qdf_wake_lock_destroy(psoc_ctx->wow.wow_wake_lock);
 	qdf_mem_zero(psoc_ctx, sizeof(*psoc_ctx));
 	qdf_mem_free(psoc_ctx);
 out:

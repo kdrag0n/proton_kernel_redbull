@@ -1571,7 +1571,7 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 			cmd->peer_flags |= WMI_PEER_NEED_PTK_4_WAY;
 		wma_nofl_debug("Acquire set key wake lock for %d ms",
 			       WMA_VDEV_SET_KEY_WAKELOCK_TIMEOUT);
-		wma_acquire_wakelock(&intr->vdev_set_key_wakelock,
+		wma_acquire_wakelock(intr->vdev_set_key_wakelock,
 			WMA_VDEV_SET_KEY_WAKELOCK_TIMEOUT);
 		qdf_runtime_pm_prevent_suspend(
 			&intr->vdev_set_key_runtime_wakelock);
@@ -2275,7 +2275,7 @@ static QDF_STATUS wma_setup_install_key_cmd(tp_wma_handle wma_handle,
 		WMA_LOGD("Release set key wake lock");
 		qdf_runtime_pm_allow_suspend(
 				&iface->vdev_set_key_runtime_wakelock);
-		wma_release_wakelock(&iface->vdev_set_key_wakelock);
+		wma_release_wakelock(iface->vdev_set_key_wakelock);
 	}
 
 	/* install key was requested */

@@ -249,7 +249,7 @@ static bool is_mode_change_psoc_idle_shutdown;
 
 #define WLAN_NLINK_CESIUM 30
 
-static qdf_wake_lock_t wlan_wake_lock;
+static qdf_wake_lock_t *wlan_wake_lock;
 
 #define WOW_MAX_FILTER_LISTS 1
 #define WOW_MAX_FILTERS_PER_LIST 4
@@ -7824,7 +7824,7 @@ out:
  */
 static void hdd_rx_wake_lock_destroy(struct hdd_context *hdd_ctx)
 {
-	qdf_wake_lock_destroy(&hdd_ctx->rx_wake_lock);
+	qdf_wake_lock_destroy(hdd_ctx->rx_wake_lock);
 }
 
 /**
@@ -7852,7 +7852,7 @@ static void hdd_rx_wake_lock_create(struct hdd_context *hdd_ctx)
  */
 static int hdd_context_deinit(struct hdd_context *hdd_ctx)
 {
-	qdf_wake_lock_destroy(&hdd_ctx->monitor_mode_wakelock);
+	qdf_wake_lock_destroy(hdd_ctx->monitor_mode_wakelock);
 
 	wlan_hdd_cfg80211_deinit(hdd_ctx->wiphy);
 
@@ -7975,7 +7975,7 @@ void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 
 	if (QDF_GLOBAL_MONITOR_MODE ==  hdd_get_conparam()) {
 		hdd_info("Release wakelock for monitor mode!");
-		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
+		qdf_wake_lock_release(hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
 	}
 
@@ -8077,18 +8077,18 @@ struct hdd_adapter *hdd_get_first_valid_adapter(struct hdd_context *hdd_ctx)
 /* wake lock APIs for HDD */
 void hdd_prevent_suspend(uint32_t reason)
 {
-	qdf_wake_lock_acquire(&wlan_wake_lock, reason);
+	qdf_wake_lock_acquire(wlan_wake_lock, reason);
 }
 
 void hdd_allow_suspend(uint32_t reason)
 {
-	qdf_wake_lock_release(&wlan_wake_lock, reason);
+	qdf_wake_lock_release(wlan_wake_lock, reason);
 }
 
 void hdd_prevent_suspend_timeout(uint32_t timeout, uint32_t reason)
 {
-	cds_host_diag_log_work(&wlan_wake_lock, timeout, reason);
-	qdf_wake_lock_timeout_acquire(&wlan_wake_lock, timeout);
+	cds_host_diag_log_work(wlan_wake_lock, timeout, reason);
+	qdf_wake_lock_timeout_acquire(wlan_wake_lock, timeout);
 }
 
 /* Initialize channel list in sme based on the country code */
@@ -14374,7 +14374,7 @@ static void hdd_stop_present_mode(struct hdd_context *hdd_ctx,
 	switch (curr_mode) {
 	case QDF_GLOBAL_MONITOR_MODE:
 		hdd_info("Release wakelock for monitor mode!");
-		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
+		qdf_wake_lock_release(hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
 		/* fallthrough */
 	case QDF_GLOBAL_MISSION_MODE:
@@ -14542,7 +14542,7 @@ static int __hdd_driver_mode_change(struct hdd_context *hdd_ctx,
 		}
 
 		hdd_info("Acquire wakelock for monitor mode");
-		qdf_wake_lock_acquire(&hdd_ctx->monitor_mode_wakelock,
+		qdf_wake_lock_acquire(hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
 	}
 
@@ -14715,7 +14715,7 @@ pld_deinit:
 param_destroy:
 	wlan_hdd_state_ctrl_param_destroy();
 wakelock_destroy:
-	qdf_wake_lock_destroy(&wlan_wake_lock);
+	qdf_wake_lock_destroy(wlan_wake_lock);
 comp_deinit:
 	hdd_component_deinit();
 hdd_deinit:
@@ -14770,7 +14770,7 @@ static void hdd_driver_unload(void)
 	pld_deinit();
 	wlan_hdd_state_ctrl_param_destroy();
 	hdd_set_conparam(0);
-	qdf_wake_lock_destroy(&wlan_wake_lock);
+	qdf_wake_lock_destroy(wlan_wake_lock);
 	hdd_component_deinit();
 	hdd_deinit();
 

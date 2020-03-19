@@ -3057,11 +3057,11 @@ void wma_vdev_deinit(struct wma_txrx_node *vdev)
 	}
 
 	qdf_runtime_lock_deinit(&vdev->vdev_set_key_runtime_wakelock);
-	qdf_wake_lock_destroy(&vdev->vdev_set_key_wakelock);
+	qdf_wake_lock_destroy(vdev->vdev_set_key_wakelock);
 	qdf_runtime_lock_deinit(&vdev->vdev_stop_runtime_wakelock);
-	qdf_wake_lock_destroy(&vdev->vdev_stop_wakelock);
+	qdf_wake_lock_destroy(vdev->vdev_stop_wakelock);
 	qdf_runtime_lock_deinit(&vdev->vdev_start_runtime_wakelock);
-	qdf_wake_lock_destroy(&vdev->vdev_start_wakelock);
+	qdf_wake_lock_destroy(vdev->vdev_start_wakelock);
 	vdev->is_waiting_for_key = false;
 }
 
@@ -3815,7 +3815,7 @@ QDF_STATUS wma_open(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 
 err_dbglog_init:
-	qdf_wake_lock_destroy(&wma_handle->wmi_cmd_rsp_wake_lock);
+	qdf_wake_lock_destroy(wma_handle->wmi_cmd_rsp_wake_lock);
 	qdf_runtime_lock_deinit(&wma_handle->sap_prevent_runtime_pm_lock);
 	qdf_runtime_lock_deinit(&wma_handle->wmi_cmd_rsp_runtime_lock);
 	qdf_spinlock_destroy(&wma_handle->vdev_respq_lock);
@@ -3840,17 +3840,17 @@ err_get_psoc_ref:
 	target_if_free_psoc_tgt_info(psoc);
 	if (cds_get_conparam() != QDF_GLOBAL_FTM_MODE) {
 #ifdef FEATURE_WLAN_EXTSCAN
-		qdf_wake_lock_destroy(&wma_handle->extscan_wake_lock);
+		qdf_wake_lock_destroy(wma_handle->extscan_wake_lock);
 #endif /* FEATURE_WLAN_EXTSCAN */
-		qdf_wake_lock_destroy(&wma_handle->wow_wake_lock);
-		qdf_wake_lock_destroy(&wma_handle->wow_auth_req_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_assoc_req_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_deauth_rec_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_disassoc_rec_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_ap_assoc_lost_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_auto_shutdown_wl);
-		qdf_wake_lock_destroy(&wma_handle->roam_ho_wl);
-		qdf_wake_lock_destroy(&wma_handle->roam_preauth_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_wake_lock);
+		qdf_wake_lock_destroy(wma_handle->wow_auth_req_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_assoc_req_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_deauth_rec_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_disassoc_rec_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_ap_assoc_lost_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_auto_shutdown_wl);
+		qdf_wake_lock_destroy(wma_handle->roam_ho_wl);
+		qdf_wake_lock_destroy(wma_handle->roam_preauth_wl);
 	}
 err_free_wma_handle:
 	cds_free_context(QDF_MODULE_ID_WMA, wma_handle);
@@ -4020,7 +4020,7 @@ static int wma_pdev_set_hw_mode_resp_evt_handler(void *handle,
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	wma_release_wakelock(&wma->wmi_cmd_rsp_wake_lock);
+	wma_release_wakelock(wma->wmi_cmd_rsp_wake_lock);
 	wma_remove_req(wma, 0, WMA_PDEV_SET_HW_MODE_RESP);
 
 	hw_mode_resp = qdf_mem_malloc(sizeof(*hw_mode_resp));
@@ -4297,7 +4297,7 @@ static int wma_pdev_set_dual_mode_config_resp_evt_handler(void *handle,
 		 */
 		return QDF_STATUS_E_NULL_VALUE;
 	}
-	wma_release_wakelock(&wma->wmi_cmd_rsp_wake_lock);
+	wma_release_wakelock(wma->wmi_cmd_rsp_wake_lock);
 	wma_remove_req(wma, 0, WMA_PDEV_MAC_CFG_RESP);
 
 	dual_mac_cfg_resp = qdf_mem_malloc(sizeof(*dual_mac_cfg_resp));
@@ -4862,17 +4862,17 @@ QDF_STATUS wma_close(void)
 
 	if (cds_get_conparam() != QDF_GLOBAL_FTM_MODE) {
 #ifdef FEATURE_WLAN_EXTSCAN
-		qdf_wake_lock_destroy(&wma_handle->extscan_wake_lock);
+		qdf_wake_lock_destroy(wma_handle->extscan_wake_lock);
 #endif /* FEATURE_WLAN_EXTSCAN */
-		qdf_wake_lock_destroy(&wma_handle->wow_wake_lock);
-		qdf_wake_lock_destroy(&wma_handle->wow_auth_req_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_assoc_req_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_deauth_rec_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_disassoc_rec_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_ap_assoc_lost_wl);
-		qdf_wake_lock_destroy(&wma_handle->wow_auto_shutdown_wl);
-		qdf_wake_lock_destroy(&wma_handle->roam_ho_wl);
-		qdf_wake_lock_destroy(&wma_handle->roam_preauth_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_wake_lock);
+		qdf_wake_lock_destroy(wma_handle->wow_auth_req_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_assoc_req_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_deauth_rec_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_disassoc_rec_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_ap_assoc_lost_wl);
+		qdf_wake_lock_destroy(wma_handle->wow_auto_shutdown_wl);
+		qdf_wake_lock_destroy(wma_handle->roam_ho_wl);
+		qdf_wake_lock_destroy(wma_handle->roam_preauth_wl);
 	}
 
 	/* unregister Firmware debug log */
@@ -4892,7 +4892,7 @@ QDF_STATUS wma_close(void)
 	qdf_event_destroy(&wma_handle->tx_queue_empty_event);
 	wma_cleanup_vdev_resp_queue(wma_handle);
 	wma_cleanup_hold_req(wma_handle);
-	qdf_wake_lock_destroy(&wma_handle->wmi_cmd_rsp_wake_lock);
+	qdf_wake_lock_destroy(wma_handle->wmi_cmd_rsp_wake_lock);
 	qdf_runtime_lock_deinit(&wma_handle->sap_prevent_runtime_pm_lock);
 	qdf_runtime_lock_deinit(&wma_handle->wmi_cmd_rsp_runtime_lock);
 	qdf_spinlock_destroy(&wma_handle->vdev_respq_lock);
@@ -9549,11 +9549,11 @@ QDF_STATUS wma_send_pdev_set_hw_mode_cmd(tp_wma_handle wma_handle,
 		goto fail;
 	}
 
-	wma_acquire_wakelock(&wma_handle->wmi_cmd_rsp_wake_lock,
+	wma_acquire_wakelock(wma_handle->wmi_cmd_rsp_wake_lock,
 			     WMA_VDEV_HW_MODE_REQUEST_TIMEOUT);
 	if (wmi_unified_soc_set_hw_mode_cmd(wma_handle->wmi_handle,
 					    msg->hw_mode_index)) {
-		wma_release_wakelock(&wma_handle->wmi_cmd_rsp_wake_lock);
+		wma_release_wakelock(wma_handle->wmi_cmd_rsp_wake_lock);
 		goto fail;
 	}
 	timeout_msg = wma_fill_hold_req(wma_handle, 0,
@@ -9611,7 +9611,7 @@ QDF_STATUS wma_send_pdev_set_dual_mac_config(tp_wma_handle wma_handle,
 	 * aquire the wake lock here and release it in response handler function
 	 * In error condition, release the wake lock right away
 	 */
-	wma_acquire_wakelock(&wma_handle->wmi_cmd_rsp_wake_lock,
+	wma_acquire_wakelock(wma_handle->wmi_cmd_rsp_wake_lock,
 			     WMA_VDEV_PLCY_MGR_WAKE_LOCK_TIMEOUT);
 	status = wmi_unified_pdev_set_dual_mac_config_cmd(
 				wma_handle->wmi_handle,
@@ -9619,7 +9619,7 @@ QDF_STATUS wma_send_pdev_set_dual_mac_config(tp_wma_handle wma_handle,
 	if (QDF_IS_STATUS_ERROR(status)) {
 		WMA_LOGE("%s: Failed to send WMI_PDEV_SET_DUAL_MAC_CONFIG_CMDID: %d",
 				__func__, status);
-		wma_release_wakelock(&wma_handle->wmi_cmd_rsp_wake_lock);
+		wma_release_wakelock(wma_handle->wmi_cmd_rsp_wake_lock);
 		goto fail;
 	}
 	policy_mgr_update_dbs_req_config(wma_handle->psoc,
