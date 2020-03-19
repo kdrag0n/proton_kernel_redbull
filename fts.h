@@ -456,7 +456,7 @@ struct fts_ts_info {
 	int display_refresh_rate;	/* Display rate in Hz */
 #endif
 	bool sensor_sleep;		/* True if suspend called */
-	struct wakeup_source wakesrc;	/* Wake Lock struct */
+	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 
 	/* input lock */
 	struct mutex input_report_mutex;	/* Mutex for pressure report */

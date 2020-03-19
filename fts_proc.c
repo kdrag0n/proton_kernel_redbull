@@ -2876,9 +2876,9 @@ END_DIAGNOSTIC:
 						cmd[1]);
 					res = OK;
 					if (cmd[1])
-						__pm_stay_awake(&info->wakesrc);
+						__pm_stay_awake(info->wakesrc);
 					else
-						__pm_relax(&info->wakesrc);
+						__pm_relax(info->wakesrc);
 				}
 			} else {
 				pr_err("Wrong number of parameters!\n");

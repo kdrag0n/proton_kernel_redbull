@@ -1505,7 +1505,7 @@ static void touchsim_work(struct work_struct *work)
 	pm_qos_update_request(&info->pm_qos_req, 100);
 
 	/* Notify the PM core that the wakeup event will take 1 sec */
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	__pm_wakeup_event(info->wakesrc, jiffies_to_msecs(HZ));
 
 	/* get the next touch coordinates */
 	touchsim_refresh_coordinates(touchsim);
@@ -3903,7 +3903,7 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	/* prevent CPU from entering deep sleep */
 	pm_qos_update_request(&info->pm_qos_req, 100);
 
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	__pm_wakeup_event(info->wakesrc, jiffies_to_msecs(HZ));
 
 	/* Read the first FIFO event and the number of events remaining */
 	error = fts_writeReadU8UX(regAdd, 0, 0, data, FIFO_EVENT_SIZE,
@@ -4851,7 +4851,7 @@ static void fts_resume_work(struct work_struct *work)
 
 	fts_pinctrl_setup(info, true);
 
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	__pm_wakeup_event(info->wakesrc, jiffies_to_msecs(HZ));
 
 	info->resume_bit = 1;
 
@@ -4888,7 +4888,7 @@ static void fts_suspend_work(struct work_struct *work)
 
 	reinit_completion(&info->bus_resumed);
 
-	__pm_stay_awake(&info->wakesrc);
+	__pm_stay_awake(info->wakesrc);
 
 	info->resume_bit = 0;
 
@@ -4912,7 +4912,7 @@ static void fts_suspend_work(struct work_struct *work)
 #endif
 
 	info->sensor_sleep = true;
-	__pm_relax(&info->wakesrc);
+	__pm_relax(info->wakesrc);
 }
 /** @}*/
 
@@ -5569,7 +5569,13 @@ static int fts_probe(struct spi_device *client)
 
 	pr_info("SET Event Handler:\n");
 
-	wakeup_source_init(&info->wakesrc, "fts_tp");
+	info->wakesrc = wakeup_source_register("fts_tp");
+	if (!info->wakesrc) {
+		pr_err("%s: failed to register wakeup source\n", __func__);
+		error = -ENODEV;
+		goto ProbeErrorExit_3;
+
+	}
 	info->event_wq = alloc_workqueue("fts-event-queue", WQ_UNBOUND |
 					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
 	if (!info->event_wq) {
@@ -5845,9 +5851,9 @@ ProbeErrorExit_5:
 
 ProbeErrorExit_4:
 	/* destroy_workqueue(info->fwu_workqueue); */
-	wakeup_source_remove(&info->wakesrc);
-	__pm_relax(&info->wakesrc);
+	wakeup_source_unregister(info->wakesrc);
 
+ProbeErrorExit_3:
 	fts_pinctrl_get(info, false);
 
 	fts_enable_reg(info, false);
@@ -5914,8 +5920,7 @@ static int fts_remove(struct spi_device *client)
 
 	/* Remove the work thread */
 	destroy_workqueue(info->event_wq);
-	wakeup_source_remove(&info->wakesrc);
-	__pm_relax(&info->wakesrc);
+	wakeup_source_unregister(info->wakesrc);
 
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
