@@ -4199,6 +4199,9 @@ static int fts_fw_update(struct fts_ts_info *info)
 	int ret;
 	int error = 0;
 	int init_type = NO_INIT;
+	int index;
+	int prop_len = 0;
+	struct device_node *np = info->dev->of_node;
 
 #if defined(PRE_SAVED_METHOD) || defined(COMPUTE_INIT_METHOD)
 	int keep_cx = 1;
@@ -4232,6 +4235,35 @@ static int fts_fw_update(struct fts_ts_info *info)
 	} else {
 		pr_info("%s: NO CRC Error or Impossible to read CRC register!\n",
 			__func__);
+	}
+
+	if (of_property_read_bool(np, "st,force-pi-cfg-ver-map")) {
+		prop_len = of_property_count_u32_elems(np,
+			"st,force-pi-cfg-ver-map");
+		info->board->force_pi_cfg_ver = devm_kzalloc(info->dev,
+			sizeof(u32) * prop_len, GFP_KERNEL);
+		if (info->board->force_pi_cfg_ver != NULL) {
+			for (index = 0; index < prop_len; index++) {
+				of_property_read_u32_index(np,
+					"st,force-pi-cfg-ver-map",
+					index,
+					&info->board->force_pi_cfg_ver[index]);
+				pr_info("%s: force PI config version: %04X",
+					__func__,
+					info->board->force_pi_cfg_ver[index]);
+				if(systemInfo.u16_cfgVer ==
+					info->board->force_pi_cfg_ver[index]) {
+					pr_info("%s System config version %04X, do panel init",
+					__func__, systemInfo.u16_cfgVer);
+					init_type = SPECIAL_PANEL_INIT;
+				}
+			}
+		} else {
+			pr_err("%s: force_pi_cfg_ver is NULL", __func__);
+		}
+	} else {
+		pr_info("%s: of_property_read_bool(np, \"st,force-pi-cfg-ver-map\") failed.\n",
+		__func__);
 	}
 
 	if (info->board->auto_fw_update) {
@@ -4273,7 +4305,6 @@ static int fts_fw_update(struct fts_ts_info *info)
 			if (ret < OK) {
 				pr_info("%s: No Panel CRC Error Found!\n",
 					__func__);
-				init_type = NO_INIT;
 			} else {
 				pr_err("%s: Panel CRC Error FOUND! CRC ERROR = %02X\n",
 					__func__, ret);

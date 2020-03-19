@@ -299,6 +299,7 @@ struct fts_hw_platform_data {
 #endif
 	struct drm_panel *panel;
 	u32 initial_panel_index;
+	u32 *force_pi_cfg_ver;
 };
 
 /* Bits for the bus reference mask */
