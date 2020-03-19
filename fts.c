@@ -5569,7 +5569,7 @@ static int fts_probe(struct spi_device *client)
 
 	pr_info("SET Event Handler:\n");
 
-	info->wakesrc = wakeup_source_register("fts_tp");
+	info->wakesrc = wakeup_source_register(NULL, "fts_tp");
 	if (!info->wakesrc) {
 		pr_err("%s: failed to register wakeup source\n", __func__);
 		error = -ENODEV;
