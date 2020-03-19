@@ -2370,7 +2370,7 @@ static int usf_open(struct inode *inode, struct file *file)
 	if (usf == NULL)
 		return -ENOMEM;
 
-	g_usf_wakeup_source = wakeup_source_register("usf");
+	g_usf_wakeup_source = wakeup_source_register(NULL, "usf");
 	if (!g_usf_wakeup_source) {
 		pr_err("%s: device %u failed to register wakeup_src\n", __func__, dev_ind);
 		kfree(usf);

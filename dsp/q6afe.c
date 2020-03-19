@@ -9230,7 +9230,7 @@ int __init afe_init(void)
 	init_waitqueue_head(&this_afe.wait_wakeup);
 	init_waitqueue_head(&this_afe.lpass_core_hw_wait);
 	init_waitqueue_head(&this_afe.clk_wait);
-	ws = wakeup_source_register("spkr-prot");
+	ws = wakeup_source_register(NULL, "spkr-prot");
 	if (!ws) {
 		pr_err("%s: could not register wakeup_source - spkr-prot\n", __func__);
 		return -ENODEV;
