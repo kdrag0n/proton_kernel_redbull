@@ -3637,6 +3637,107 @@ void mlme_get_converted_timestamp(uint32_t timestamp, char *time)
 		     (timestamp % 1000) * 1000);
 }
 
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+void wlan_mlme_set_sae_single_pmk_bss_cap(struct wlan_objmgr_psoc *psoc,
+					  uint8_t vdev_id, bool val)
+{
+	struct mlme_legacy_priv *mlme_priv;
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+						    WLAN_MLME_OBJMGR_ID);
+	if (!vdev) {
+		mlme_legacy_err("get vdev failed");
+		return;
+	}
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return;
+	}
+
+	mlme_priv->mlme_roam.sae_single_pmk.sae_single_pmk_ap = val;
+
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
+}
+
+void wlan_mlme_update_sae_single_pmk(struct wlan_objmgr_vdev *vdev,
+				     struct mlme_pmk_info *sae_single_pmk)
+{
+	struct mlme_legacy_priv *mlme_priv;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return;
+	}
+
+	if (mlme_priv->mlme_roam.sae_single_pmk.sae_single_pmk_ap)
+		mlme_priv->mlme_roam.sae_single_pmk.pmk_info = *sae_single_pmk;
+}
+
+void wlan_mlme_get_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+				       struct wlan_mlme_sae_single_pmk *pmksa)
+{
+	struct mlme_legacy_priv *mlme_priv;
+	struct mlme_pmk_info pmk_info;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return;
+	}
+
+	pmk_info = mlme_priv->mlme_roam.sae_single_pmk.pmk_info;
+
+	pmksa->sae_single_pmk_ap =
+		mlme_priv->mlme_roam.sae_single_pmk.sae_single_pmk_ap;
+
+	if (pmk_info.pmk_len) {
+		qdf_mem_copy(pmksa->pmk_info.pmk, pmk_info.pmk,
+			     pmk_info.pmk_len);
+		pmksa->pmk_info.pmk_len = pmk_info.pmk_len;
+		return;
+	}
+
+	qdf_mem_zero(pmksa->pmk_info.pmk, sizeof(*pmksa->pmk_info.pmk));
+	pmksa->pmk_info.pmk_len = 0;
+}
+
+void wlan_mlme_clear_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+					 struct mlme_pmk_info *pmk_recv)
+{
+	struct mlme_legacy_priv *mlme_priv;
+	struct wlan_mlme_sae_single_pmk sae_single_pmk;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return;
+	}
+
+	sae_single_pmk = mlme_priv->mlme_roam.sae_single_pmk;
+
+	if (!pmk_recv) {
+		/* Process flush pmk cmd */
+		mlme_legacy_debug("Flush sae_single_pmk info");
+		qdf_mem_zero(&sae_single_pmk.pmk_info,
+			     sizeof(sae_single_pmk.pmk_info));
+	} else if (pmk_recv->pmk_len != sae_single_pmk.pmk_info.pmk_len) {
+		mlme_legacy_debug("Invalid pmk len");
+		return;
+	} else if (!qdf_mem_cmp(&sae_single_pmk.pmk_info.pmk, pmk_recv->pmk,
+		   pmk_recv->pmk_len)) {
+			/* Process delete pmk cmd */
+			mlme_legacy_debug("Clear sae_single_pmk info");
+			qdf_mem_zero(&sae_single_pmk.pmk_info,
+				     sizeof(sae_single_pmk.pmk_info));
+	}
+}
+#endif
+
 char *mlme_get_roam_fail_reason_str(uint32_t result)
 {
 	switch (result) {
@@ -3700,6 +3801,37 @@ wlan_mlme_get_4way_hs_offload(struct wlan_objmgr_psoc *psoc, bool *value)
 	}
 
 	*value = mlme_obj->cfg.gen.disable_4way_hs_offload;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+uint32_t wlan_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_mlme_psoc_obj *mlme_obj;
+
+	mlme_obj = mlme_get_psoc_obj(psoc);
+	if (!mlme_obj)
+		return cfg_default(CFG_ROAM_TRIGGER_BITMAP);
+
+	return mlme_obj->cfg.lfr.roam_trigger_bitmap;
+}
+#endif
+
+QDF_STATUS
+wlan_mlme_get_dfs_chan_ageout_time(struct wlan_objmgr_psoc *psoc,
+				   uint8_t *dfs_chan_ageout_time)
+{
+	struct wlan_mlme_psoc_obj *mlme_obj;
+
+	mlme_obj = mlme_get_psoc_obj(psoc);
+	if (!mlme_obj) {
+		*dfs_chan_ageout_time =
+			cfg_default(CFG_DFS_CHAN_AGEOUT_TIME);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	*dfs_chan_ageout_time = mlme_obj->cfg.gen.dfs_chan_ageout_time;
 
 	return QDF_STATUS_SUCCESS;
 }

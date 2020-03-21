@@ -1014,6 +1014,19 @@ ucfg_mlme_get_roaming_offload(struct wlan_objmgr_psoc *psoc,
 QDF_STATUS
 ucfg_mlme_set_roaming_offload(struct wlan_objmgr_psoc *psoc,
 			      bool val);
+
+/**
+ * ucfg_mlme_get_roaming_triggers() - Get roaming triggers bitmap
+ * value
+ * @psoc: pointer to psoc object
+ *
+ * Return: Roaming triggers value
+ */
+static inline uint32_t
+ucfg_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc)
+{
+	return wlan_mlme_get_roaming_triggers(psoc);
+}
 #else
 static inline QDF_STATUS
 ucfg_mlme_get_roaming_offload(struct wlan_objmgr_psoc *psoc,
@@ -1029,6 +1042,12 @@ ucfg_mlme_set_roaming_offload(struct wlan_objmgr_psoc *psoc,
 			      bool val)
 {
 	return QDF_STATUS_SUCCESS;
+}
+
+static inline uint32_t
+ucfg_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
 }
 #endif
 
@@ -1173,6 +1192,26 @@ ucfg_mlme_get_delay_before_vdev_stop(struct wlan_objmgr_psoc *psoc,
 QDF_STATUS
 ucfg_mlme_get_roam_bmiss_final_bcnt(struct wlan_objmgr_psoc *psoc,
 				    uint8_t *val);
+
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * ucfg_mlme_update_sae_single_pmk_info() - Update sae_single_pmk_info
+ * @vdev: pointer to VDEV common object
+ * @pmk_info:  Pointer mlme pmkid info
+ *
+ * Return: None
+ */
+void
+ucfg_mlme_update_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+				     struct mlme_pmk_info *pmk_info);
+#else
+static inline void
+ucfg_mlme_update_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+				     struct mlme_pmk_info *pmk_info)
+{
+}
+#endif
+
 /**
  * ucfg_mlme_get_roam_bmiss_first_bcnt() - Get roam bmiss final count
  * @psoc: pointer to psoc object

@@ -4134,6 +4134,52 @@ hdd_send_roam_full_scan_period_to_sme(struct hdd_context *hdd_ctx,
 }
 
 /**
+ * wlan_hdd_convert_control_roam_trigger_reason_bitmap  - Convert the
+ * vendor specific reason code to internal reason code.
+ * @trigger_reason_bitmap: Vendor specific roam trigger bitmap
+ *
+ * Return: Internal roam trigger bitmap
+ */
+static uint32_t
+wlan_hdd_convert_control_roam_trigger_bitmap(uint32_t trigger_reason_bitmap)
+{
+	uint32_t drv_trigger_bitmap = 0, all_bitmap;
+
+	/* Enable the complete trigger bitmap when all bits are set in
+	 * the control config bitmap
+	 */
+	all_bitmap = (QCA_ROAM_TRIGGER_REASON_BSS_LOAD << 1) - 1;
+	if (trigger_reason_bitmap == all_bitmap)
+		return BIT(ROAM_TRIGGER_REASON_MAX) - 1;
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_PER)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_PER);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_BEACON_MISS)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_BMISS);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_POOR_RSSI)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_LOW_RSSI);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_BETTER_RSSI)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_HIGH_RSSI);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_PERIODIC)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_PERIODIC);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_DENSE)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_DENSE);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_BTM)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_BTM);
+
+	if (trigger_reason_bitmap & QCA_ROAM_TRIGGER_REASON_BSS_LOAD)
+		drv_trigger_bitmap |= BIT(ROAM_TRIGGER_REASON_BSS_LOAD);
+
+	return drv_trigger_bitmap;
+}
+
+/**
  * hdd_send_roam_triggers_to_sme() - Send roam trigger bitmap to SME
  * @hdd_ctx: HDD context
  * @vdev_id: vdev id
@@ -4181,7 +4227,8 @@ hdd_send_roam_triggers_to_sme(struct hdd_context *hdd_ctx,
 	}
 
 	triggers.vdev_id = vdev_id;
-	triggers.trigger_bitmap = roam_trigger_bitmap;
+	triggers.trigger_bitmap =
+	    wlan_hdd_convert_control_roam_trigger_bitmap(roam_trigger_bitmap);
 
 	status = sme_set_roam_triggers(hdd_ctx->mac_handle, &triggers);
 	if (QDF_IS_STATUS_ERROR(status))
@@ -17742,6 +17789,7 @@ static int wlan_hdd_cfg80211_connect_start(struct hdd_adapter *adapter,
 	 */
 	hdd_sta_ctx->conn_info.gtk_installed = false;
 	hdd_sta_ctx->conn_info.ptk_installed = false;
+	adapter->last_disconnect_reason = 0;
 
 	roam_profile = hdd_roam_profile(adapter);
 	if (roam_profile) {
@@ -19858,101 +19906,6 @@ static int wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 }
 
 /**
- * wlan_hdd_get_ieee80211_disconnect_reason() - Get ieee80211 disconnect reason
- * @adapter: pointer to adapter structure
- * @reason: Mac Disconnect reason code as per @enum eSirMacReasonCodes
- *
- * Reason codes that are greater than eSIR_MAC_REASON_PROP_START are internal
- * reason codes. Cache the same in hdd_ctx and return UNSPECIFIED.
- * Rest of the reason codes are valid ieee80211 reason codes.
- *
- * Return: Reason code of type ieee80211_reasoncode.
- */
-static enum ieee80211_reasoncode
-wlan_hdd_get_cfg80211_disconnect_reason(struct hdd_adapter *adapter,
-					enum eSirMacReasonCodes reason)
-{
-	enum ieee80211_reasoncode ieee80211_reason = WLAN_REASON_UNSPECIFIED;
-
-	/*
-	 * Cache internal reason code in adapter. This can be sent to
-	 * userspace with a vendor event.
-	 */
-	if (reason >= eSIR_MAC_REASON_PROP_START)
-		adapter->last_disconnect_reason = reason;
-	else
-		ieee80211_reason = (enum ieee80211_reasoncode)reason;
-
-	return ieee80211_reason;
-}
-
-#if defined(CFG80211_DISCONNECTED_V2) || \
-(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0))
-void
-wlan_hdd_cfg80211_indicate_disconnect(struct hdd_adapter *adapter,
-				      bool locally_generated,
-				      enum eSirMacReasonCodes reason,
-				      uint8_t *disconnect_ies,
-				      uint16_t disconnect_ies_len)
-{
-	enum ieee80211_reasoncode ieee80211_reason;
-
-	ieee80211_reason = wlan_hdd_get_cfg80211_disconnect_reason(adapter,
-								   reason);
-	hdd_debug("Disconnect reason code - MAC: %u, IEEE80211: %u locally_generated: %u",
-		  reason, ieee80211_reason, locally_generated);
-	cfg80211_disconnected(adapter->dev, ieee80211_reason, disconnect_ies,
-			      disconnect_ies_len, locally_generated,
-			      GFP_KERNEL);
-}
-#else
-void
-wlan_hdd_cfg80211_indicate_disconnect(struct hdd_adapter *adapter,
-				      bool locally_generated,
-				      enum eSirMacReasonCodes reason,
-				      uint8_t *disconnect_ies,
-				      uint16_t disconnect_ies_len)
-{
-	enum ieee80211_reasoncode ieee80211_reason;
-
-	ieee80211_reason = wlan_hdd_get_cfg80211_disconnect_reason(adapter,
-								   reason);
-	hdd_debug("Disconnect reason code - MAC: %u, IEEE80211: %u locally_generated: %u",
-		  reason, ieee80211_reason, locally_generated);
-	cfg80211_disconnected(adapter->dev, ieee80211_reason, disconnect_ies,
-			      disconnect_ies_len, GFP_KERNEL);
-}
-#endif
-
-int wlan_hdd_disconnect(struct hdd_adapter *adapter, u16 reason,
-			tSirMacReasonCodes mac_reason)
-{
-	int ret;
-	mac_handle_t mac_handle;
-
-	mac_handle = hdd_adapter_get_mac_handle(adapter);
-	wlan_hdd_wait_for_roaming(mac_handle, adapter);
-
-	/*stop tx queues */
-	hdd_debug("Disabling queues");
-	wlan_hdd_netif_queue_control(adapter,
-		WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER, WLAN_CONTROL_PATH);
-
-	ret = wlan_hdd_wait_for_disconnect(mac_handle, adapter, reason,
-					   mac_reason);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0)
-	/* Sending disconnect event to userspace for kernel version < 3.11
-	 * is handled by __cfg80211_disconnect call to __cfg80211_disconnected
-	 */
-	wlan_hdd_cfg80211_indicate_disconnect(adapter, true,
-					      mac_reason, NULL, 0);
-#endif
-
-	return ret;
-}
-
-/**
  * hdd_ieee80211_reason_code_to_str() - return string conversion of reason code
  * @reason: ieee80211 reason code.
  *
@@ -20014,6 +19967,224 @@ static const char *hdd_ieee80211_reason_code_to_str(uint16_t reason)
 	default:
 		return "Unknown";
 	}
+}
+
+/**
+ * hdd_qca_reason_to_str() - return string conversion of qca reason code
+ * @reason: enum qca_disconnect_reason_codes
+ *
+ * This utility function helps log string conversion of qca reason code.
+ *
+ * Return: string conversion of reason code, if match found;
+ *         "Unknown" otherwise.
+ */
+static const char *
+hdd_qca_reason_to_str(enum qca_disconnect_reason_codes reason)
+{
+	switch (reason) {
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_INTERNAL_ROAM_FAILURE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_EXTERNAL_ROAM_FAILURE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_GATEWAY_REACHABILITY_FAILURE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_UNSUPPORTED_CHANNEL_CSA);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_OPER_CHANNEL_DISABLED_INDOOR);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_OPER_CHANNEL_USER_DISABLED);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_DEVICE_RECOVERY);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_KEY_TIMEOUT);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_OPER_CHANNEL_BAND_CHANGE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_IFACE_DOWN);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_PEER_XRETRY_FAIL);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_PEER_INACTIVITY);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_SA_QUERY_TIMEOUT);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_BEACON_MISS_FAILURE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_CHANNEL_SWITCH_FAILURE);
+	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_USER_TRIGGERED);
+	case QCA_DISCONNECT_REASON_UNSPECIFIED:
+		return "";
+	default:
+		return "Unknown";
+	}
+}
+
+/**
+ * wlan_hdd_sir_mac_to_qca_reason() - Convert to qca internal disconnect reason
+ * @internal_reason: Mac reason code of type @enum eSirMacReasonCodes
+ *
+ * Check if it is internal reason code and convert it to the
+ * enum qca_disconnect_reason_codes.
+ *
+ * Return: Reason code of type enum qca_disconnect_reason_codes
+ */
+static enum qca_disconnect_reason_codes
+wlan_hdd_sir_mac_to_qca_reason(enum eSirMacReasonCodes internal_reason)
+{
+	enum qca_disconnect_reason_codes reason =
+					QCA_DISCONNECT_REASON_UNSPECIFIED;
+	switch (internal_reason) {
+	case eSIR_MAC_HOST_TRIGGERED_ROAM_FAILURE:
+		reason = QCA_DISCONNECT_REASON_INTERNAL_ROAM_FAILURE;
+		break;
+	case eSIR_MAC_FW_TRIGGERED_ROAM_FAILURE:
+		reason = QCA_DISCONNECT_REASON_EXTERNAL_ROAM_FAILURE;
+		break;
+	case eSIR_MAC_GATEWAY_REACHABILITY_FAILURE:
+		reason =
+		QCA_DISCONNECT_REASON_GATEWAY_REACHABILITY_FAILURE;
+		break;
+	case eSIR_MAC_UNSUPPORTED_CHANNEL_CSA:
+		reason = QCA_DISCONNECT_REASON_UNSUPPORTED_CHANNEL_CSA;
+		break;
+	case eSIR_MAC_OPER_CHANNEL_DISABLED_INDOOR:
+		reason =
+		QCA_DISCONNECT_REASON_OPER_CHANNEL_DISABLED_INDOOR;
+		break;
+	case eSIR_MAC_OPER_CHANNEL_USER_DISABLED:
+		reason =
+		QCA_DISCONNECT_REASON_OPER_CHANNEL_USER_DISABLED;
+		break;
+	case eSIR_MAC_DEVICE_RECOVERY:
+		reason = QCA_DISCONNECT_REASON_DEVICE_RECOVERY;
+		break;
+	case eSIR_MAC_KEY_TIMEOUT:
+		reason = QCA_DISCONNECT_REASON_KEY_TIMEOUT;
+		break;
+	case eSIR_MAC_OPER_CHANNEL_BAND_CHANGE:
+		reason = QCA_DISCONNECT_REASON_OPER_CHANNEL_BAND_CHANGE;
+		break;
+	case eSIR_MAC_IFACE_DOWN:
+		reason = QCA_DISCONNECT_REASON_IFACE_DOWN;
+		break;
+	case eSIR_MAC_PEER_XRETRY_FAIL:
+		reason = QCA_DISCONNECT_REASON_PEER_XRETRY_FAIL;
+		break;
+	case eSIR_MAC_PEER_INACTIVITY:
+		reason = QCA_DISCONNECT_REASON_PEER_INACTIVITY;
+		break;
+	case eSIR_MAC_SA_QUERY_TIMEOUT:
+		reason = QCA_DISCONNECT_REASON_SA_QUERY_TIMEOUT;
+		break;
+	case eSIR_MAC_CHANNEL_SWITCH_FAILED:
+		reason = QCA_DISCONNECT_REASON_CHANNEL_SWITCH_FAILURE;
+		break;
+	case eSIR_MAC_BEACON_MISSED:
+		reason = QCA_DISCONNECT_REASON_BEACON_MISS_FAILURE;
+		break;
+	case eSIR_MAC_USER_TRIGGERED_ROAM_FAILURE:
+		reason = QCA_DISCONNECT_REASON_USER_TRIGGERED;
+		break;
+	default:
+		hdd_debug("No QCA reason code for mac reason: %u",
+			  internal_reason);
+		/* Unspecified reason by default */
+	}
+
+	return reason;
+}
+
+/**
+ * wlan_hdd_get_ieee80211_disconnect_reason() - Get ieee80211 disconnect reason
+ * @adapter: pointer to adapter structure
+ * @reason: Mac Disconnect reason code as per @enum eSirMacReasonCodes
+ *
+ * Reason codes that are greater than eSIR_MAC_REASON_PROP_START are internal
+ * reason codes. Convert them to qca reason code format and cache in adapter
+ * and return UNSPECIFIED.
+ *
+ * Return: Reason code of type ieee80211_reasoncode.
+ */
+static enum ieee80211_reasoncode
+wlan_hdd_get_cfg80211_disconnect_reason(struct hdd_adapter *adapter,
+					enum eSirMacReasonCodes reason)
+{
+	enum ieee80211_reasoncode ieee80211_reason = WLAN_REASON_UNSPECIFIED;
+
+	/*
+	 * Convert and cache internal reason code in adapter. This can be
+	 * sent to userspace with a vendor event.
+	 */
+	if (reason >= eSIR_MAC_REASON_PROP_START) {
+		adapter->last_disconnect_reason =
+			wlan_hdd_sir_mac_to_qca_reason(reason);
+	} else {
+		ieee80211_reason = (enum ieee80211_reasoncode)reason;
+		adapter->last_disconnect_reason =
+					QCA_DISCONNECT_REASON_UNSPECIFIED;
+	}
+
+	return ieee80211_reason;
+}
+
+#if defined(CFG80211_DISCONNECTED_V2) || \
+(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0))
+void
+wlan_hdd_cfg80211_indicate_disconnect(struct hdd_adapter *adapter,
+				      bool locally_generated,
+				      enum eSirMacReasonCodes reason,
+				      uint8_t *disconnect_ies,
+				      uint16_t disconnect_ies_len)
+{
+	enum ieee80211_reasoncode ieee80211_reason;
+
+	ieee80211_reason = wlan_hdd_get_cfg80211_disconnect_reason(adapter,
+								   reason);
+	hdd_nofl_info("Disconnect reason: %u %s vendor: %u %s LG: %u",
+		      ieee80211_reason,
+		      hdd_ieee80211_reason_code_to_str(ieee80211_reason),
+		      adapter->last_disconnect_reason,
+		      hdd_qca_reason_to_str(adapter->last_disconnect_reason),
+		      locally_generated);
+	cfg80211_disconnected(adapter->dev, ieee80211_reason, disconnect_ies,
+			      disconnect_ies_len, locally_generated,
+			      GFP_KERNEL);
+}
+#else
+void
+wlan_hdd_cfg80211_indicate_disconnect(struct hdd_adapter *adapter,
+				      bool locally_generated,
+				      enum eSirMacReasonCodes reason,
+				      uint8_t *disconnect_ies,
+				      uint16_t disconnect_ies_len)
+{
+	enum ieee80211_reasoncode ieee80211_reason;
+
+	ieee80211_reason = wlan_hdd_get_cfg80211_disconnect_reason(adapter,
+								   reason);
+	hdd_nofl_info("Disconnect reason: %u %s vendor: %u %s LG: %u",
+		      ieee80211_reason,
+		      hdd_ieee80211_reason_code_to_str(ieee80211_reason),
+		      adapter->last_disconnect_reason,
+		      hdd_qca_reason_to_str(adapter->last_disconnect_reason),
+		      locally_generated);
+	cfg80211_disconnected(adapter->dev, ieee80211_reason, disconnect_ies,
+			      disconnect_ies_len, GFP_KERNEL);
+}
+#endif
+
+int wlan_hdd_disconnect(struct hdd_adapter *adapter, u16 reason,
+			tSirMacReasonCodes mac_reason)
+{
+	int ret;
+	mac_handle_t mac_handle;
+
+	mac_handle = hdd_adapter_get_mac_handle(adapter);
+	wlan_hdd_wait_for_roaming(mac_handle, adapter);
+
+	/*stop tx queues */
+	hdd_debug("Disabling queues");
+	wlan_hdd_netif_queue_control(adapter,
+		WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER, WLAN_CONTROL_PATH);
+
+	ret = wlan_hdd_wait_for_disconnect(mac_handle, adapter, reason,
+					   mac_reason);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0)
+	/* Sending disconnect event to userspace for kernel version < 3.11
+	 * is handled by __cfg80211_disconnect call to __cfg80211_disconnected
+	 */
+	wlan_hdd_cfg80211_indicate_disconnect(adapter, true,
+					      mac_reason, NULL, 0);
+#endif
+
+	return ret;
 }
 
 /**
@@ -20123,9 +20294,9 @@ static int __wlan_hdd_cfg80211_disconnect(struct wiphy *wiphy,
 					  false, true, vdev);
 		hdd_objmgr_put_vdev(vdev);
 
-		hdd_info("%s(vdevid-%d): Disconnect from userspace; reason:%d (%s)",
-			 dev->name, adapter->vdev_id, reason,
-			 hdd_ieee80211_reason_code_to_str(reason));
+		hdd_nofl_info("%s(vdevid-%d): Received Disconnect reason:%d %s",
+			      dev->name, adapter->vdev_id, reason,
+			      hdd_ieee80211_reason_code_to_str(reason));
 		status = wlan_hdd_disconnect(adapter, reasonCode, reason);
 		if (0 != status) {
 			hdd_err("wlan_hdd_disconnect failed, status: %d", status);
@@ -21132,6 +21303,40 @@ static int wlan_hdd_cfg80211_add_station(struct wiphy *wiphy,
 	return errno;
 }
 
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * wlan_update_sae_single_pmk_info() - Update a separate pmk information
+ * structure to support sae roaming using same pmk
+ * @vdev: vdev common object
+ * @pmk_cache: Pointer to pmk cache info
+ *
+ * Return: None
+ */
+static void wlan_update_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+					    tPmkidCacheInfo *pmk_cache)
+{
+	struct mlme_pmk_info *pmk_info;
+
+	pmk_info = qdf_mem_malloc(sizeof(*pmk_info));
+	if (!pmk_info)
+		return;
+
+	qdf_mem_copy(pmk_info->pmk, pmk_cache->pmk, pmk_cache->pmk_len);
+	pmk_info->pmk_len = pmk_cache->pmk_len;
+
+	ucfg_mlme_update_sae_single_pmk_info(vdev, pmk_info);
+
+	qdf_mem_zero(pmk_info, sizeof(*pmk_info));
+	qdf_mem_free(pmk_info);
+
+}
+#else
+static void wlan_update_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
+					    tPmkidCacheInfo *pmk_cache)
+{
+}
+#endif
+
 #ifdef WLAN_CONV_CRYPTO_IE_SUPPORT
 static QDF_STATUS wlan_hdd_set_pmksa_cache(struct hdd_adapter *adapter,
 					   tPmkidCacheInfo *pmk_cache)
@@ -21201,7 +21406,17 @@ static QDF_STATUS wlan_hdd_set_pmksa_cache(struct hdd_adapter *adapter,
 					   tPmkidCacheInfo *pmk_cache)
 {
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	struct wlan_objmgr_vdev *vdev;
+	struct hdd_station_ctx *sta_ctx =
+			WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 
+	if (sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_SAE) {
+		vdev = hdd_objmgr_get_vdev(adapter);
+		if (!vdev)
+			return QDF_STATUS_E_FAILURE;
+		wlan_update_sae_single_pmk_info(vdev, pmk_cache);
+		hdd_objmgr_put_vdev(vdev);
+	}
 	return sme_roam_set_pmkid_cache(
 		hdd_ctx->mac_handle, adapter->vdev_id, pmk_cache, 1, false);
 }
@@ -21345,7 +21560,6 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
-	mac_handle_t mac_handle;
 	QDF_STATUS result = QDF_STATUS_SUCCESS;
 	int status;
 	tPmkidCacheInfo pmk_cache;
@@ -21379,8 +21593,6 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 	if (0 != status)
 		return status;
 
-	mac_handle = hdd_ctx->mac_handle;
-
 	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
 
 	hdd_fill_pmksa_info(adapter, &pmk_cache, pmksa, false);
@@ -21398,7 +21610,7 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 		   TRACE_CODE_HDD_CFG80211_SET_PMKSA,
 		   adapter->vdev_id, result);
 
-	sme_set_del_pmkid_cache(mac_handle, adapter->vdev_id,
+	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id,
 				&pmk_cache, true);
 
 	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
@@ -21447,7 +21659,6 @@ static int __wlan_hdd_cfg80211_del_pmksa(struct wiphy *wiphy,
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
-	mac_handle_t mac_handle;
 	int status = 0;
 	tPmkidCacheInfo pmk_cache;
 
@@ -21474,8 +21685,6 @@ static int __wlan_hdd_cfg80211_del_pmksa(struct wiphy *wiphy,
 	if (0 != status)
 		return status;
 
-	mac_handle = hdd_ctx->mac_handle;
-
 	qdf_mtrace(QDF_MODULE_ID_HDD, QDF_MODULE_ID_HDD,
 		   TRACE_CODE_HDD_CFG80211_DEL_PMKSA,
 		   adapter->vdev_id, 0);
@@ -21492,10 +21701,9 @@ static int __wlan_hdd_cfg80211_del_pmksa(struct wiphy *wiphy,
 		status = -EINVAL;
 	}
 
-	sme_set_del_pmkid_cache(mac_handle, adapter->vdev_id, &pmk_cache,
+	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id, &pmk_cache,
 				false);
 	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
-
 	hdd_exit();
 	return status;
 }
@@ -21539,7 +21747,6 @@ static int __wlan_hdd_cfg80211_flush_pmksa(struct wiphy *wiphy,
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
-	mac_handle_t mac_handle;
 	int errno;
 	QDF_STATUS status;
 
@@ -21560,15 +21767,13 @@ static int __wlan_hdd_cfg80211_flush_pmksa(struct wiphy *wiphy,
 	if (errno)
 		return errno;
 
-	mac_handle = hdd_ctx->mac_handle;
-
 	status = wlan_hdd_flush_pmksa_cache(adapter);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("Cannot flush PMKIDCache");
 		errno = -EINVAL;
 	}
 
-	sme_set_del_pmkid_cache(mac_handle, adapter->vdev_id, NULL, false);
+	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id, NULL, false);
 	hdd_exit();
 	return errno;
 }

@@ -67,6 +67,8 @@
 #define CFG_MAX_STR_LEN       256
 #define MAX_VENDOR_IES_LEN 1532
 
+#define CFG_MAX_PMK_LEN       64
+
 #define CFG_VALID_CHANNEL_LIST_STRING_LEN (CFG_VALID_CHANNEL_LIST_LEN * 4)
 
 #define DEFAULT_ROAM_TRIGGER_BITMAP 0xFFFFFFFF
@@ -1119,6 +1121,7 @@ struct wlan_mlme_chainmask {
  * @enable_ring_buffer: Decide to enable/disable ring buffer for bug report
  * @enable_peer_unmap_conf_support: Indicate whether to send conf for peer unmap
  * @disable_4way_hs_offload: enable/disable 4 way handshake offload to firmware
+ * @dfs_chan_ageout_time: Set DFS Channel ageout time
  */
 struct wlan_mlme_generic {
 	enum band_info band_capability;
@@ -1155,6 +1158,7 @@ struct wlan_mlme_generic {
 	bool enable_ring_buffer;
 	bool enable_peer_unmap_conf_support;
 	bool disable_4way_hs_offload;
+	uint8_t dfs_chan_ageout_time;
 };
 
 /*
@@ -1396,6 +1400,7 @@ struct bss_load_trigger {
  * below which the connection is idle.
  * @idle_roam_min_rssi: Minimum rssi of connected AP to be considered for
  * idle roam trigger.
+ * @roam_trigger_bitmap:            Bitmap of roaming triggers.
  * @early_stop_scan_enable:         Set early stop scan
  * @enable_5g_band_pref:            Enable preference for 5G from INI
  * @ese_enabled:                    Enable ESE feature
@@ -1483,6 +1488,8 @@ struct bss_load_trigger {
  * @fw_akm_bitmap:                  Supported Akm suites of firmware
  * @roam_full_scan_period: Idle period in seconds between two successive
  * full channel roam scans
+ * @sae_single_pmk_feature_enabled: Contains value of ini
+ * sae_single_pmk_feature_enabled
  */
 struct wlan_mlme_lfr_cfg {
 	bool mawc_roam_enabled;
@@ -1496,6 +1503,7 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t idle_data_packet_count;
 	uint32_t idle_roam_band;
 	int32_t idle_roam_min_rssi;
+	uint32_t roam_trigger_bitmap;
 #endif
 	bool early_stop_scan_enable;
 	bool enable_5g_band_pref;
@@ -1586,6 +1594,9 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_scan_period_after_inactivity;
 	uint32_t fw_akm_bitmap;
 	uint32_t roam_full_scan_period;
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+	bool sae_single_pmk_feature_enabled;
+#endif
 };
 
 /**
@@ -2257,6 +2268,27 @@ struct wlan_mlme_cfg {
 	struct wlan_mlme_reg reg;
 	struct roam_trigger_score_delta trig_score_delta[NUM_OF_ROAM_TRIGGERS];
 	struct roam_trigger_min_rssi trig_min_rssi[NUM_OF_ROAM_TRIGGERS];
+};
+
+/**
+ * struct mlme_pmk_info - SAE Roaming using single pmk info
+ * @pmk: pmk
+ * @pmk_len: pmk length
+ */
+struct mlme_pmk_info {
+	uint8_t pmk[CFG_MAX_PMK_LEN];
+	uint8_t pmk_len;
+};
+
+/**
+ * struct wlan_mlme_sae_single_pmk - SAE Roaming using single pmk configuration
+ * structure
+ * @sae_single_pmk_ap: Current connected AP has VSIE or not
+ * @pmk_info: pmk information
+ */
+struct wlan_mlme_sae_single_pmk {
+	bool sae_single_pmk_ap;
+	struct mlme_pmk_info pmk_info;
 };
 
 /**

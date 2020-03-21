@@ -69,6 +69,7 @@
 #include <wlan_cfg80211_crypto.h>
 #include <wlan_crypto_global_api.h>
 #include "wlan_blm_ucfg_api.h"
+#include "wlan_hdd_periodic_sta_stats.h"
 
 #include "wlan_pkt_capture_ucfg_api.h"
 
@@ -925,7 +926,8 @@ static void hdd_save_bss_info(struct hdd_adapter *adapter,
 	} else {
 		hdd_sta_ctx->conn_info.conn_flag.ht_present = false;
 	}
-	if (roam_info->reassoc)
+	if (roam_info->reassoc ||
+	    hdd_is_roam_sync_in_progress(roam_info))
 		hdd_sta_ctx->conn_info.roam_count++;
 	if (roam_info->hs20vendor_ie.present) {
 		hdd_sta_ctx->conn_info.conn_flag.hs20_present = true;
@@ -1725,6 +1727,8 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 				  WLAN_IPA_STA_DISCONNECT,
 				  sta_ctx->conn_info.bssid.bytes);
 
+	hdd_periodic_sta_stats_stop(adapter);
+
 #ifdef FEATURE_WLAN_AUTO_SHUTDOWN
 	wlan_hdd_auto_shutdown_enable(hdd_ctx, true);
 #endif
@@ -1759,6 +1763,20 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 
 	/* indicate 'disconnect' status to wpa_supplicant... */
 	hdd_send_association_event(dev, roam_info);
+
+	/*
+	 * Due to audio share glitch with P2P clients due
+	 * to roam scan on concurrent interface, disable
+	 * roaming if "p2p_disable_roam" ini is enabled.
+	 * Re-enable roaming again once the p2p client
+	 * gets disconnected.
+	 */
+	if (ucfg_p2p_is_roam_config_disabled(hdd_ctx->psoc) &&
+	    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
+		hdd_debug("P2P client disconnected, enable roam");
+		wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
+	}
+
 	/* indicate disconnected event to nl80211 */
 	if (roam_status != eCSR_ROAM_IBSS_LEAVE) {
 		/*
@@ -2829,11 +2847,23 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 		}
 
 		/*
-		 * Enable roaming on other STA iface except this one.
-		 * Firmware dosent support connection on one STA iface while
-		 * roaming on other STA iface
+		 * Due to audio share glitch with P2P clients due
+		 * to roam scan on concurrent interface, disable
+		 * roaming if "p2p_disable_roam" ini is enabled.
+		 * Donot re-enable roaming again on other STA interface
+		 * if p2p client connection is active on any vdev.
 		 */
-		wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
+		if (ucfg_p2p_is_roam_config_disabled(hdd_ctx->psoc) &&
+		    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
+			hdd_debug("p2p cli active keep roam disabled");
+		} else {
+			/*
+			 * Enable roaming on other STA iface except this one.
+			 * Firmware dosent support connection on one STA iface
+			 * while roaming on other STA iface
+			 */
+			wlan_hdd_enable_roaming(adapter, RSO_CONNECT_START);
+		}
 
 		/* Save the connection info from CSR... */
 		hdd_conn_save_connect_info(adapter, roam_info,
@@ -3557,6 +3587,8 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 
 		policy_mgr_check_concurrent_intf_and_restart_sap(hdd_ctx->psoc);
 	}
+
+	hdd_periodic_sta_stats_start(adapter);
 
 	return QDF_STATUS_SUCCESS;
 }

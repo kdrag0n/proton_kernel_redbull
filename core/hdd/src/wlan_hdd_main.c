@@ -48,6 +48,7 @@
 #include "wlan_hdd_ftm.h"
 #include "wlan_hdd_power.h"
 #include "wlan_hdd_stats.h"
+#include "wlan_hdd_periodic_sta_stats.h"
 #include "wlan_hdd_scan.h"
 #include "wlan_policy_mgr_ucfg.h"
 #include <wlan_osif_request_manager.h>
@@ -169,6 +170,7 @@
 #include <wlan_interop_issues_ap_ucfg_api.h>
 #include <target_type.h>
 #include <wlan_hdd_debugfs_coex.h>
+#include <wlan_hdd_debugfs_config.h>
 #include "wlan_blm_ucfg_api.h"
 #include "nan_ucfg_api.h"
 #include "wlan_osif_priv.h"
@@ -4420,6 +4422,21 @@ int hdd_vdev_ready(struct hdd_adapter *adapter)
 	return qdf_status_to_os_return(status);
 }
 
+static void hdd_cleanup_cached_sta_info(struct hdd_adapter *adapter)
+{
+	uint16_t sta_id;
+	struct wlan_ies *ies;
+
+	for (sta_id = 0; sta_id < WLAN_MAX_STA_COUNT; sta_id++) {
+		ies = &adapter->cache_sta_info[sta_id].assoc_req_ies;
+		if (ies->data && ies->len) {
+			qdf_mem_free(ies->data);
+			ies->data = NULL;
+			ies->len = 0;
+		}
+	}
+}
+
 int hdd_vdev_destroy(struct hdd_adapter *adapter)
 {
 	QDF_STATUS status;
@@ -4457,6 +4474,7 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 
 	ucfg_pmo_del_wow_pattern(vdev);
 	status = ucfg_reg_11d_vdev_delete_update(vdev);
+	hdd_cleanup_cached_sta_info(adapter);
 	ucfg_scan_vdev_set_disable(vdev, REASON_VDEV_DOWN);
 	hdd_objmgr_put_vdev(vdev);
 
@@ -4707,7 +4725,7 @@ QDF_STATUS hdd_init_station_mode(struct hdd_adapter *adapter)
 	int ret_val;
 	mac_handle_t mac_handle;
 	bool bval = false;
-	uint32_t fine_time_meas_cap = 0;
+	uint32_t fine_time_meas_cap = 0, roam_triggers;
 
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	mac_handle = hdd_ctx->mac_handle;
@@ -4785,8 +4803,9 @@ QDF_STATUS hdd_init_station_mode(struct hdd_adapter *adapter)
 	qdf_mem_zero(&adapter->rcpi, sizeof(adapter->rcpi));
 
 	if (adapter->device_mode == QDF_STA_MODE) {
+		roam_triggers = ucfg_mlme_get_roaming_triggers(hdd_ctx->psoc);
 		mlme_set_roam_trigger_bitmap(hdd_ctx->psoc, adapter->vdev_id,
-					     DEFAULT_ROAM_TRIGGER_BITMAP);
+					     roam_triggers);
 
 		ucfg_mlme_get_fine_time_meas_cap(hdd_ctx->psoc,
 						 &fine_time_meas_cap);
@@ -4903,6 +4922,7 @@ static void hdd_cleanup_adapter(struct hdd_context *hdd_ctx,
 
 	hdd_nud_deinit_tracking(adapter);
 	qdf_mutex_destroy(&adapter->disconnection_status_lock);
+	hdd_periodic_sta_stats_mutex_destroy(adapter);
 	hdd_apf_context_destroy(adapter);
 	qdf_spinlock_destroy(&adapter->vdev_lock);
 
@@ -5155,7 +5175,7 @@ int hdd_set_fw_params(struct hdd_adapter *adapter)
 	QDF_STATUS status;
 	struct hdd_context *hdd_ctx;
 	bool bval = false;
-	uint8_t enable_tx_sch_delay;
+	uint8_t enable_tx_sch_delay, dfs_chan_ageout_time;
 	uint32_t dtim_sel_diversity, enable_secondary_rate;
 
 	hdd_enter_dev(adapter->dev);
@@ -5214,6 +5234,16 @@ int hdd_set_fw_params(struct hdd_adapter *adapter)
 	}
 	if (ret) {
 		hdd_err("Failed to set WMI_PDEV_PARAM_SECONDARY_RETRY_ENABLE");
+		goto error;
+	}
+
+	wlan_mlme_get_dfs_chan_ageout_time(hdd_ctx->psoc,
+					   &dfs_chan_ageout_time);
+	ret = sme_cli_set_command(adapter->vdev_id,
+				  WMI_PDEV_PARAM_SET_DFS_CHAN_AGEOUT_TIME,
+				  dfs_chan_ageout_time, PDEV_CMD);
+	if (ret) {
+		hdd_err("Failed to set DFS_CHAN_AGEOUT_TIME");
 		goto error;
 	}
 
@@ -5521,6 +5551,7 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 		    adapter->device_mode == QDF_P2P_DEVICE_MODE)
 			hdd_sysfs_create_adapter_root_obj(adapter);
 		qdf_mutex_create(&adapter->disconnection_status_lock);
+		hdd_periodic_sta_stats_mutex_create(adapter);
 
 		break;
 
@@ -5644,6 +5675,8 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 
 	if (adapter->device_mode == QDF_STA_MODE)
 		wlan_hdd_debugfs_csr_init(adapter);
+
+	hdd_periodic_sta_stats_init(adapter);
 
 	return adapter;
 
@@ -7520,7 +7553,6 @@ static QDF_STATUS hdd_abort_sched_scan_all_adapters(struct hdd_context *hdd_ctx)
 	struct hdd_adapter *adapter;
 	int err;
 
-	hdd_enter();
 
 	hdd_for_each_adapter(hdd_ctx, adapter) {
 		if (adapter->device_mode == QDF_STA_MODE ||
@@ -7924,6 +7956,7 @@ void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 
 	hdd_enter();
 
+	hdd_debugfs_ini_config_deinit(hdd_ctx);
 	hdd_debugfs_mws_coex_info_deinit(hdd_ctx);
 	hdd_psoc_idle_timer_stop(hdd_ctx);
 
@@ -8608,6 +8641,8 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 	}
 
 	hdd_display_periodic_stats(hdd_ctx, (total_pkts > 0) ? true : false);
+
+	hdd_periodic_sta_stats_display(hdd_ctx);
 }
 
 #ifdef WDI3_STATS_UPDATE
@@ -10334,6 +10369,7 @@ static void hdd_cfg_params_init(struct hdd_context *hdd_ctx)
 	config->enable_sar_conversion = cfg_get(psoc, CFG_SAR_CONVERSION);
 	config->is_wow_disabled = cfg_get(psoc, CFG_WOW_DISABLE);
 
+	hdd_periodic_sta_stats_config(config, psoc);
 	hdd_init_vc_mode_cfg_bitmap(config, psoc);
 	hdd_init_runtime_pm(config, psoc);
 	hdd_init_wlan_auto_shutdown(config, psoc);
@@ -12820,6 +12856,7 @@ int hdd_wlan_startup(struct hdd_context *hdd_ctx)
 	ucfg_mlme_is_imps_enabled(hdd_ctx->psoc, &is_imps_enabled);
 	hdd_set_idle_ps_config(hdd_ctx, is_imps_enabled);
 	hdd_debugfs_mws_coex_info_init(hdd_ctx);
+	hdd_debugfs_ini_config_init(hdd_ctx);
 	wlan_cfg80211_init_interop_issues_ap(hdd_ctx->pdev);
 
 	hdd_exit();

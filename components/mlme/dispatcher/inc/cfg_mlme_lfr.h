@@ -2340,6 +2340,47 @@
 	CFG_VALUE_OR_DEFAULT, \
 	"Band on which idle roam needs to be enabled")
 
+/*
+ * <ini>
+ * roam_triggers - Bitmap of roaming triggers. Setting this to
+ * zero will disable roaming altogether for the STA interface.
+ * @Min: 0
+ * @Max: 0xFFFFFFFF
+ * @Default: 0xFFFF
+ *
+ * ROAM_TRIGGER_REASON_PER         BIT 1
+ * ROAM_TRIGGER_REASON_BMISS       BIT 2
+ * ROAM_TRIGGER_REASON_LOW_RSSI    BIT 3
+ * ROAM_TRIGGER_REASON_HIGH_RSSI   BIT 4
+ * ROAM_TRIGGER_REASON_PERIODIC    BIT 5
+ * ROAM_TRIGGER_REASON_MAWC        BIT 6
+ * ROAM_TRIGGER_REASON_DENSE       BIT 7
+ * ROAM_TRIGGER_REASON_BACKGROUND  BIT 8
+ * ROAM_TRIGGER_REASON_FORCED      BIT 9
+ * ROAM_TRIGGER_REASON_BTM         BIT 10
+ * ROAM_TRIGGER_REASON_UNIT_TEST   BIT 11
+ * ROAM_TRIGGER_REASON_BSS_LOAD    BIT 12
+ * ROAM_TRIGGER_REASON_DEAUTH      BIT 13
+ * ROAM_TRIGGER_REASON_IDLE        BIT 14
+ * ROAM_TRIGGER_REASON_STA_KICKOUT BIT 15
+ * ROAM_TRIGGER_REASON_MAX     BIT 16
+ *
+ * Related: none
+ *
+ * Supported Feature: Roaming
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_ROAM_TRIGGER_BITMAP CFG_INI_UINT( \
+			"roam_triggers", \
+			0, \
+			0xFFFFFFFF, \
+			0xFFFF, \
+			CFG_VALUE_OR_DEFAULT, \
+			"Bitmap of roaming triggers")
+
 #define ROAM_OFFLOAD_ALL \
 	CFG(CFG_LFR3_ROAMING_OFFLOAD) \
 	CFG(CFG_LFR_ENABLE_DISCONNECT_ROAM) \
@@ -2349,6 +2390,7 @@
 	CFG(CFG_LFR_IDLE_ROAM_PACKET_COUNT) \
 	CFG(CFG_LFR_IDLE_ROAM_MIN_RSSI) \
 	CFG(CFG_LFR_IDLE_ROAM_BAND) \
+	CFG(CFG_ROAM_TRIGGER_BITMAP) \
 
 #else
 #define ROAM_OFFLOAD_ALL
@@ -2412,6 +2454,34 @@
 #define LFR_SUBNET_DETECTION_ALL CFG(CFG_LFR3_ENABLE_SUBNET_DETECTION)
 #else
 #define LFR_SUBNET_DETECTION_ALL
+#endif
+
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/*
+ * <ini>
+ * sae_single_pmk_feature_enabled - Enable/disable sae single pmk feature.
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * This INI is to enable/disable SAE Roaming with same PMK/PMKID feature support
+ *
+ * Related: None.
+ *
+ * Supported Feature: Roaming
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_SAE_SINGLE_PMK CFG_INI_BOOL( \
+		"sae_single_pmk_feature_enabled", \
+		false, \
+		"Enable/disable SAE Roaming with single PMK/PMKID")
+
+#define SAE_SINGLE_PMK_ALL CFG(CFG_SAE_SINGLE_PMK)
+#else
+#define SAE_SINGLE_PMK_ALL
 #endif
 
 #ifdef WLAN_ADAPTIVE_11R
@@ -2658,6 +2728,7 @@
 	ADAPTIVE_11R_ALL \
 	ROAM_OFFLOAD_ALL \
 	LFR_ESE_ALL \
-	LFR_SUBNET_DETECTION_ALL
+	LFR_SUBNET_DETECTION_ALL \
+	SAE_SINGLE_PMK_ALL
 
 #endif /* CFG_MLME_LFR_H__ */

@@ -423,6 +423,8 @@ static void mlme_init_generic_cfg(struct wlan_objmgr_psoc *psoc,
 		cfg_get(psoc, CFG_DP_ENABLE_PEER_UMAP_CONF_SUPPORT);
 	gen->disable_4way_hs_offload =
 		cfg_get(psoc, CFG_DISABLE_4WAY_HS_OFFLOAD);
+	gen->dfs_chan_ageout_time =
+		cfg_get(psoc, CFG_DFS_CHAN_AGEOUT_TIME);
 }
 
 static void mlme_init_edca_ani_cfg(struct wlan_mlme_edca_params *edca_params)
@@ -1446,6 +1448,30 @@ mlme_init_adaptive_11r_cfg(struct wlan_objmgr_psoc *psoc,
 }
 #endif
 
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * mlme_init_sae_single_pmk_cfg() - initialize sae_same_pmk_config
+ * flag
+ * @psoc: Pointer to PSOC
+ * @lfr:  pointer to mlme lfr config
+ *
+ * Return: None
+ */
+static void
+mlme_init_sae_single_pmk_cfg(struct wlan_objmgr_psoc *psoc,
+			     struct wlan_mlme_lfr_cfg *lfr)
+{
+	lfr->sae_single_pmk_feature_enabled = cfg_get(psoc, CFG_SAE_SINGLE_PMK);
+}
+
+#else
+static inline void
+mlme_init_sae_single_pmk_cfg(struct wlan_objmgr_psoc *psoc,
+			     struct wlan_mlme_lfr_cfg *lfr)
+{
+}
+#endif
+
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 static void mlme_init_roam_offload_cfg(struct wlan_objmgr_psoc *psoc,
 				       struct wlan_mlme_lfr_cfg *lfr)
@@ -1464,7 +1490,10 @@ static void mlme_init_roam_offload_cfg(struct wlan_objmgr_psoc *psoc,
 	lfr->idle_data_packet_count =
 		cfg_get(psoc, CFG_LFR_IDLE_ROAM_PACKET_COUNT);
 	lfr->idle_roam_min_rssi = cfg_get(psoc, CFG_LFR_IDLE_ROAM_MIN_RSSI);
+	lfr->roam_trigger_bitmap =
+		cfg_get(psoc, CFG_ROAM_TRIGGER_BITMAP);
 	lfr->idle_roam_band = cfg_get(psoc, CFG_LFR_IDLE_ROAM_BAND);
+	mlme_init_sae_single_pmk_cfg(psoc, lfr);
 }
 
 #else
@@ -1874,7 +1903,7 @@ static void mlme_init_scoring_cfg(struct wlan_objmgr_psoc *psoc,
 		mlme_limit_max_per_index_score(
 			cfg_get(psoc, CFG_SCORING_OCE_WAN_SCORE_IDX_15_TO_12));
 	scoring_cfg->roam_trigger_bitmap =
-				cfg_get(psoc, CFG_ROAM_TRIGGER_BITMAP);
+			cfg_get(psoc, CFG_ROAM_SCORE_DELTA_TRIGGER_BITMAP);
 	scoring_cfg->roam_score_delta = cfg_get(psoc, CFG_ROAM_SCORE_DELTA);
 	scoring_cfg->apsd_enabled = (bool)cfg_default(CFG_APSD_ENABLED);
 	scoring_cfg->min_roam_score_delta =
