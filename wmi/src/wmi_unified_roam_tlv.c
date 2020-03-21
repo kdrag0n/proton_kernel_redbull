@@ -1039,6 +1039,29 @@ fill_roam_offload_11r_params(uint32_t auth_mode,
 			     roam_offload_11r->psk_msk_ext_len);
 	}
 }
+
+/**
+ * wmi_fill_sae_single_pmk_param() - Fill sae single pmk flag to indicate fw to
+ * use same PMKID for WPA3 SAE roaming.
+ * @params: roam request param
+ * @roam_offload_11i: pointer to 11i params
+ *
+ * Return: None
+ */
+static inline void
+wmi_fill_sae_single_pmk_param(struct roam_offload_scan_params *params,
+			      wmi_roam_11i_offload_tlv_param *roam_offload_11i)
+{
+	if (params->is_sae_same_pmk)
+		roam_offload_11i->flags |=
+				1 << WMI_ROAM_OFFLOAD_FLAG_SAE_SAME_PMKID;
+}
+#else
+static inline void
+wmi_fill_sae_single_pmk_param(struct roam_offload_scan_params *params,
+			      wmi_roam_11i_offload_tlv_param *roam_offload_11i)
+{
+}
 #endif
 
 /**
@@ -1334,6 +1357,9 @@ send_roam_scan_offload_mode_cmd_tlv(wmi_unified_t wmi_handle,
 						(roam_offload_11i->flags);
 					WMI_LOGI("LFR3:PMKSA caching disabled");
 				}
+
+				wmi_fill_sae_single_pmk_param(roam_req,
+							      roam_offload_11i);
 
 				roam_offload_11i->pmk_len = roam_req->pmk_len >
 					ROAM_OFFLOAD_PMK_BYTES ?
@@ -2451,33 +2477,57 @@ convert_control_roam_trigger_reason_bitmap(uint32_t trigger_reason_bitmap)
 	/* Enable the complete trigger bitmap when all bits are set in
 	 * the control config bitmap
 	 */
-	all_bitmap = (ROAM_CONTROL_TRIGGER_REASON_BSS_LOAD << 1) - 1;
+	all_bitmap = BIT(ROAM_TRIGGER_REASON_MAX) - 1;
 	if (trigger_reason_bitmap == all_bitmap)
-		return (BIT(WMI_ROAM_TRIGGER_REASON_MAX) - 1);
+		return BIT(WMI_ROAM_TRIGGER_EXT_REASON_MAX) - 1;
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_PER)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_NONE))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_NONE);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_PER))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_PER);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_BEACON_MISS)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_BMISS))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_BMISS);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_POOR_RSSI)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_LOW_RSSI))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_LOW_RSSI);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_BETTER_RSSI)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_HIGH_RSSI))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_HIGH_RSSI);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_PERIODIC)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_PERIODIC))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_PERIODIC);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_DENSE)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_MAWC))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_MAWC);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_DENSE))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_DENSE);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_BTM)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_BACKGROUND))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_BACKGROUND);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_FORCED))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_FORCED);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_BTM))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_BTM);
 
-	if (trigger_reason_bitmap & ROAM_CONTROL_TRIGGER_REASON_BSS_LOAD)
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_UNIT_TEST))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_UNIT_TEST);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_BSS_LOAD))
 		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_BSS_LOAD);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_DEAUTH))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_DEAUTH);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_IDLE))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_IDLE);
+
+	if (trigger_reason_bitmap & BIT(ROAM_TRIGGER_REASON_STA_KICKOUT))
+		fw_trigger_bitmap |= BIT(WMI_ROAM_TRIGGER_REASON_STA_KICKOUT);
 
 	return fw_trigger_bitmap;
 }
