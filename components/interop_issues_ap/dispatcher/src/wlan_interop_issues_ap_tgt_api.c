@@ -37,7 +37,7 @@ static QDF_STATUS wlan_interop_issues_ap_flush_cbk(struct scheduler_msg *msg)
 	return QDF_STATUS_SUCCESS;
 }
 
-static void wlan_interop_issues_ap_info_cbk(struct scheduler_msg *msg)
+static QDF_STATUS wlan_interop_issues_ap_info_cbk(struct scheduler_msg *msg)
 {
 	struct wlan_interop_issues_ap_event *data;
 	struct wlan_interop_issues_ap_callbacks *cbs;
@@ -59,6 +59,8 @@ static void wlan_interop_issues_ap_info_cbk(struct scheduler_msg *msg)
 err:
 	qdf_mem_free(data);
 	msg->bodyptr = NULL;
+
+	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS tgt_interop_issues_ap_info_callback(struct wlan_objmgr_psoc *psoc,
