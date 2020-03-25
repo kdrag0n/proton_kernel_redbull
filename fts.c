@@ -4210,11 +4210,9 @@ static int fts_fw_update(struct fts_ts_info *info)
 	 * there is extinfo to read but is not yet available.
 	 */
 	ret = fts_read_panel_extinfo(info, 10);
-	if (ret < 0) {
+	if (ret < 0)
 		pr_err("%s: Failed or timed out during read of extinfo. ret=%d\n",
 		       __func__, ret);
-		goto out;
-	}
 
 	/* Identify panel given extinfo that may have been received. */
 	ret = fts_identify_panel(info);
