@@ -4609,6 +4609,7 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 #if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
 	int i = 0;
 	struct snd_soc_dai **codec_dais = rtd->codec_dais;
+	int QUIN_TDM_MAX_SLOTS = 4;
 #endif
 
 	pr_debug("%s: dai id = 0x%x\n", __func__, cpu_dai->id);
@@ -4644,6 +4645,18 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 		channels = tdm_rx_cfg[interface][channel_interface].channels;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
+		if (cpu_dai->id == AFE_PORT_ID_QUINARY_TDM_RX) {
+			slots = QUIN_TDM_MAX_SLOTS;
+			if (channels > slots) {
+				pr_info("%s: Incorrect QUIN TDM RX ch: %d",
+					__func__, channels);
+				channels = slots;
+				tdm_rx_cfg[interface][channel_interface] \
+				.channels = slots;
+			}
+		}
+#endif
 		/*2 slot config - bits 0 and 1 set for the first two slots */
 		slot_mask = 0x0000FFFF >> (16 - slots);
 
@@ -4668,6 +4681,18 @@ static int kona_tdm_snd_hw_params(struct snd_pcm_substream *substream,
 			goto end;
 		}
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+#if IS_ENABLED(CONFIG_SND_SOC_CS35L41)
+		if (cpu_dai->id == AFE_PORT_ID_QUINARY_TDM_TX) {
+			slots = QUIN_TDM_MAX_SLOTS;
+			if (channels > slots) {
+				pr_info("%s: Incorrect QUIN TDM TX ch: %d",
+					__func__, channels);
+				channels = slots;
+				tdm_tx_cfg[interface][channel_interface] \
+				.channels = slots;
+			}
+		}
+#endif
 		/*2 slot config - bits 0 and 1 set for the first two slots */
 		slot_mask = 0x0000FFFF >> (16 - slots);
 
