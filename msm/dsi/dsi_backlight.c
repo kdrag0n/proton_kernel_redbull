@@ -710,11 +710,113 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR_RO(state);
 
+int parse_u32_buf(char *src, size_t src_len, u32 *out, size_t out_len)
+{
+	int rc = 0, cnt = 0;
+	char *str;
+	const char *delim = " ";
+
+	if (unlikely(!src || !src_len || !out || !out_len))
+		return -EINVAL;
+
+	if (strlen(src) != src_len)
+		return -EINVAL;
+
+	for (str = strsep(&src, delim); str != NULL; str = strsep(&src, delim)) {
+		rc = kstrtou32(str, 0, out + cnt);
+		if (rc)
+			return -EINVAL;
+
+		cnt++;
+
+		if (out_len == cnt)
+			break;
+	}
+
+	return cnt;
+}
+
+static ssize_t als_table_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+
+	struct backlight_device *bd = to_backlight_device(dev);
+	struct dsi_backlight_config *bl = bl_get_data(bd);
+	ssize_t als_count;
+	u8 i;
+	u32 ranges[BL_RANGE_MAX] = {0};
+	char *buf_dup;
+
+	if (count == 0)
+		return -EINVAL;
+
+	buf_dup = kstrndup(buf, count, GFP_KERNEL);
+	if (!buf_dup)
+		return -ENOMEM;
+
+	if (strlen(buf_dup) != count)
+		return -EINVAL;
+
+	als_count = parse_u32_buf(buf_dup, count, ranges, BL_RANGE_MAX);
+	if ((als_count < 0) || (als_count > BL_RANGE_MAX)) {
+		kfree(buf_dup);
+		pr_warn("als: incorrect parameters from als table node\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&bl->state_lock);
+
+	bl->bl_notifier->num_ranges = als_count;
+	for (i = 0; i < bl->bl_notifier->num_ranges; i++)
+		bl->bl_notifier->ranges[i] = ranges[i];
+
+	mutex_unlock(&bl->state_lock);
+
+	kfree(buf_dup);
+
+	return count;
+}
+
+static ssize_t als_table_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+	struct dsi_backlight_config *bl = bl_get_data(bd);
+	ssize_t rc = 0;
+	size_t len = 0;
+	u32 i = 0;
+
+	if (unlikely(!bl || !bl->bl_notifier))
+		return -EINVAL;
+
+	mutex_lock(&bl->state_lock);
+
+	for (i = 0; i < bl->bl_notifier->num_ranges; i++) {
+		rc = scnprintf((buf + len), PAGE_SIZE - len,
+				"%u ", bl->bl_notifier->ranges[i]);
+		if (rc < 0) {
+			pr_warn("als: incorrect bl_notifier ranges\n");
+			mutex_unlock(&bl->state_lock);
+			return -EINVAL;
+		}
+		len = len + rc;
+	}
+
+	mutex_unlock(&bl->state_lock);
+
+	len += scnprintf(buf + len, PAGE_SIZE - len, "\n");
+
+	return len;
+}
+static DEVICE_ATTR_RW(als_table);
+
 static struct attribute *bl_device_attrs[] = {
 	&dev_attr_alpm_mode.attr,
 	&dev_attr_hbm_mode.attr,
 	&dev_attr_hbm_sv_enabled.attr,
 	&dev_attr_state.attr,
+	&dev_attr_als_table.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(bl_device);
