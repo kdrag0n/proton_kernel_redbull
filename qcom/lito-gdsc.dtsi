@@ -11,6 +11,8 @@
 		compatible = "qcom,gdsc";
 		reg = <0x10f004 0x4>;
 		regulator-name = "usb30_prim_gdsc";
+		proxy-supply = <&usb30_prim_gdsc>;
+		qcom,proxy-consumer-enable;
 		status = "disabled";
 	};
 
