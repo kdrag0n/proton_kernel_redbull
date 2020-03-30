@@ -1,4 +1,5 @@
 #include "kona-qrd.dtsi"
+#include "kona-iot-rb5-audio.dtsi"
 
 &qupv3_se12_2uart {
 	status = "okay";
@@ -97,5 +98,12 @@
 				remote-endpoint = <&lt9611_in>;
 			};
 		};
+	};
+};
+
+&usb1 {
+	/delete-property/ qcom,default-mode-none;
+	dwc3@a800000 {
+		dr_mode = "host";
 	};
 };
