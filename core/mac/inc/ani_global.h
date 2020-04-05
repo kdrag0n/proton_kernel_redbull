@@ -661,7 +661,7 @@ typedef struct sAniSirLim {
 	QDF_STATUS(*sme_msg_callback)
 		(struct mac_context *mac, struct scheduler_msg *msg);
 	QDF_STATUS(*stop_roaming_callback)
-		(struct mac_context *mac, uint8_t session_id, uint8_t reason,
+		(mac_handle_t mac, uint8_t session_id, uint8_t reason,
 		 uint32_t requestor);
 	uint8_t retry_packet_cnt;
 	uint8_t beacon_probe_rsp_cnt_per_scan;
@@ -679,7 +679,8 @@ struct mgmt_frm_reg_info {
 };
 
 typedef struct sRrmContext {
-	tRrmSMEContext rrmSmeContext;
+	struct rrm_config_param rrmConfig;
+	tRrmSMEContext rrmSmeContext[MAX_MEASUREMENT_REQUEST];
 	tRrmPEContext rrmPEContext;
 } tRrmContext, *tpRrmContext;
 

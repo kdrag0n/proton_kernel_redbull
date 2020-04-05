@@ -78,6 +78,7 @@
 #include <wlan_mlme_main.h>
 #include <wlan_crypto_global_api.h>
 #include <cdp_txrx_mon.h>
+#include "wlan_blm_core.h"
 
 #ifdef FEATURE_WLAN_EXTSCAN
 #define WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION WAKELOCK_DURATION_RECOMMENDED
@@ -1405,6 +1406,7 @@ static QDF_STATUS wma_roam_scan_filter(tp_wma_handle wma_handle,
 	params->num_ssid_white_list = num_ssid_white_list;
 	params->num_bssid_preferred_list = num_bssid_preferred_list;
 	params->num_rssi_rejection_ap = num_rssi_rejection_ap;
+	params->delta_rssi = blm_get_rssi_blacklist_threshold(wma_handle->pdev);
 	qdf_mem_copy(params->bssid_avoid_list, roam_params->bssid_avoid_list,
 			MAX_BSSID_AVOID_LIST * sizeof(struct qdf_mac_addr));
 
@@ -2786,7 +2788,7 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 	A_UINT32 reassoc_rsp_len;
 	A_UINT32 reassoc_req_len;
 
-	WMA_LOGD("LFR3:%s", __func__);
+	WMA_LOGD("LFR3: Received WMA_ROAM_OFFLOAD_SYNCH_IND");
 	if (!event) {
 		WMA_LOGE("%s: event param null", __func__);
 		goto cleanup_label;
@@ -2844,7 +2846,6 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 				__func__);
 		goto cleanup_label;
 	}
-	WMA_LOGD("LFR3: Received WMA_ROAM_OFFLOAD_SYNCH_IND");
 
 	/*
 	 * All below length fields are unsigned and hence positive numbers.
@@ -2908,11 +2909,6 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 
 		roam_synch_data_len += sizeof(struct roam_offload_synch_ind);
 	}
-
-	WMA_LOGD("synch payload: LEN bcn:%d, req:%d, rsp:%d",
-			bcn_probe_rsp_len,
-			reassoc_req_len,
-			reassoc_rsp_len);
 
 	cds_host_diag_log_work(&wma->roam_ho_wl,
 			       WMA_ROAM_HO_WAKE_LOCK_DURATION,
@@ -3010,6 +3006,9 @@ cleanup_label:
 			roam_req->Command = ROAM_SCAN_OFFLOAD_STOP;
 			roam_req->reason = REASON_ROAM_SYNCH_FAILED;
 			roam_req->sessionId = synch_event->vdev_id;
+			wma_debug("In cleanup: RSO Command:%d, reason %d vdev %d",
+				  roam_req->Command, roam_req->reason,
+				  roam_req->sessionId);
 			wma_process_roaming_config(wma, roam_req);
 		}
 	}
@@ -3903,7 +3902,7 @@ QDF_STATUS wma_roam_scan_fill_self_caps(tp_wma_handle wma_handle,
 	if (mac->mlme_cfg->scoring.apsd_enabled)
 		selfCaps.apsd = 1;
 
-	selfCaps.rrm = mac->rrm.rrmSmeContext.rrmConfig.rrm_enabled;
+	selfCaps.rrm = mac->rrm.rrmConfig.rrm_enabled;
 
 	val = mac->mlme_cfg->feature_flags.enable_block_ack;
 	selfCaps.delayedBA =
@@ -6144,7 +6143,6 @@ int wma_roam_event_callback(WMA_HANDLE handle, uint8_t *event_buf,
 	case WMI_ROAM_REASON_DEAUTH:
 		WMA_LOGD("%s: Received disconnect roam event reason:%d",
 			 __func__, wmi_event->notif_params);
-
 		if (wmi_event->notif_params1)
 			frame = param_buf->deauth_disassoc_frame;
 		wma_handle->pe_disconnect_cb(wma_handle->mac_context,

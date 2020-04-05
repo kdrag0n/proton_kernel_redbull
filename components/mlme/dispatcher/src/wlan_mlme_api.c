@@ -3761,14 +3761,52 @@ char *mlme_get_roam_fail_reason_str(uint32_t result)
 		return "Received Re-Assoc resp with Failure status";
 	case WMI_ROAM_FAIL_REASON_NO_REASSOC_RESP:
 		return "No Re-assoc response from AP";
-	case WMI_ROAM_FAIL_REASON_EAPOL_TIMEOUT:
-		return "EAPOL timed out";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M1_TIMEOUT:
+		return "EAPOL M1 timed out";
 	case WMI_ROAM_FAIL_REASON_MLME:
 		return "MLME error";
 	case WMI_ROAM_FAIL_REASON_INTERNAL_ABORT:
-		return "Target aborted roam";
+		return "Fw aborted roam";
+	case WMI_ROAM_FAIL_REASON_SCAN_START:
+		return "Unable to start roam scan";
+	case WMI_ROAM_FAIL_REASON_AUTH_NO_ACK:
+		return "No ACK for Auth req";
+	case WMI_ROAM_FAIL_REASON_AUTH_INTERNAL_DROP:
+		return "Auth req dropped internally";
+	case WMI_ROAM_FAIL_REASON_REASSOC_NO_ACK:
+		return "No ACK for Re-assoc req";
+	case WMI_ROAM_FAIL_REASON_REASSOC_INTERNAL_DROP:
+		return "Re-assoc dropped internally";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M2_SEND:
+		return "Unable to send M2 frame";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M2_INTERNAL_DROP:
+		return "M2 Frame dropped internally";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M2_NO_ACK:
+		return "No ACK for M2 frame";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M3_TIMEOUT:
+		return "EAPOL M3 timed out";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M4_SEND:
+		return "Unable to send M4 frame";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M4_INTERNAL_DROP:
+		return "M4 frame dropped internally";
+	case WMI_ROAM_FAIL_REASON_EAPOL_M4_NO_ACK:
+		return "No ACK for M4 frame";
+	case WMI_ROAM_FAIL_REASON_NO_SCAN_FOR_FINAL_BMISS:
+		return "No scan on final BMISS";
+	case WMI_ROAM_FAIL_REASON_DISCONNECT:
+		return "Disconnect received during handoff";
+	case WMI_ROAM_FAIL_REASON_SYNC:
+		return "Previous roam sync pending";
+	case WMI_ROAM_FAIL_REASON_SAE_INVALID_PMKID:
+		return "Reason assoc reject - invalid PMKID";
+	case WMI_ROAM_FAIL_REASON_SAE_PREAUTH_TIMEOUT:
+		return "SAE preauth timed out";
+	case WMI_ROAM_FAIL_REASON_SAE_PREAUTH_FAIL:
+		return "SAE preauth failed";
+	case WMI_ROAM_FAIL_REASON_UNABLE_TO_START_ROAM_HO:
+		return "Start handoff failed- internal error";
 	default:
-		return "NONE";
+		return "UNKNOWN";
 	}
 }
 
@@ -3783,6 +3821,10 @@ char *mlme_get_sub_reason_str(uint32_t sub_reason)
 		return "BTM DISASSOC TIMER";
 	case WMI_ROAM_TRIGGER_SUB_REASON_FULL_SCAN:
 		return "FULL SCAN";
+	case WMI_ROAM_TRIGGER_SUB_REASON_LOW_RSSI_PERIODIC:
+		return "LOW RSSI PERIODIC SCAN";
+	case WMI_ROAM_TRIGGER_SUB_REASON_CU_PERIODIC:
+		return "CU PERIODIC SCAN";
 	default:
 		return "NONE";
 	}

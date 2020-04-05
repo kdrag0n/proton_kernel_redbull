@@ -919,7 +919,8 @@ int wlan_hdd_pm_qos_notify(struct notifier_block *nb, unsigned long curr_val,
 		return -EINVAL;
 	}
 
-	hdd_debug("PM QOS update. Current value: %ld", curr_val);
+	hdd_debug("PM QOS update: runtime_pm_prevented %d Current value: %ld",
+		  hdd_ctx->runtime_pm_prevented, curr_val);
 	qdf_spin_lock_irqsave(&hdd_ctx->pm_qos_lock);
 
 	if (!hdd_ctx->runtime_pm_prevented &&
@@ -1700,12 +1701,6 @@ static int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 		hdd_err("Command not allowed in mode %d",
 			hdd_get_conparam());
 		exit_code = -EINVAL;
-		goto exit_with_code;
-	}
-
-	exit_code = wlan_hdd_validate_context(hdd_ctx);
-	if (exit_code) {
-		hdd_err("Invalid HDD context");
 		goto exit_with_code;
 	}
 

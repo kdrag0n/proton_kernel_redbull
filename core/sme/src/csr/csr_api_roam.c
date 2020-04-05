@@ -9156,7 +9156,7 @@ static void csr_roam_join_rsp_processor(struct mac_context *mac,
 	mac_handle_t mac_handle = MAC_HANDLE(mac);
 	struct csr_roam_session *session_ptr;
 	struct csr_roam_connectedinfo *prev_connect_info;
-	tPmkidCacheInfo pmksa_entry;
+	tPmkidCacheInfo *pmksa_entry;
 	uint32_t len = 0, roamId = 0, reason_code = 0;
 	bool is_dis_pending;
 	bool use_same_bss = false;
@@ -9254,13 +9254,18 @@ static void csr_roam_join_rsp_processor(struct mac_context *mac,
 	if (reason_code == eSIR_MAC_INVALID_PMKID) {
 		struct tag_csrscan_result *scan_result;
 
+		pmksa_entry = qdf_mem_malloc(sizeof(*pmksa_entry));
+		if (!pmksa_entry)
+			return;
+
 		sme_warn("Assoc reject from BSSID:%pM due to invalid PMKID",
 			 session_ptr->joinFailStatusCode.bssId);
-		qdf_mem_copy(&pmksa_entry.BSSID.bytes,
+		qdf_mem_copy(pmksa_entry->BSSID.bytes,
 			     &session_ptr->joinFailStatusCode.bssId,
 			     sizeof(tSirMacAddr));
 		sme_roam_del_pmkid_from_cache(mac_handle, session_ptr->vdev_id,
-					      &pmksa_entry, false);
+					      pmksa_entry, false);
+		qdf_mem_free(pmksa_entry);
 		if (pCommand && pCommand->u.roamCmd.pRoamBssEntry) {
 			scan_result =
 				GET_BASE_ADDR(pCommand->u.roamCmd.pRoamBssEntry,
@@ -12134,6 +12139,10 @@ csr_roam_chk_lnk_swt_ch_ind(struct mac_context *mac_ctx, tSirSmeRsp *msg_ptr)
 	}
 	session->connectedProfile.operationChannel =
 			(uint8_t) pSwitchChnInd->newChannelId;
+
+	/* Update the occupied channel list with the new switched channel */
+	csr_init_occupied_channels_list(mac_ctx, sessionId);
+
 	if (session->pConnectBssDesc) {
 		session->pConnectBssDesc->channelId =
 				(uint8_t) pSwitchChnInd->newChannelId;
@@ -12908,7 +12917,6 @@ void csr_roam_check_for_link_status_change(struct mac_context *mac,
 		csr_roam_chk_lnk_max_assoc_exceeded(mac, pSirMsg);
 		break;
 	case eWNI_SME_CANDIDATE_FOUND_IND:
-		sme_debug("Candidate found indication from PE");
 		csr_neighbor_roam_candidate_found_ind_hdlr(mac, pSirMsg);
 		break;
 	case eWNI_SME_HANDOFF_REQ:
@@ -15681,14 +15689,21 @@ static void csr_update_fils_connection_info(struct csr_roam_profile *profile,
 static void csr_update_sae_config(struct join_req *csr_join_req,
 	struct mac_context *mac, struct csr_roam_session *session)
 {
-	tPmkidCacheInfo pmkid_cache;
+	tPmkidCacheInfo *pmkid_cache;
 	uint32_t index;
 
-	qdf_mem_copy(pmkid_cache.BSSID.bytes,
-		csr_join_req->bssDescription.bssId, QDF_MAC_ADDR_SIZE);
+	pmkid_cache = qdf_mem_malloc(sizeof(*pmkid_cache));
+	if (!pmkid_cache)
+		return;
+
+	qdf_mem_copy(pmkid_cache->BSSID.bytes,
+		     csr_join_req->bssDescription.bssId,
+		     QDF_MAC_ADDR_SIZE);
 
 	csr_join_req->sae_pmk_cached =
-	       csr_lookup_pmkid_using_bssid(mac, session, &pmkid_cache, &index);
+	       csr_lookup_pmkid_using_bssid(mac, session, pmkid_cache, &index);
+
+	qdf_mem_free(pmkid_cache);
 
 	if (!csr_join_req->sae_pmk_cached)
 		return;
@@ -16721,7 +16736,7 @@ QDF_STATUS csr_send_join_req_msg(struct mac_context *mac, uint32_t sessionId,
 
 		/* Fill rrm config parameters */
 		qdf_mem_copy(&csr_join_req->rrm_config,
-			     &mac->rrm.rrmSmeContext.rrmConfig,
+			     &mac->rrm.rrmConfig,
 			     sizeof(struct rrm_config_param));
 
 		pAP_capabilityInfo =
@@ -17738,6 +17753,7 @@ QDF_STATUS csr_roam_open_session(struct mac_context *mac_ctx,
 	session->session_close_cb = session_param->session_close_cb;
 	session->callback = session_param->callback;
 	session->pContext = session_param->callback_ctx;
+	csr_monitor_mode_register_callback(session, session_param);
 
 	qdf_mem_copy(&session->self_mac_addr, session_param->self_mac_addr,
 		     sizeof(struct qdf_mac_addr));
@@ -21889,8 +21905,7 @@ void csr_process_ho_fail_ind(struct mac_context *mac_ctx, void *msg_buf)
 	uint32_t sessionId;
 
 	if (!pSmeHOFailInd) {
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
-			  "LFR3: Hand-Off Failure Ind is NULL");
+		sme_err("LFR3: Hand-Off Failure Ind is NULL");
 		return;
 	}
 
@@ -21898,9 +21913,8 @@ void csr_process_ho_fail_ind(struct mac_context *mac_ctx, void *msg_buf)
 
 	/* Roaming is supported only on Infra STA Mode. */
 	if (!csr_roam_is_sta_mode(mac_ctx, sessionId)) {
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
-			  "LFR3:HO Fail cannot be handled for session %d",
-			  sessionId);
+		sme_err("LFR3:HO Fail cannot be handled for session %d",
+			sessionId);
 		return;
 	}
 	mac_ctx->sme.set_connection_info_cb(false);
@@ -21911,8 +21925,6 @@ void csr_process_ho_fail_ind(struct mac_context *mac_ctx, void *msg_buf)
 	csr_roam_synch_clean_up(mac_ctx, sessionId);
 	csr_roaming_report_diag_event(mac_ctx, NULL,
 			eCSR_REASON_ROAM_HO_FAIL);
-	QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
-		  "LFR3:Issue Disconnect on session %d", sessionId);
 	csr_roam_disconnect(mac_ctx, sessionId,
 			eCSR_DISCONNECT_REASON_ROAM_HO_FAIL,
 			eSIR_MAC_FW_TRIGGERED_ROAM_FAILURE);
@@ -22599,7 +22611,7 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 	sme_QosAssocInfo assoc_info;
 	tpAddBssParams add_bss_params;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
-	tPmkidCacheInfo pmkid_cache;
+	tPmkidCacheInfo *pmkid_cache;
 	uint32_t pmkid_index;
 	uint16_t len;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
@@ -22678,7 +22690,7 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 		goto end;
 	case SIR_ROAMING_INVOKE_FAIL:
 		sme_debug("Roaming triggered failed source %d nud behaviour %d",
-			   vdev_roam_params->source, mac_ctx->nud_fail_behaviour);
+			  vdev_roam_params->source, mac_ctx->nud_fail_behaviour);
 		if (vdev_roam_params->source == USERSPACE_INITIATED ||
 		    mac_ctx->nud_fail_behaviour == DISCONNECT_AFTER_NUD_FAIL) {
 			/* Userspace roam req fail, disconnect with AP */
@@ -22728,7 +22740,9 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 			mac_ctx->psoc);
 		mac_ctx->sme.set_connection_info_cb(false);
 		session->roam_synch_in_progress = false;
-		ucfg_pkt_capture_record_channel(vdev);
+
+		if (ucfg_pkt_capture_get_pktcap_mode())
+			ucfg_pkt_capture_record_channel(vdev);
 		csr_check_and_set_sae_single_pmk_cap(mac_ctx, session,
 						     session_id);
 
@@ -22752,12 +22766,10 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 		vdev_roam_params->roam_invoke_in_progress = false;
 		goto end;
 	case SIR_ROAMING_DEAUTH:
-		sme_debug("LFR3: callback reason %d", reason);
 		csr_roam_roaming_offload_timer_action(
 			mac_ctx, 0, session_id, ROAMING_OFFLOAD_TIMER_STOP);
 		goto end;
 	default:
-		sme_debug("LFR3: callback reason %d", reason);
 		status = QDF_STATUS_E_FAILURE;
 		goto end;
 	}
@@ -22844,27 +22856,32 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 		 * Check if a PMK cache exists for the roamed AP and update
 		 * it into the session pmk.
 		 */
-		qdf_mem_zero(&pmkid_cache, sizeof(pmkid_cache));
-		qdf_copy_macaddr(&pmkid_cache.BSSID,
+		pmkid_cache = qdf_mem_malloc(sizeof(*pmkid_cache));
+		if (!pmkid_cache) {
+			status = QDF_STATUS_E_NOMEM;
+			goto end;
+		}
+		qdf_copy_macaddr(&pmkid_cache->BSSID,
 				 &session->connectedProfile.bssid);
 		sme_debug("Trying to find PMKID for " QDF_MAC_ADDR_STR,
-			  QDF_MAC_ADDR_ARRAY(pmkid_cache.BSSID.bytes));
+			  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes));
 		if (csr_lookup_pmkid_using_bssid(mac_ctx, session,
-						 &pmkid_cache,
+						 pmkid_cache,
 						 &pmkid_index)) {
-			session->pmk_len = pmkid_cache.pmk_len;
+			session->pmk_len = pmkid_cache->pmk_len;
 			qdf_mem_zero(session->psk_pmk,
 				     sizeof(session->psk_pmk));
-			qdf_mem_copy(session->psk_pmk, pmkid_cache.pmk,
+			qdf_mem_copy(session->psk_pmk, pmkid_cache->pmk,
 				     session->pmk_len);
 			sme_debug("pmkid found for " QDF_MAC_ADDR_STR " at %d len %d",
-				  QDF_MAC_ADDR_ARRAY(pmkid_cache.BSSID.bytes),
+				  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes),
 				  pmkid_index, (uint32_t)session->pmk_len);
 		} else {
 			sme_debug("PMKID Not found in cache for " QDF_MAC_ADDR_STR,
-				  QDF_MAC_ADDR_ARRAY(pmkid_cache.BSSID.bytes));
+				  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes));
 		}
-		qdf_mem_zero(&pmkid_cache, sizeof(pmkid_cache));
+		qdf_mem_zero(pmkid_cache, sizeof(*pmkid_cache));
+		qdf_mem_free(pmkid_cache);
 	} else {
 		roam_info->fAuthRequired = true;
 		csr_roam_substate_change(mac_ctx,
@@ -23278,3 +23295,35 @@ csr_enable_roaming_on_connected_sta(struct mac_context *mac, uint8_t vdev_id)
 	return csr_post_roam_state_change(mac, sta_vdev_id, ROAM_RSO_STARTED,
 					  REASON_CTX_INIT);
 }
+
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+
+void csr_monitor_mode_register_callback(struct csr_roam_session *session,
+				struct sme_session_params *session_param)
+{
+	if (session_param->session_monitor_mode_cb)
+		session->session_monitor_mode_cb =
+					session_param->session_monitor_mode_cb;
+}
+
+QDF_STATUS csr_process_monitor_mode_vdev_up_evt(struct mac_context *mac,
+						uint8_t vdev_id)
+{
+	struct csr_roam_session *session;
+
+	if (!CSR_IS_SESSION_VALID(mac, vdev_id)) {
+		sme_err("vdev ID: %d is not valid", vdev_id);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	session = CSR_GET_SESSION(mac, vdev_id);
+	if (session->session_monitor_mode_cb)
+		session->session_monitor_mode_cb(vdev_id);
+	else {
+		sme_warn_rl("session_monitor_mode_cb is not registered");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif

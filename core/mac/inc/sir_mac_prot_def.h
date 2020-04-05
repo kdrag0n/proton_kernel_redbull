@@ -196,6 +196,11 @@
 #define VHT_RX_HIGHEST_SUPPORTED_DATA_RATE_2_2       780
 #define VHT_TX_HIGHEST_SUPPORTED_DATA_RATE_2_2       780
 
+#define VHT_RX_HIGHEST_SUPPORTED_DATA_RATE_1_1_SGI80 433
+#define VHT_TX_HIGHEST_SUPPORTED_DATA_RATE_1_1_SGI80 433
+#define VHT_RX_HIGHEST_SUPPORTED_DATA_RATE_2_2_SGI80 866
+#define VHT_TX_HIGHEST_SUPPORTED_DATA_RATE_2_2_SGI80 866
+
 #define VHT_CAP_160_SUPP 1
 #define VHT_CAP_160_AND_80P80_SUPP 2
 
@@ -490,6 +495,8 @@ typedef enum eSirMacReasonCodes {
 	eSIR_MAC_PEER_TIMEDOUT_REASON = 39,     /* Requested from peer STA due to timeout */
 	eSIR_MAC_CIPHER_NOT_SUPPORTED_REASON = 45,      /* Peer STA does not support the requested cipher suite */
 	eSIR_MAC_DISASSOC_DUE_TO_FTHANDOFF_REASON = 46, /* FT reason */
+	eSIR_MAC_POOR_RSSI_CONDITIONS = 71, /* Disassociated due to poor RSSI conditions */
+
 	/* reserved                                         47 - 65535. */
 
 	/*

@@ -387,6 +387,54 @@ static struct ieee80211_supported_band wlan_hdd_band_5_ghz = {
 	.vht_cap.vht_supported = 1,
 };
 
+#if defined(CFG80211_IFTYPE_AKM_SUITES_SUPPORT)
+/*akm suits supported by sta*/
+static const u32 hdd_sta_akm_suites[] = {
+	WLAN_AKM_SUITE_8021X,
+	WLAN_AKM_SUITE_PSK,
+	WLAN_AKM_SUITE_FT_8021X,
+	WLAN_AKM_SUITE_FT_PSK,
+	WLAN_AKM_SUITE_8021X_SHA256,
+	WLAN_AKM_SUITE_PSK_SHA256,
+	WLAN_AKM_SUITE_TDLS,
+	WLAN_AKM_SUITE_SAE,
+	WLAN_AKM_SUITE_FT_OVER_SAE,
+	WLAN_AKM_SUITE_8021X_SUITE_B,
+	WLAN_AKM_SUITE_8021X_SUITE_B_192,
+	WLAN_AKM_SUITE_FILS_SHA256,
+	WLAN_AKM_SUITE_FILS_SHA384,
+	WLAN_AKM_SUITE_FT_FILS_SHA256,
+	WLAN_AKM_SUITE_FT_FILS_SHA384,
+	WLAN_AKM_SUITE_OWE,
+};
+
+/*akm suits supported by AP*/
+static const u32 hdd_ap_akm_suites[] = {
+	WLAN_AKM_SUITE_PSK,
+	WLAN_AKM_SUITE_SAE,
+	WLAN_AKM_SUITE_OWE,
+};
+
+/* This structure contain information what akm suits are
+ * supported for each mode
+ */
+static const struct wiphy_iftype_akm_suites
+	wlan_hdd_akm_suites[] = {
+	{
+		.iftypes_mask = BIT(NL80211_IFTYPE_STATION) |
+				BIT(NL80211_IFTYPE_P2P_CLIENT),
+		.akm_suites = hdd_sta_akm_suites,
+		.n_akm_suites = (sizeof(hdd_sta_akm_suites) / sizeof(u32)),
+	},
+	{
+		.iftypes_mask = BIT(NL80211_IFTYPE_AP) |
+				BIT(NL80211_IFTYPE_P2P_GO),
+		.akm_suites = hdd_ap_akm_suites,
+		.n_akm_suites = (sizeof(hdd_ap_akm_suites) / sizeof(u32)),
+	},
+};
+#endif
+
 /* This structure contain information what kind of frame are expected in
  * TX/RX direction for each kind of interface
  */
@@ -5950,9 +5998,11 @@ wlan_hdd_add_fils_params_roam_auth_event(struct sk_buff *skb,
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 void hdd_send_roam_scan_ch_list_event(struct hdd_context *hdd_ctx,
-				      uint16_t buf_len, uint8_t *buf)
+				      uint8_t vdev_id, uint16_t buf_len,
+				      uint8_t *buf)
 {
 	struct sk_buff *vendor_event;
+	struct hdd_adapter *adapter;
 	uint32_t len, ret;
 
 	if (!hdd_ctx) {
@@ -5960,10 +6010,14 @@ void hdd_send_roam_scan_ch_list_event(struct hdd_context *hdd_ctx,
 		return;
 	}
 
+	adapter = hdd_get_adapter_by_vdev(hdd_ctx, vdev_id);
+	if (!adapter)
+		return;
+
 	len = nla_total_size(buf_len) + NLMSG_HDRLEN;
 	vendor_event =
 		cfg80211_vendor_event_alloc(
-			hdd_ctx->wiphy, NULL, len,
+			hdd_ctx->wiphy, &(adapter->wdev), len,
 			QCA_NL80211_VENDOR_SUBCMD_UPDATE_STA_INFO_INDEX,
 			GFP_KERNEL);
 
@@ -14705,6 +14759,27 @@ static void wlan_hdd_set_nan_supported_bands(struct wiphy *wiphy)
 }
 #endif
 
+/**
+ * wlan_hdd_update_akm_suit_info() - Populate akm suits supported by driver
+ * @wiphy: wiphy
+ *
+ * Return: void
+ */
+#if defined(CFG80211_IFTYPE_AKM_SUITES_SUPPORT)
+static void
+wlan_hdd_update_akm_suit_info(struct wiphy *wiphy)
+{
+	wiphy->iftype_akm_suites = wlan_hdd_akm_suites;
+	wiphy->num_iftype_akm_suites = QDF_ARRAY_SIZE(wlan_hdd_akm_suites) /
+				       sizeof(struct wiphy_iftype_akm_suites);
+}
+#else
+static void
+wlan_hdd_update_akm_suit_info(struct wiphy *wiphy)
+{
+}
+#endif
+
 /*
  * FUNCTION: wlan_hdd_cfg80211_init
  * This function is called by hdd_wlan_startup()
@@ -14722,7 +14797,7 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 	set_wiphy_dev(wiphy, dev);
 
 	wiphy->mgmt_stypes = wlan_hdd_txrx_stypes;
-
+	wlan_hdd_update_akm_suit_info(wiphy);
 	wiphy->flags |= WIPHY_FLAG_HAVE_AP_SME
 			| WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD
 			| WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL
@@ -14913,6 +14988,9 @@ static void wlan_hdd_update_ht_cap(struct hdd_context *hdd_ctx)
 	struct mlme_ht_capabilities_info ht_cap_info = {0};
 	QDF_STATUS status;
 	uint32_t channel_bonding_mode;
+	struct ieee80211_supported_band *band_2g;
+	struct ieee80211_supported_band *band_5g;
+	uint8_t i;
 
 	status = ucfg_mlme_get_ht_cap_info(hdd_ctx->psoc, &ht_cap_info);
 	if (QDF_STATUS_SUCCESS != status)
@@ -14925,6 +15003,21 @@ static void wlan_hdd_update_ht_cap(struct hdd_context *hdd_ctx)
 		if (hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ])
 			hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ]->ht_cap.cap |=
 						IEEE80211_HT_CAP_TX_STBC;
+	}
+
+	band_2g = hdd_ctx->wiphy->bands[HDD_NL80211_BAND_2GHZ];
+	band_5g = hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ];
+
+	if (band_2g) {
+		for (i = 0; i < hdd_ctx->num_rf_chains; i++)
+			band_2g->ht_cap.mcs.rx_mask[i] = 0xff;
+
+		/*
+		 * According to mcs_nss HT MCS parameters highest data rate for
+		 * Nss = 1 is 150 Mbps
+		 */
+		band_2g->ht_cap.mcs.rx_highest =
+				cpu_to_le16(150 * hdd_ctx->num_rf_chains);
 	}
 
 	if (!sme_is_feature_supported_by_fw(DOT11AC)) {
@@ -14948,6 +15041,17 @@ static void wlan_hdd_update_ht_cap(struct hdd_context *hdd_ctx)
 	if (!channel_bonding_mode)
 		wlan_hdd_band_5_ghz.ht_cap.cap &=
 			~IEEE80211_HT_CAP_SUP_WIDTH_20_40;
+
+	if (band_5g) {
+		for (i = 0; i < hdd_ctx->num_rf_chains; i++)
+			band_5g->ht_cap.mcs.rx_mask[i] = 0xff;
+		/*
+		 * According to mcs_nss HT MCS parameters highest data rate for
+		 * Nss = 1 is 150 Mbps
+		 */
+		band_5g->ht_cap.mcs.rx_highest =
+				cpu_to_le16(150 * hdd_ctx->num_rf_chains);
+	}
 }
 
 /**
@@ -21560,7 +21664,7 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	QDF_STATUS result = QDF_STATUS_SUCCESS;
 	int status;
-	tPmkidCacheInfo pmk_cache;
+	tPmkidCacheInfo *pmk_cache;
 
 	hdd_enter();
 
@@ -21591,9 +21695,11 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 	if (0 != status)
 		return status;
 
-	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
+	pmk_cache = qdf_mem_malloc(sizeof(*pmk_cache));
+	if (!pmk_cache)
+		return -ENOMEM;
 
-	hdd_fill_pmksa_info(adapter, &pmk_cache, pmksa, false);
+	hdd_fill_pmksa_info(adapter, pmk_cache, pmksa, false);
 
 	/*
 	 * Add to the PMKSA Cache in CSR
@@ -21602,16 +21708,17 @@ static int __wlan_hdd_cfg80211_set_pmksa(struct wiphy *wiphy,
 	 * 2. pmk
 	 * 3. bssid or cache identifier
 	 */
-	result = wlan_hdd_set_pmksa_cache(adapter, &pmk_cache);
+	result = wlan_hdd_set_pmksa_cache(adapter, pmk_cache);
 
 	qdf_mtrace(QDF_MODULE_ID_HDD, QDF_MODULE_ID_HDD,
 		   TRACE_CODE_HDD_CFG80211_SET_PMKSA,
 		   adapter->vdev_id, result);
 
 	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id,
-				&pmk_cache, true);
+				pmk_cache, true);
 
-	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
+	qdf_mem_zero(pmk_cache, sizeof(*pmk_cache));
+	qdf_mem_free(pmk_cache);
 	hdd_exit();
 
 	return QDF_IS_STATUS_SUCCESS(result) ? 0 : -EINVAL;
@@ -21658,7 +21765,7 @@ static int __wlan_hdd_cfg80211_del_pmksa(struct wiphy *wiphy,
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	int status = 0;
-	tPmkidCacheInfo pmk_cache;
+	tPmkidCacheInfo *pmk_cache;
 
 	hdd_enter();
 
@@ -21687,22 +21794,26 @@ static int __wlan_hdd_cfg80211_del_pmksa(struct wiphy *wiphy,
 		   TRACE_CODE_HDD_CFG80211_DEL_PMKSA,
 		   adapter->vdev_id, 0);
 
-	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
+	pmk_cache = qdf_mem_malloc(sizeof(*pmk_cache));
+	if (!pmk_cache)
+		return -ENOMEM;
 
-	hdd_fill_pmksa_info(adapter, &pmk_cache, pmksa, true);
+	hdd_fill_pmksa_info(adapter, pmk_cache, pmksa, true);
 
 	/* Delete the PMKID CSR cache */
 	if (QDF_STATUS_SUCCESS !=
-	    wlan_hdd_del_pmksa_cache(adapter, &pmk_cache)) {
+	    wlan_hdd_del_pmksa_cache(adapter, pmk_cache)) {
 		hdd_err("Failed to delete PMKSA for " QDF_MAC_ADDR_STR,
 		       QDF_MAC_ADDR_ARRAY(pmksa->bssid));
 		status = -EINVAL;
 	}
 
-	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id, &pmk_cache,
+	sme_set_del_pmkid_cache(hdd_ctx->psoc, adapter->vdev_id, pmk_cache,
 				false);
-	qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
+	qdf_mem_zero(pmk_cache, sizeof(*pmk_cache));
+	qdf_mem_free(pmk_cache);
 	hdd_exit();
+
 	return status;
 }
 
@@ -22790,14 +22901,52 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 		hdd_err("Failed to change hw mode");
 		return -EINVAL;
 	}
+
+	if (adapter->monitor_mode_vdev_up_in_progress) {
+		hdd_err_rl("monitor mode vdev up in progress");
+		return -EBUSY;
+	}
+
+	status = qdf_event_reset(&adapter->qdf_monitor_mode_vdev_up_event);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err_rl("failed to reinit monitor mode vdev up event");
+		return qdf_status_to_os_return(status);
+	}
+	adapter->monitor_mode_vdev_up_in_progress = true;
+
 	status = sme_roam_channel_change_req(mac_handle, bssid, &ch_params,
 					     &roam_profile);
 	if (status) {
 		hdd_err("Failed to set sme_RoamChannel for monitor mode status: %d",
 			status);
+		adapter->monitor_mode_vdev_up_in_progress = false;
 		ret = qdf_status_to_os_return(status);
 		return ret;
 	}
+
+	/* block on a completion variable until vdev up success*/
+	status = qdf_wait_for_event_completion(
+				       &adapter->qdf_monitor_mode_vdev_up_event,
+					WLAN_MONITOR_MODE_VDEV_UP_EVT);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err_rl("monitor vdev up event time out vdev id: %d",
+			  adapter->vdev_id);
+		if (adapter->qdf_monitor_mode_vdev_up_event.force_set)
+			/*
+			 * SSR/PDR has caused shutdown, which has
+			 * forcefully set the event.
+			 */
+			hdd_err_rl("monitor mode vdev up event forcefully set");
+		else if (status == QDF_STATUS_E_TIMEOUT)
+			hdd_err_rl("monitor mode vdev up timed out");
+		else
+			hdd_err_rl("Failed monitor mode vdev up(status-%d)",
+				  status);
+
+		adapter->monitor_mode_vdev_up_in_progress = false;
+		return qdf_status_to_os_return(status);
+	}
+
 	hdd_exit();
 
 	return 0;
@@ -23128,17 +23277,22 @@ wlan_hdd_extauth_cache_pmkid(struct hdd_adapter *adapter,
 			     mac_handle_t mac_handle,
 			     struct cfg80211_external_auth_params *params)
 {
-	tPmkidCacheInfo pmk_cache;
+	tPmkidCacheInfo *pmk_cache;
 	QDF_STATUS result;
 	if (params->pmkid) {
-		qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
-		qdf_mem_copy(pmk_cache.BSSID.bytes, params->bssid,
+		pmk_cache = qdf_mem_malloc(sizeof(*pmk_cache));
+		if (!pmk_cache)
+			 return;
+
+		qdf_mem_copy(pmk_cache->BSSID.bytes, params->bssid,
 			     QDF_MAC_ADDR_SIZE);
-		qdf_mem_copy(pmk_cache.PMKID, params->pmkid,
+		qdf_mem_copy(pmk_cache->PMKID, params->pmkid,
 			     PMKID_LEN);
-		result = wlan_hdd_set_pmksa_cache(adapter, &pmk_cache);
+		result = wlan_hdd_set_pmksa_cache(adapter, pmk_cache);
 		if (!QDF_IS_STATUS_SUCCESS(result))
 			hdd_debug("external_auth: Failed to cache PMKID");
+
+		qdf_mem_free(pmk_cache);
 	}
 }
 
