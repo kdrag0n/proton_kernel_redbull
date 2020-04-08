@@ -15,6 +15,10 @@ ifeq ($(CONFIG_ARCH_LITO), y)
 include $(srctree)/techpack/camera/config/litocamera$(SUFFIX_SPECTRA_CAMERA).conf
 endif
 
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+include $(srctree)/techpack/camera/config/bengalcamera.conf
+endif
+
 ifeq ($(CONFIG_ARCH_KONA), y)
 LINUXINCLUDE    += \
 		-include $(srctree)/techpack/camera/config/konacameraconf$(SUFFIX_SPECTRA_CAMERA).h
@@ -23,6 +27,11 @@ endif
 ifeq ($(CONFIG_ARCH_LITO), y)
 LINUXINCLUDE    += \
 		-include $(srctree)/techpack/camera/config/litocameraconf$(SUFFIX_SPECTRA_CAMERA).h
+endif
+
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+LINUXINCLUDE    += \
+		-include $(srctree)/techpack/camera/config/bengalcameraconf.h
 endif
 
 ifdef CONFIG_SPECTRA_CAMERA
