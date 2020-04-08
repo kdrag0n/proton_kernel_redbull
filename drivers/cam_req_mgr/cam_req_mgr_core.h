@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 #ifndef _CAM_REQ_MGR_CORE_H_
 #define _CAM_REQ_MGR_CORE_H_
@@ -13,9 +13,10 @@
 #define CAM_REQ_MGR_MAX_LINKED_DEV     16
 #define MAX_REQ_SLOTS                  48
 
-#define CAM_REQ_MGR_WATCHDOG_TIMEOUT   5000
-#define CAM_REQ_MGR_SCHED_REQ_TIMEOUT  1000
-#define CAM_REQ_MGR_SIMULATE_SCHED_REQ 30
+#define CAM_REQ_MGR_WATCHDOG_TIMEOUT       5000
+#define CAM_REQ_MGR_WATCHDOG_TIMEOUT_MAX   50000
+#define CAM_REQ_MGR_SCHED_REQ_TIMEOUT      1000
+#define CAM_REQ_MGR_SIMULATE_SCHED_REQ     30
 
 #define FORCE_DISABLE_RECOVERY  2
 #define FORCE_ENABLE_RECOVERY   1
@@ -32,7 +33,7 @@
 
 #define MAXIMUM_LINKS_PER_SESSION  4
 
-#define MAXIMUM_RETRY_ATTEMPTS 3
+#define MAXIMUM_RETRY_ATTEMPTS 2
 
 #define VERSION_1  1
 #define VERSION_2  2
@@ -226,13 +227,15 @@ struct cam_req_mgr_req_tbl {
 /**
  * struct cam_req_mgr_slot
  * - Internal Book keeping
- * @idx          : slot index
- * @skip_idx     : if req id in this slot needs to be skipped/not applied
- * @status       : state machine for life cycle of a slot
+ * @idx                : slot index
+ * @skip_idx           : if req id in this slot needs to be skipped/not applied
+ * @status             : state machine for life cycle of a slot
  * - members updated due to external events
- * @recover      : if user enabled recovery for this request.
- * @req_id       : mask tracking which all devices have request ready
- * @sync_mode    : Sync mode in which req id in this slot has to applied
+ * @recover            : if user enabled recovery for this request.
+ * @req_id             : mask tracking which all devices have request ready
+ * @sync_mode          : Sync mode in which req id in this slot has to applied
+ * @additional_timeout : Adjusted watchdog timeout value associated with
+ * this request
  */
 struct cam_req_mgr_slot {
 	int32_t               idx;
@@ -241,6 +244,7 @@ struct cam_req_mgr_slot {
 	int32_t               recover;
 	int64_t               req_id;
 	int32_t               sync_mode;
+	int32_t               additional_timeout;
 };
 
 /**
@@ -249,12 +253,14 @@ struct cam_req_mgr_slot {
  * @slot        : request slot holding incoming request id and bubble info.
  * @rd_idx      : indicates slot index currently in process.
  * @wr_idx      : indicates slot index to hold new upcoming req.
+ * @last_applied_idx : indicates slot index last applied successfully.
  */
 struct cam_req_mgr_req_queue {
 	int32_t                     num_slots;
 	struct cam_req_mgr_slot     slot[MAX_REQ_SLOTS];
 	int32_t                     rd_idx;
 	int32_t                     wr_idx;
+	int32_t                     last_applied_idx;
 };
 
 /**
@@ -402,10 +408,12 @@ struct cam_req_mgr_core_session {
  * - Core camera request manager data struct
  * @session_head : list head holding sessions
  * @crm_lock     : mutex lock to protect session creation & destruction
+ * @recovery_on_apply_fail : Recovery on apply failure using debugfs.
  */
 struct cam_req_mgr_core_device {
 	struct list_head             session_head;
 	struct mutex                 crm_lock;
+	bool                         recovery_on_apply_fail;
 };
 
 /**
@@ -499,4 +507,10 @@ void cam_req_mgr_handle_core_shutdown(void);
  */
 int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control);
 
+/**
+ * cam_req_mgr_dump_request()
+ * @brief:   Dumps the request information
+ * @dump_req: Dump request
+ */
+int cam_req_mgr_dump_request(struct cam_dump_req_cmd *dump_req);
 #endif

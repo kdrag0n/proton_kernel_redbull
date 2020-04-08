@@ -38,6 +38,7 @@ int cam_custom_hw_sub_mod_init(struct cam_hw_intf **custom_hw, uint32_t hw_idx)
 	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_init);
 
 int cam_custom_hw_sub_mod_probe(struct platform_device *pdev)
 {

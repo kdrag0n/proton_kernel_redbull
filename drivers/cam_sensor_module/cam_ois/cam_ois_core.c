@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -913,7 +913,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				rc = cam_sensor_i2c_command_parser(
 					&o_ctrl->io_master_info,
 					i2c_reg_settings,
-					&cmd_desc[i], 1);
+					&cmd_desc[i], 1, NULL);
 				if (rc < 0) {
 					CAM_ERR(CAM_OIS,
 					"init parsing failed: %d", rc);
@@ -930,7 +930,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				rc = cam_sensor_i2c_command_parser(
 					&o_ctrl->io_master_info,
 					i2c_reg_settings,
-					&cmd_desc[i], 1);
+					&cmd_desc[i], 1, NULL);
 				if (rc < 0) {
 					CAM_ERR(CAM_OIS,
 						"Calib parsing failed: %d", rc);
@@ -959,8 +959,18 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 
 		rc = cam_ois_apply_settings(o_ctrl, &o_ctrl->i2c_init_data);
+		if ((rc == -EAGAIN) &&
+			(o_ctrl->io_master_info.master_type == CCI_MASTER)) {
+			CAM_WARN(CAM_OIS,
+				"CCI HW is restting: Reapplying INIT settings");
+			usleep_range(1000, 1010);
+			rc = cam_ois_apply_settings(o_ctrl,
+				&o_ctrl->i2c_init_data);
+		}
 		if (rc < 0) {
-			CAM_ERR(CAM_OIS, "Cannot apply Init settings");
+			CAM_ERR(CAM_OIS,
+				"Cannot apply Init settings: rc = %d",
+				rc);
 			goto pwr_dwn;
 		}
 
@@ -1002,7 +1012,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		i2c_reg_settings->request_id = 0;
 		rc = cam_sensor_i2c_command_parser(&o_ctrl->io_master_info,
 			i2c_reg_settings,
-			cmd_desc, 1);
+			cmd_desc, 1, NULL);
 		if (rc < 0) {
 			CAM_ERR(CAM_OIS, "OIS pkt parsing failed: %d", rc);
 			return rc;

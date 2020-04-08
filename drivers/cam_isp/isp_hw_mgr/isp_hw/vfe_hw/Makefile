@@ -11,6 +11,7 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/hw_utils/ir
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/include
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_bus/include
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/vfe_hw/vfe_top/include
+ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_req_mgr
 
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_vfe.o
 cam_vfe-objs += cam_vfe_soc.o cam_vfe_dev.o cam_vfe_core.o

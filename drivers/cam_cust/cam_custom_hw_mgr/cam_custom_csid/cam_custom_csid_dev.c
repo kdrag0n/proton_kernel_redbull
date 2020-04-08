@@ -178,6 +178,7 @@ int cam_custom_csid_hw_init(struct cam_hw_intf **custom_csid_hw,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_csid_hw_init);
 
 static void __exit cam_custom_csid_driver_exit(void)
 {

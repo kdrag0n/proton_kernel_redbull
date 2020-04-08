@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -251,6 +251,13 @@ int cam_vfe_deinit_hw(void *hw_priv, void *deinit_hw_args, uint32_t arg_size)
 		return -EINVAL;
 	}
 
+	isp_res = (struct cam_isp_resource_node *)deinit_hw_args;
+	if (isp_res && isp_res->deinit) {
+		rc = isp_res->deinit(isp_res, NULL, 0);
+		if (rc)
+			CAM_ERR(CAM_ISP, "deinit failed");
+	}
+
 	mutex_lock(&vfe_hw->hw_mutex);
 	if (!vfe_hw->open_count) {
 		mutex_unlock(&vfe_hw->hw_mutex);
@@ -279,13 +286,6 @@ int cam_vfe_deinit_hw(void *hw_priv, void *deinit_hw_args, uint32_t arg_size)
 			NULL, 0);
 		if (rc)
 			CAM_ERR(CAM_ISP, "Bus HW deinit Failed rc=%d", rc);
-	}
-
-	isp_res   = (struct cam_isp_resource_node *)deinit_hw_args;
-	if (isp_res && isp_res->deinit) {
-		rc = isp_res->deinit(isp_res, NULL, 0);
-		if (rc)
-			CAM_ERR(CAM_ISP, "deinit failed");
 	}
 
 	rc = cam_vfe_reset(hw_priv, &reset_core_args, sizeof(uint32_t));
@@ -593,6 +593,7 @@ int cam_vfe_process_cmd(void *hw_priv, uint32_t cmd_type,
 	case CAM_ISP_HW_CMD_BW_CONTROL:
 	case CAM_ISP_HW_CMD_CORE_CONFIG:
 	case CAM_ISP_HW_CMD_BW_UPDATE_V2:
+	case CAM_ISP_HW_CMD_DUMP_HW:
 		rc = core_info->vfe_top->hw_ops.process_cmd(
 			core_info->vfe_top->top_priv, cmd_type, cmd_args,
 			arg_size);

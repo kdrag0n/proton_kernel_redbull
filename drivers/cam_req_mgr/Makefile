@@ -4,7 +4,7 @@ ccflags-y += -I$(srctree)/techpack/camera/include/uapi
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_core
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_smmu/
 ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_utils
-ccflags-y += -I$(src)
+ccflags-y += -I$(srctree)/
 
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_mem_mgr.o
 ifeq ($(CONFIG_SPECTRA_CAMERA),m)

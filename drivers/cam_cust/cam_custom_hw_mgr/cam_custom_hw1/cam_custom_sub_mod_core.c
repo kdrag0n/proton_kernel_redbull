@@ -4,6 +4,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/timer.h>
@@ -22,6 +23,7 @@ int cam_custom_hw_sub_mod_get_hw_caps(void *hw_priv,
 	/* Add HW Capabilities to be published */
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_get_hw_caps);
 
 int cam_custom_hw_sub_mod_init_hw(void *hw_priv,
 	void *init_hw_args, uint32_t arg_size)
@@ -81,6 +83,7 @@ decrement_open_cnt:
 	mutex_unlock(&custom_hw->hw_mutex);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_init_hw);
 
 int cam_custom_hw_sub_mod_deinit_hw(void *hw_priv,
 	void *deinit_hw_args, uint32_t arg_size)
@@ -131,6 +134,7 @@ int cam_custom_hw_sub_mod_deinit_hw(void *hw_priv,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_deinit_hw);
 
 int cam_custom_hw_sub_mod_reset(void *hw_priv,
 	void *reserve_args, uint32_t arg_size)
@@ -148,6 +152,7 @@ int cam_custom_hw_sub_mod_reset(void *hw_priv,
 	/* Do Reset of HW */
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_reset);
 
 int cam_custom_hw_sub_mod_reserve(void *hw_priv,
 	void *reserve_args, uint32_t arg_size)
@@ -162,7 +167,7 @@ int cam_custom_hw_sub_mod_reserve(void *hw_priv,
 	/*Reserve Args */
 	return rc;
 }
-
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_reserve);
 
 int cam_custom_hw_sub_mod_release(void *hw_priv,
 	void *release_args, uint32_t arg_size)
@@ -181,7 +186,7 @@ int cam_custom_hw_sub_mod_release(void *hw_priv,
 
 	return rc;
 }
-
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_release);
 
 int cam_custom_hw_sub_mod_start(void *hw_priv,
 	void *start_args, uint32_t arg_size)
@@ -200,6 +205,7 @@ int cam_custom_hw_sub_mod_start(void *hw_priv,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_start);
 
 int cam_custom_hw_sub_mod_stop(void *hw_priv,
 	void *stop_args, uint32_t arg_size)
@@ -218,18 +224,21 @@ int cam_custom_hw_sub_mod_stop(void *hw_priv,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_stop);
 
 int cam_custom_hw_sub_mod_read(void *hw_priv,
 	void *read_args, uint32_t arg_size)
 {
 	return -EPERM;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_read);
 
 int cam_custom_hw_sub_mod_write(void *hw_priv,
 	void *write_args, uint32_t arg_size)
 {
 	return -EPERM;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_write);
 
 int cam_custom_hw_submit_req(void *hw_priv, void *hw_submit_args,
 	uint32_t arg_size)
@@ -293,6 +302,7 @@ irqreturn_t cam_custom_hw_sub_mod_irq(int irq_num, void *data)
 
 	return IRQ_HANDLED;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_irq);
 
 int cam_custom_hw_sub_mod_process_cmd(void *hw_priv, uint32_t cmd_type,
 	void *cmd_args, uint32_t arg_size)
@@ -333,5 +343,7 @@ int cam_custom_hw_sub_mod_process_cmd(void *hw_priv, uint32_t cmd_type,
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_process_cmd);
 
-
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Custom Sub Module Core");

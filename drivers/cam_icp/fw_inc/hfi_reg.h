@@ -39,6 +39,8 @@
 #define HFI_REG_QDSS_IOVA_SIZE                  0x70
 #define HFI_REG_IO_REGION_IOVA                  0x74
 #define HFI_REG_IO_REGION_SIZE                  0x78
+#define HFI_REG_IO2_REGION_IOVA                 0x7C
+#define HFI_REG_IO2_REGION_SIZE                 0x80
 
 /* end of ICP CSR registers */
 
@@ -74,7 +76,7 @@
 #define ICP_SHARED_MEM_IN_BYTES                 (1024 * 1024)
 #define ICP_UNCACHED_HEAP_SIZE_IN_BYTES         (2 * 1024 * 1024)
 #define ICP_HFI_MAX_PKT_SIZE_IN_WORDS           25600
-#define ICP_HFI_MAX_PKT_SIZE_MSGQ_IN_WORDS      256
+#define ICP_HFI_MAX_PKT_SIZE_MSGQ_IN_WORDS      1024
 
 #define ICP_HFI_QTBL_HOSTID1                    0x01000000
 #define ICP_HFI_QTBL_STATUS_ENABLED             0x00000001

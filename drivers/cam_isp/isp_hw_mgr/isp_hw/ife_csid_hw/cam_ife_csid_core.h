@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _CAM_IFE_CSID_HW_H_
@@ -40,6 +40,7 @@
 #define CSID_CSI2_RX_ERROR_TG_FIFO_OVERFLOW       BIT(26)
 #define CSID_CSI2_RX_INFO_RST_DONE                BIT(27)
 
+#define CSID_TOP_IRQ_DONE                         BIT(0)
 #define CSID_PATH_INFO_RST_DONE                   BIT(1)
 #define CSID_PATH_ERROR_FIFO_OVERFLOW             BIT(2)
 #define CSID_PATH_INFO_SUBSAMPLED_EOF             BIT(3)
@@ -138,6 +139,8 @@ struct cam_ife_csid_pxl_reg_offset {
 	uint32_t quad_cfa_bin_en_shift_val;
 	uint32_t ccif_violation_en;
 	uint32_t overflow_ctrl_en;
+	uint32_t halt_master_sel_en;
+	uint32_t halt_sel_internal_master_val;
 };
 
 struct cam_ife_csid_rdi_reg_offset {
@@ -451,6 +454,7 @@ struct cam_ife_csid_tpg_cfg  {
  * @cnt:              Cid resource reference count.
  * @tpg_set:          Tpg used for this cid resource
  * @is_valid_vc1_dt1: Valid vc1 and dt1
+ * @init_cnt          cid resource init count
  *
  */
 struct cam_ife_csid_cid_data {
@@ -461,6 +465,7 @@ struct cam_ife_csid_cid_data {
 	uint32_t                     cnt;
 	uint32_t                     tpg_set;
 	uint32_t                     is_valid_vc1_dt1;
+	uint32_t                     init_cnt;
 };
 
 
@@ -549,7 +554,9 @@ struct cam_ife_csid_path_cfg {
  *                            need to stop the CSID and mask interrupts.
  * @binning_enable            Flag is set if hardware supports QCFA binning
  * @binning_supported         Flag is set if sensor supports QCFA binning
- *
+ * @first_sof_ts              first bootime stamp at the start
+ * @prev_qtimer_ts            stores csid timestamp
+ * @epd_supported             Flag is set if sensor supports EPD
  */
 struct cam_ife_csid_hw {
 	struct cam_hw_intf              *hw_intf;
@@ -581,6 +588,9 @@ struct cam_ife_csid_hw {
 	spinlock_t                       lock_state;
 	uint32_t                         binning_enable;
 	uint32_t                         binning_supported;
+	uint64_t                         prev_boot_timestamp;
+	uint64_t                         prev_qtimer_ts;
+	uint32_t                         epd_supported;
 };
 
 int cam_ife_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,

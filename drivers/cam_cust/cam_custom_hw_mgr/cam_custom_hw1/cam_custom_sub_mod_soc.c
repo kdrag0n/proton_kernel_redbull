@@ -3,6 +3,7 @@
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/module.h>
 #include <linux/slab.h>
 #include "cam_cpas_api.h"
 #include "cam_custom_sub_mod_soc.h"
@@ -61,6 +62,7 @@ release_soc:
 	cam_soc_util_release_platform_resource(soc_info);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_init_soc_resources);
 
 int cam_custom_hw_sub_mod_deinit_soc_resources(struct cam_hw_soc_info *soc_info)
 {
@@ -133,6 +135,7 @@ stop_cpas:
 end:
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_enable_soc_resources);
 
 int cam_custom_hw_sub_mod_disable_soc_resources(
 	struct cam_hw_soc_info *soc_info)
@@ -161,3 +164,7 @@ int cam_custom_hw_sub_mod_disable_soc_resources(
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(cam_custom_hw_sub_mod_disable_soc_resources);
+
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("Cam Custom Sub Module Soc");

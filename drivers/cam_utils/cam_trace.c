@@ -16,6 +16,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(cam_icp_fw_dbg);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_irq_activated);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_irq_handled);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_isp_activated_irq);
+EXPORT_TRACEPOINT_SYMBOL_GPL(cam_log_event);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_req_mgr_add_req);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_req_mgr_apply_request);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cam_req_mgr_connect_device);
