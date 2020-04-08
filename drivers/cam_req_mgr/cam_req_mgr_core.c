@@ -1474,7 +1474,7 @@ static int __cam_req_mgr_process_sof_freeze(void *priv, void *data)
 	memset(&msg, 0, sizeof(msg));
 
 	msg.session_hdl = session->session_hdl;
-	msg.u.err_msg.error_type = CAM_REQ_MGR_ERROR_TYPE_RECOVERY;
+	msg.u.err_msg.error_type = CAM_REQ_MGR_ERROR_TYPE_DEVICE;
 	msg.u.err_msg.request_id = 0;
 	msg.u.err_msg.link_hdl   = link->link_hdl;
 
