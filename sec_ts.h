@@ -150,7 +150,8 @@
 #define SEC_TS_FW_HEADER_SIGN		0x53494654
 #define SEC_TS_FW_CHUNK_SIGN		0x53434654
 
-#define SEC_TS_FW_UPDATE_ON_PROBE
+#undef SEC_TS_FW_UPDATE_ON_PROBE
+#define SEC_TS_FW_UPDATE_DELAY_MS_AFTER_PROBE	1000
 
 #define AMBIENT_CAL			0
 #define OFFSET_CAL_SDC			1
@@ -817,12 +818,17 @@ struct sec_ts_data {
 	strength_t *heatmap_buff;
 #endif
 
-	struct delayed_work work_read_info;
 #ifdef USE_POWER_RESET_WORK
 	struct delayed_work reset_work;
 	volatile bool reset_is_on_going;
 #endif
-	struct work_struct work_fw_update;
+
+#ifdef SEC_TS_FW_UPDATE_ON_PROBE
+	struct work_struct fw_update_work;
+#else
+	struct delayed_work fw_update_work;
+	struct workqueue_struct *fw_update_wq;
+#endif
 	struct work_struct suspend_work;
 	struct work_struct resume_work;
 	struct workqueue_struct *event_wq;	/* Used for event handler,
