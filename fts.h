@@ -308,7 +308,10 @@ enum {
 	FTS_BUS_REF_IRQ			= 0x02,
 	FTS_BUS_REF_FW_UPDATE		= 0x04,
 	FTS_BUS_REF_SYSFS		= 0x08,
-	FTS_BUS_REF_FORCE_ACTIVE	= 0x10
+	FTS_BUS_REF_FORCE_ACTIVE	= 0x10,
+#ifdef SUPPORT_PROX_PALM
+	FTS_BUS_REF_PHONE_CALL		= 0x20,
+#endif
 };
 
 /* Motion filter finite state machine (FSM) states
@@ -471,6 +474,10 @@ struct fts_ts_info {
 	int grip_enabled;	/* Grip mode */
 #ifdef TOUCHSCREEN_HEATMAP
 	int heatmap_mode;	/* heatmap mode*/
+#endif
+#ifdef SUPPORT_PROX_PALM
+	int audio_status;
+	int prox_palm_status;
 #endif
 	/* Stop changing motion filter and keep fw design */
 	bool use_default_mf;
