@@ -45,6 +45,16 @@ Example:
 };
 
 ==============================================================
+Google binned panel feature
+
+This is an extension of QTI's mdss-dsi-panel to handle additional panel
+feature.
+
+Properties:
+- google,dsi-panel-dimming-enable: a boolean property. If present,
+	panel dimming feature is always-on.
+
+==============================================================
 
 Google high brightness display mode
 
