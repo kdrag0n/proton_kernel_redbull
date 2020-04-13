@@ -142,7 +142,7 @@ struct venus_hfi_vpu_ops ar50_lite_ops = {
 	.prepare_pc = __prepare_pc_ar50_lt,
 	.raise_interrupt = __raise_interrupt_ar50_lt,
 	.watchdog = __watchdog_common,
-	.noc_error_info = __noc_error_info_common,
+	.noc_error_info = NULL,
 	.core_clear_interrupt = __core_clear_interrupt_ar50_lt,
 	.boot_firmware = __boot_firmware_ar50_lt,
 };
@@ -3956,6 +3956,7 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 	memprot.cp_nonpixel_start = 0x0;
 	memprot.cp_nonpixel_size = 0x0;
 
+	mutex_lock(&device->res->cb_lock);
 	list_for_each_entry(cb, &device->res->context_banks, list) {
 		if (!strcmp(cb->name, "venus_ns")) {
 			desc.args[1] = memprot.cp_size =
@@ -3974,6 +3975,7 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 				memprot.cp_nonpixel_size);
 		}
 	}
+	mutex_unlock(&device->res->cb_lock);
 
 	desc.arginfo = SCM_ARGS(4);
 	rc = scm_call2(SCM_SIP_FNID(SCM_SVC_MP,
