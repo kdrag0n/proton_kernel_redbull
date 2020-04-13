@@ -1215,6 +1215,8 @@ static int rx_macro_mclk_enable(struct rx_macro_priv *rx_priv,
 		return -EINVAL;
 	}
 
+	dev_dbg(rx_priv->dev, "%s: mclk_enable = %u, dapm = %d clk_users= %d\n",
+		__func__, mclk_enable, dapm, rx_priv->rx_mclk_users);
 
 	mutex_lock(&rx_priv->mclk_lock);
 	if (mclk_enable) {
