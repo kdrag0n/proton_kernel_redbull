@@ -314,6 +314,7 @@ const int dp_stats_mapping_table[][STATS_TYPE_MAX] = {
 	{TXRX_FW_STATS_INVALID, TXRX_SOC_CFG_PARAMS},
 	{TXRX_FW_STATS_INVALID, TXRX_PDEV_CFG_PARAMS},
 	{TXRX_FW_STATS_INVALID, TXRX_SOC_INTERRUPT_STATS},
+	{TXRX_FW_STATS_INVALID, TXRX_HAL_REG_WRITE_STATS},
 };
 
 /* MCL specific functions */
@@ -2035,7 +2036,6 @@ static void dp_soc_interrupt_detach(void *txrx_soc)
 	int i;
 
 	if (soc->intr_mode == DP_INTR_POLL) {
-		qdf_timer_stop(&soc->int_timer);
 		qdf_timer_free(&soc->int_timer);
 	} else {
 		hif_deregister_exec_group(soc->hif_handle, "dp_intr");
@@ -5014,8 +5014,11 @@ static void dp_vdev_detach_wifi3(struct cdp_vdev *vdev_handle,
 	dp_rx_vdev_detach(vdev);
 
 free_vdev:
-	if (wlan_op_mode_monitor == vdev->opmode)
+	if (wlan_op_mode_monitor == vdev->opmode) {
+		if (soc->intr_mode == DP_INTR_POLL)
+			qdf_timer_sync_cancel(&soc->int_timer);
 		pdev->monitor_vdev = NULL;
+	}
 
 	dp_info("deleting vdev object %pK (%pM)", vdev, vdev->mac_addr.raw);
 	qdf_mem_free(vdev);
@@ -5178,6 +5181,7 @@ static void *dp_peer_create_wifi3(struct cdp_vdev *vdev_handle,
 		}
 		peer->ctrl_peer = ctrl_peer;
 
+		peer->valid = 1;
 		dp_local_peer_id_alloc(pdev, peer);
 
 		qdf_spinlock_create(&peer->peer_info_lock);
@@ -7173,6 +7177,7 @@ static void dp_txrx_stats_help(void)
 	dp_info(" 28 -- Host REO Queue Statistics");
 	dp_info(" 29 -- Host Soc cfg param Statistics");
 	dp_info(" 30 -- Host pdev cfg param Statistics");
+	dp_info(" 32 -- Host Register Work stats");
 }
 
 /**
@@ -7232,8 +7237,13 @@ dp_print_host_stats(struct cdp_vdev *vdev_handle,
 		break;
 	case TXRX_NAPI_STATS:
 		dp_print_napi_stats(pdev->soc);
+		break;
 	case TXRX_SOC_INTERRUPT_STATS:
 		dp_print_soc_interrupt_stats(pdev->soc);
+		break;
+	case TXRX_HAL_REG_WRITE_STATS:
+		hal_dump_reg_write_stats(pdev->soc->hal_soc);
+		hal_dump_reg_write_srng_stats(pdev->soc->hal_soc);
 		break;
 	default:
 		dp_info("Wrong Input For TxRx Host Stats");
@@ -8238,6 +8248,7 @@ static QDF_STATUS dp_txrx_dump_stats(void *psoc, uint16_t value,
 	case CDP_TXRX_PATH_STATS:
 		dp_txrx_path_stats(soc);
 		dp_print_soc_interrupt_stats(soc);
+		hal_dump_reg_write_stats(soc->hal_soc);
 		break;
 
 	case CDP_RX_RING_STATS:

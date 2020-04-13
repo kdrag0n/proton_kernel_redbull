@@ -1978,6 +1978,8 @@ struct roam_fils_params {
  * roam candidate table are valid
  * @roam_scan_inactivity_time: inactivity monitoring time in ms for which the
  * device is considered to be inactive
+ * @is_sae_same_pmk: Flag to indicate fw whether WLAN_SAE_SINGLE_PMK feature is
+ * enable or not
  * @roam_inactive_data_packet_count: Maximum allowed data packets count during
  * roam_scan_inactivity_time.
  * @roam_scan_period_after_inactivity: Roam scan period in ms after device is
@@ -2005,6 +2007,7 @@ struct roam_offload_scan_params {
 	bool fw_pmksa_cache;
 	uint32_t rct_validity_timer;
 	bool is_adaptive_11r;
+	bool is_sae_same_pmk;
 #endif
 	uint32_t min_delay_btw_roam_scans;
 	uint32_t roam_trigger_reason_bitmask;
@@ -5357,6 +5360,7 @@ typedef enum {
 	wmi_service_nan_vdev,
 	wmi_roam_scan_chan_list_to_host_support,
 	wmi_service_packet_capture_support,
+	wmi_service_peer_delete_no_peer_flush_tids_cmd,
 	wmi_services_max,
 } wmi_conv_service_ids;
 #define WMI_SERVICE_UNAVAILABLE 0xFFFF
