@@ -520,7 +520,9 @@ typedef enum eDelStaReasonCode {
 	HAL_DEL_STA_REASON_CODE_TIM_BASED = 0x2,
 	HAL_DEL_STA_REASON_CODE_RA_BASED = 0x3,
 	HAL_DEL_STA_REASON_CODE_UNKNOWN_A2 = 0x4,
-	HAL_DEL_STA_REASON_CODE_BTM_DISASSOC_IMMINENT = 0x5
+	HAL_DEL_STA_REASON_CODE_BTM_DISASSOC_IMMINENT = 0x5,
+	HAL_DEL_STA_REASON_CODE_SA_QUERY_TIMEOUT = 0x6,
+	HAL_DEL_STA_REASON_CODE_XRETRY = 0x7,
 } tDelStaReasonCode;
 
 typedef enum eSmpsModeValue {
@@ -1042,11 +1044,13 @@ typedef struct sStatsExtRequest {
  * @bssid - bssid that is to be blacklisted
  * @timeout - time duration for which the bssid is blacklisted
  * @received_time - boot timestamp at which the firmware event was received
+ * @rssi - rssi value for which the bssid is blacklisted
  */
 struct roam_blacklist_timeout {
 	struct qdf_mac_addr bssid;
 	uint32_t timeout;
 	qdf_time_t received_time;
+	int32_t rssi;
 };
 
 /*

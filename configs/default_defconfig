@@ -169,6 +169,9 @@ CONFIG_WLAN_FEATURE_ACTION_OUI := y
 #Flag to enable Adaptive 11r feature
 CONFIG_ADAPTIVE_11R := y
 
+#Flag to enable sae single pmk feature
+CONFIG_SAE_SINGLE_PMK := y
+
 #Flag to enable FILS Feature (11ai)
 CONFIG_WLAN_FEATURE_FILS := y
 ifneq ($(CONFIG_QCA_CLD_WLAN),)
@@ -349,6 +352,9 @@ ifeq ($(CONFIG_LITHIUM), y)
 # Enable VERBOSE debug INI mechanism
 #
 CONFIG_VERBOSE_DEBUG := y
+ifeq ($(CONFIG_PCI_MSM), y)
+	CONFIG_FEATURE_HAL_DELAYED_REG_WRITE := y
+endif
 endif
 
 CONFIG_QCA_WIFI_QCA8074 := y
@@ -537,6 +543,10 @@ ifeq ($(CONFIG_LITHIUM), y)
 CONFIG_PKTLOG_LEGACY := n
 endif
 
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+CONFIG_SMMU_S1_UNMAP := y
+endif
+
 #Enable WDI Event support
 ifeq ($(CONFIG_REMOVE_PKT_LOG), y)
 CONFIG_WDI_EVENT_ENABLE := n
@@ -631,8 +641,10 @@ endif
 ifeq ($(CONFIG_HELIUMPLUS), y)
 ifneq ($(CONFIG_ARCH_SDM630), y)
 ifneq ($(CONFIG_ARCH_SDM660), y)
+ifneq ($(CONFIG_ARCH_MSM8998), y)
 ifeq ($(CONFIG_IPA_OFFLOAD), y)
 CONFIG_ENABLE_SMMU_S1_TRANSLATION := y
+endif
 endif
 endif
 endif
@@ -904,4 +916,8 @@ endif
 
 ifeq (y,$(findstring y,$(CONFIG_ARCH_MSM) $(CONFIG_ARCH_QCOM)))
 CONFIG_WLAN_FEATURE_DP_BUS_BANDWIDTH := y
+endif
+
+ifeq ($(CONFIG_ARCH_SDM660), y)
+CONFIG_WLAN_FEATURE_PKT_CAPTURE := y
 endif

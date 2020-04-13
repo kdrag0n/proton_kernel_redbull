@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -244,6 +244,9 @@ enum hdd_adapter_flags {
 
 /* Maximum time(ms) to wait for external acs response */
 #define WLAN_VENDOR_ACS_WAIT_TIME 1000
+
+/* Maximum time(ms) to wait for monitor mode vdev up event completion*/
+#define WLAN_MONITOR_MODE_VDEV_UP_EVT      SME_CMD_VDEV_START_BSS_TIMEOUT
 
 /* Mac Address string length */
 #define MAC_ADDRESS_STR_LEN 18  /* Including null terminator */
@@ -921,6 +924,7 @@ enum dhcp_nego_status {
  * @tx_retry_fw: the number of retried frames from firmware to remote station
  * @tx_retry_exhaust_fw: the number of frames retried but finally failed from
  *                    firmware to remote station
+ * @assoc_req_ies: Assoc request IEs of the peer station
  */
 struct hdd_station_info {
 	bool in_use;
@@ -977,6 +981,7 @@ struct hdd_station_info {
 	uint32_t tx_total_fw;
 	uint32_t tx_retry_fw;
 	uint32_t tx_retry_exhaust_fw;
+	struct wlan_ies assoc_req_ies;
 };
 
 /**
@@ -1140,7 +1145,7 @@ struct hdd_context;
  * @latency_level: 0 - normal, 1 - moderate, 2 - low, 3 - ultralow
  * @acs_complete_event: acs complete event
  * @last_disconnect_reason: Last disconnected internal reason code
- *                          as per enum eSirMacReasonCodes
+ *                          as per enum qca_disconnect_reason_codes
  */
 struct hdd_adapter {
 	/* Magic cookie for adapter sanity verification.  Note that this
@@ -1207,6 +1212,11 @@ struct hdd_adapter {
 	/* QDF event for session open */
 	qdf_event_t qdf_session_open_event;
 	qdf_event_t acs_complete_event;
+
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+	/* QDF event for monitor mode vdev up */
+	qdf_event_t qdf_monitor_mode_vdev_up_event;
+#endif
 
 	/* TODO: move these to sta ctx. These may not be used in AP */
 	/** completion variable for disconnect callback */
@@ -1376,7 +1386,9 @@ struct hdd_adapter {
 	uint32_t mon_chan;
 	uint32_t mon_bandwidth;
 	uint16_t latency_level;
-
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+	bool monitor_mode_vdev_up_in_progress;
+#endif
 	/* rcpi information */
 	struct rcpi_info rcpi;
 	bool send_mode_change;
@@ -1391,7 +1403,15 @@ struct hdd_adapter {
 #ifdef WLAN_FEATURE_MOTION_DETECTION
 	bool motion_detection_mode;
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
-	enum eSirMacReasonCodes last_disconnect_reason;
+	enum qca_disconnect_reason_codes last_disconnect_reason;
+
+#ifdef WLAN_FEATURE_PERIODIC_STA_STATS
+	/* Indicate whether to display sta periodic stats */
+	bool is_sta_periodic_stats_enabled;
+	uint16_t periodic_stats_timer_count;
+	uint32_t periodic_stats_timer_counter;
+	qdf_mutex_t sta_periodic_stats_lock;
+#endif /* WLAN_FEATURE_PERIODIC_STA_STATS */
 };
 
 #define WLAN_HDD_GET_STATION_CTX_PTR(adapter) (&(adapter)->session.station)
@@ -1958,6 +1978,7 @@ struct hdd_context {
 	qdf_mc_timer_t sar_safety_timer;
 	qdf_mc_timer_t sar_safety_unsolicited_timer;
 	qdf_event_t sar_safety_req_resp_event;
+	qdf_atomic_t sar_safety_req_resp_event_in_progress;
 #endif
 
 #ifdef CLD_PM_QOS
@@ -2721,10 +2742,24 @@ bool hdd_is_5g_supported(struct hdd_context *hdd_ctx);
  *
  * Return:  true if 2GHz channels are supported
  */
-
 bool hdd_is_2g_supported(struct hdd_context *hdd_ctx);
 
 int wlan_hdd_scan_abort(struct hdd_adapter *adapter);
+
+/**
+ * hdd_indicate_active_ndp_cnt() - Callback to indicate active ndp count to hdd
+ * if ndp connection is on NDI established
+ * @psoc: pointer to psoc object
+ * @vdev_id: vdev id
+ * @cnt: number of active ndp sessions
+ *
+ * This HDD callback registered with policy manager to indicates number of
+ * active ndp sessions to hdd.
+ *
+ * Return:  none
+ */
+void hdd_indicate_active_ndp_cnt(struct wlan_objmgr_psoc *psoc,
+				 uint8_t vdev_id, uint8_t cnt);
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 static inline bool roaming_offload_enabled(struct hdd_context *hdd_ctx)
@@ -2972,6 +3007,17 @@ void wlan_hdd_clear_tx_rx_histogram(struct hdd_context *hdd_ctx);
 void
 wlan_hdd_display_netif_queue_history(struct hdd_context *hdd_ctx,
 				     enum qdf_stats_verbosity_level verb_lvl);
+
+/**
+ * wlan_hdd_display_adapter_netif_queue_history() - display adapter based netif
+ * queue history
+ * @adapter: hdd adapter
+ *
+ * Return: none
+ */
+void
+wlan_hdd_display_adapter_netif_queue_history(struct hdd_adapter *adapter);
+
 void wlan_hdd_clear_netif_queue_history(struct hdd_context *hdd_ctx);
 const char *hdd_get_fwpath(void);
 void hdd_indicate_mgmt_frame(tSirSmeMgmtFrameInd *frame_ind);
@@ -4083,7 +4129,6 @@ bool wlan_hdd_check_mon_concurrency(void);
  * wlan_hdd_add_monitor_check() - check for monitor intf and add if needed
  * @hdd_ctx: pointer to hdd context
  * @adapter: output pointer to hold created monitor adapter
- * @type: type of the interface
  * @name: name of the interface
  * @rtnl_held: True if RTNL lock is held
  * @name_assign_type: the name of assign type of the netdev
@@ -4093,8 +4138,8 @@ bool wlan_hdd_check_mon_concurrency(void);
  */
 int wlan_hdd_add_monitor_check(struct hdd_context *hdd_ctx,
 			       struct hdd_adapter **adapter,
-			       enum nl80211_iftype type, const char *name,
-			       bool rtnl_held, unsigned char name_assign_type);
+			       const char *name, bool rtnl_held,
+			       unsigned char name_assign_type);
 
 /**
  * wlan_hdd_del_monitor() - delete monitor interface
@@ -4124,8 +4169,8 @@ bool wlan_hdd_check_mon_concurrency(void)
 static inline
 int wlan_hdd_add_monitor_check(struct hdd_context *hdd_ctx,
 			       struct hdd_adapter **adapter,
-			       enum nl80211_iftype type, const char *name,
-			       bool rtnl_held, unsigned char name_assign_type)
+			       const char *name, bool rtnl_held,
+			       unsigned char name_assign_type)
 {
 	return 0;
 }
@@ -4136,5 +4181,36 @@ void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
 {
 }
 #endif /* WLAN_FEATURE_PKT_CAPTURE */
+
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+void hdd_set_sme_monitor_mode_cb(enum QDF_OPMODE device_mode,
+				struct sme_session_params *session_param);
+
+void hdd_sme_monitor_mode_callback(uint8_t vdev_id);
+
+QDF_STATUS hdd_monitor_mode_vdev_status(struct hdd_adapter *adapter);
+
+QDF_STATUS hdd_monitor_mode_qdf_create_event(struct hdd_adapter *adapter,
+					     uint8_t session_type);
+#else
+static inline void
+hdd_set_sme_monitor_mode_cb(enum QDF_OPMODE device_mode,
+			    struct sme_session_params *session_param) {}
+
+static inline void hdd_sme_monitor_mode_callback(uint8_t vdev_id) {}
+
+static inline QDF_STATUS
+hdd_monitor_mode_vdev_status(struct hdd_adapter *adapter)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+hdd_monitor_mode_qdf_create_event(struct hdd_adapter *adapter,
+				  uint8_t session_type)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 
 #endif /* end #if !defined(WLAN_HDD_MAIN_H) */

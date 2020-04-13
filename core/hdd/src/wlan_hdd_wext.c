@@ -3357,9 +3357,7 @@ int hdd_wlan_dump_stats(struct hdd_adapter *adapter, int value)
 		wlan_hdd_display_tx_rx_histogram(hdd_ctx);
 		break;
 	case CDP_HDD_NETIF_OPER_HISTORY:
-		wlan_hdd_display_netif_queue_history
-					(hdd_ctx,
-					 QDF_STATS_VERBOSITY_LEVEL_HIGH);
+		wlan_hdd_display_adapter_netif_queue_history(adapter);
 		break;
 	case CDP_HIF_STATS:
 		hdd_display_hif_stats();
@@ -7866,7 +7864,7 @@ static int iw_get_policy_manager_ut_ops(struct hdd_context *hdd_ctx,
  *
  * Return: void
  */
-#if WLAN_DEBUG
+#ifdef WLAN_DEBUG
 static void hdd_ch_avoid_unit_cmd(struct hdd_context *hdd_ctx,
 				  int num_args, int *apps_args)
 {

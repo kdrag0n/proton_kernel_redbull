@@ -561,6 +561,52 @@ int pld_get_fw_files_for_target(struct device *dev,
 }
 
 /**
+ * pld_prevent_l1() - Prevent PCIe enter L1 state
+ * @dev: device
+ *
+ * Prevent PCIe enter L1 and L1ss states
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_prevent_l1(struct device *dev)
+{
+	int ret = 0;
+
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_prevent_l1(dev);
+		break;
+	default:
+		ret = -EINVAL;
+		pr_err("Invalid device type\n");
+		break;
+	}
+
+	return ret;
+}
+
+/**
+ * pld_allow_l1() - Allow PCIe enter L1 state
+ * @dev: device
+ *
+ * Allow PCIe enter L1 and L1ss states
+ *
+ * Return: void
+ */
+void pld_allow_l1(struct device *dev)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_allow_l1(dev);
+		break;
+	default:
+		pr_err("Invalid device type\n");
+		break;
+	}
+}
+
+/**
  * pld_is_pci_link_down() - Notification for pci link down event
  * @dev: device
  *
@@ -1683,6 +1729,42 @@ int pld_smmu_map(struct device *dev, phys_addr_t paddr,
 
 	return ret;
 }
+
+#ifdef CONFIG_SMMU_S1_UNMAP
+/**
+ * pld_smmu_unmap() - Unmap SMMU
+ * @dev: device
+ * @iova_addr: IOVA address to be unmapped
+ * @size: size to be unmapped
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_smmu_unmap(struct device *dev,
+		   uint32_t iova_addr, size_t size)
+{
+	int ret = 0;
+	enum pld_bus_type type = pld_get_bus_type(dev);
+
+	switch (type) {
+	case PLD_BUS_TYPE_SNOC:
+		ret = pld_snoc_smmu_unmap(dev, iova_addr, size);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_PCIE:
+		pr_err("Not supported on type %d\n", type);
+		ret = -ENODEV;
+		break;
+	default:
+		pr_err("Invalid device type %d\n", type);
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+#endif
 
 /**
  * pld_get_user_msi_assignment() - Get MSI assignment information
