@@ -15,8 +15,8 @@ struct sec_ts_data *tsp_info;
 #include "sec_ts.h"
 
 /* Switch GPIO values */
-#define SEC_SWITCH_GPIO_VALUE_SLPI_MASTER 	1
-#define SEC_SWITCH_GPIO_VALUE_AP_MASTER 	0
+#define SEC_SWITCH_GPIO_VALUE_SLPI_MASTER	1
+#define SEC_SWITCH_GPIO_VALUE_AP_MASTER		0
 
 struct sec_ts_data *ts_dup;
 
@@ -112,7 +112,9 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 
 	/* add 3 zero stuffing tx bytes at last */
 	memset(ts->io_write_buf + spi_len, 0x00, 3);
-	spi_len = (spi_len + 3) & ~3; //spi transfer size should be multiple of 4
+	/* spi transfer size should be multiple of 4
+	 **/
+	spi_len = (spi_len + 3) & ~3;
 	transfer[0].len = spi_len;
 	transfer[0].tx_buf = buf;
 	transfer[0].rx_buf = NULL;
@@ -138,7 +140,9 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 #endif
 
 		if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-			input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+			input_err(true, &ts->client->dev,
+				  "%s: POWER_STATUS : OFF, retry:%d\n",
+				  __func__, retry);
 			mutex_unlock(&ts->io_mutex);
 			goto err;
 		}
@@ -146,7 +150,8 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		usleep_range(1 * 1000, 1 * 1000);
 
 		if (retry > 1) {
-			input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+			input_err(true, &ts->client->dev,
+				  "%s: retry %d\n", __func__, retry + 1);
 			ts->comm_err_count++;
 		}
 	}
@@ -154,11 +159,13 @@ int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	mutex_unlock(&ts->io_mutex);
 
 	if (retry == SEC_TS_IO_RETRY_CNT) {
-		input_err(true, &ts->client->dev, "%s: write over retry limit\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write over retry limit\n", __func__);
 		ret = -EIO;
 #ifdef USE_POR_AFTER_I2C_RETRY
 		if (ts->probe_done && !ts->reset_is_on_going)
-			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+			schedule_delayed_work(&ts->reset_work,
+				msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #endif
 	}
 
@@ -262,18 +269,23 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 
 			usleep_range(1 * 1000, 1 * 1000);
 			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				input_err(true, &ts->client->dev,
+					  "%s: POWER_STATUS : OFF, retry:%d\n",
+					  __func__, retry);
 				mutex_unlock(&ts->io_mutex);
 				goto err;
 			}
 
 			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					"%s: retry %d\n", __func__, retry + 1);
 				ts->comm_err_count++;
 			}
 		}
 		if (ret == 2 && dma_safe == false)
-			memcpy(data, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE], len);
+			memcpy(data,
+			       ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE],
+			       len);
 #else
 		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			spi_message_init(&msg);
@@ -378,13 +390,14 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 				break;
 		}
 		if (ret == 0)
-			memcpy(data, ts->io_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
+			memcpy(data, ts->io_read_buf +
+			       SEC_TS_SPI_READ_HEADER_SIZE, len);
 #endif //I2C_INTERFACE
 	} else {
 		/*
-		 * read buffer is 256 byte. do not support long buffer over than 256.
-		 * So, try to seperate reading data about 256 bytes.
-		 */
+		 * read buffer is 256 byte. do not support long buffer over
+		 * than 256. So, try to separate reading data about 256 bytes.
+		 **/
 #ifdef I2C_INTERFACE
 		for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
 			ret = i2c_transfer(ts->client->adapter, msg, 1);
@@ -417,11 +430,13 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 			remain -= ts->io_burstmax;
 
 			for (retry = 0; retry < SEC_TS_IO_RETRY_CNT; retry++) {
-				ret = i2c_transfer(ts->client->adapter, &msg[1], 1);
+				ret = i2c_transfer(ts->client->adapter,
+						   &msg[1], 1);
 				if (ret == 1)
 					break;
 				usleep_range(1 * 1000, 1 * 1000);
-				if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+				if (ts->power_status ==
+					SEC_TS_STATE_POWER_OFF) {
 					input_err(true, &ts->client->dev,
 						"%s: POWER_STATUS : OFF, retry:%d\n",
 						__func__, retry);
@@ -600,7 +615,8 @@ skip_spi_read:
 		ts->io_err_count++;
 #ifdef USE_POR_AFTER_I2C_RETRY
 		if (ts->probe_done && !ts->reset_is_on_going)
-			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+			schedule_delayed_work(&ts->reset_work,
+				msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #endif
 
 	} else
@@ -683,8 +699,8 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 	spi_message_add_tail(&transfer[0], &msg);
 
 #ifdef SEC_TS_DEBUG_IO
-	input_info(true, &ts->client->dev, "%s: \n", __func__);
-        for (i = 0; i < spi_len; i++)
+	input_info(true, &ts->client->dev, "%s:\n", __func__);
+	for (i = 0; i < spi_len; i++)
 		input_info(true, &ts->client->dev, "%X ", ts->io_write_buf[i]);
 	input_info(true, &ts->client->dev, "\n");
 #endif
@@ -703,14 +719,16 @@ static int sec_ts_write_burst_internal(struct sec_ts_data *ts,
 		usleep_range(1 * 1000, 1 * 1000);
 
 		if (retry > 1) {
-			input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+			input_err(true, &ts->client->dev,
+				  "%s: retry %d\n", __func__, retry + 1);
 			ts->comm_err_count++;
 		}
 	}
 
 	mutex_unlock(&ts->io_mutex);
 	if (retry == SEC_TS_IO_RETRY_CNT) {
-		input_err(true, &ts->client->dev, "%s: write over retry limit\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write over retry limit\n", __func__);
 		ret = -EIO;
 	}
 
@@ -768,7 +786,9 @@ static int sec_ts_read_bulk_internal(struct sec_ts_data *ts,
 			usleep_range(1 * 1000, 1 * 1000);
 
 			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					  "%s: retry %d\n",
+					  __func__, retry + 1);
 				ts->comm_err_count++;
 			}
 		}
@@ -788,7 +808,8 @@ static int sec_ts_read_bulk_internal(struct sec_ts_data *ts,
 		memcpy(data, ts->io_read_buf, len);
 #else
 retry_message:
-	remain = spi_len = (SEC_TS_SPI_READ_HEADER_SIZE + len + SEC_TS_SPI_CHECKSUM_SIZE + 3) & ~3;
+	remain = spi_len = (SEC_TS_SPI_READ_HEADER_SIZE + len +
+			    SEC_TS_SPI_CHECKSUM_SIZE + 3) & ~3;
 	do {
 		if (remain > ts->io_burstmax)
 			copy_cur = ts->io_burstmax;
@@ -796,10 +817,12 @@ retry_message:
 			copy_cur = remain;
 
 		spi_message_init(&msg);
-		transfer[0].len = copy_cur;;
+		transfer[0].len = copy_cur;
 		transfer[0].tx_buf = NULL;
 		transfer[0].rx_buf = &ts->io_read_buf[copy_size];
-		transfer[0].cs_change = (remain > ts->io_burstmax) ? 1 : 0; // CS needs to stay low until read seq. is done
+		/* CS needs to stay low until read seq. is done
+		 */
+		transfer[0].cs_change = (remain > ts->io_burstmax) ? 1 : 0;
 
 		spi_message_add_tail(&transfer[0], &msg);
 
@@ -813,13 +836,16 @@ retry_message:
 
 			usleep_range(1 * 1000, 1 * 1000);
 			if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
+				input_err(true, &ts->client->dev,
+					  "%s: POWER_STATUS : OFF, retry:%d\n",
+					  __func__, retry);
 				mutex_unlock(&ts->io_mutex);
 				goto err;
 			}
 
 			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: retry %d\n", __func__, retry + 1);
+				input_err(true, &ts->client->dev,
+					"%s: retry %d\n", __func__, retry + 1);
 				ts->comm_err_count++;
 			}
 		}
@@ -830,11 +856,14 @@ retry_message:
 
 	if (ret == 0 && ts->io_read_buf[0] == SEC_TS_SPI_SYNC_CODE &&
 		checksum == ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len])
-		memcpy(data, ts->io_read_buf + SEC_TS_SPI_READ_HEADER_SIZE, len);
+		memcpy(data, ts->io_read_buf + SEC_TS_SPI_READ_HEADER_SIZE,
+		       len);
 	else {
-		input_info(true, &ts->client->dev, "%s: spi fail, ret %d, sync code %X, reg(S) %X, chksum(M) %X, chksum(S) %X\n",
+		input_info(true, &ts->client->dev,
+			   "%s: spi fail, ret %d, sync code %X, reg(S) %X, chksum(M) %X, chksum(S) %X\n",
 			__func__, ret, ts->io_read_buf[0], ts->io_read_buf[5],
-			checksum, ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
+			checksum,
+			ts->io_read_buf[SEC_TS_SPI_READ_HEADER_SIZE + len]);
 		if (retry_msg++ < SEC_TS_IO_RETRY_CNT)
 			goto retry_message;
 	}
@@ -913,11 +942,13 @@ static int sec_ts_read_from_customlib(struct sec_ts_data *ts, u8 *data, int len)
 
 	ret = sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_READ_PARAM, data, 2);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: fail to read custom library command\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: fail to read custom library command\n", __func__);
 
 	ret = sec_ts_read(ts, SEC_TS_CMD_CUSTOMLIB_READ_PARAM, (u8 *)data, len);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: fail to read custom library command\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: fail to read custom library command\n", __func__);
 
 	return ret;
 }
@@ -929,14 +960,17 @@ static struct delayed_work *p_ghost_check;
 
 static void sec_ts_check_rawdata(struct work_struct *work)
 {
-	struct sec_ts_data *ts = container_of(work, struct sec_ts_data, ghost_check.work);
+	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
+					      ghost_check.work);
 
 	if (ts->tsp_dump_lock == 1) {
-		input_err(true, &ts->client->dev, "%s: ignored ## already checking..\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: ignored ## already checking..\n", __func__);
 		return;
 	}
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: ignored ## IC is power off\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: ignored ## IC is power off\n", __func__);
 		return;
 	}
 
@@ -956,13 +990,15 @@ static void dump_tsp_log(void)
 
 #ifdef CONFIG_BATTERY_SAMSUNG
 	if (lpcharge == 1) {
-		pr_err("%s: %s %s: ignored ## lpm charging Mode!!\n", SEC_TS_NAME, SECLOG, __func__);
+		pr_err("%s: %s %s: ignored ## lpm charging Mode!!\n",
+		       SEC_TS_NAME, SECLOG, __func__);
 		return;
 	}
 #endif
 
 	if (p_ghost_check == NULL) {
-		pr_err("%s: %s %s: ignored ## tsp probe fail!!\n", SEC_TS_NAME, SECLOG, __func__);
+		pr_err("%s: %s %s: ignored ## tsp probe fail!!\n",
+		       SEC_TS_NAME, SECLOG, __func__);
 		return;
 	}
 	schedule_delayed_work(p_ghost_check, msecs_to_jiffies(100));
@@ -999,7 +1035,8 @@ int sec_ts_wait_for_ready_with_count(struct sec_ts_data *ts, unsigned int ack,
 					rc = 0;
 					break;
 				}
-			} else if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
+			} else if (((tBuff[0] >> 2) & 0xF) ==
+				   TYPE_STATUS_EVENT_VENDOR_INFO) {
 				if (tBuff[1] == ack) {
 					rc = 0;
 					break;
@@ -1029,7 +1066,8 @@ int sec_ts_read_calibration_report(struct sec_ts_data *ts)
 	ret = sec_ts_read(ts, SEC_TS_READ_CALIBRATION_REPORT,
 		ts->cali_report, sizeof(ts->cali_report));
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: failed to read, %d\n", __func__, ret);
+		input_err(true, &ts->client->dev,
+			  "%s: failed to read, %d\n", __func__, ret);
 		return ret;
 	}
 
@@ -1049,30 +1087,37 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 	int ret = 0;
 
 	input_info(true, &ts->client->dev,
-				"%s : charger=0x%x, Cover=0x%x, Power mode=0x%x\n",
-				__func__, ts->charger_mode, ts->touch_functions, ts->lowpower_status);
+		"%s : charger=0x%x, Cover=0x%x, Power mode=0x%x\n",
+		__func__, ts->charger_mode, ts->touch_functions,
+		ts->lowpower_status);
 
 	/* charger mode */
 	if (ts->charger_mode != SEC_TS_BIT_CHARGER_MODE_NO) {
 		w_data[0] = ts->charger_mode;
-		ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE, (u8 *)&w_data[0], 1);
+		ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE,
+				       (u8 *)&w_data[0], 1);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-						__func__, SET_TS_CMD_SET_CHARGER_MODE);
+			input_err(true, &ts->client->dev,
+				  "%s: Failed to send command(0x%x)",
+				__func__, SET_TS_CMD_SET_CHARGER_MODE);
 	}
 
 	/* Cover mode */
 	if (ts->touch_functions & SEC_TS_BIT_SETFUNC_COVER) {
 		w_data[0] = ts->cover_cmd;
-		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE, (u8 *)&w_data[0], 1);
+		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE,
+				   (u8 *)&w_data[0], 1);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-						__func__, SEC_TS_CMD_SET_COVERTYPE);
+			input_err(true, &ts->client->dev,
+				"%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_SET_COVERTYPE);
 
-		ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->touch_functions), 2);
+		ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
+				   (u8 *)&(ts->touch_functions), 2);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-						__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
+			input_err(true, &ts->client->dev,
+				"%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
 	}
 
 	#ifdef SEC_TS_SUPPORT_CUSTOMLIB
@@ -1082,17 +1127,22 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 
 	/* Power mode */
 	if (ts->lowpower_status == TO_LOWPOWER_MODE) {
-		w_data[0] = (ts->lowpower_mode & SEC_TS_MODE_LOWPOWER_FLAG) >> 1;
-		ret = sec_ts_write(ts, SEC_TS_CMD_WAKEUP_GESTURE_MODE, (u8 *)&w_data[0], 1);
+		w_data[0] = (ts->lowpower_mode &
+			     SEC_TS_MODE_LOWPOWER_FLAG) >> 1;
+		ret = sec_ts_write(ts, SEC_TS_CMD_WAKEUP_GESTURE_MODE,
+				   (u8 *)&w_data[0], 1);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-						__func__, SEC_TS_CMD_WAKEUP_GESTURE_MODE);
+			input_err(true, &ts->client->dev,
+				"%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_WAKEUP_GESTURE_MODE);
 
 		w_data[0] = TO_LOWPOWER_MODE;
-		ret = sec_ts_write(ts, SEC_TS_CMD_SET_POWER_MODE, (u8 *)&w_data[0], 1);
+		ret = sec_ts_write(ts, SEC_TS_CMD_SET_POWER_MODE,
+				   (u8 *)&w_data[0], 1);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
-						__func__, SEC_TS_CMD_SET_POWER_MODE);
+			input_err(true, &ts->client->dev,
+				"%s: Failed to send command(0x%x)",
+				__func__, SEC_TS_CMD_SET_POWER_MODE);
 
 		sec_ts_delay(50);
 
@@ -1102,16 +1152,24 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 
 			for (i = 0; i < 4; i++) {
 				data[i * 2 + 2] = ts->rect_data[i] & 0xFF;
-				data[i * 2 + 3] = (ts->rect_data[i] >> 8) & 0xFF;
+				data[i * 2 + 3] =
+					(ts->rect_data[i] >> 8) & 0xFF;
 			}
 
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM, &data[0], 10);
+			ret = ts->sec_ts_write(ts,
+					SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM,
+					&data[0], 10);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: Failed to write offset\n", __func__);
+				input_err(true, &ts->client->dev,
+					"%s: Failed to write offset\n",
+					__func__);
 
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
+			ret = ts->sec_ts_write(ts,
+				SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: Failed to send notify\n", __func__);
+				input_err(true, &ts->client->dev,
+					"%s: Failed to send notify\n",
+					__func__);
 
 		}
 
@@ -1120,31 +1178,40 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 		sec_ts_set_grip_type(ts, ONLY_EDGE_HANDLER);
 
 		if (ts->dex_mode) {
-			input_info(true, &ts->client->dev, "%s: set dex mode\n", __func__);
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_DEX_MODE, &ts->dex_mode, 1);
+			input_info(true, &ts->client->dev,
+				   "%s: set dex mode\n", __func__);
+			ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_DEX_MODE,
+					       &ts->dex_mode, 1);
 			if (ret < 0)
 				input_err(true, &ts->client->dev,
-					"%s: failed to set dex mode %x\n", __func__, ts->dex_mode);
+					"%s: failed to set dex mode %x\n",
+					__func__, ts->dex_mode);
 		}
 
 		if (ts->brush_mode) {
-			input_info(true, &ts->client->dev, "%s: set brush mode\n", __func__);
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_BRUSH_MODE, &ts->brush_mode, 1);
+			input_info(true, &ts->client->dev,
+				   "%s: set brush mode\n", __func__);
+			ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_BRUSH_MODE,
+					       &ts->brush_mode, 1);
 			if (ret < 0)
 				input_err(true, &ts->client->dev,
-							"%s: failed to set brush mode\n", __func__);
+					"%s: failed to set brush mode\n",
+					__func__);
 		}
 
 		if (ts->touchable_area) {
-			input_info(true, &ts->client->dev, "%s: set 16:9 mode\n", __func__);
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHABLE_AREA, &ts->touchable_area, 1);
+			input_info(true, &ts->client->dev,
+				   "%s: set 16:9 mode\n", __func__);
+			ret = ts->sec_ts_write(ts,
+					SEC_TS_CMD_SET_TOUCHABLE_AREA,
+					&ts->touchable_area, 1);
 			if (ret < 0)
 				input_err(true, &ts->client->dev,
-							"%s: failed to set 16:9 mode\n", __func__);
+					"%s: failed to set 16:9 mode\n",
+					__func__);
 		}
 
 	}
-	return;
 }
 
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
@@ -1333,6 +1400,72 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 		return false;
 
 	return true;
+}
+#endif
+
+#ifdef SEC_TS_SUPPORT_CUSTOMLIB
+static void sec_ts_handle_lib_status_event(struct sec_ts_data *ts,
+				struct sec_ts_event_status *p_event_status)
+{
+	if ((p_event_status->stype == TYPE_STATUS_EVENT_CUSTOMLIB_INFO) &&
+	    (p_event_status->status_id == SEC_TS_EVENT_CUSTOMLIB_FORCE_KEY)) {
+		if (ts->power_status == SEC_TS_STATE_POWER_ON) {
+			if (p_event_status->status_data_1 &
+			    SEC_TS_CUSTOMLIB_EVENT_PRESSURE_TOUCHED) {
+				ts->all_force_count++;
+				ts->scrub_id =
+					CUSTOMLIB_EVENT_TYPE_PRESSURE_TOUCHED;
+			} else {
+				if (ts->scrub_id ==
+				    CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS) {
+					input_report_key(ts->input_dev,
+							 KEY_HOMEPAGE,
+							 0);
+					ts->scrub_id =
+				CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RELEASE;
+				} else {
+					ts->scrub_id =
+					CUSTOMLIB_EVENT_TYPE_PRESSURE_RELEASED;
+				}
+			}
+
+			input_report_key(ts->input_dev,
+					 KEY_BLACK_UI_GESTURE, 1);
+		} else {
+			if (p_event_status->status_data_1 &
+			    SEC_TS_CUSTOMLIB_EVENT_PRESSURE_RELEASED) {
+				input_report_key(ts->input_dev,
+						 KEY_HOMEPAGE, 0);
+				input_report_key(ts->input_dev,
+						 KEY_BLACK_UI_GESTURE, 1);
+				ts->scrub_id =
+				CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RLS_NO_HAPTIC;
+				input_sync(ts->input_dev);
+				haptic_homekey_release();
+			} else {
+				input_report_key(ts->input_dev,
+						 KEY_HOMEPAGE, 1);
+				input_sync(ts->input_dev);
+				ts->scrub_id =
+					CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS;
+				haptic_homekey_press();
+				ts->all_force_count++;
+			}
+		}
+
+		ts->scrub_x =
+			((p_event_status->status_data_4 >> 4) & 0xF) << 8 |
+			(p_event_status->status_data_3 & 0xFF);
+		ts->scrub_y =
+			((p_event_status->status_data_4 >> 0) & 0xF) << 8 |
+			(p_event_status->status_data_2 & 0xFF);
+
+		input_info(true, &ts->client->dev, "%s: PRESSURE[%d]\n",
+			   __func__, ts->scrub_id);
+
+		input_sync(ts->input_dev);
+		input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
+	}
 }
 #endif
 
@@ -1533,6 +1666,66 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 				__func__, t_id);
 }
 
+#ifdef SEC_TS_SUPPORT_CUSTOMLIB
+static void sec_ts_handle_gesture_event(struct sec_ts_data *ts,
+				struct sec_ts_gesture_status *p_gesture_status)
+{
+	if ((p_gesture_status->eid == 0x02) &&
+	    (p_gesture_status->stype == 0x00)) {
+		u8 customlib[3] = { 0 };
+
+		ret = sec_ts_read_from_customlib(ts, customlib, 3);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s: fail to read custom library data\n",
+				__func__);
+
+		input_info(true, &ts->client->dev,
+			"%s: Custom Library, %x, %x, %x\n",
+			__func__, customlib[0], customlib[1], customlib[2]);
+
+		if (p_gesture_status->gesture_id == SEC_TS_GESTURE_CODE_SPAY ||
+		    p_gesture_status->gesture_id ==
+			SEC_TS_GESTURE_CODE_DOUBLE_TAP) {
+			/* will be fixed to data structure */
+			if (customlib[1] & SEC_TS_MODE_CUSTOMLIB_AOD) {
+				u8 data[5] = { 0x0A, 0x00, 0x00, 0x00, 0x00 };
+
+				ret = sec_ts_read_from_customlib(ts, data, 5);
+				if (ret < 0)
+					input_err(true, &ts->client->dev,
+						"%s: fail to read custom library data\n",
+						__func__);
+
+				if (data[4] & SEC_TS_AOD_GESTURE_DOUBLETAB)
+					ts->scrub_id =
+					CUSTOMLIB_EVENT_TYPE_AOD_DOUBLETAB;
+
+				ts->scrub_x = (data[1] & 0xFF) << 8 |
+						(data[0] & 0xFF);
+				ts->scrub_y = (data[3] & 0xFF) << 8 |
+						(data[2] & 0xFF);
+				input_info(true, &ts->client->dev,
+					"%s: aod: %d\n",
+					__func__, ts->scrub_id);
+				ts->all_aod_tap_count++;
+			}
+			if (customlib[1] & SEC_TS_MODE_CUSTOMLIB_SPAY) {
+				ts->scrub_id = CUSTOMLIB_EVENT_TYPE_SPAY;
+				input_info(true, &ts->client->dev,
+					"%s: SPAY: %d\n",
+					__func__, ts->scrub_id);
+				ts->all_spay_count++;
+			}
+			input_report_key(ts->input_dev,
+					 KEY_BLACK_UI_GESTURE, 1);
+			input_sync(ts->input_dev);
+			input_report_key(ts->input_dev,
+					 KEY_BLACK_UI_GESTURE, 0);
+		}
+	}
+}
+#endif
 
 #define MAX_EVENT_COUNT 32
 static void sec_ts_read_event(struct sec_ts_data *ts)
@@ -1553,36 +1746,49 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 		pm_wakeup_event(&ts->client->dev, 3 * MSEC_PER_SEC);
 		/* waiting for blsp block resuming, if not occurs error */
-		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(3 * MSEC_PER_SEC));
+		ret = wait_for_completion_interruptible_timeout(
+				&ts->resume_done,
+				msecs_to_jiffies(3 * MSEC_PER_SEC));
 		if (ret == 0) {
-			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: LPM: pm resume is not handled\n",
+				  __func__);
 			return;
 		}
 
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: LPM: -ERESTARTSYS if interrupted, %d\n", __func__, ret);
+			input_err(true, &ts->client->dev,
+				  "%s: LPM: -ERESTARTSYS if interrupted, %d\n",
+				  __func__, ret);
 			return;
 		}
 
-		input_info(true, &ts->client->dev, "%s: run LPM interrupt handler, %d\n", __func__, ret);
+		input_info(true, &ts->client->dev,
+			"%s: run LPM interrupt handler, %d\n", __func__, ret);
 		/* run lpm interrupt handler */
 	}
 
 	ret = t_id = event_id = curr_pos = remain_event_count = 0;
 	/* repeat READ_ONE_EVENT until buffer is empty(No event) */
-	ret = sec_ts_read(ts, SEC_TS_READ_ONE_EVENT, (u8 *)read_event_buff[0], SEC_TS_EVENT_BUFF_SIZE);
+	ret = sec_ts_read(ts, SEC_TS_READ_ONE_EVENT,
+			  (u8 *)read_event_buff[0], SEC_TS_EVENT_BUFF_SIZE);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read one event failed\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: read one event failed\n", __func__);
 		return;
 	}
 
 	if (ts->temp == 0x01)
-		input_info(true, &ts->client->dev, "ONE: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-			read_event_buff[0][0], read_event_buff[0][1], read_event_buff[0][2], read_event_buff[0][3],
-			read_event_buff[0][4], read_event_buff[0][5], read_event_buff[0][6], read_event_buff[0][7]);
+		input_info(true, &ts->client->dev,
+			"ONE: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+			read_event_buff[0][0], read_event_buff[0][1],
+			read_event_buff[0][2], read_event_buff[0][3],
+			read_event_buff[0][4], read_event_buff[0][5],
+			read_event_buff[0][6], read_event_buff[0][7]);
 
 	if (read_event_buff[0][0] == 0) {
-		input_info(true, &ts->client->dev, "%s: event buffer is empty\n", __func__);
+		input_info(true, &ts->client->dev,
+			"%s: event buffer is empty\n", __func__);
 		return;
 	}
 
@@ -1595,37 +1801,48 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 			"%s: event buffer overflow %d\n",
 			__func__, left_event_count);
 
-		/* write clear event stack command when read_event_count > MAX_EVENT_COUNT */
+		/* write clear event stack command
+		 * when read_event_count > MAX_EVENT_COUNT
+		 **/
 		ret = sec_ts_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: write clear event failed\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: write clear event failed\n", __func__);
 		return;
 	}
 
 	if (left_event_count > 0) {
-		ret = sec_ts_read(ts, SEC_TS_READ_ALL_EVENT, (u8 *)read_event_buff[1],
-				sizeof(u8) * (SEC_TS_EVENT_BUFF_SIZE) * (left_event_count));
+		ret = sec_ts_read(ts, SEC_TS_READ_ALL_EVENT,
+			(u8 *)read_event_buff[1],
+			sizeof(u8) * (SEC_TS_EVENT_BUFF_SIZE) *
+				(left_event_count));
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: read one event failed\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: read one event failed\n", __func__);
 			return;
 		}
 	}
 
 	do {
 		s16 max_force_p = 0;
+
 		event_buff = read_event_buff[curr_pos];
 		event_id = event_buff[0] & 0x3;
 
 		if (ts->temp == 0x01)
-			input_info(true, &ts->client->dev, "ALL: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-				event_buff[0], event_buff[1], event_buff[2], event_buff[3],
-				event_buff[4], event_buff[5], event_buff[6], event_buff[7]);
+			input_info(true, &ts->client->dev,
+				 "ALL: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+				event_buff[0], event_buff[1], event_buff[2],
+				event_buff[3], event_buff[4], event_buff[5],
+				event_buff[6], event_buff[7]);
 
 		switch (event_id) {
 		case SEC_TS_STATUS_EVENT:
-			p_event_status = (struct sec_ts_event_status *)event_buff;
+			p_event_status =
+				(struct sec_ts_event_status *)event_buff;
 
-			/* tchsta == 0 && ttype == 0 && eid == 0 : buffer empty */
+			/* tchsta == 0 && ttype == 0 && eid == 0 : buffer empty
+			 **/
 			if (p_event_status->stype > 0) {
 				/* Demote 'vendor' messages */
 				if (p_event_status->stype ==
@@ -1723,23 +1940,33 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 			/* event queue full-> all finger release */
 			if ((p_event_status->stype == TYPE_STATUS_EVENT_ERR) &&
-				(p_event_status->status_id == SEC_TS_ERR_EVENT_QUEUE_FULL)) {
-				input_err(true, &ts->client->dev, "%s: IC Event Queue is full\n", __func__);
+				(p_event_status->status_id ==
+					SEC_TS_ERR_EVENT_QUEUE_FULL)) {
+				input_err(true, &ts->client->dev,
+					"%s: IC Event Queue is full\n",
+					__func__);
 				sec_ts_unlocked_release_all_finger(ts);
 			}
 
-			if ((p_event_status->stype == TYPE_STATUS_EVENT_ERR) &&
-				(p_event_status->status_id == SEC_TS_ERR_EVENT_ESD)) {
-				input_err(true, &ts->client->dev, "%s: ESD detected. run reset\n", __func__);
+			if ((p_event_status->stype ==
+				TYPE_STATUS_EVENT_ERR) &&
+			    (p_event_status->status_id ==
+				SEC_TS_ERR_EVENT_ESD)) {
+				input_err(true, &ts->client->dev,
+					  "%s: ESD detected. run reset\n",
+					  __func__);
 #ifdef USE_RESET_DURING_POWER_ON
 				schedule_work(&ts->reset_work.work);
 #endif
 			}
 
-			if ((p_event_status->stype == TYPE_STATUS_EVENT_INFO) &&
-				(p_event_status->status_id == SEC_TS_ACK_WET_MODE)) {
+			if ((p_event_status->stype ==
+				TYPE_STATUS_EVENT_INFO) &&
+			    (p_event_status->status_id ==
+				SEC_TS_ACK_WET_MODE)) {
 				ts->wet_mode = p_event_status->status_data_1;
-				input_info(true, &ts->client->dev, "%s: water wet mode %d\n",
+				input_info(true, &ts->client->dev,
+					"%s: water wet mode %d\n",
 					__func__, ts->wet_mode);
 				if (ts->wet_mode)
 					ts->wet_count++;
@@ -1747,48 +1974,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				}
 
 #ifdef SEC_TS_SUPPORT_CUSTOMLIB
-			if ((p_event_status->stype == TYPE_STATUS_EVENT_CUSTOMLIB_INFO) &&
-				(p_event_status->status_id == SEC_TS_EVENT_CUSTOMLIB_FORCE_KEY)) {
-				if (ts->power_status == SEC_TS_STATE_POWER_ON) {
-					if (p_event_status->status_data_1 & SEC_TS_CUSTOMLIB_EVENT_PRESSURE_TOUCHED) {
-						ts->all_force_count++;
-						ts->scrub_id = CUSTOMLIB_EVENT_TYPE_PRESSURE_TOUCHED;
-					} else {
-						if (ts->scrub_id == CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS) {
-							input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
-							ts->scrub_id = CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RELEASE;
-						} else {
-							ts->scrub_id = CUSTOMLIB_EVENT_TYPE_PRESSURE_RELEASED;
-						}
-					}
-
-					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
-				} else {
-					if (p_event_status->status_data_1 & SEC_TS_CUSTOMLIB_EVENT_PRESSURE_RELEASED) {
-						input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
-						input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
-						ts->scrub_id = CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RELEASE_NO_HAPTIC;
-						input_sync(ts->input_dev);
-
-						haptic_homekey_release();
-					} else {
-						input_report_key(ts->input_dev, KEY_HOMEPAGE, 1);
-						input_sync(ts->input_dev);
-
-						ts->scrub_id = CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS;
-						haptic_homekey_press();
-						ts->all_force_count++;
-					}
-				}
-
-				ts->scrub_x = ((p_event_status->status_data_4 >> 4) & 0xF) << 8 | (p_event_status->status_data_3 & 0xFF);
-				ts->scrub_y = ((p_event_status->status_data_4 >> 0) & 0xF) << 8 | (p_event_status->status_data_2 & 0xFF);
-
-				input_info(true, &ts->client->dev, "%s: PRESSURE[%d]\n", __func__, ts->scrub_id);
-
-				input_sync(ts->input_dev);
-				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
-			}
+			sec_ts_handle_lib_status_event(ts, p_event_status);
 #endif
 			break;
 
@@ -1800,79 +1986,53 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 
 		case SEC_TS_GESTURE_EVENT:
-			p_gesture_status = (struct sec_ts_gesture_status *)event_buff;
+			p_gesture_status =
+				(struct sec_ts_gesture_status *)event_buff;
 #ifdef SEC_TS_SUPPORT_CUSTOMLIB
-			if ((p_gesture_status->eid == 0x02) && (p_gesture_status->stype == 0x00)) {
-				u8 customlib[3] = { 0 };
-
-				ret = sec_ts_read_from_customlib(ts, customlib, 3);
-				if (ret < 0)
-					input_err(true, &ts->client->dev, "%s: fail to read custom library data\n", __func__);
-
-				input_info(true, &ts->client->dev, "%s: Custom Library, %x, %x, %x\n",
-							__func__, customlib[0], customlib[1], customlib[2]);
-
-				if (p_gesture_status->gesture_id == SEC_TS_GESTURE_CODE_SPAY ||
-					p_gesture_status->gesture_id == SEC_TS_GESTURE_CODE_DOUBLE_TAP) {
-					/* will be fixed to data structure */
-					if (customlib[1] & SEC_TS_MODE_CUSTOMLIB_AOD) {
-						u8 data[5] = { 0x0A, 0x00, 0x00, 0x00, 0x00 };
-
-						ret = sec_ts_read_from_customlib(ts, data, 5);
-						if (ret < 0)
-							input_err(true, &ts->client->dev, "%s: fail to read custom library data\n", __func__);
-
-						if (data[4] & SEC_TS_AOD_GESTURE_DOUBLETAB)
-							ts->scrub_id = CUSTOMLIB_EVENT_TYPE_AOD_DOUBLETAB;
-
-						ts->scrub_x = (data[1] & 0xFF) << 8 | (data[0] & 0xFF);
-						ts->scrub_y = (data[3] & 0xFF) << 8 | (data[2] & 0xFF);
-						input_info(true, &ts->client->dev, "%s: aod: %d\n",
-								__func__, ts->scrub_id);
-						ts->all_aod_tap_count++;
-					}
-					if (customlib[1] & SEC_TS_MODE_CUSTOMLIB_SPAY) {
-						ts->scrub_id = CUSTOMLIB_EVENT_TYPE_SPAY;
-						input_info(true, &ts->client->dev, "%s: SPAY: %d\n",
-									__func__, ts->scrub_id);
-						ts->all_spay_count++;
-					}
-					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
-					input_sync(ts->input_dev);
-					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
-				}
-			}
-			break;
+			sec_ts_handle_gesture_event(ts, p_gesture_status);
 #endif
+			break;
+
 		default:
-			input_err(true, &ts->client->dev, "%s: unknown event %x %x %x %x %x %x\n", __func__,
-					event_buff[0], event_buff[1], event_buff[2],
-					event_buff[3], event_buff[4], event_buff[5]);
+			input_err(true, &ts->client->dev,
+				"%s: unknown event %x %x %x %x %x %x\n",
+				__func__,
+				event_buff[0], event_buff[1], event_buff[2],
+				event_buff[3], event_buff[4], event_buff[5]);
 			break;
 		}
 
 		if (t_id < MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT) {
-			if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_PRESS) {
+			if (ts->coord[t_id].action ==
+			    SEC_TS_COORDINATE_ACTION_PRESS) {
 				input_dbg(false, &ts->client->dev,
 					"%s[P] tID:%d x:%d y:%d z:%d major:%d minor:%d tc:%d type:%X\n",
 					ts->dex_name,
-					t_id, ts->coord[t_id].x, ts->coord[t_id].y, ts->coord[t_id].z,
-					ts->coord[t_id].major, ts->coord[t_id].minor, ts->touch_count,
+					t_id, ts->coord[t_id].x,
+					ts->coord[t_id].y, ts->coord[t_id].z,
+					ts->coord[t_id].major,
+					ts->coord[t_id].minor,
+					ts->touch_count,
 					ts->coord[t_id].ttype);
 
-			} else if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_RELEASE) {
+			} else if (ts->coord[t_id].action ==
+				   SEC_TS_COORDINATE_ACTION_RELEASE) {
 				input_dbg(false, &ts->client->dev,
 					"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d P%02XT%04X\n",
 					ts->dex_name,
-					t_id, ts->coord[t_id].mcount, ts->touch_count,
-					ts->coord[t_id].x, ts->coord[t_id].y, max_force_p,
+					t_id, ts->coord[t_id].mcount,
+					ts->touch_count,
+					ts->coord[t_id].x, ts->coord[t_id].y,
+					max_force_p,
 					ts->plat_data->img_version_of_ic[2],
 					ts->plat_data->img_version_of_ic[3],
 					ts->cal_status, ts->nv, ts->tspid_val,
-					ts->tspicid_val, ts->coord[t_id].palm_count,
-					ts->cal_count, ts->tune_fix_ver );
+					ts->tspicid_val,
+					ts->coord[t_id].palm_count,
+					ts->cal_count, ts->tune_fix_ver);
 
-				ts->coord[t_id].action = SEC_TS_COORDINATE_ACTION_NONE;
+				ts->coord[t_id].action =
+						SEC_TS_COORDINATE_ACTION_NONE;
 				ts->coord[t_id].mcount = 0;
 				ts->coord[t_id].palm_count = 0;
 				max_force_p = 0;
@@ -1908,8 +2068,8 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	if (sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_IRQ, true) < 0) {
 		/* Interrupt during bus suspend */
 		input_info(true, &ts->client->dev,
-		   "%s: Skipping stray interrupt since bus is suspended(power_status: %d)\n",
-			   __func__, ts->power_status);
+			"%s: Skipping stray interrupt since bus is suspended(power_status: %d)\n",
+			__func__, ts->power_status);
 		return IRQ_HANDLED;
 	}
 
@@ -1940,22 +2100,28 @@ void sec_ts_set_charger(bool enable)
 {
 	return;
 /*
-	int ret;
-	u8 noise_mode_on[] = {0x01};
-	u8 noise_mode_off[] = {0x00};
-
-	if (enable) {
-		input_info(true, &ts->client->dev, "sec_ts_set_charger : charger CONNECTED!!\n");
-		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_on, sizeof(noise_mode_on));
-		if (ret < 0)
-			input_err(true, &ts->client->dev, "sec_ts_set_charger: fail to write NOISE_ON\n");
-	} else {
-		input_info(true, &ts->client->dev, "sec_ts_set_charger : charger DISCONNECTED!!\n");
-		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_off, sizeof(noise_mode_off));
-		if (ret < 0)
-			input_err(true, &ts->client->dev, "sec_ts_set_charger: fail to write NOISE_OFF\n");
-	}
- */
+ *	int ret;
+ *	u8 noise_mode_on[] = {0x01};
+ *	u8 noise_mode_off[] = {0x00};
+ *
+ *	if (enable) {
+ *		input_info(true, &ts->client->dev,
+ *			"sec_ts_set_charger : charger CONNECTED!!\n");
+ *		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_on,
+ *				sizeof(noise_mode_on));
+ *		if (ret < 0)
+ *			input_err(true, &ts->client->dev,
+ *				"sec_ts_set_charger: fail to write NOISE_ON\n");
+ *	} else {
+ *		input_info(true, &ts->client->dev,
+ *			"sec_ts_set_charger : charger DISCONNECTED!!\n");
+ *		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_off,
+ *		sizeof(noise_mode_off));
+ *		if (ret < 0)
+ *			input_err(true, &ts->client->dev,
+ *				"%s: fail to write NOISE_OFF\n", __func__);
+ *	}
+ **/
 }
 EXPORT_SYMBOL(sec_ts_set_charger);
 
@@ -1964,23 +2130,31 @@ int sec_ts_glove_mode_enables(struct sec_ts_data *ts, int mode)
 	int ret;
 
 	if (mode)
-		ts->touch_functions = (ts->touch_functions | SEC_TS_BIT_SETFUNC_GLOVE | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
+		ts->touch_functions = (ts->touch_functions |
+				       SEC_TS_BIT_SETFUNC_GLOVE |
+				       SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
 	else
-		ts->touch_functions = ((ts->touch_functions & (~SEC_TS_BIT_SETFUNC_GLOVE)) | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
+		ts->touch_functions = ((ts->touch_functions &
+					(~SEC_TS_BIT_SETFUNC_GLOVE)) |
+				       SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: pwr off, glove:%d, status:%x\n", __func__,
-					mode, ts->touch_functions);
+		input_err(true, &ts->client->dev,
+			"%s: pwr off, glove:%d, status:%x\n", __func__,
+			mode, ts->touch_functions);
 		goto glove_enable_err;
 	}
 
-	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&ts->touch_functions, 2);
+	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
+			   (u8 *)&ts->touch_functions, 2);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Failed to send command", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: Failed to send command", __func__);
 		goto glove_enable_err;
 	}
 
-	input_info(true, &ts->client->dev, "%s: glove:%d, status:%x\n", __func__,
+	input_info(true, &ts->client->dev,
+		"%s: glove:%d, status:%x\n", __func__,
 		mode, ts->touch_functions);
 
 	return 0;
@@ -1994,7 +2168,8 @@ int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable)
 {
 	int ret;
 
-	input_info(true, &ts->client->dev, "%s: %d\n", __func__, ts->cover_type);
+	input_info(true, &ts->client->dev, "%s: %d\n",
+		   __func__, ts->cover_type);
 
 
 	switch (ts->cover_type) {
@@ -2014,37 +2189,49 @@ int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable)
 	case SEC_TS_COVER_NOTHING2:
 	default:
 		ts->cover_cmd = 0;
-		input_err(true, &ts->client->dev, "%s: not chage touch state, %d\n",
-				__func__, ts->cover_type);
+		input_err(true, &ts->client->dev,
+			 "%s: not chage touch state, %d\n",
+			__func__, ts->cover_type);
 		break;
 	}
 
 	if (enable)
-		ts->touch_functions = (ts->touch_functions | SEC_TS_BIT_SETFUNC_COVER | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
+		ts->touch_functions = (ts->touch_functions |
+				       SEC_TS_BIT_SETFUNC_COVER |
+				       SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
 	else
-		ts->touch_functions = ((ts->touch_functions & (~SEC_TS_BIT_SETFUNC_COVER)) | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
+		ts->touch_functions = ((ts->touch_functions &
+					(~SEC_TS_BIT_SETFUNC_COVER)) |
+				       SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: pwr off, close:%d, status:%x\n", __func__,
-					enable, ts->touch_functions);
+		input_err(true, &ts->client->dev,
+			  "%s: pwr off, close:%d, status:%x\n", __func__,
+			enable, ts->touch_functions);
 		goto cover_enable_err;
 	}
 
 	if (enable) {
-		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE, &ts->cover_cmd, 1);
+		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE,
+				   &ts->cover_cmd, 1);
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: Failed to send covertype command: %d", __func__, ts->cover_cmd);
+			input_err(true, &ts->client->dev,
+				  "%s: Failed to send covertype command: %d",
+				  __func__, ts->cover_cmd);
 			goto cover_enable_err;
 		}
 	}
 
-	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&(ts->touch_functions), 2);
+	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
+			   (u8 *)&(ts->touch_functions), 2);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Failed to send command", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: Failed to send command", __func__);
 		goto cover_enable_err;
 	}
 
-	input_info(true, &ts->client->dev, "%s: close:%d, status:%x\n", __func__,
+	input_info(true, &ts->client->dev,
+		"%s: close:%d, status:%x\n", __func__,
 		enable, ts->touch_functions);
 
 	return 0;
@@ -2060,8 +2247,10 @@ void sec_ts_set_grip_type(struct sec_ts_data *ts, u8 set_type)
 {
 	u8 mode = G_NONE;
 
-	input_info(true, &ts->client->dev, "%s: re-init grip(%d), edh:%d, edg:%d, lan:%d\n", __func__,
-		set_type, ts->grip_edgehandler_direction, ts->grip_edge_range, ts->grip_landscape_mode);
+	input_info(true, &ts->client->dev,
+		"%s: re-init grip(%d), edh:%d, edg:%d, lan:%d\n", __func__,
+		set_type, ts->grip_edgehandler_direction, ts->grip_edge_range,
+		ts->grip_landscape_mode);
 
 	/* edge handler */
 	if (ts->grip_edgehandler_direction != 0)
@@ -2084,22 +2273,29 @@ void sec_ts_set_grip_type(struct sec_ts_data *ts, u8 set_type)
 
 }
 
-/* for debugging--------------------------------------------------------------------------------------*/
+/* for debugging--------------------------------------------------------------*/
 
 static int sec_ts_pinctrl_configure(struct sec_ts_data *ts, bool enable)
 {
 	struct pinctrl_state *state;
 
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, enable ? "ACTIVE" : "SUSPEND");
+	input_info(true, &ts->client->dev, "%s: %s\n",
+		   __func__, enable ? "ACTIVE" : "SUSPEND");
 
 	if (enable) {
-		state = pinctrl_lookup_state(ts->plat_data->pinctrl, "on_state");
+		state = pinctrl_lookup_state(ts->plat_data->pinctrl,
+					     "on_state");
 		if (IS_ERR(ts->plat_data->pinctrl))
-			input_err(true, &ts->client->dev, "%s: could not get active pinstate\n", __func__);
+			input_err(true, &ts->client->dev,
+				"%s: could not get active pinstate\n",
+				__func__);
 	} else {
-		state = pinctrl_lookup_state(ts->plat_data->pinctrl, "off_state");
+		state = pinctrl_lookup_state(ts->plat_data->pinctrl,
+					     "off_state");
 		if (IS_ERR(ts->plat_data->pinctrl))
-			input_err(true, &ts->client->dev, "%s: could not get suspend pinstate\n", __func__);
+			input_err(true, &ts->client->dev,
+				"%s: could not get suspend pinstate\n",
+				__func__);
 	}
 
 	if (!IS_ERR_OR_NULL(state))
@@ -2219,46 +2415,59 @@ static int sec_ts_parse_dt(struct spi_device *client)
 
 	pdata->tsp_icid = of_get_named_gpio(np, "sec,tsp-icid_gpio", 0);
 	if (gpio_is_valid(pdata->tsp_icid)) {
-		input_info(true, dev, "%s: TSP_ICID : %d\n", __func__, gpio_get_value(pdata->tsp_icid));
-		if (of_property_read_u32(np, "sec,icid_match_value", &ic_match_value)) {
-			input_err(true, dev, "%s: Failed to get icid match value\n", __func__);
+		input_info(true, dev, "%s: TSP_ICID : %d\n",
+			   __func__, gpio_get_value(pdata->tsp_icid));
+		if (of_property_read_u32(np, "sec,icid_match_value",
+					 &ic_match_value)) {
+			input_err(true, dev,
+				"%s: Failed to get icid match value\n",
+				__func__);
 			return -EINVAL;
 		}
 
 		if (gpio_get_value(pdata->tsp_icid) != ic_match_value) {
-			input_err(true, dev, "%s: Do not match TSP_ICID\n", __func__);
+			input_err(true, dev,
+				  "%s: Do not match TSP_ICID\n", __func__);
 			return -EINVAL;
 		}
 	} else {
-		input_err(true, dev, "%s: Failed to get tsp-icid gpio\n", __func__);
+		input_err(true, dev,
+			  "%s: Failed to get tsp-icid gpio\n", __func__);
 	}
 
 	pdata->tsp_vsync = of_get_named_gpio(np, "sec,tsp_vsync_gpio", 0);
 	if (gpio_is_valid(pdata->tsp_vsync))
 		input_info(true, &client->dev, "%s: vsync %s\n", __func__,
-				gpio_get_value(pdata->tsp_vsync) ? "disable" : "enable");
+			gpio_get_value(pdata->tsp_vsync) ?
+				"disable" : "enable");
 
 	pdata->irq_gpio = of_get_named_gpio(np, "sec,irq_gpio", 0);
 	if (gpio_is_valid(pdata->irq_gpio)) {
-		ret = gpio_request_one(pdata->irq_gpio, GPIOF_DIR_IN, "sec,tsp_int");
+		ret = gpio_request_one(pdata->irq_gpio, GPIOF_DIR_IN,
+				       "sec,tsp_int");
 		if (ret) {
-			input_err(true, &client->dev, "%s: Unable to request tsp_int [%d]\n", __func__, pdata->irq_gpio);
+			input_err(true, &client->dev,
+				  "%s: Unable to request tsp_int [%d]\n",
+				  __func__, pdata->irq_gpio);
 			return -EINVAL;
 		}
 	} else {
-		input_err(true, &client->dev, "%s: Failed to get irq gpio\n", __func__);
+		input_err(true, &client->dev,
+			  "%s: Failed to get irq gpio\n", __func__);
 		return -EINVAL;
 	}
 
 	client->irq = gpio_to_irq(pdata->irq_gpio);
 
 	if (of_property_read_u32(np, "sec,irq_type", &pdata->irq_type)) {
-		input_err(true, dev, "%s: Failed to get irq_type property\n", __func__);
+		input_err(true, dev,
+			  "%s: Failed to get irq_type property\n", __func__);
 		pdata->irq_type = IRQF_TRIGGER_LOW | IRQF_ONESHOT;
 	}
 
 	if (of_property_read_u32(np, "sec,i2c-burstmax", &pdata->io_burstmax)) {
-		input_dbg(false, &client->dev, "%s: Failed to get io_burstmax property\n", __func__);
+		input_dbg(false, &client->dev,
+			  "%s: Failed to get io_burstmax property\n", __func__);
 		pdata->io_burstmax = 1024; //TODO: check this
 	}
 	if (pdata->io_burstmax > IO_PREALLOC_READ_BUF_SZ ||
@@ -2271,29 +2480,35 @@ static int sec_ts_parse_dt(struct spi_device *client)
 	}
 
 	if (of_property_read_u32_array(np, "sec,max_coords", coords, 2)) {
-		input_err(true, &client->dev, "%s: Failed to get max_coords property\n", __func__);
+		input_err(true, &client->dev,
+			  "%s: Failed to get max_coords property\n", __func__);
 		return -EINVAL;
 	}
 	pdata->max_x = coords[0] - 1;
 	pdata->max_y = coords[1] - 1;
 
 #ifdef PAT_CONTROL
-	if (of_property_read_u32(np, "sec,pat_function", &pdata->pat_function) < 0) {
+	if (of_property_read_u32(np, "sec,pat_function",
+				 &pdata->pat_function) < 0) {
 		pdata->pat_function = 0;
-		input_err(true, dev, "%s: Failed to get pat_function property\n", __func__);
+		input_err(true, dev,
+			"%s: Failed to get pat_function property\n", __func__);
 	}
 
 	if (of_property_read_u32(np, "sec,afe_base", &pdata->afe_base) < 0) {
 		pdata->afe_base = 0;
-		input_err(true, dev, "%s: Failed to get afe_base property\n", __func__);
+		input_err(true, dev,
+			  "%s: Failed to get afe_base property\n", __func__);
 	}
 #endif
 
 	pdata->tsp_id = of_get_named_gpio(np, "sec,tsp-id_gpio", 0);
 	if (gpio_is_valid(pdata->tsp_id))
-		input_info(true, dev, "%s: TSP_ID : %d\n", __func__, gpio_get_value(pdata->tsp_id));
+		input_info(true, dev, "%s: TSP_ID : %d\n", __func__,
+			   gpio_get_value(pdata->tsp_id));
 	else
-		input_err(true, dev, "%s: Failed to get tsp-id gpio\n", __func__);
+		input_err(true, dev,
+			  "%s: Failed to get tsp-id gpio\n", __func__);
 
 	pdata->switch_gpio = of_get_named_gpio(np,
 					       "sec,switch_gpio", 0);
@@ -2308,7 +2523,8 @@ static int sec_ts_parse_dt(struct spi_device *client)
 			return -EINVAL;
 		}
 
-		ret = gpio_direction_output(pdata->switch_gpio, SEC_SWITCH_GPIO_VALUE_AP_MASTER);
+		ret = gpio_direction_output(pdata->switch_gpio,
+					    SEC_SWITCH_GPIO_VALUE_AP_MASTER);
 		if (ret) {
 			input_err(true, dev,
 				  "%s: Failed to set gpio %d direction\n",
@@ -2331,11 +2547,11 @@ static int sec_ts_parse_dt(struct spi_device *client)
 				  __func__, pdata->reset_gpio, ret);
 			pdata->reset_gpio = -1;
 		}
-                //TODO: check this
+		//TODO: check this
 		ret = gpio_direction_output(pdata->reset_gpio, 1);
-                mdelay(10);
+		mdelay(10);
 		ret = gpio_direction_output(pdata->reset_gpio, 0);
-                mdelay(10);
+		mdelay(10);
 		ret = gpio_direction_output(pdata->reset_gpio, 1);
 
 	} else
@@ -2347,20 +2563,28 @@ static int sec_ts_parse_dt(struct spi_device *client)
 		pdata->firmware_name = NULL;
 	} else {
 		if (gpio_is_valid(pdata->tsp_id))
-			of_property_read_string_index(np, "sec,firmware_name", gpio_get_value(pdata->tsp_id), &pdata->firmware_name);
+			of_property_read_string_index(np, "sec,firmware_name",
+						gpio_get_value(pdata->tsp_id),
+						&pdata->firmware_name);
 		else
-			of_property_read_string_index(np, "sec,firmware_name", 0, &pdata->firmware_name);
+			of_property_read_string_index(np, "sec,firmware_name",
+						      0, &pdata->firmware_name);
 	}
 
-	if (of_property_read_string_index(np, "sec,project_name", 0, &pdata->project_name))
-		input_err(true, &client->dev, "%s: skipped to get project_name property\n", __func__);
-	if (of_property_read_string_index(np, "sec,project_name", 1, &pdata->model_name))
-		input_err(true, &client->dev, "%s: skipped to get model_name property\n", __func__);
+	if (of_property_read_string_index(np, "sec,project_name", 0,
+					  &pdata->project_name))
+		input_err(true, &client->dev,
+			"%s: skipped to get project_name property\n", __func__);
+	if (of_property_read_string_index(np, "sec,project_name",
+					  1, &pdata->model_name))
+		input_err(true, &client->dev,
+			  "%s: skipped to get model_name property\n", __func__);
 
 #if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
 	lcdtype = get_lcd_attached("GET");
 	if (lcdtype < 0) {
-		input_err(true, &client->dev, "%s: lcd is not attached\n", __func__);
+		input_err(true, &client->dev,
+			  "%s: lcd is not attached\n", __func__);
 		return -ENODEV;
 	}
 #endif
@@ -2373,7 +2597,8 @@ static int sec_ts_parse_dt(struct spi_device *client)
 	}
 
 	if (!connected) {
-		input_err(true, &client->dev, "%s: lcd is disconnected\n", __func__);
+		input_err(true, &client->dev,
+			  "%s: lcd is disconnected\n", __func__);
 		return -ENODEV;
 	}
 
@@ -2386,7 +2611,8 @@ static int sec_ts_parse_dt(struct spi_device *client)
 	}
 #endif
 
-	input_info(true, &client->dev, "%s: lcdtype 0x%08X\n", __func__, lcdtype);
+	input_info(true, &client->dev,
+		   "%s: lcdtype 0x%08X\n", __func__, lcdtype);
 
 	if (pdata->model_name && strncmp(pdata->model_name, "G950", 4) == 0)
 		pdata->panel_revision = 0;
@@ -2407,34 +2633,42 @@ static int sec_ts_parse_dt(struct spi_device *client)
 
 	pdata->power = sec_ts_power;
 
-	if (of_property_read_u32(np, "sec,always_lpmode", &pdata->always_lpmode) < 0)
+	if (of_property_read_u32(np, "sec,always_lpmode",
+				 &pdata->always_lpmode) < 0)
 		pdata->always_lpmode = 0;
 
 	if (of_property_read_u32(np, "sec,bringup", &pdata->bringup) < 0)
 		pdata->bringup = 0;
 
-	if (of_property_read_u32(np, "sec,mis_cal_check", &pdata->mis_cal_check) < 0)
+	if (of_property_read_u32(np, "sec,mis_cal_check",
+				 &pdata->mis_cal_check) < 0)
 		pdata->mis_cal_check = 0;
 
 	if (of_property_read_u32(np, "sec,heatmap_mode",
 		&pdata->heatmap_mode) < 0)
 		pdata->heatmap_mode = 0;
 
-	pdata->regulator_boot_on = of_property_read_bool(np, "sec,regulator_boot_on");
-	pdata->support_sidegesture = of_property_read_bool(np, "sec,support_sidegesture");
+	pdata->regulator_boot_on = of_property_read_bool(np,
+						"sec,regulator_boot_on");
+	pdata->support_sidegesture = of_property_read_bool(np,
+						"sec,support_sidegesture");
 	pdata->support_dex = of_property_read_bool(np, "support_dex_mode");
 
 	pdata->support_mt_pressure = true;
 
 #ifdef PAT_CONTROL
-	input_err(true, &client->dev, "%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, pat_function:%d mis_cal:%d dex:%d, gesture:%d\n",
-			__func__, pdata->io_burstmax, lcdtype, pdata->bringup, pdata->firmware_name,
-			count, pdata->tsp_id, pdata->tsp_icid, pdata->pat_function,
-			pdata->mis_cal_check, pdata->support_dex, pdata->support_sidegesture);
+	input_err(true, &client->dev,
+		"%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, pat_function:%d mis_cal:%d dex:%d, gesture:%d\n",
+		__func__, pdata->io_burstmax, lcdtype, pdata->bringup,
+		pdata->firmware_name, count, pdata->tsp_id, pdata->tsp_icid,
+		pdata->pat_function, pdata->mis_cal_check, pdata->support_dex,
+		pdata->support_sidegesture);
 #else
-	input_err(true, &client->dev, "%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, dex:%d, gesture:%d\n",
-		__func__, pdata->io_burstmax, lcdtype, pdata->bringup, pdata->firmware_name,
-		count, pdata->tsp_id, pdata->tsp_icid, pdata->support_dex, pdata->support_sidegesture);
+	input_err(true, &client->dev,
+		  "%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, dex:%d, gesture:%d\n",
+		  __func__, pdata->io_burstmax, lcdtype, pdata->bringup,
+		  pdata->firmware_name, count, pdata->tsp_id, pdata->tsp_icid,
+		  pdata->support_dex, pdata->support_sidegesture);
 #endif
 	return ret;
 }
@@ -2468,9 +2702,9 @@ int sec_ts_read_information(struct sec_ts_data *ts)
 	}
 
 	input_info(true, &ts->client->dev,
-				"%s: nTX:%X, nRX:%X, rY:%d, rX:%d\n",
-				__func__, data[8], data[9],
-				(data[2] << 8) | data[3], (data[0] << 8) | data[1]);
+		   "%s: nTX:%X, nRX:%X, rY:%d, rX:%d\n",
+		   __func__, data[8], data[9],
+		   (data[2] << 8) | data[3], (data[0] << 8) | data[1]);
 
 	/* Set X,Y Resolution from IC information. */
 	if (((data[0] << 8) | data[1]) > 0)
@@ -2505,13 +2739,14 @@ int sec_ts_read_information(struct sec_ts_data *ts)
 	}
 
 	input_info(true, &ts->client->dev,
-				"%s: TOUCH STATUS : %02X, %02X, %02X, %02X\n",
-				__func__, data[0], data[1], data[2], data[3]);
-	ret = sec_ts_read(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,  (u8 *)&(ts->touch_functions), 2);
+		   "%s: TOUCH STATUS : %02X, %02X, %02X, %02X\n",
+		   __func__, data[0], data[1], data[2], data[3]);
+	ret = sec_ts_read(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
+			  (u8 *)&(ts->touch_functions), 2);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-					"%s: failed to read touch functions(%d)\n",
-					__func__, ret);
+			"%s: failed to read touch functions(%d)\n",
+			__func__, ret);
 		goto out;
 	}
 
@@ -2537,11 +2772,13 @@ int sec_ts_set_custom_library(struct sec_ts_data *ts)
 
 	ret = sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM, &data[0], 3);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: Failed to Custom Library\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: Failed to Custom Library\n", __func__);
 
 	ret = sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: Failed to send NOTIFY Custom Library\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: Failed to send NOTIFY Custom Library\n", __func__);
 
 	return ret;
 }
@@ -2554,27 +2791,28 @@ int sec_ts_check_custom_library(struct sec_ts_data *ts)
 	ret = ts->sec_ts_read(ts, SEC_TS_CMD_CUSTOMLIB_GET_INFO, &data[0], 10);
 
 	input_info(true, &ts->client->dev,
-				"%s: (%d) %c%c%c%c, || %02X, %02X, %02X, %02X, || %02X, %02X\n",
-				__func__, ret, data[0], data[1], data[2], data[3], data[4],
-				data[5], data[6], data[7], data[8], data[9]);
+		"%s: (%d) %c%c%c%c, || %02X, %02X, %02X, %02X, || %02X, %02X\n",
+		__func__, ret, data[0], data[1], data[2], data[3], data[4],
+		data[5], data[6], data[7], data[8], data[9]);
 
 	/* compare model name with device tree */
 	if (ts->plat_data->model_name)
 		ret = strncmp(data, ts->plat_data->model_name, 4);
 
 	if (ret == 0)
-		ts->use_customlib= true;
+		ts->use_customlib = true;
 	else
-		ts->use_customlib= false;
+		ts->use_customlib = false;
 
 	input_err(true, &ts->client->dev, "%s: use %s\n",
-				__func__, ts->use_customlib? "CUSTOMLIB" : "VENDOR");
+		  __func__, ts->use_customlib ? "CUSTOMLIB" : "VENDOR");
 
 	return ret;
 }
 #endif
 
-static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev, u8 propbit)
+static void sec_ts_set_input_prop(struct sec_ts_data *ts,
+				  struct input_dev *dev, u8 propbit)
 {
 	static char sec_ts_phys[64] = { 0 };
 
@@ -2602,7 +2840,8 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 		int i;
 
 		for (i = 0 ; i < ts->plat_data->num_touchkey ; i++)
-			set_bit(ts->plat_data->touchkey[i].keycode, dev->keybit);
+			set_bit(ts->plat_data->touchkey[i].keycode,
+				dev->keybit);
 
 		set_bit(EV_LED, dev->evbit);
 		set_bit(LED_MISC, dev->ledbit);
@@ -2621,8 +2860,10 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 #ifdef SW_GLOVE
 	input_set_capability(dev, EV_SW, SW_GLOVE);
 #endif
-	input_set_abs_params(dev, ABS_MT_POSITION_X, 0, ts->plat_data->max_x, 0, 0);
-	input_set_abs_params(dev, ABS_MT_POSITION_Y, 0, ts->plat_data->max_y, 0, 0);
+	input_set_abs_params(dev, ABS_MT_POSITION_X, 0, ts->plat_data->max_x,
+			     0, 0);
+	input_set_abs_params(dev, ABS_MT_POSITION_Y, 0, ts->plat_data->max_y,
+			     0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
 #ifdef ABS_MT_CUSTOM
@@ -2633,9 +2874,11 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 				     SEC_TS_PRESSURE_MAX, 0, 0);
 
 	if (propbit == INPUT_PROP_POINTER)
-		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT, INPUT_MT_POINTER);
+		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT,
+				    INPUT_MT_POINTER);
 	else
-		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT, INPUT_MT_DIRECT);
+		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT,
+				    INPUT_MT_DIRECT);
 
 	input_set_drvdata(dev, ts);
 }
@@ -2651,7 +2894,8 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 
 	ret = sec_ts_read(ts, SEC_TS_READ_DEVICE_ID, deviceID, 5);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: failed to read device ID(%d)\n",
+		input_err(true, &ts->client->dev,
+			  "%s: failed to read device ID(%d)\n",
 			  __func__, ret);
 	else
 		input_info(true, &ts->client->dev,
@@ -2661,13 +2905,15 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 
 	ret = sec_ts_read(ts, SEC_TS_READ_FIRMWARE_INTEGRITY, &result, 1);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: failed to integrity check (%d)\n",
+		input_err(true, &ts->client->dev,
+			  "%s: failed to integrity check (%d)\n",
 			  __func__, ret);
 	} else {
 		if (result & 0x80)
 			valid_firmware_integrity = true;
 		else
-			input_err(true, &ts->client->dev, "%s: invalid integrity result (0x%x)\n",
+			input_err(true, &ts->client->dev,
+				  "%s: invalid integrity result (0x%x)\n",
 				  __func__, result);
 	}
 
@@ -2696,7 +2942,8 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 
 	ret = sec_ts_read_information(ts);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: fail to read information 0x%x\n",
+		input_err(true, &ts->client->dev,
+			  "%s: fail to read information 0x%x\n",
 			  __func__, ret);
 		return SEC_TS_ERR_INIT;
 	}
@@ -2705,13 +2952,15 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
 			       (u8 *)&ts->touch_functions, 2);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: Failed to send touch func_mode command",
+		input_err(true, &ts->client->dev,
+			  "%s: Failed to send touch func_mode command",
 			  __func__);
 
 	/* Sense_on */
 	ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: fail to write Sense_on 0x%x\n",
+		input_err(true, &ts->client->dev,
+			  "%s: fail to write Sense_on 0x%x\n",
 			  __func__, ret);
 		return SEC_TS_ERR_INIT;
 	}
@@ -2744,7 +2993,8 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 
 	ret = input_register_device(ts->input_dev);
 	if (ret) {
-		input_err(true, &ts->client->dev, "%s: Unable to register %s input device 0x%x\n",
+		input_err(true, &ts->client->dev,
+			  "%s: Unable to register %s input device 0x%x\n",
 			  __func__, ts->input_dev->name, ret);
 		return SEC_TS_ERR_REG_INPUT_DEV;
 	}
@@ -2752,7 +3002,8 @@ static int sec_ts_fw_init(struct sec_ts_data *ts)
 	if (ts->plat_data->support_dex) {
 		ret = input_register_device(ts->input_dev_pad);
 		if (ret) {
-			input_err(true, &ts->client->dev, "%s: Unable to register %s input device 0x%x\n",
+			input_err(true, &ts->client->dev,
+				  "%s: Unable to register %s input device 0x%x\n",
 				  __func__, ts->input_dev_pad->name, ret);
 			return SEC_TS_ERR_REG_INPUT_PAD_DEV;
 		}
@@ -2805,7 +3056,9 @@ static int sec_ts_probe(struct spi_device *client)
 				sizeof(struct sec_ts_plat_data), GFP_KERNEL);
 
 		if (!pdata) {
-			input_err(true, &client->dev, "%s: Failed to allocate platform data\n", __func__);
+			input_err(true, &client->dev,
+				"%s: Failed to allocate platform data\n",
+				__func__);
 			goto error_allocate_pdata;
 		}
 
@@ -2813,25 +3066,29 @@ static int sec_ts_probe(struct spi_device *client)
 
 		ret = sec_ts_parse_dt(client);
 		if (ret) {
-			input_err(true, &client->dev, "%s: Failed to parse dt\n", __func__);
+			input_err(true, &client->dev,
+				  "%s: Failed to parse dt\n", __func__);
 			goto error_allocate_mem;
 		}
 	} else {
 		pdata = client->dev.platform_data;
 		if (!pdata) {
-			input_err(true, &client->dev, "%s: No platform data found\n", __func__);
+			input_err(true, &client->dev,
+				  "%s: No platform data found\n", __func__);
 			goto error_allocate_pdata;
 		}
 	}
 
 	if (!pdata->power) {
-		input_err(true, &client->dev, "%s: No power contorl found\n", __func__);
+		input_err(true, &client->dev, "%s: No power contorl found\n",
+			  __func__);
 		goto error_allocate_mem;
 	}
 
 	pdata->pinctrl = devm_pinctrl_get(&client->dev);
 	if (IS_ERR(pdata->pinctrl))
-		input_err(true, &client->dev, "%s: could not get pinctrl\n", __func__);
+		input_err(true, &client->dev, "%s: could not get pinctrl\n",
+			  __func__);
 
 	ts = kzalloc(sizeof(struct sec_ts_data), GFP_KERNEL);
 	if (!ts)
@@ -2914,7 +3171,8 @@ static int sec_ts_probe(struct spi_device *client)
 
 	ts->input_dev = input_allocate_device();
 	if (!ts->input_dev) {
-		input_err(true, &ts->client->dev, "%s: allocate device err!\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: allocate device err!\n", __func__);
 		ret = -ENOMEM;
 		goto err_allocate_input_dev;
 	}
@@ -2922,7 +3180,8 @@ static int sec_ts_probe(struct spi_device *client)
 	if (ts->plat_data->support_dex) {
 		ts->input_dev_pad = input_allocate_device();
 		if (!ts->input_dev_pad) {
-			input_err(true, &ts->client->dev, "%s: allocate device err!\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: allocate device err!\n", __func__);
 			ret = -ENOMEM;
 			goto err_allocate_input_dev_pad;
 		}
@@ -3087,9 +3346,9 @@ static int sec_ts_probe(struct spi_device *client)
 
 	/* need to be enabled when new goto statement is added */
 /*
-	sec_ts_fn_remove(ts);
-	free_irq(client->irq, ts);
-*/
+ *	sec_ts_fn_remove(ts);
+ *	free_irq(client->irq, ts);
+ **/
 err_register_drm_client:
 	free_irq(client->irq, ts);
 err_heatmap:
@@ -3170,24 +3429,31 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 	for (i = 0; i < MAX_SUPPORT_TOUCH_COUNT; i++) {
 		input_mt_slot(ts->input_dev, i);
-		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, false);
+		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
+					   false);
 
 		if ((ts->coord[i].action == SEC_TS_COORDINATE_ACTION_PRESS) ||
-			(ts->coord[i].action == SEC_TS_COORDINATE_ACTION_MOVE)) {
+			(ts->coord[i].action ==
+			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 			input_info(true, &ts->client->dev,
-					"%s: [RA] tID:%d mc:%d tc:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d\n",
-					__func__, i, ts->coord[i].mcount, ts->touch_count,
-					ts->plat_data->img_version_of_ic[2],
-					ts->plat_data->img_version_of_ic[3],
-					ts->cal_status, ts->nv, ts->tspid_val,
-					ts->tspicid_val, ts->coord[i].palm_count);
+				"%s: [RA] tID:%d mc:%d tc:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d\n",
+				__func__, i,
+				ts->coord[i].mcount, ts->touch_count,
+				ts->plat_data->img_version_of_ic[2],
+				ts->plat_data->img_version_of_ic[3],
+				ts->cal_status, ts->nv, ts->tspid_val,
+				ts->tspicid_val, ts->coord[i].palm_count);
 
 			do_gettimeofday(&ts->time_released[i]);
-			
-			if (ts->time_longest < (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec))
-				ts->time_longest = (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec);
+
+			if (ts->time_longest <
+				(ts->time_released[i].tv_sec -
+				 ts->time_pressed[i].tv_sec))
+				ts->time_longest =
+					(ts->time_released[i].tv_sec -
+					 ts->time_pressed[i].tv_sec);
 		}
 
 		ts->coord[i].mcount = 0;
@@ -3225,24 +3491,32 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 
 	for (i = 0; i < MAX_SUPPORT_TOUCH_COUNT; i++) {
 		input_mt_slot(ts->input_dev, i);
-		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, false);
+		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
+					   false);
 
 		if ((ts->coord[i].action == SEC_TS_COORDINATE_ACTION_PRESS) ||
-			(ts->coord[i].action == SEC_TS_COORDINATE_ACTION_MOVE)) {
+			(ts->coord[i].action ==
+			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 			input_info(true, &ts->client->dev,
-					"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X|%X), id(%d,%d), p:%d\n",
-					__func__, i, ts->coord[i].mcount, ts->touch_count,
-					ts->plat_data->img_version_of_ic[2],
-					ts->plat_data->img_version_of_ic[3],
-					ts->cal_status, ts->nv, ts->cal_count, ts->tspid_val,
-					ts->tspicid_val, ts->coord[i].palm_count);
+				"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X|%X), id(%d,%d), p:%d\n",
+				__func__, i, ts->coord[i].mcount,
+				ts->touch_count,
+				ts->plat_data->img_version_of_ic[2],
+				ts->plat_data->img_version_of_ic[3],
+				ts->cal_status, ts->nv, ts->cal_count,
+				ts->tspid_val, ts->tspicid_val,
+				ts->coord[i].palm_count);
 
 			do_gettimeofday(&ts->time_released[i]);
 
-			if (ts->time_longest < (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec))
-				ts->time_longest = (ts->time_released[i].tv_sec - ts->time_pressed[i].tv_sec);
+			if (ts->time_longest <
+				(ts->time_released[i].tv_sec -
+				 ts->time_pressed[i].tv_sec))
+				ts->time_longest =
+					(ts->time_released[i].tv_sec -
+					 ts->time_pressed[i].tv_sec);
 		}
 
 		ts->coord[i].mcount = 0;
@@ -3293,27 +3567,36 @@ static void sec_ts_reset_work(struct work_struct *work)
 	sec_ts_start_device(ts);
 
 	if (ts->input_dev_touch->disabled) {
-		input_err(true, &ts->client->dev , "%s: call input_close\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: call input_close\n", __func__);
 
 		sec_ts_input_close(ts->input_dev);
 
-		if ((ts->lowpower_mode & SEC_TS_MODE_CUSTOMLIB_AOD) && ts->use_customlib) {
+		if ((ts->lowpower_mode & SEC_TS_MODE_CUSTOMLIB_AOD) &&
+		    ts->use_customlib) {
 			int i, ret;
 			u8 data[10] = {0x02, 0};
 
 			for (i = 0; i < 4; i++) {
 				data[i * 2 + 2] = ts->rect_data[i] & 0xFF;
-				data[i * 2 + 3] = (ts->rect_data[i] >> 8) & 0xFF;
+				data[i * 2 + 3] =
+						(ts->rect_data[i] >> 8) & 0xFF;
 			}
 
 			disable_irq(ts->client->irq);
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM, &data[0], 10);
+			ret = ts->sec_ts_write(ts,
+				SEC_TS_CMD_CUSTOMLIB_WRITE_PARAM, &data[0], 10);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: Failed to write offset\n", __func__);
+				input_err(true, &ts->client->dev,
+					"%s: Failed to write offset\n",
+					__func__);
 
-			ret = ts->sec_ts_write(ts, SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
+			ret = ts->sec_ts_write(ts,
+				SEC_TS_CMD_CUSTOMLIB_NOTIFY_PACKET, NULL, 0);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: Failed to send notify\n", __func__);
+				input_err(true, &ts->client->dev,
+					"%s: Failed to send notify\n",
+					__func__);
 			enable_irq(ts->client->irq);
 		}
 	}
@@ -3446,7 +3729,8 @@ int sec_ts_set_lowpowermode(struct sec_ts_data *ts, u8 mode)
 	char para = 0;
 
 	input_err(true, &ts->client->dev, "%s: %s(%X)\n", __func__,
-			mode == TO_LOWPOWER_MODE ? "ENTER" : "EXIT", ts->lowpower_mode);
+			mode == TO_LOWPOWER_MODE ? "ENTER" : "EXIT",
+			ts->lowpower_mode);
 
 	if (mode) {
 		#ifdef SEC_TS_SUPPORT_CUSTOMLIB
@@ -3455,9 +3739,11 @@ int sec_ts_set_lowpowermode(struct sec_ts_data *ts, u8 mode)
 		#endif
 
 		data = (ts->lowpower_mode & SEC_TS_MODE_LOWPOWER_FLAG) >> 1;
-		ret = sec_ts_write(ts, SEC_TS_CMD_WAKEUP_GESTURE_MODE, &data, 1);
+		ret = sec_ts_write(ts, SEC_TS_CMD_WAKEUP_GESTURE_MODE,
+				   &data, 1);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to set\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: Failed to set\n", __func__);
 	}
 
 retry_pmode:
@@ -3471,9 +3757,12 @@ retry_pmode:
 
 	ret = sec_ts_read(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: read power mode failed!\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: read power mode failed!\n", __func__);
 	else
-		input_info(true, &ts->client->dev, "%s: power mode - write(%d) read(%d)\n", __func__, mode, para);
+		input_info(true, &ts->client->dev,
+			   "%s: power mode - write(%d) read(%d)\n",
+			   __func__, mode, para);
 
 	if (mode != para) {
 		retrycnt++;
@@ -3483,7 +3772,8 @@ retry_pmode:
 
 	ret = sec_ts_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: write clear event failed\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write clear event failed\n", __func__);
 
 
 	sec_ts_locked_release_all_finger(ts);
@@ -3515,7 +3805,8 @@ static int sec_ts_input_open(struct input_dev *dev)
 
 	if (ts->lowpower_status) {
 #ifdef USE_RESET_EXIT_LPM
-		schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+		schedule_delayed_work(&ts->reset_work,
+				      msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #else
 		sec_ts_set_lowpowermode(ts, TO_TOUCH_MODE);
 #endif
@@ -3523,7 +3814,8 @@ static int sec_ts_input_open(struct input_dev *dev)
 	} else {
 		ret = sec_ts_start_device(ts);
 		if (ret < 0)
-			input_err(true, &ts->client->dev, "%s: Failed to start device\n", __func__);
+			input_err(true, &ts->client->dev,
+				  "%s: Failed to start device\n", __func__);
 	}
 
 	/* because edge and dead zone will recover soon */
@@ -3697,7 +3989,8 @@ int sec_ts_stop_device(struct sec_ts_data *ts)
 	mutex_lock(&ts->device_mutex);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: already power off\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: already power off\n", __func__);
 		goto out;
 	}
 
@@ -3729,7 +4022,8 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 	mutex_lock(&ts->device_mutex);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_ON) {
-		input_err(true, &ts->client->dev, "%s: already power on\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: already power on\n", __func__);
 		goto out;
 	}
 
@@ -3744,19 +4038,26 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 		ts->plat_data->enable_sync(true);
 
 	if (ts->flip_enable) {
-		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE, &ts->cover_cmd, 1);
+		ret = sec_ts_write(ts, SEC_TS_CMD_SET_COVERTYPE,
+				   &ts->cover_cmd, 1);
 
-		ts->touch_functions = ts->touch_functions | SEC_TS_BIT_SETFUNC_COVER;
+		ts->touch_functions = ts->touch_functions |
+				SEC_TS_BIT_SETFUNC_COVER;
 		input_info(true, &ts->client->dev,
-				"%s: cover cmd write type:%d, mode:%x, ret:%d", __func__, ts->touch_functions, ts->cover_cmd, ret);
+				"%s: cover cmd write type:%d, mode:%x, ret:%d",
+				__func__, ts->touch_functions,
+				ts->cover_cmd, ret);
 	} else {
-		ts->touch_functions = (ts->touch_functions & (~SEC_TS_BIT_SETFUNC_COVER));
+		ts->touch_functions = (ts->touch_functions &
+				       (~SEC_TS_BIT_SETFUNC_COVER));
 		input_info(true, &ts->client->dev,
 			"%s: cover open, not send cmd", __func__);
 	}
 
-	ts->touch_functions = ts->touch_functions | SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC;
-	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, (u8 *)&ts->touch_functions, 2);
+	ts->touch_functions = ts->touch_functions |
+				SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC;
+	ret = sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHFUNCTION,
+			   (u8 *)&ts->touch_functions, 2);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 			"%s: Failed to send touch function command", __func__);
@@ -3769,33 +4070,41 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 	sec_ts_set_grip_type(ts, ONLY_EDGE_HANDLER);
 
 	if (ts->dex_mode) {
-		input_info(true, &ts->client->dev, "%s: set dex mode\n", __func__);
-		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_DEX_MODE, &ts->dex_mode, 1);
+		input_info(true, &ts->client->dev,
+			   "%s: set dex mode\n", __func__);
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_DEX_MODE,
+				       &ts->dex_mode, 1);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
-				"%s: failed to set dex mode %x\n", __func__, ts->dex_mode);
+				"%s: failed to set dex mode %x\n",
+				__func__, ts->dex_mode);
 	}
 
 	if (ts->brush_mode) {
-		input_info(true, &ts->client->dev, "%s: set brush mode\n", __func__);
-		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_BRUSH_MODE, &ts->brush_mode, 1);
+		input_info(true, &ts->client->dev,
+			   "%s: set brush mode\n", __func__);
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_BRUSH_MODE,
+				       &ts->brush_mode, 1);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
-						"%s: failed to set brush mode\n", __func__);
+				"%s: failed to set brush mode\n", __func__);
 	}
 
 	if (ts->touchable_area) {
-		input_info(true, &ts->client->dev, "%s: set 16:9 mode\n", __func__);
-		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHABLE_AREA, &ts->touchable_area, 1);
+		input_info(true, &ts->client->dev,
+			   "%s: set 16:9 mode\n", __func__);
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_TOUCHABLE_AREA,
+				       &ts->touchable_area, 1);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
-						"%s: failed to set 16:9 mode\n", __func__);
+				"%s: failed to set 16:9 mode\n", __func__);
 	}
 
 	/* Sense_on */
 	ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
 	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: fail to write Sense_on\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: fail to write Sense_on\n", __func__);
 
 	enable_irq(ts->client->irq);
 

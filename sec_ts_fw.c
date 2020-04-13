@@ -55,33 +55,40 @@ static int sec_ts_enter_fw_mode(struct sec_ts_data *ts)
 	u8 fw_status;
 	u8 id[3];
 
-	ret = ts->sec_ts_write(ts, SEC_TS_CMD_ENTER_FW_MODE, fw_update_mode_passwd, sizeof(fw_update_mode_passwd));
+	ret = ts->sec_ts_write(ts, SEC_TS_CMD_ENTER_FW_MODE,
+			fw_update_mode_passwd, sizeof(fw_update_mode_passwd));
 	sec_ts_delay(20);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: write fail, enter_fw_mode\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write fail, enter_fw_mode\n", __func__);
 		return 0;
 	}
 
 	input_info(true, &ts->client->dev, "%s: write ok, enter_fw_mode - 0x%x 0x%x 0x%x\n",
-		__func__, SEC_TS_CMD_ENTER_FW_MODE, fw_update_mode_passwd[0], fw_update_mode_passwd[1]);
+		__func__, SEC_TS_CMD_ENTER_FW_MODE, fw_update_mode_passwd[0],
+		fw_update_mode_passwd[1]);
 
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_BOOT_STATUS, &fw_status, 1);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read fail, read_boot_status\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: read fail, read_boot_status\n", __func__);
 		return 0;
 	}
 	if (fw_status != SEC_TS_STATUS_BOOT_MODE) {
-		input_err(true, &ts->client->dev, "%s: enter fail! read_boot_status = 0x%x\n", __func__, fw_status);
+		input_err(true, &ts->client->dev, "%s: enter fail! read_boot_status = 0x%x\n",
+			  __func__, fw_status);
 		return 0;
 	}
 
-	input_info(true, &ts->client->dev, "%s: Success! read_boot_status = 0x%x\n", __func__, fw_status);
+	input_info(true, &ts->client->dev, "%s: Success! read_boot_status = 0x%x\n",
+		   __func__, fw_status);
 
 	sec_ts_delay(10);
 
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_ID, id, 3);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read id fail\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: read id fail\n", __func__);
 		return 0;
 	}
 
@@ -91,7 +98,8 @@ static int sec_ts_enter_fw_mode(struct sec_ts_data *ts)
 
 	ts->flash_page_size = SEC_TS_FW_BLK_SIZE_DEFAULT;
 
-	input_info(true, &ts->client->dev, "%s: read_boot_id = %02X%02X%02X\n", __func__, id[0], id[1], id[2]);
+	input_info(true, &ts->client->dev, "%s: read_boot_id = %02X%02X%02X\n",
+		   __func__, id[0], id[1], id[2]);
 
 	return 1;
 }
@@ -125,7 +133,8 @@ int sec_ts_sw_reset(struct sec_ts_data *ts)
 
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SW_RESET, NULL, 0);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: write fail, sw_reset\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write fail, sw_reset\n", __func__);
 		return 0;
 	}
 
@@ -143,7 +152,8 @@ int sec_ts_sw_reset(struct sec_ts_data *ts)
 	/* Sense_on */
 	ret = ts->sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: write fail, Sense_on\n", __func__);
+		input_err(true, &ts->client->dev,
+			  "%s: write fail, Sense_on\n", __func__);
 		return 0;
 	}
 
@@ -237,36 +247,52 @@ err_system_reset:
 	return ret;
 }
 
-static void sec_ts_save_version_of_bin(struct sec_ts_data *ts, const fw_header *fw_hd)
+static void sec_ts_save_version_of_bin(struct sec_ts_data *ts,
+				       const fw_header *fw_hd)
 {
-	ts->plat_data->img_version_of_bin[3] = ((fw_hd->img_ver >> 24) & 0xff);
-	ts->plat_data->img_version_of_bin[2] = ((fw_hd->img_ver >> 16) & 0xff);
-	ts->plat_data->img_version_of_bin[1] = ((fw_hd->img_ver >> 8) & 0xff);
-	ts->plat_data->img_version_of_bin[0] = ((fw_hd->img_ver >> 0) & 0xff);
+	ts->plat_data->img_version_of_bin[3] =
+			((fw_hd->img_ver >> 24) & 0xff);
+	ts->plat_data->img_version_of_bin[2] =
+			((fw_hd->img_ver >> 16) & 0xff);
+	ts->plat_data->img_version_of_bin[1] =
+			((fw_hd->img_ver >> 8) & 0xff);
+	ts->plat_data->img_version_of_bin[0] =
+			((fw_hd->img_ver >> 0) & 0xff);
 
-	ts->plat_data->core_version_of_bin[3] = ((fw_hd->fw_ver >> 24) & 0xff);
-	ts->plat_data->core_version_of_bin[2] = ((fw_hd->fw_ver >> 16) & 0xff);
-	ts->plat_data->core_version_of_bin[1] = ((fw_hd->fw_ver >> 8) & 0xff);
-	ts->plat_data->core_version_of_bin[0] = ((fw_hd->fw_ver >> 0) & 0xff);
+	ts->plat_data->core_version_of_bin[3] =
+			((fw_hd->fw_ver >> 24) & 0xff);
+	ts->plat_data->core_version_of_bin[2] =
+			((fw_hd->fw_ver >> 16) & 0xff);
+	ts->plat_data->core_version_of_bin[1] =
+			((fw_hd->fw_ver >> 8) & 0xff);
+	ts->plat_data->core_version_of_bin[0] =
+			((fw_hd->fw_ver >> 0) & 0xff);
 
-	ts->plat_data->config_version_of_bin[3] = ((fw_hd->para_ver >> 24) & 0xff);
-	ts->plat_data->config_version_of_bin[2] = ((fw_hd->para_ver >> 16) & 0xff);
-	ts->plat_data->config_version_of_bin[1] = ((fw_hd->para_ver >> 8) & 0xff);
-	ts->plat_data->config_version_of_bin[0] = ((fw_hd->para_ver >> 0) & 0xff);
+	ts->plat_data->config_version_of_bin[3] =
+			((fw_hd->para_ver >> 24) & 0xff);
+	ts->plat_data->config_version_of_bin[2] =
+			((fw_hd->para_ver >> 16) & 0xff);
+	ts->plat_data->config_version_of_bin[1] =
+			((fw_hd->para_ver >> 8) & 0xff);
+	ts->plat_data->config_version_of_bin[0] =
+			((fw_hd->para_ver >> 0) & 0xff);
 
-	input_info(true, &ts->client->dev, "%s: img_ver of bin = %x.%x.%x.%x\n", __func__,
+	input_info(true, &ts->client->dev, "%s: img_ver of bin = %x.%x.%x.%x\n",
+			__func__,
 			ts->plat_data->img_version_of_bin[0],
 			ts->plat_data->img_version_of_bin[1],
 			ts->plat_data->img_version_of_bin[2],
 			ts->plat_data->img_version_of_bin[3]);
 
-	input_info(true, &ts->client->dev, "%s: core_ver of bin = %x.%x.%x.%x\n", __func__,
+	input_info(true, &ts->client->dev, "%s: core_ver of bin = %x.%x.%x.%x\n",
+			__func__,
 			ts->plat_data->core_version_of_bin[0],
 			ts->plat_data->core_version_of_bin[1],
 			ts->plat_data->core_version_of_bin[2],
 			ts->plat_data->core_version_of_bin[3]);
 
-	input_info(true, &ts->client->dev, "%s: config_ver of bin = %x.%x.%x.%x\n", __func__,
+	input_info(true, &ts->client->dev, "%s: config_ver of bin = %x.%x.%x.%x\n",
+			__func__,
 			ts->plat_data->config_version_of_bin[0],
 			ts->plat_data->config_version_of_bin[1],
 			ts->plat_data->config_version_of_bin[2],
@@ -283,11 +309,13 @@ static int sec_ts_save_version_of_ic(struct sec_ts_data *ts)
 	/* Image ver */
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_IMG_VERSION, img_ver, 4);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Image version read error\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: Image version read error\n", __func__);
 		return -EIO;
 	}
-	input_info(true, &ts->client->dev, "%s: IC Image version info : %x.%x.%x.%x\n",
-					__func__, img_ver[0], img_ver[1], img_ver[2], img_ver[3]);
+	input_info(true, &ts->client->dev,
+		"%s: IC Image version info : %x.%x.%x.%x\n",
+		__func__, img_ver[0], img_ver[1], img_ver[2], img_ver[3]);
 
 	ts->plat_data->img_version_of_ic[0] = img_ver[0];
 	ts->plat_data->img_version_of_ic[1] = img_ver[1];
@@ -297,11 +325,13 @@ static int sec_ts_save_version_of_ic(struct sec_ts_data *ts)
 	/* Core ver */
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_FW_VERSION, core_ver, 4);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: core version read error\n", __func__);
+		input_err(true, &ts->client->dev,
+			"%s: core version read error\n", __func__);
 		return -EIO;
 	}
-	input_info(true, &ts->client->dev, "%s: IC Core version info : %x.%x.%x.%x,\n",
-					__func__, core_ver[0], core_ver[1], core_ver[2], core_ver[3]);
+	input_info(true, &ts->client->dev,
+		"%s: IC Core version info : %x.%x.%x.%x,\n",
+		__func__, core_ver[0], core_ver[1], core_ver[2], core_ver[3]);
 
 	ts->plat_data->core_version_of_ic[0] = core_ver[0];
 	ts->plat_data->core_version_of_ic[1] = core_ver[1];
@@ -311,11 +341,14 @@ static int sec_ts_save_version_of_ic(struct sec_ts_data *ts)
 	/* Config ver */
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_PARA_VERSION, config_ver, 4);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: config version read error\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: config version read error\n", __func__);
 		return -EIO;
 	}
-	input_info(true, &ts->client->dev, "%s: IC config version info : %x.%x.%x.%x\n",
-					__func__, config_ver[0], config_ver[1], config_ver[2], config_ver[3]);
+	input_info(true, &ts->client->dev,
+			"%s: IC config version info : %x.%x.%x.%x\n",
+			__func__, config_ver[0], config_ver[1],
+			config_ver[2], config_ver[3]);
 
 	ts->plat_data->config_version_of_ic[0] = config_ver[0];
 	ts->plat_data->config_version_of_ic[1] = config_ver[1];
@@ -325,7 +358,8 @@ static int sec_ts_save_version_of_ic(struct sec_ts_data *ts)
 	return 1;
 }
 
-static int sec_ts_check_firmware_version(struct sec_ts_data *ts, const u8 *fw_info)
+static int sec_ts_check_firmware_version(struct sec_ts_data *ts,
+					 const u8 *fw_info)
 {
 	fw_header *fw_hd;
 	u8 buff[1];
@@ -345,20 +379,21 @@ static int sec_ts_check_firmware_version(struct sec_ts_data *ts, const u8 *fw_in
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_BOOT_STATUS, buff, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-					"%s: fail to read BootStatus\n", __func__);
+				"%s: fail to read BootStatus\n", __func__);
 		return -EIO;
 	}
 
 	if (buff[0] == SEC_TS_STATUS_BOOT_MODE) {
 		input_err(true, &ts->client->dev,
-					"%s: ReadBootStatus = 0x%x, Firmware download Start!\n",
-					__func__, buff[0]);
+				"%s: ReadBootStatus = 0x%x, Firmware download Start!\n",
+				__func__, buff[0]);
 		return 1;
 	}
 
 	ret = sec_ts_save_version_of_ic(ts);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: fail to read ic version\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: fail to read ic version\n", __func__);
 		return -EIO;
 	}
 
@@ -367,8 +402,10 @@ static int sec_ts_check_firmware_version(struct sec_ts_data *ts, const u8 *fw_in
 	 * ver[1] : Project version
 	 */
 	for (i = 0; i < 2; i++) {
-		if (ts->plat_data->img_version_of_ic[i] != ts->plat_data->img_version_of_bin[i]) {
-			input_err(true, &ts->client->dev, "%s: do not matched version info\n", __func__);
+		if (ts->plat_data->img_version_of_ic[i] !=
+			ts->plat_data->img_version_of_bin[i]) {
+			input_err(true, &ts->client->dev,
+				"%s: do not matched version info\n", __func__);
 			return 0;
 		}
 	}
@@ -393,7 +430,8 @@ static u8 sec_ts_checksum(u8 *data, int offset, int size)
 	return checksum;
 }
 
-static int sec_ts_flashpageerase(struct sec_ts_data *ts, u32 page_idx, u32 page_num)
+static int sec_ts_flashpageerase(struct sec_ts_data *ts, u32 page_idx,
+				 u32 page_num)
 {
 	int ret;
 	u8 tCmd[6];
@@ -410,7 +448,8 @@ static int sec_ts_flashpageerase(struct sec_ts_data *ts, u32 page_idx, u32 page_
 	return ret;
 }
 
-static int sec_ts_flashpagewrite(struct sec_ts_data *ts, u32 page_idx, u8 *page_data)
+static int sec_ts_flashpagewrite(struct sec_ts_data *ts, u32 page_idx,
+				 u8 *page_data)
 {
 	int ret;
 	u8 tCmd[1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1];
@@ -421,13 +460,15 @@ static int sec_ts_flashpagewrite(struct sec_ts_data *ts, u32 page_idx, u8 *page_
 	tCmd[2] = (u8)((page_idx >> 0) & 0xFF);
 
 	memcpy(&tCmd[3], page_data, flash_page_size);
-	tCmd[1 + 2 + flash_page_size] = sec_ts_checksum(tCmd, 1, 2 + flash_page_size);
+	tCmd[1 + 2 + flash_page_size] = sec_ts_checksum(tCmd, 1,
+							2 + flash_page_size);
 
 	ret = ts->sec_ts_write_burst(ts, tCmd, 1 + 2 + flash_page_size + 1);
 	return ret;
 }
 
-static bool sec_ts_limited_flashpagewrite(struct sec_ts_data *ts, u32 page_idx, u8 *page_data)
+static bool sec_ts_limited_flashpagewrite(struct sec_ts_data *ts,
+						u32 page_idx, u8 *page_data)
 {
 	int ret = 0;
 	u8 *tCmd;
@@ -441,7 +482,8 @@ static bool sec_ts_limited_flashpagewrite(struct sec_ts_data *ts, u32 page_idx, 
 	copy_data[1] = (u8)((page_idx >> 0) & 0xFF);	/* addL */
 
 	memcpy(&copy_data[2], page_data, flash_page_size);	/* DATA */
-	copy_data[2 + flash_page_size] = sec_ts_checksum(copy_data, 0, 2 + flash_page_size);	/* CS */
+	copy_data[2 + flash_page_size] =
+		sec_ts_checksum(copy_data, 0, 2 + flash_page_size);	/* CS */
 
 	while (copy_left > 0) {
 		int copy_cur = (copy_left > copy_max) ? copy_max : copy_left;
@@ -460,7 +502,7 @@ static bool sec_ts_limited_flashpagewrite(struct sec_ts_data *ts, u32 page_idx, 
 		ret = ts->sec_ts_write_burst_heap(ts, tCmd, 1 + copy_cur);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
-						"%s: failed, ret:%d\n", __func__, ret);
+					"%s: failed, ret:%d\n", __func__, ret);
 
 		copy_size += copy_cur;
 		copy_left -= copy_cur;
@@ -475,7 +517,8 @@ err_write:
 
 }
 
-static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data, u32 mem_size, int retry)
+static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr,
+				u8 *mem_data, u32 mem_size, int retry)
 {
 	int ret;
 	u32 page_idx;
@@ -497,8 +540,8 @@ static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 	ret = sec_ts_flashpageerase(ts, page_idx_start, page_num);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-					"%s: fw erase failed, mem_addr= %08X, pagenum = %d\n",
-					__func__, mem_addr, page_num);
+				"%s: fw erase failed, mem_addr= %08X, pagenum = %d\n",
+				__func__, mem_addr, page_num);
 		return -EIO;
 	}
 
@@ -511,34 +554,47 @@ static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 	memset(page_buf, 0, flash_page_size);
 
 	for (page_idx = page_num - 1;; page_idx--) {
-		memcpy(page_buf, mem_data + (page_idx * flash_page_size), size_copy);
+		memcpy(page_buf, mem_data + (page_idx * flash_page_size),
+			size_copy);
 		if (ts->boot_ver[0] == 0xB2) {
-			ret = sec_ts_flashpagewrite(ts, (page_idx + page_idx_start), page_buf);
+			ret = sec_ts_flashpagewrite(ts,
+					(page_idx + page_idx_start), page_buf);
 			if (ret < 0) {
-				input_err(true, &ts->client->dev, "%s: fw write failed, page_idx = %u\n", __func__, page_idx);
+				input_err(true, &ts->client->dev,
+					"%s: fw write failed, page_idx = %u\n",
+					__func__, page_idx);
 				goto err;
 			}
 
 			if (retry) {
 				sec_ts_delay(50);
-				ret = sec_ts_flashpagewrite(ts, (page_idx + page_idx_start), page_buf);				
+				ret = sec_ts_flashpagewrite(ts,
+					(page_idx + page_idx_start), page_buf);
 				if (ret < 0) {
-					input_err(true, &ts->client->dev, "%s: fw write failed, page_idx = %u\n", __func__, page_idx);
+					input_err(true, &ts->client->dev,
+						"%s: fw write failed, page_idx = %u\n",
+						__func__, page_idx);
 					goto err;
 				}
 			}
 		} else {
-			ret = sec_ts_limited_flashpagewrite(ts, (page_idx + page_idx_start), page_buf);
+			ret = sec_ts_limited_flashpagewrite(ts,
+					(page_idx + page_idx_start), page_buf);
 			if (ret < 0) {
-				input_err(true, &ts->client->dev, "%s: fw write failed, page_idx = %u\n", __func__, page_idx);
+				input_err(true, &ts->client->dev,
+					"%s: fw write failed, page_idx = %u\n",
+					__func__, page_idx);
 				goto err;
 			}
 
 			if (retry) {
 				sec_ts_delay(50);
-				ret = sec_ts_limited_flashpagewrite(ts, (page_idx + page_idx_start), page_buf);
+				ret = sec_ts_limited_flashpagewrite(ts,
+					(page_idx + page_idx_start), page_buf);
 				if (ret < 0) {
-					input_err(true, &ts->client->dev, "%s: fw write failed, page_idx = %u\n", __func__, page_idx);
+					input_err(true, &ts->client->dev,
+						"%s: fw write failed, page_idx = %u\n",
+						__func__, page_idx);
 					goto err;
 				}
 			}
@@ -548,7 +604,9 @@ static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 		size_copy = flash_page_size;
 		sec_ts_delay(5);
 
-		if (page_idx == 0) /* end condition (page_idx >= 0)   page_idx type unsinged int */
+		/* end condition (page_idx >= 0) page_idx type unsigned int
+		 **/
+		if (page_idx == 0)
 			break;
 	}
 
@@ -558,7 +616,8 @@ err:
 }
 
 #if SEC_TS_ENABLE_FW_VERIFY
-static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_size, u8 *buf)
+static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr,
+				int mem_size, u8 *buf)
 {
 	int ret;
 	u8 cmd[5];
@@ -566,7 +625,7 @@ static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_
 
 	if (mem_size >= 64 * 1024) {
 		input_err(true, &ts->client->dev,
-					"%s: mem size over 64K\n", __func__);
+				"%s: mem size over 64K\n", __func__);
 		return -EIO;
 	}
 
@@ -579,7 +638,7 @@ static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_
 	ret = ts->sec_ts_write_burst(ts, cmd, 5);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-					"%s: send command failed, %02X\n", __func__, cmd[0]);
+			"%s: send command failed, %02X\n", __func__, cmd[0]);
 		return -EIO;
 	}
 
@@ -590,7 +649,9 @@ static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_
 
 	ret = ts->sec_ts_write_burst(ts, cmd, 3);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: send command failed, %02X\n", __func__, cmd[0]);
+		input_err(true, &ts->client->dev,
+				"%s: send command failed, %02X\n",
+				__func__, cmd[0]);
 		return -EIO;
 	}
 
@@ -602,17 +663,19 @@ static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr, int mem_
 
 	ret = ts->sec_ts_read_heap(ts, cmd[0], data, mem_size);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: memory read failed\n", __func__);
+		input_err(true, &ts->client->dev, "%s: memory read failed\n",
+				__func__);
 		return -EIO;
 	}
 /*
-	ret = ts->sec_ts_write(ts, cmd[0], NULL, 0);
-	ret = ts->sec_ts_read_bulk_heap(ts, data, mem_size);
-*/
+ *	ret = ts->sec_ts_write(ts, cmd[0], NULL, 0);
+ *	ret = ts->sec_ts_read_bulk_heap(ts, data, mem_size);
+ **/
 	return 0;
 }
 
-static int sec_ts_memoryread(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data, u32 mem_size)
+static int sec_ts_memoryread(struct sec_ts_data *ts, u32 mem_addr,
+				u8 *mem_data, u32 mem_size)
 {
 	int ret;
 	int retry = 3;
@@ -633,11 +696,12 @@ static int sec_ts_memoryread(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 		unit_size = (read_left > max_size) ? max_size : read_left;
 		retry = 3;
 		do {
-			ret = sec_ts_memoryblockread(ts, mem_addr, unit_size, tmp_data);
+			ret = sec_ts_memoryblockread(ts, mem_addr, unit_size,
+							tmp_data);
 			if (retry-- == 0) {
 				input_err(true, &ts->client->dev,
-							"%s: fw read fail mem_addr=%08X,unit_size=%d\n",
-							__func__, mem_addr, unit_size);
+						"%s: fw read fail mem_addr=%08X,unit_size=%d\n",
+						__func__, mem_addr, unit_size);
 				kfree(tmp_data);
 				return -1;
 			}
@@ -656,7 +720,8 @@ static int sec_ts_memoryread(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 }
 #endif
 
-static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *data, int retry)
+static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr,
+				u32 size, u8 *data, int retry)
 {
 	u32 fw_size;
 	u32 write_size;
@@ -667,14 +732,17 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 
 	write_size = sec_ts_flashwrite(ts, addr, data, fw_size, retry);
 	if (write_size != fw_size) {
-		input_err(true, &ts->client->dev, "%s: fw write failed, write_size %d != fw_size %d\n", __func__, write_size, fw_size);
+		input_err(true, &ts->client->dev,
+				"%s: fw write failed, write_size %d != fw_size %d\n",
+				__func__, write_size, fw_size);
 		ret = -1;
 		goto err_write_fail;
 	}
 
 	mem_rb = vzalloc(fw_size);
 	if (!mem_rb) {
-		input_err(true, &ts->client->dev, "%s: vzalloc failed\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: vzalloc failed\n", __func__);
 		ret = -1;
 		goto err_write_fail;
 	}
@@ -685,13 +753,17 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 
 		for (ii = 0; ii < fw_size; ii++) {
 			if (data[ii] != mem_rb[ii]) {
-				input_info(true, &ts->client->dev, "%s: data = %X, mem_rb = %X, ii = %d\n", __func__, data[ii], mem_rb[ii], ii);
+				input_info(true, &ts->client->dev,
+					"%s: data = %X, mem_rb = %X, ii = %d\n",
+					__func__, data[ii], mem_rb[ii], ii);
 				break;
-                        }
+			}
 		}
 
 		if (fw_size != ii) {
-			input_err(true, &ts->client->dev, "%s: fw verify fail, fw_size %d != ii %d\n", __func__, fw_size, ii);
+			input_err(true, &ts->client->dev,
+					"%s: fw verify fail, fw_size %d != ii %d\n",
+					__func__, fw_size, ii);
 			ret = -1;
 			goto out;
 		}
@@ -700,7 +772,8 @@ static int sec_ts_chunk_update(struct sec_ts_data *ts, u32 addr, u32 size, u8 *d
 		goto out;
 	}
 
-	input_info(true, &ts->client->dev, "%s: verify done(%d)\n", __func__, ret);
+	input_info(true, &ts->client->dev, "%s: verify done(%d)\n",
+			__func__, ret);
 
 out:
 #endif
@@ -711,7 +784,8 @@ err_write_fail:
 	return ret;
 }
 
-static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data, size_t size, int bl_update, int restore_cal, int retry)
+static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data,
+			size_t size, int bl_update, int restore_cal, int retry)
 {
 	int i;
 	int ret;
@@ -730,41 +804,54 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data, size_t
 	 * Enter Firmware Update Mode
 	 */
 	if (!sec_ts_enter_fw_mode(ts)) {
-		input_err(true, &ts->client->dev, "%s: firmware mode failed\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: firmware mode failed\n", __func__);
 		return -1;
 	}
 
 	if (bl_update && (ts->boot_ver[0] == 0xB4)) {
-		input_info(true, &ts->client->dev, "%s: bootloader is up to date\n", __func__);
+		input_info(true, &ts->client->dev,
+				"%s: bootloader is up to date\n", __func__);
 		return 0;
 	}
 
-	input_info(true, &ts->client->dev, "%s: firmware update retry :%d\n", __func__, retry);
+	input_info(true, &ts->client->dev,
+			"%s: firmware update retry :%d\n", __func__, retry);
 
 	fw_hd = (fw_header *)fd;
 	fd += sizeof(fw_header);
 
 	if (fw_hd->signature != SEC_TS_FW_HEADER_SIGN) {
-		input_err(true, &ts->client->dev, "%s: firmware header error = %08X\n", __func__, fw_hd->signature);
+		input_err(true, &ts->client->dev,
+				"%s: firmware header error = %08X\n",
+				__func__, fw_hd->signature);
 		return -1;
 	}
 
-	input_err(true, &ts->client->dev, "%s: num_chunk : %d\n", __func__, fw_hd->num_chunk);
+	input_err(true, &ts->client->dev, "%s: num_chunk : %d\n",
+			__func__, fw_hd->num_chunk);
 
 	for (i = 0; i < fw_hd->num_chunk; i++) {
 		fw_ch = (fw_chunk *)fd;
 
-		input_err(true, &ts->client->dev, "%s: [%d] 0x%08X, 0x%08X, 0x%08X, 0x%08X\n", __func__, i,
-				fw_ch->signature, fw_ch->addr, fw_ch->size, fw_ch->reserved);
+		input_err(true, &ts->client->dev,
+				"%s: [%d] 0x%08X, 0x%08X, 0x%08X, 0x%08X\n",
+				__func__, i, fw_ch->signature, fw_ch->addr,
+				fw_ch->size, fw_ch->reserved);
 
 		if (fw_ch->signature != SEC_TS_FW_CHUNK_SIGN) {
-			input_err(true, &ts->client->dev, "%s: firmware chunk error = %08X\n", __func__, fw_ch->signature);
+			input_err(true, &ts->client->dev,
+					"%s: firmware chunk error = %08X\n",
+					__func__, fw_ch->signature);
 			return -1;
 		}
 		fd += sizeof(fw_chunk);
-		ret = sec_ts_chunk_update(ts, fw_ch->addr, fw_ch->size, fd, retry);
+		ret = sec_ts_chunk_update(ts, fw_ch->addr, fw_ch->size, fd,
+						retry);
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: firmware chunk write failed, addr=%08X, size = %d\n", __func__, fw_ch->addr, fw_ch->size);
+			input_err(true, &ts->client->dev,
+					"%s: firmware chunk write failed, addr=%08X, size = %d\n",
+					__func__, fw_ch->addr, fw_ch->size);
 			return -1;
 		}
 		fd += fw_ch->size;
@@ -774,88 +861,125 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data, size_t
 
 #ifdef PAT_CONTROL
 	if (restore_cal) {
-		if(ts->plat_data->pat_function == PAT_CONTROL_PAT_MAGIC) {
-			/* NOT to control cal count that was marked on external factory ( E0~E5 )*/
-			if ((ts->cal_count >= PAT_MAGIC_NUMBER) && (ts->cal_count < PAT_MAX_MAGIC))
+		if (ts->plat_data->pat_function == PAT_CONTROL_PAT_MAGIC) {
+			/* NOT to control cal count that was marked on external
+			 * factory ( E0~E5 )
+			 **/
+			if ((ts->cal_count >= PAT_MAGIC_NUMBER) &&
+				(ts->cal_count < PAT_MAX_MAGIC))
 				magic_cal = true;
 		}
 	}
-	input_info(true, &ts->client->dev, "%s: cal_count(0x%02X) pat_function dt(%d) restore_cal(%d) magic_cal(%d)\n",
-		__func__,ts->cal_count,ts->plat_data->pat_function,restore_cal,magic_cal);
+	input_info(true, &ts->client->dev,
+		"%s: cal_count(0x%02X) pat_function dt(%d) restore_cal(%d) magic_cal(%d)\n",
+		__func__, ts->cal_count, ts->plat_data->pat_function,
+		restore_cal, magic_cal);
 #endif
 
 	if (!bl_update) {
 #ifdef PAT_CONTROL
-		if ((ts->cal_count == 0) || (ts->cal_count == 0xFF) || (magic_cal == true)) {
-			input_err(true, &ts->client->dev, "%s: RUN OFFSET CALIBRATION(0x%02X)\n", __func__, ts->cal_count);
+		if ((ts->cal_count == 0) || (ts->cal_count == 0xFF) ||
+			(magic_cal == true)) {
+			input_err(true, &ts->client->dev,
+					"%s: RUN OFFSET CALIBRATION(0x%02X)\n",
+					__func__, ts->cal_count);
 
-			ret = sec_ts_execute_force_calibration(ts, OFFSET_CAL_SEC);
+			ret = sec_ts_execute_force_calibration(ts,
+							OFFSET_CAL_SEC);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: fail to write OFFSET CAL SEC!\n", __func__);
+				input_err(true, &ts->client->dev,
+						"%s: fail to write OFFSET CAL SEC!\n",
+						__func__);
 
 #ifdef USE_PRESSURE_SENSOR
-			ret = sec_ts_execute_force_calibration(ts, PRESSURE_CAL);
+			ret = sec_ts_execute_force_calibration(ts,
+								PRESSURE_CAL);
 			if (ret < 0)
-				input_err(true, &ts->client->dev, "%s: fail to write PRESSURE CAL!\n", __func__);
+				input_err(true, &ts->client->dev,
+						"%s: fail to write PRESSURE CAL!\n",
+						__func__);
 #endif
 			if (ret >= 0 && magic_cal) {
 
-				ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
-				if (ts->cal_count == 0x00 || ts->cal_count == 0xFF)
+				ts->cal_count = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_CAL_COUNT);
+				if (ts->cal_count == 0x00 ||
+					ts->cal_count == 0xFF)
 					ts->cal_count = PAT_MAGIC_NUMBER;
-				else if (PAT_MAGIC_NUMBER <= ts->cal_count && ts->cal_count < PAT_MAX_MAGIC)
+				else if (ts->cal_count >= PAT_MAGIC_NUMBER &&
+						ts->cal_count < PAT_MAX_MAGIC)
 					ts->cal_count++;
 
-				/* Use TSP NV area : in this model, use only one byte
+				/* Use TSP NV area : in this model, use only
+				 *                   one byte
 				 * buff[0] : offset from user NVM storage
-				 * buff[1] : length of stored data - 1 (ex. using 1byte, value is  1 - 1 = 0)
+				 * buff[1] : length of stored data - 1 (ex.
+				 *           using 1byte, value is  1 - 1 = 0)
 				 * buff[2] : write data
-				 */
+				 **/
 				buff[0] = SEC_TS_NVM_OFFSET_CAL_COUNT;
 				buff[1] = 0;
 				buff[2] = ts->cal_count;
 
-				ret = ts->sec_ts_write(ts, SEC_TS_CMD_NVM, buff, 3);
+				ret = ts->sec_ts_write(ts, SEC_TS_CMD_NVM,
+							buff, 3);
 				if (ret < 0)
 					input_err(true, &ts->client->dev,
-						"%s: nvm write failed. ret: %d\n", __func__, ret);
+							"%s: nvm write failed. ret: %d\n",
+							__func__, ret);
 
 				sec_ts_delay(20);
-				ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
-				input_info(true, &ts->client->dev, "%s: cal_count = [%02X]\n",
-							__func__, ts->cal_count);
+				ts->cal_count = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_CAL_COUNT);
+				input_info(true, &ts->client->dev,
+						"%s: cal_count = [%02X]\n",
+						__func__, ts->cal_count);
 			}
 
-			ret = ts->sec_ts_read(ts, SEC_TS_READ_IMG_VERSION, img_ver, 4);
+			ret = ts->sec_ts_read(ts, SEC_TS_READ_IMG_VERSION,
+						img_ver, 4);
 			if (ret < 0) {
-				input_err(true, &ts->client->dev, "%s: Image version read error\n", __func__);
+				input_err(true, &ts->client->dev,
+				    "%s: Image version read error\n", __func__);
 			} else {
 				memset(buff, 0x00, SEC_CMD_STR_LEN);
-				buff[0] = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION);
+				buff[0] = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_TUNE_VERSION);
 				if (buff[0] == 0xFF) {
-					set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION);
-					set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION+1);
+					set_tsp_nvm_data_clear(ts,
+					    SEC_TS_NVM_OFFSET_TUNE_VERSION);
+					set_tsp_nvm_data_clear(ts,
+					    SEC_TS_NVM_OFFSET_TUNE_VERSION + 1);
 				}
 
-				ts->tune_fix_ver = (img_ver[2] << 8 | img_ver[3]);
+				ts->tune_fix_ver = (img_ver[2] << 8 |
+							img_ver[3]);
 				buff[0] = SEC_TS_NVM_OFFSET_TUNE_VERSION;
 				buff[1] = 1;// 2bytes
 				buff[2] = img_ver[2];
 				buff[3] = img_ver[3];
-				ret = ts->sec_ts_write(ts, SEC_TS_CMD_NVM, buff, 4);
+				ret = ts->sec_ts_write(ts, SEC_TS_CMD_NVM,
+							buff, 4);
 				if (ret < 0) {
 					input_err(true, &ts->client->dev,
-						"%s: nvm write failed. ret: %d\n", __func__, ret);
+						"%s: nvm write failed. ret: %d\n",
+						__func__, ret);
 				}
 				sec_ts_delay(20);
 
-				buff[0] = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION);
-				buff[1] = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION+1);
+				buff[0] = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_TUNE_VERSION);
+				buff[1] = get_tsp_nvm_data(ts,
+					SEC_TS_NVM_OFFSET_TUNE_VERSION + 1);
 				ts->tune_fix_ver = buff[0]<<8 | buff[1];
-				input_info(true, &ts->client->dev, "%s: tune_fix_ver [%02X %02X]\n", __func__, buff[0], buff[1]);
+				input_info(true, &ts->client->dev,
+						"%s: tune_fix_ver [%02X %02X]\n",
+						__func__, buff[0], buff[1]);
 			}
 		} else {
-			input_err(true, &ts->client->dev, "%s: DO NOT CALIBRATION(0x%02X)\n", __func__, ts->cal_count);
+			input_err(true, &ts->client->dev,
+					"%s: DO NOT CALIBRATION(0x%02X)\n",
+					__func__, ts->cal_count);
 		}
 #else
 		/* auto-calibration if restore_cal = 0 */
@@ -936,42 +1060,57 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data, size_t
 			/* Update calibration report */
 			sec_ts_read_calibration_report(ts);
 		} else
-			input_info(true, &ts->client->dev, "%s: No calibration: restore_cal = %d\n",
+			input_info(true, &ts->client->dev,
+					"%s: No calibration: restore_cal = %d\n",
 					__func__, restore_cal);
 #endif
 
 		/* Sense_on */
 		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: write fail, Sense_on\n", __func__);
+			input_err(true, &ts->client->dev,
+					"%s: write fail, Sense_on\n", __func__);
 			return -EIO;
 		}
 
-		if (ts->sec_ts_read(ts, SEC_TS_READ_BOOT_STATUS, &fw_status, 1) < 0) {
-			input_err(true, &ts->client->dev, "%s: read fail, read_boot_status = 0x%x\n", __func__, fw_status);
+		if (ts->sec_ts_read(ts, SEC_TS_READ_BOOT_STATUS,
+				    &fw_status, 1) < 0) {
+			input_err(true, &ts->client->dev,
+					"%s: read fail, read_boot_status = 0x%x\n",
+					__func__, fw_status);
 			return -EIO;
 		}
 
 		if (fw_status != SEC_TS_STATUS_APP_MODE) {
-			input_err(true, &ts->client->dev, "%s: fw update sequence done, BUT read_boot_status = 0x%x\n", __func__, fw_status);
+			input_err(true, &ts->client->dev,
+					"%s: fw update sequence done, BUT read_boot_status = 0x%x\n",
+					__func__, fw_status);
 			return -EIO;
 		}
 
-		input_info(true, &ts->client->dev, "%s: fw update Success! read_boot_status = 0x%x\n", __func__, fw_status);
+		input_info(true, &ts->client->dev,
+				"%s: fw update Success! read_boot_status = 0x%x\n",
+				__func__, fw_status);
 
 		return 1;
 	} else {
 
 		if (ts->sec_ts_read(ts, SEC_TS_READ_ID, tBuff, 3) < 0) {
-			input_err(true, &ts->client->dev, "%s: read device id fail after bl fw download\n", __func__);
+			input_err(true, &ts->client->dev,
+					"%s: read device id fail after bl fw download\n",
+					__func__);
 			return -EIO;
 		}
 
 		if (tBuff[0] == 0xA0) {
-			input_info(true, &ts->client->dev, "%s: bl fw download success - device id = %02X\n", __func__, tBuff[0]);
+			input_info(true, &ts->client->dev,
+					"%s: bl fw download success - device id = %02X\n",
+					__func__, tBuff[0]);
 			return -EIO;
 		} else {
-			input_err(true, &ts->client->dev, "%s: bl fw id does not match - device id = %02X\n", __func__, tBuff[0]);
+			input_err(true, &ts->client->dev,
+					"%s: bl fw id does not match - device id = %02X\n",
+					__func__, tBuff[0]);
 			return -EIO;
 		}
 	}
@@ -988,16 +1127,21 @@ int sec_ts_firmware_update_bl(struct sec_ts_data *ts)
 
 	snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s", SEC_TS_DEFAULT_BL_NAME);
 
-	input_info(true, &ts->client->dev, "%s: initial bl update %s\n", __func__, fw_path);
+	input_info(true, &ts->client->dev,
+			"%s: initial bl update %s\n", __func__, fw_path);
 
 	/* Loading Firmware------------------------------------------ */
 	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: bt is not available\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: bt is not available\n", __func__);
 		goto err_request_fw;
 	}
-	input_info(true, &ts->client->dev, "%s: request bt done! size = %d\n", __func__, (int)fw_entry->size);
+	input_info(true, &ts->client->dev,
+			"%s: request bt done! size = %d\n",
+			__func__, (int)fw_entry->size);
 
-	result = sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 1, 0, 0);
+	result = sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size,
+					1, 0, 0);
 
 err_request_fw:
 	release_firmware(fw_entry);
@@ -1014,15 +1158,18 @@ int sec_ts_bl_update(struct sec_ts_data *ts)
 
 	ret = ts->sec_ts_write(ts, SEC_TS_READ_BL_UPDATE_STATUS, tCmd, 4);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: bl update command send fail!\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: bl update command send fail!\n", __func__);
 		goto err;
 	}
 	sec_ts_delay(10);
 
 	do {
-		ret = ts->sec_ts_read(ts, SEC_TS_READ_BL_UPDATE_STATUS, tBuff, 1);
+		ret = ts->sec_ts_read(ts, SEC_TS_READ_BL_UPDATE_STATUS,
+				      tBuff, 1);
 		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: read bl update status fail!\n", __func__);
+			input_err(true, &ts->client->dev,
+				"%s: read bl update status fail!\n", __func__);
 			goto err;
 		}
 		sec_ts_delay(2);
@@ -1033,17 +1180,21 @@ int sec_ts_bl_update(struct sec_ts_data *ts)
 	tCmd[1] = 0xAC;
 	ret = ts->sec_ts_write(ts, 0x57, tCmd, 2);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: write passwd fail!\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: write passwd fail!\n", __func__);
 		goto err;
 	}
 
 	ret = ts->sec_ts_read(ts, SEC_TS_READ_ID, tBuff, 3);
 
 	if (tBuff[0]  == 0xB4) {
-		input_info(true, &ts->client->dev, "%s: bl update completed!\n", __func__);
+		input_info(true, &ts->client->dev,
+				"%s: bl update completed!\n", __func__);
 		ret = 1;
 	} else {
-		input_info(true, &ts->client->dev, "%s: bl updated but bl version not matching, ver=%02X\n", __func__, tBuff[0]);
+		input_info(true, &ts->client->dev,
+				"%s: bl updated but bl version not matching, ver=%02X\n",
+				__func__, tBuff[0]);
 		goto err;
 	}
 
@@ -1061,12 +1212,14 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 	int ret = 0;
 
 	if (ts->plat_data->bringup == 1 && ts->is_fw_corrupted == false) {
-		input_err(true, &ts->client->dev, "%s: bringup. do not update\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: bringup. do not update\n", __func__);
 		return 0;
 	}
 
 	if (ts->plat_data->firmware_name)
-		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s", ts->plat_data->firmware_name);
+		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s",
+				ts->plat_data->firmware_name);
 	else
 		return 0;
 
@@ -1075,69 +1228,96 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 	/* read cal status */
 	ts->cal_status = sec_ts_read_calibration_report(ts);
 
-	input_info(true, &ts->client->dev, "%s: initial firmware update %s, cal:%X\n",
-					__func__, fw_path, ts->cal_status);
+	input_info(true, &ts->client->dev,
+			"%s: initial firmware update %s, cal:%X\n",
+			__func__, fw_path, ts->cal_status);
 
 	/* Loading Firmware */
 	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: firmware is not available\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: firmware is not available\n", __func__);
 		goto err_request_fw;
 	}
-	input_info(true, &ts->client->dev, "%s: request firmware done! size = %d\n", __func__, (int)fw_entry->size);
+	input_info(true, &ts->client->dev,
+			"%s: request firmware done! size = %d\n",
+			__func__, (int)fw_entry->size);
 
 	result = sec_ts_check_firmware_version(ts, fw_entry->data);
 
 	if (ts->plat_data->bringup == 2 && ts->is_fw_corrupted == false) {
-		input_err(true, &ts->client->dev, "%s: bringup. do not update\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: bringup. do not update\n", __func__);
 		result = 0;
 		goto err_request_fw;
 	}
 
 #ifdef PAT_CONTROL
-	/* ic fw ver > bin fw ver && force is false*/
+	/* ic fw ver > bin fw ver && force is false
+	 **/
 	if ((result <= 0) && (!force_update)) {
-		/* clear nv,  forced f/w update eventhough same f/w,  then apply pat magic */
+		/* clear nv, forced f/w update eventhough same f/w,
+		 * then apply pat magic
+		 **/
 		if (ts->plat_data->pat_function == PAT_CONTROL_FORCE_UPDATE) {
-			input_info(true, &ts->client->dev, "%s: run forced f/w update and excute autotune\n", __func__);
+			input_info(true, &ts->client->dev,
+					"%s: run forced f/w update and excute autotune\n",
+					__func__);
 		} else {
-			input_info(true, &ts->client->dev, "%s: skip - fw update & nv read\n", __func__);
+			input_info(true, &ts->client->dev,
+					"%s: skip - fw update & nv read\n",
+					__func__);
 			goto err_request_fw;
 		}
 	}
 
 	ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
-	input_info(true, &ts->client->dev, "%s: cal_count [%02X]\n", __func__, ts->cal_count);
+	input_info(true, &ts->client->dev,
+			"%s: cal_count [%02X]\n", __func__, ts->cal_count);
 
 	/* initialize nv default value from 0xff to 0x00 */
 	if (ts->cal_count == 0xFF) {
 		set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
 		set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION);
 		set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION+1);
-		input_info(true, &ts->client->dev, "%s: initialize nv as default value & excute autotune\n", __func__);
+		input_info(true, &ts->client->dev,
+				"%s: initialize nv as default value & excute autotune\n",
+				__func__);
 	}
 
-	ts->tune_fix_ver = (get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION) << 8) | get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_TUNE_VERSION+1);
-	input_info(true, &ts->client->dev, "%s: tune_fix_ver [%04X] afe_base [%04X]\n", __func__, ts->tune_fix_ver, ts->plat_data->afe_base);
+	ts->tune_fix_ver = (get_tsp_nvm_data(ts,
+				SEC_TS_NVM_OFFSET_TUNE_VERSION) << 8) |
+			    get_tsp_nvm_data(ts,
+				SEC_TS_NVM_OFFSET_TUNE_VERSION + 1);
+	input_info(true, &ts->client->dev,
+			"%s: tune_fix_ver [%04X] afe_base [%04X]\n",
+			__func__, ts->tune_fix_ver, ts->plat_data->afe_base);
 
 	/* check dt to clear pat */
-	if (ts->plat_data->pat_function == PAT_CONTROL_CLEAR_NV || ts->plat_data->pat_function == PAT_CONTROL_FORCE_UPDATE)
+	if (ts->plat_data->pat_function == PAT_CONTROL_CLEAR_NV ||
+		ts->plat_data->pat_function == PAT_CONTROL_FORCE_UPDATE)
 		set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
 	ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
 
-	/* mismatch calibration - ic has too old calibration data after pat enabled*/
+	/* mismatch calibration -
+	 * ic has too old calibration data after pat enabled
+	 **/
 	if (ts->plat_data->afe_base > ts->tune_fix_ver) {
 		restore_cal = 1;
 		set_tsp_nvm_data_clear(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
-		ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
+		ts->cal_count = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_CAL_COUNT);
 	}
 
-	input_info(true, &ts->client->dev, "%s: cal_count [%02X]\n", __func__, ts->cal_count);
+	input_info(true, &ts->client->dev,
+		   "%s: cal_count [%02X]\n", __func__, ts->cal_count);
 #else
 	/* ic firmware version >= binary firmare version
-	 * && forced is FALSE */
-	/* ic fw ver > bin fw ver && force is false*/
+	 * && forced is FALSE
+	 * ic fw ver > bin fw ver && force is false
+	 **/
 	if ((result <= 0) && (!force_update)) {
-		input_info(true, &ts->client->dev, "%s: skip fw update\n", __func__);
+		input_info(true, &ts->client->dev,
+				"%s: skip fw update\n", __func__);
 		goto err_request_fw;
 	}
 #endif
@@ -1157,7 +1337,8 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 		restore_cal = 1;
 
 	for (ii = 0; ii < 3; ii++) {
-		ret = sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 0, restore_cal, ii);
+		ret = sec_ts_firmware_update(ts, fw_entry->data,
+					    fw_entry->size, 0, restore_cal, ii);
 		if (ret >= 0)
 			break;
 	}
@@ -1167,11 +1348,15 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 	} else {
 		result = 0;
 #ifdef PAT_CONTROL
-		/* change cal_count from 0 to magic number to make virtual pure auto tune */
-		if ((ts->cal_count == 0 && ts->plat_data->pat_function == PAT_CONTROL_PAT_MAGIC)||
-			(ts->plat_data->pat_function == PAT_CONTROL_FORCE_UPDATE)) {
+		/* change cal_count from 0 to magic number to make virtual
+		 * pure auto tune
+		 **/
+		if ((ts->cal_count == 0
+		     && ts->plat_data->pat_function == PAT_CONTROL_PAT_MAGIC) ||
+		    (ts->plat_data->pat_function == PAT_CONTROL_FORCE_UPDATE)) {
 			set_pat_magic_number(ts);
-			ts->cal_count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_CAL_COUNT);
+			ts->cal_count = get_tsp_nvm_data(ts,
+						SEC_TS_NVM_OFFSET_CAL_COUNT);
 		}
 #endif
 	}
@@ -1194,22 +1379,29 @@ static int sec_ts_load_fw_from_bin(struct sec_ts_data *ts)
 		disable_irq(ts->client->irq);
 
 	if (!ts->plat_data->firmware_name)
-		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s", SEC_TS_DEFAULT_FW_NAME);
+		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s",
+				SEC_TS_DEFAULT_FW_NAME);
 	else
-		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s", ts->plat_data->firmware_name);
+		snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s",
+				ts->plat_data->firmware_name);
 
-	input_info(true, &ts->client->dev, "%s: initial firmware update  %s\n", __func__, fw_path);
+	input_info(true, &ts->client->dev,
+		    "%s: initial firmware update  %s\n", __func__, fw_path);
 
 	/* Loading Firmware */
 	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: firmware is not available\n", __func__);
+		input_err(true, &ts->client->dev,
+			    "%s: firmware is not available\n", __func__);
 		error = -1;
 		goto err_request_fw;
 	}
-	input_info(true, &ts->client->dev, "%s: request firmware done! size = %d\n", __func__, (int)fw_entry->size);
+	input_info(true, &ts->client->dev,
+		    "%s: request firmware done! size = %d\n",
+		    __func__, (int)fw_entry->size);
 
 	/* use virtual pat_control - magic cal 1 */
-	if (sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 0, 1, 0) < 0)
+	if (sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size,
+					0, 1, 0) < 0)
 		error = -1;
 	else
 		error = 0;
@@ -1263,16 +1455,21 @@ static int sec_ts_load_fw_from_ums(struct sec_ts_data *ts)
 			error = -EIO;
 		} else {
 			fw_hd = (fw_header *)fw_data;
-/*
-			sec_ts_check_firmware_version(ts, fw_data);
-*/
-			input_info(true, &ts->client->dev, "%s: firmware version %08X\n", __func__, fw_hd->fw_ver);
-			input_info(true, &ts->client->dev, "%s: parameter version %08X\n", __func__, fw_hd->para_ver);
+			/*
+			 * sec_ts_check_firmware_version(ts, fw_data);
+			 **/
+			input_info(true, &ts->client->dev,
+				    "%s: firmware version %08X\n",
+				    __func__, fw_hd->fw_ver);
+			input_info(true, &ts->client->dev,
+				    "%s: parameter version %08X\n",
+				    __func__, fw_hd->para_ver);
 
 			if (ts->client->irq)
 				disable_irq(ts->client->irq);
 			/* use virtual pat_control - magic cal 1 */
-			if (sec_ts_firmware_update(ts, fw_data, fw_size, 0, 1, 0) < 0)
+			if (sec_ts_firmware_update(ts, fw_data, fw_size,
+						    0, 1, 0) < 0)
 				goto done;
 
 			sec_ts_save_version_of_ic(ts);
@@ -1303,14 +1500,18 @@ static int sec_ts_load_fw_from_ffu(struct sec_ts_data *ts)
 
 	disable_irq(ts->client->irq);
 
-	input_info(true, ts->dev, "%s: Load firmware : %s\n", __func__, fw_path);
+	input_info(true, ts->dev,
+		    "%s: Load firmware : %s\n", __func__, fw_path);
 
 	/* Loading Firmware */
 	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: firmware is not available\n", __func__);
+		input_err(true, &ts->client->dev,
+		    "%s: firmware is not available\n", __func__);
 		goto err_request_fw;
 	}
-	input_info(true, &ts->client->dev, "%s: request firmware done! size = %d\n", __func__, (int)fw_entry->size);
+	input_info(true, &ts->client->dev,
+		    "%s: request firmware done! size = %d\n",
+		    __func__, (int)fw_entry->size);
 
 	sec_ts_check_firmware_version(ts, fw_entry->data);
 
@@ -1342,7 +1543,8 @@ err_request_fw:
 	return result;
 }
 
-int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts, int update_type)
+int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts,
+					    int update_type)
 {
 	int ret = 0;
 
@@ -1394,3 +1596,4 @@ int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts, int update_typ
 	return ret;
 }
 EXPORT_SYMBOL(sec_ts_firmware_update_on_hidden_menu);
+

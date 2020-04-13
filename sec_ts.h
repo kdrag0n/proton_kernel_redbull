@@ -68,7 +68,8 @@
 #undef USE_PRESSURE_SENSOR //TODO: check this
 #undef PAT_CONTROL //TODO: check this
 
-#if defined(USE_RESET_DURING_POWER_ON) || defined(USE_POR_AFTER_I2C_RETRY) || defined(USE_RESET_EXIT_LPM)
+#if defined(USE_RESET_DURING_POWER_ON) ||\
+	defined(USE_POR_AFTER_I2C_RETRY) || defined(USE_RESET_EXIT_LPM)
 #define USE_POWER_RESET_WORK
 #endif
 
@@ -141,7 +142,8 @@
 /* max read size: from sec_ts_read_event() at sec_ts.c */
 #define IO_PREALLOC_READ_BUF_SZ	(32 * SEC_TS_EVENT_BUFF_SIZE)
 /* max write size: from sec_ts_flashpagewrite() at sec_ts_fw.c */
-#define IO_PREALLOC_WRITE_BUF_SZ	(SEC_TS_SPI_HEADER_SIZE + 1 + 2 + SEC_TS_FW_BLK_SIZE_MAX + 1)
+#define IO_PREALLOC_WRITE_BUF_SZ	(SEC_TS_SPI_HEADER_SIZE + 1 + 2 +\
+					    SEC_TS_FW_BLK_SIZE_MAX + 1)
 #else
 #define IO_PREALLOC_READ_BUF_SZ	2048
 #define IO_PREALLOC_WRITE_BUF_SZ	1024
@@ -185,16 +187,21 @@
 #define SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT	55
 #define SEC_TS_NVM_SIZE_PRESSURE_CAL_BLOCK		1
 
-#define SEC_TS_NVM_LAST_BLOCK_OFFSET		SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT
-#define SEC_TS_NVM_LAST_BLOCK_SIZE		SEC_TS_NVM_SIZE_PRESSURE_CAL_BLOCK
+#define SEC_TS_NVM_LAST_BLOCK_OFFSET	\
+	    SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT
+#define SEC_TS_NVM_LAST_BLOCK_SIZE	SEC_TS_NVM_SIZE_PRESSURE_CAL_BLOCK
 
-#define SEC_TS_NVM_OFFSET_LENGTH		(SEC_TS_NVM_LAST_BLOCK_OFFSET + SEC_TS_NVM_LAST_BLOCK_SIZE + 1)
+#define SEC_TS_NVM_OFFSET_LENGTH	(SEC_TS_NVM_LAST_BLOCK_OFFSET +\
+					    SEC_TS_NVM_LAST_BLOCK_SIZE + 1)
 
 /* SEC_TS READ REGISTER ADDRESS */
 #define SEC_TS_CMD_SENSE_ON			0x10
 #define SEC_TS_CMD_SENSE_OFF			0x11
 #define SEC_TS_CMD_SW_RESET			0x12
-#define SEC_TS_CMD_CALIBRATION_SEC		0x13	// send it to touch ic, but toucu ic works nothing.
+#define SEC_TS_CMD_CALIBRATION_SEC		0x13	/* send it to touch ic,
+							 * but touch ic works
+							 * nothing.
+							 **/
 #define SEC_TS_CMD_FACTORY_PANELCALIBRATION	0x14
 
 #define SEC_TS_READ_GPIO_STATUS			0x20	// not support
@@ -380,7 +387,9 @@
 #define SEC_TS_BIT_SETFUNC_WET			(1 << 6)
 #define SEC_TS_BIT_SETFUNC_PROXIMITY		(1 << 7)
 
-#define SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC	(SEC_TS_BIT_SETFUNC_TOUCH | SEC_TS_BIT_SETFUNC_PALM | SEC_TS_BIT_SETFUNC_WET)
+#define SEC_TS_DEFAULT_ENABLE_BIT_SETFUNC	(SEC_TS_BIT_SETFUNC_TOUCH |\
+						SEC_TS_BIT_SETFUNC_PALM |\
+						SEC_TS_BIT_SETFUNC_WET)
 
 #define SEC_TS_BIT_CHARGER_MODE_NO			(0x1 << 0)
 #define SEC_TS_BIT_CHARGER_MODE_WIRE_CHARGER		(0x1 << 1)
@@ -389,16 +398,16 @@
 
 #ifdef PAT_CONTROL
 /*
- *	<<< apply to server >>>
- *	0x00 : no action
- *	0x01 : clear nv
- *	0x02 : pat magic
- *	0x03 : rfu
+ *  <<< apply to server >>>
+ *  0x00 : no action
+ *  0x01 : clear nv
+ *  0x02 : pat magic
+ *  0x03 : rfu
  *
- *	<<< use for temp bin >>>
- *	0x05 : forced clear nv & f/w update  before pat magic, eventhough same f/w
- *	0x06 : rfu
- */
+ *  <<< use for temp bin >>>
+ *  0x05 : forced clear nv & f/w update  before pat magic, eventhough same f/w
+ *  0x06 : rfu
+ **/
 #define PAT_CONTROL_NONE			0x00
 #define PAT_CONTROL_CLEAR_NV		0x01
 #define PAT_CONTROL_PAT_MAGIC		0x02
@@ -409,7 +418,7 @@
 #define PAT_MAGIC_NUMBER		0x83
 #define PAT_MAX_MAGIC			0xC5
 #define PAT_EXT_FACT			0xE0
-#define PAT_MAX_EXT 			0xF5
+#define PAT_MAX_EXT			0xF5
 #endif
 
 #define STATE_MANAGE_ON			1
@@ -455,14 +464,14 @@ enum grip_set_data {
 	GRIP_ALL_DATA			= 1,
 };
 
-typedef enum {
+enum TOUCH_POWER_MODE {
 	SEC_TS_STATE_POWER_OFF = 0,
 	SEC_TS_STATE_SUSPEND,
 	SEC_TS_STATE_LPM,
 	SEC_TS_STATE_POWER_ON
-} TOUCH_POWER_MODE;
+};
 
-typedef enum {
+enum TOUCH_SYSTEM_MODE {
 	TOUCH_SYSTEM_MODE_BOOT		= 0,
 	TOUCH_SYSTEM_MODE_CALIBRATION	= 1,
 	TOUCH_SYSTEM_MODE_TOUCH		= 2,
@@ -470,9 +479,9 @@ typedef enum {
 	TOUCH_SYSTEM_MODE_FLASH		= 4,
 	TOUCH_SYSTEM_MODE_LOWPOWER	= 5,
 	TOUCH_SYSTEM_MODE_SLEEP		= 6
-} TOUCH_SYSTEM_MODE;
+};
 
-typedef enum {
+enum TOUCH_MODE_STATE {
 	TOUCH_MODE_STATE_IDLE		= 0,
 	TOUCH_MODE_STATE_HOVER		= 1,
 	TOUCH_MODE_STATE_STOP		= 1,
@@ -481,7 +490,7 @@ typedef enum {
 	TOUCH_MODE_STATE_CAL		= 4,
 	TOUCH_MODE_STATE_CAL2		= 5,
 	TOUCH_MODE_STATE_WAKEUP		= 10
-} TOUCH_MODE_STATE;
+};
 
 enum {
 	TEST_OPEN			= (0x1 << 0),
@@ -500,35 +509,51 @@ enum switch_system_mode {
 };
 
 enum {
-	TYPE_RAW_DATA			= 0,	/* Total - Offset : delta data */
-	TYPE_SIGNAL_DATA		= 1,	/* Signal - Filtering & Normalization */
-	TYPE_AMBIENT_BASELINE	= 2,	/* Cap Baseline */
-	TYPE_AMBIENT_DATA		= 3,	/* Cap Ambient */
-	TYPE_REMV_BASELINE_DATA	= 4,
+	TYPE_RAW_DATA			= 0,	/* Total - Offset : delta data
+						 **/
+	TYPE_SIGNAL_DATA		= 1,	/* Signal - Filtering &
+						 * Normalization
+						 **/
+	TYPE_AMBIENT_BASELINE		= 2,	/* Cap Baseline
+						 **/
+	TYPE_AMBIENT_DATA		= 3,	/* Cap Ambient
+						 **/
+	TYPE_REMV_BASELINE_DATA		= 4,
 	TYPE_DECODED_DATA		= 5,	/* Raw */
-	TYPE_REMV_AMB_DATA		= 6,	/*  TYPE_RAW_DATA - TYPE_AMBIENT_DATA */
-	TYPE_NORM2_DATA			= 15,	/* After fs norm. data */
-	TYPE_OFFSET_DATA_SEC	= 19,	/* Cap Offset in SEC Manufacturing Line */
-	TYPE_OFFSET_DATA_SDC	= 29,	/* Cap Offset in SDC Manufacturing Line */
-	TYPE_NOI_P2P_MIN		= 30,	/* Peak-to-peak noise Min */
-	TYPE_NOI_P2P_MAX		= 31,	/* Peak-to-peak noise Max */
+	TYPE_REMV_AMB_DATA		= 6,	/* TYPE_RAW_DATA -
+						 * TYPE_AMBIENT_DATA
+						 **/
+	TYPE_NORM2_DATA			= 15,	/* After fs norm. data
+						 **/
+	TYPE_OFFSET_DATA_SEC		= 19,	/* Cap Offset in SEC
+						 * Manufacturing Line
+						 **/
+	TYPE_OFFSET_DATA_SDC		= 29,	/* Cap Offset in SDC
+						 * Manufacturing Line
+						 **/
+	TYPE_NOI_P2P_MIN		= 30,	/* Peak-to-peak noise Min
+						 **/
+	TYPE_NOI_P2P_MAX		= 31,	/* Peak-to-peak noise Max
+						 **/
 	TYPE_OFFSET_DATA_SDC_CM2	= 129,
 	TYPE_OFFSET_DATA_SDC_NOT_SAVE	= 229,
-	TYPE_INVALID_DATA		= 0xFF,	/* Invalid data type for release factory mode */
+	TYPE_INVALID_DATA		= 0xFF,	/* Invalid data type for
+						 * release factory mode
+						 **/
 };
 
-typedef enum {
+enum CUSTOMLIB_EVENT_TYPE {
 	CUSTOMLIB_EVENT_TYPE_SPAY			= 0x04,
-	CUSTOMLIB_EVENT_TYPE_PRESSURE_TOUCHED = 0x05,
-	CUSTOMLIB_EVENT_TYPE_PRESSURE_RELEASED	= 0x06,
+	CUSTOMLIB_EVENT_TYPE_PRESSURE_TOUCHED		= 0x05,
+	CUSTOMLIB_EVENT_TYPE_PRESSURE_RELEASED		= 0x06,
 	CUSTOMLIB_EVENT_TYPE_AOD			= 0x08,
-	CUSTOMLIB_EVENT_TYPE_AOD_PRESS		= 0x09,
+	CUSTOMLIB_EVENT_TYPE_AOD_PRESS			= 0x09,
 	CUSTOMLIB_EVENT_TYPE_AOD_LONGPRESS		= 0x0A,
 	CUSTOMLIB_EVENT_TYPE_AOD_DOUBLETAB		= 0x0B,
-	CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS	= 0x0C,
+	CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_PRESS		= 0x0C,
 	CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RELEASE	= 0x0D,
-	CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RELEASE_NO_HAPTIC	= 0x0E
-} CUSTOMLIB_EVENT_TYPE;
+	CUSTOMLIB_EVENT_TYPE_AOD_HOMEKEY_RLS_NO_HAPTIC	= 0x0E
+};
 
 enum {
 	SEC_TS_BUS_REF_SCREEN_ON	= 0x01,
@@ -560,8 +585,9 @@ enum {
 #define SEC_TS_MODE_CUSTOMLIB_AOD			(1 << 2)
 #define SEC_TS_MODE_CUSTOMLIB_FORCE_KEY	(1 << 6)
 
-#define SEC_TS_MODE_LOWPOWER_FLAG			(SEC_TS_MODE_CUSTOMLIB_SPAY | SEC_TS_MODE_CUSTOMLIB_AOD \
-											| SEC_TS_MODE_CUSTOMLIB_FORCE_KEY)
+#define SEC_TS_MODE_LOWPOWER_FLAG   (SEC_TS_MODE_CUSTOMLIB_SPAY |\
+				    SEC_TS_MODE_CUSTOMLIB_AOD |\
+				    SEC_TS_MODE_CUSTOMLIB_FORCE_KEY)
 
 #define SEC_TS_AOD_GESTURE_PRESS		(1 << 7)
 #define SEC_TS_AOD_GESTURE_LONGPRESS		(1 << 6)
@@ -620,7 +646,7 @@ struct heatmap_report {
 	uint8_t size_y;
 	/* data is in BE order; order should be enforced after data is read */
 	strength_t data[LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT];
-} __attribute__((packed));
+} __packed;
 #endif
 
 #define TEST_MODE_MIN_MAX		false
@@ -670,7 +696,7 @@ struct sec_ts_test_result {
 			u8 assy_result:2;
 			u8 module_count:2;
 			u8 module_result:2;
-		} __attribute__ ((packed));
+		} __packed;
 		unsigned char data[1];
 	};
 };
@@ -688,7 +714,7 @@ struct sec_ts_gesture_status {
 	u8 reserved_1;
 	u8 left_event_5_0:6;
 	u8 reserved_2:2;
-} __attribute__ ((packed));
+} __packed;
 
 
 /* status id for sec_ts event */
@@ -709,7 +735,7 @@ struct sec_ts_event_status {
 	u8 status_data_5;
 	u8 left_event_5_0:6;
 	u8 reserved_2:2;
-} __attribute__ ((packed));
+} __packed;
 
 /* 8 byte */
 struct sec_ts_event_coordinate {
@@ -726,7 +752,7 @@ struct sec_ts_event_coordinate {
 	u8 ttype_3_2:2;
 	u8 left_event:6;
 	u8 ttype_1_0:2;
-} __attribute__ ((packed));
+} __packed;
 
 /* not fixed */
 struct sec_ts_coordinate {
@@ -766,13 +792,18 @@ struct sec_ts_data {
 	struct input_dev *input_dev_pad;
 	struct input_dev *input_dev_touch;
 	struct sec_ts_plat_data *plat_data;
-	struct sec_ts_coordinate coord[MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT];
+	struct sec_ts_coordinate coord[MAX_SUPPORT_TOUCH_COUNT +
+					MAX_SUPPORT_HOVER_COUNT];
 
-	ktime_t timestamp; /* time that the event was first received from the
-		touch IC, acquired during hard interrupt, in CLOCK_MONOTONIC */
+	ktime_t timestamp; /* time that the event was first received from
+			    * the touch IC, acquired during hard interrupt,
+			    * in CLOCK_MONOTONIC
+			    **/
 
-	struct timeval time_pressed[MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT];
-	struct timeval time_released[MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT];
+	struct timeval time_pressed[MAX_SUPPORT_TOUCH_COUNT +
+					MAX_SUPPORT_HOVER_COUNT];
+	struct timeval time_released[MAX_SUPPORT_TOUCH_COUNT +
+					MAX_SUPPORT_HOVER_COUNT];
 	long time_longest;
 
 	u8 lowpower_mode;
@@ -832,7 +863,8 @@ struct sec_ts_data {
 	struct work_struct suspend_work;
 	struct work_struct resume_work;
 	struct workqueue_struct *event_wq;	/* Used for event handler,
-						 * suspend, resume threads */
+						 * suspend, resume threads
+						 **/
 	struct completion resume_done;
 	struct sec_cmd_data sec;
 	short *pFrame;
@@ -951,7 +983,7 @@ struct sec_ts_data {
 struct sec_ts_plat_data {
 	int max_x;
 	int max_y;
-	unsigned irq_gpio;
+	unsigned int irq_gpio;
 	int irq_type;
 	int io_burstmax;
 	int always_lpmode;
@@ -1002,7 +1034,8 @@ int sec_ts_sw_reset(struct sec_ts_data *ts);
 int sec_ts_system_reset(struct sec_ts_data *ts);
 int sec_ts_set_lowpowermode(struct sec_ts_data *ts, u8 mode);
 int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update);
-int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts, int update_type);
+int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts,
+					    int update_type);
 int sec_ts_glove_mode_enables(struct sec_ts_data *ts, int mode);
 int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable);
 int sec_ts_wait_for_ready(struct sec_ts_data *ts, unsigned int ack);
@@ -1011,7 +1044,8 @@ int sec_ts_wait_for_ready_with_count(struct sec_ts_data *ts, unsigned int ack,
 int sec_ts_try_wake(struct sec_ts_data *ts, bool wake_setting);
 int sec_ts_set_bus_ref(struct sec_ts_data *ts, u16 ref, bool enable);
 
-int sec_ts_function(int (*func_init)(void *device_data), void (*func_remove)(void));
+int sec_ts_function(int (*func_init)(void *device_data),
+		    void (*func_remove)(void));
 int sec_ts_fn_init(struct sec_ts_data *ts);
 int sec_ts_read_calibration_report(struct sec_ts_data *ts);
 int sec_ts_execute_force_calibration(struct sec_ts_data *ts, int cal_mode);

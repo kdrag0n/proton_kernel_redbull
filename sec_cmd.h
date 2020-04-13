@@ -76,7 +76,8 @@ struct sec_cmd_data {
 
 extern void sec_cmd_set_cmd_exit(struct sec_cmd_data *data);
 extern void sec_cmd_set_default_result(struct sec_cmd_data *data);
-extern void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len);
+extern void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff,
+				   int len);
 extern int sec_cmd_init(struct sec_cmd_data *data,
 				struct sec_cmd *cmds, int len, int devt);
 extern void sec_cmd_exit(struct sec_cmd_data *data, int devt);
@@ -90,67 +91,67 @@ extern void sec_cmd_exit(struct sec_cmd_data *data, int devt);
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 #include <linux/sec_debug.h>
 
-#define input_dbg(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_dbg(dev, input_log_buf, ## __VA_ARGS__);				\
-	if (mode) {								\
-		if (dev)							\
-			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",	\
-					dev_driver_string(dev), dev_name(dev));	\
-		else								\
-			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");	\
-		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
-	}									\
+#define input_dbg(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_dbg(dev, input_log_buf, ## __VA_ARGS__);			       \
+	if (mode) {							       \
+		if (dev)						       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",\
+					dev_driver_string(dev), dev_name(dev));\
+		else							       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");\
+		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);     \
+	}								       \
 })
-#define input_info(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_info(dev, input_log_buf, ## __VA_ARGS__);				\
-	if (mode) {								\
-		if (dev)							\
-			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",	\
-					dev_driver_string(dev), dev_name(dev));	\
-		else								\
-			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");	\
-		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
-	}									\
+#define input_info(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_info(dev, input_log_buf, ## __VA_ARGS__);			       \
+	if (mode) {							       \
+		if (dev)						       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",\
+					dev_driver_string(dev), dev_name(dev));\
+		else							       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");\
+		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);     \
+	}								       \
 })
-#define input_err(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_err(dev, input_log_buf, ## __VA_ARGS__);				\
-	if (mode) {								\
-		if (dev)							\
-			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",	\
-					dev_driver_string(dev), dev_name(dev));	\
-		else								\
-			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");	\
-		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
-	}									\
+#define input_err(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_err(dev, input_log_buf, ## __VA_ARGS__);			       \
+	if (mode) {							       \
+		if (dev)						       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s",\
+					dev_driver_string(dev), dev_name(dev));\
+		else							       \
+			snprintf(input_log_buf, sizeof(input_log_buf), "NULL");\
+		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);     \
+	}								       \
 })
 #define input_log_fix() {}
 #else
-#define input_dbg(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_dbg(dev, input_log_buf, ## __VA_ARGS__);				\
+#define input_dbg(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_dbg(dev, input_log_buf, ## __VA_ARGS__);			       \
 })
-#define input_info(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_info(dev, input_log_buf, ## __VA_ARGS__);				\
+#define input_info(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_info(dev, input_log_buf, ## __VA_ARGS__);			       \
 })
-#define input_err(mode, dev, fmt, ...)						\
-({										\
-	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
-	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
-	dev_err(dev, input_log_buf, ## __VA_ARGS__);				\
+#define input_err(mode, dev, fmt, ...)					       \
+({									       \
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];			       \
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);  \
+	dev_err(dev, input_log_buf, ## __VA_ARGS__);			       \
 })
 #define input_log_fix() {}
 #endif

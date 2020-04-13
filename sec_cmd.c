@@ -23,7 +23,8 @@ void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
 	mutex_lock(&data->fifo_lock);
 	if (kfifo_len(&data->cmd_queue)) {
 		pr_info("%s %s: do next cmd, left cmd[%d]\n", SECLOG, __func__,
-			(int)(kfifo_len(&data->cmd_queue) / sizeof(struct command)));
+			(int)(kfifo_len(&data->cmd_queue) /
+			      sizeof(struct command)));
 		mutex_unlock(&data->fifo_lock);
 
 		atomic_set(&data->cmd_is_running, 1);
@@ -40,6 +41,7 @@ void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
 void sec_cmd_set_default_result(struct sec_cmd_data *data)
 {
 	char delim = ':';
+
 	memset(data->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN);
 	memcpy(data->cmd_result, data->cmd, SEC_CMD_STR_LEN);
 	strncat(data->cmd_result, &delim, 1);
@@ -51,7 +53,7 @@ void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len)
 }
 
 #ifndef USE_SEC_CMD_QUEUE
-static ssize_t sec_cmd_store(struct device *dev,
+static ssize_t cmd_store(struct device *dev,
 		struct device_attribute *devattr, const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -74,7 +76,7 @@ static ssize_t sec_cmd_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	if (atomic_cmpxchg(&data->cmd_is_running, 0 , 1)) {
+	if (atomic_cmpxchg(&data->cmd_is_running, 0, 1)) {
 		pr_err("%s %s: other cmd is running.\n", SECLOG, __func__);
 		return -EBUSY;
 	}
@@ -125,8 +127,10 @@ static ssize_t sec_cmd_store(struct device *dev,
 			if (*cur == delim || cur - buf == len) {
 				end = cur;
 				memcpy(buff, start, end - start);
-				*(buff + strnlen(buff, ARRAY_SIZE(buff))) = '\0';
-				if (kstrtoint(buff, 10, data->cmd_param + param_cnt) < 0)
+				*(buff +
+				  strnlen(buff, ARRAY_SIZE(buff))) = '\0';
+				if (kstrtoint(buff, 10,
+					      data->cmd_param + param_cnt) < 0)
 					goto err_out;
 				start = cur + 1;
 				memset(buff, 0x00, ARRAY_SIZE(buff));
@@ -137,7 +141,8 @@ static ssize_t sec_cmd_store(struct device *dev,
 	}
 
 	if (cmd_found) {
-		pr_info("%s %s: cmd = %s", SECLOG, __func__, sec_cmd_ptr->cmd_name);
+		pr_info("%s %s: cmd = %s",
+			SECLOG, __func__, sec_cmd_ptr->cmd_name);
 		for (i = 0; i < param_cnt; i++) {
 			if (i == 0)
 				pr_cont(" param =");
@@ -145,7 +150,8 @@ static ssize_t sec_cmd_store(struct device *dev,
 		}
 		pr_cont("\n");
 	} else {
-		pr_info("%s %s: cmd = %s(%s)\n", SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
+		pr_info("%s %s: cmd = %s(%s)\n",
+			SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
 	}
 
 	sec_cmd_ptr->cmd_func(data);
@@ -168,7 +174,7 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	int ret;
 	const char *buf;
 	size_t count;
-	struct command cmd = {{0}};
+	struct command cmd = { {0} };
 
 	if (!data) {
 		pr_err("%s %s: No platform data found\n", SECLOG, __func__);
@@ -179,7 +185,8 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	if (kfifo_len(&data->cmd_queue)) {
 		ret = kfifo_out(&data->cmd_queue, &cmd, sizeof(struct command));
 		if (!ret) {
-			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n", SECLOG, __func__, ret);
+			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n",
+			       SECLOG, __func__, ret);
 			mutex_unlock(&data->fifo_lock);
 			return;
 		}
@@ -238,8 +245,10 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 			if (*cur == delim || cur - buf == len) {
 				end = cur;
 				memcpy(buff, start, end - start);
-				*(buff + strnlen(buff, ARRAY_SIZE(buff))) = '\0';
-				if (kstrtoint(buff, 10, data->cmd_param + param_cnt) < 0)
+				*(buff +
+				  strnlen(buff, ARRAY_SIZE(buff))) = '\0';
+				if (kstrtoint(buff, 10,
+					      data->cmd_param + param_cnt) < 0)
 					return;
 				start = cur + 1;
 				memset(buff, 0x00, ARRAY_SIZE(buff));
@@ -250,7 +259,8 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	}
 
 	if (cmd_found) {
-		pr_info("%s %s: cmd = %s", SECLOG, __func__, sec_cmd_ptr->cmd_name);
+		pr_info("%s %s: cmd = %s",
+			SECLOG, __func__, sec_cmd_ptr->cmd_name);
 		for (i = 0; i < param_cnt; i++) {
 			if (i == 0)
 				pr_cont(" param =");
@@ -258,18 +268,20 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 		}
 		pr_cont("\n");
 	} else {
-		pr_info("%s %s: cmd = %s(%s)\n", SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
+		pr_info("%s %s: cmd = %s(%s)\n",
+			SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
 	}
 
 	sec_cmd_ptr->cmd_func(data);
 
 }
 
-static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devattr,
-			   const char *buf, size_t count)
+static ssize_t cmd_store(struct device *dev,
+			     struct device_attribute *devattr,
+			     const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
-	struct command cmd = {{0}};
+	struct command cmd = { {0} };
 	int queue_size;
 
 	if (!data) {
@@ -303,9 +315,11 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 		return -ENOSPC;
 	}
 
-	if (atomic_cmpxchg(&data->cmd_is_running, 0 , 1)) {
+	if (atomic_cmpxchg(&data->cmd_is_running, 0, 1)) {
 		pr_err("%s %s: other cmd is running. Wait until previous cmd is done[%d]\n",
-			SECLOG, __func__, (int)(kfifo_len(&data->cmd_queue) / sizeof(struct command)));
+			SECLOG, __func__,
+			(int)(kfifo_len(&data->cmd_queue) /
+			      sizeof(struct command)));
 		mutex_unlock(&data->fifo_lock);
 
 		return -EBUSY;
@@ -320,7 +334,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 }
 #endif
 
-static ssize_t sec_cmd_show_status(struct device *dev,
+static ssize_t cmd_status_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -351,7 +365,7 @@ static ssize_t sec_cmd_show_status(struct device *dev,
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
 }
 
-static ssize_t sec_cmd_show_result(struct device *dev,
+static ssize_t cmd_result_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -371,7 +385,7 @@ static ssize_t sec_cmd_show_result(struct device *dev,
 	return size;
 }
 
-static ssize_t sec_cmd_list_show(struct device *dev,
+static ssize_t cmd_list_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -390,7 +404,8 @@ static ssize_t sec_cmd_list_show(struct device *dev,
 
 	list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
 		if (strncmp(sec_cmd_ptr->cmd_name, "not_support_cmd", 15)) {
-			snprintf(buffer_name, SEC_CMD_STR_LEN, "%s\n", sec_cmd_ptr->cmd_name);
+			snprintf(buffer_name, SEC_CMD_STR_LEN, "%s\n",
+				 sec_cmd_ptr->cmd_name);
 			strncat(buffer, buffer_name, SEC_CMD_STR_LEN);
 		}
 	}
@@ -401,10 +416,10 @@ static ssize_t sec_cmd_list_show(struct device *dev,
 	return ret;
 }
 
-static DEVICE_ATTR(cmd, S_IWUSR | S_IWGRP, NULL, sec_cmd_store);
-static DEVICE_ATTR(cmd_status, S_IRUGO, sec_cmd_show_status, NULL);
-static DEVICE_ATTR(cmd_result, S_IRUGO, sec_cmd_show_result, NULL);
-static DEVICE_ATTR(cmd_list, S_IRUGO, sec_cmd_list_show, NULL);
+static DEVICE_ATTR_WO(cmd);
+static DEVICE_ATTR_RO(cmd_status);
+static DEVICE_ATTR_RO(cmd_result);
+static DEVICE_ATTR_RO(cmd_list);
 
 static struct attribute *sec_fac_attrs[] = {
 	&dev_attr_cmd.attr,
@@ -439,7 +454,8 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 #ifdef USE_SEC_CMD_QUEUE
 	if (kfifo_alloc(&data->cmd_queue,
 		SEC_CMD_MAX_QUEUE * sizeof(struct command), GFP_KERNEL)) {
-		pr_err("%s %s: failed to alloc queue for cmd\n", SECLOG, __func__);
+		pr_err("%s %s: failed to alloc queue for cmd\n",
+		       SECLOG, __func__);
 		goto err_alloc_queue;
 	}
 	mutex_init(&data->fifo_lock);
@@ -465,7 +481,8 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	data->fac_dev = device_create(sec_class, NULL, devt, data, dev_name);
 #endif
 	if (IS_ERR(data->fac_dev)) {
-		pr_err("%s %s: failed to create device for the sysfs\n", SECLOG, __func__);
+		pr_err("%s %s: failed to create device for the sysfs\n",
+		       SECLOG, __func__);
 		goto err_sysfs_device;
 	}
 
@@ -473,7 +490,8 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 
 	ret = sysfs_create_group(&data->fac_dev->kobj, &sec_fac_attr_group);
 	if (ret < 0) {
-		pr_err("%s %s: failed to create sysfs group\n", SECLOG, __func__);
+		pr_err("%s %s: failed to create sysfs group\n",
+		       SECLOG, __func__);
 		goto err_sysfs_group;
 	}
 
@@ -500,7 +518,7 @@ err_alloc_queue:
 void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 {
 #ifdef USE_SEC_CMD_QUEUE
-	struct command cmd = {{0}};
+	struct command cmd = { {0} };
 	int ret;
 #endif
 
@@ -517,9 +535,11 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 	while (kfifo_len(&data->cmd_queue)) {
 		ret = kfifo_out(&data->cmd_queue, &cmd, sizeof(struct command));
 		if (!ret) {
-			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n", SECLOG, __func__, ret);
+			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n",
+			       SECLOG, __func__, ret);
 		}
-		pr_info("%s %s: remove pending commands: %s", SECLOG, __func__, cmd.cmd);
+		pr_info("%s %s: remove pending commands: %s",
+			SECLOG, __func__, cmd.cmd);
 	}
 	mutex_unlock(&data->fifo_lock);
 	mutex_destroy(&data->fifo_lock);
