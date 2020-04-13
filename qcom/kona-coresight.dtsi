@@ -1501,6 +1501,7 @@
 				funnel_dl_center_out_qatb3: endpoint {
 					remote-endpoint =
 					<&qatb3_in_funnel_dl_center>;
+					source = <&npu_etm0>;
 				};
 			};
 
@@ -2254,8 +2255,6 @@
 
 		clocks = <&clock_aop QDSS_CLK>;
 		clock-names = "apb_pclk";
-
-		qcom,msr-fix-req;
 
 		port {
 			tpdm_ddr_out_funnel_ddr_0: endpoint {
@@ -3194,7 +3193,7 @@
 		};
 	};
 
-	npu_etm0 {
+	npu_etm0: npu_etm0 {
 		compatible = "qcom,coresight-remote-etm";
 
 		coresight-name = "coresight-npu-etm0";
