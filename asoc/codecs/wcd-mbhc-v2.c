@@ -415,7 +415,6 @@ static void wcd_mbhc_clr_and_turnon_hph_padac(struct wcd_mbhc *mbhc)
 			       &mbhc->hph_pa_dac_state)) {
 		pr_debug("%s: HPHR clear flag and enable PA\n", __func__);
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHR_PA_EN, 1);
-		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHR_OCP_DET_EN, 1);
 		pa_turned_on = true;
 	}
 	mutex_unlock(&mbhc->hphr_pa_lock);
@@ -424,7 +423,6 @@ static void wcd_mbhc_clr_and_turnon_hph_padac(struct wcd_mbhc *mbhc)
 			       &mbhc->hph_pa_dac_state)) {
 		pr_debug("%s: HPHL clear flag and enable PA\n", __func__);
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHL_PA_EN, 1);
-		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHL_OCP_DET_EN, 1);
 		pa_turned_on = true;
 	}
 	mutex_unlock(&mbhc->hphl_pa_lock);
@@ -1378,8 +1376,7 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 	if (mbhc->mbhc_cfg->moisture_en && mbhc->mbhc_cb->mbhc_moisture_config
 		&& !mbhc->mbhc_cfg->moisture_duty_cycle_en)
 		mbhc->mbhc_cb->mbhc_moisture_config(mbhc);
-	else if (mbhc->mbhc_cfg->moisture_duty_cycle_en &&
-		 mbhc->mbhc_cb->mbhc_moisture_detect_en)
+	else if (mbhc->mbhc_cb->mbhc_moisture_detect_en)
 		mbhc->mbhc_cb->mbhc_moisture_detect_en(mbhc, false);
 
 	/*
