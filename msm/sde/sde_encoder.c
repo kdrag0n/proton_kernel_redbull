@@ -1967,6 +1967,7 @@ static int _sde_encoder_update_rsc_client(
 	bool is_vid_mode;
 	struct msm_drm_private *priv;
 	struct sde_kms *sde_kms;
+	struct drm_encoder *enc;
 
 	if (!drm_enc || !drm_enc->dev) {
 		SDE_ERROR("invalid encoder arguments\n");
@@ -2016,6 +2017,12 @@ static int _sde_encoder_update_rsc_client(
 		rsc_state = enable ? SDE_RSC_CMD_STATE : SDE_RSC_IDLE_STATE;
 	else if (sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_VIDEO_MODE))
 		rsc_state = enable ? SDE_RSC_VID_STATE : SDE_RSC_IDLE_STATE;
+
+	drm_for_each_encoder(enc, drm_enc->dev) {
+		if (enc->base.id != drm_enc->base.id &&
+			 sde_encoder_in_cont_splash(enc))
+			rsc_state = SDE_RSC_CLK_STATE;
+	}
 
 	if (IS_SDE_MAJOR_SAME(sde_kms->core_rev, SDE_HW_VER_600) &&
 			 (rsc_state == SDE_RSC_VID_STATE))
@@ -2654,6 +2661,14 @@ end:
 static int _sde_encoder_rc_idle(struct drm_encoder *drm_enc,
 	u32 sw_event, struct sde_encoder_virt *sde_enc, bool is_vid_mode)
 {
+	struct msm_drm_private *priv;
+	struct sde_kms *sde_kms;
+	struct drm_crtc *crtc = drm_enc->crtc;
+	struct sde_crtc *sde_crtc = to_sde_crtc(crtc);
+
+	priv = drm_enc->dev->dev_private;
+	sde_kms = to_sde_kms(priv->kms);
+
 	mutex_lock(&sde_enc->rc_lock);
 
 	if (sde_enc->rc_state != SDE_ENC_RC_STATE_ON) {
@@ -2678,6 +2693,10 @@ static int _sde_encoder_rc_idle(struct drm_encoder *drm_enc,
 		/* disable all the clks and resources */
 		_sde_encoder_update_rsc_client(drm_enc, false);
 		_sde_encoder_resource_control_helper(drm_enc, false);
+
+		if (!sde_kms->perf.bw_vote_mode)
+			memset(&sde_crtc->cur_perf, 0,
+				sizeof(struct sde_core_perf_params));
 	}
 
 	SDE_EVT32(DRMID(drm_enc), sw_event, sde_enc->rc_state,

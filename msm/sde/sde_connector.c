@@ -692,17 +692,26 @@ void sde_connector_helper_bridge_disable(struct drm_connector *connector)
 {
 	int rc;
 	struct sde_connector *c_conn = NULL;
+	struct dsi_display *display;
+	bool poms_pending = false;
 
 	if (!connector)
 		return;
 
-	rc = _sde_connector_update_dirty_properties(connector);
-	if (rc) {
-		SDE_ERROR("conn %d final pre kickoff failed %d\n",
-				connector->base.id, rc);
-		SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
+	c_conn = to_sde_connector(connector);
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
+		display = (struct dsi_display *) c_conn->display;
+		poms_pending = display->poms_pending;
 	}
 
+	if (!poms_pending) {
+		rc = _sde_connector_update_dirty_properties(connector);
+		if (rc) {
+			SDE_ERROR("conn %d final pre kickoff failed %d\n",
+					connector->base.id, rc);
+			SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
+		}
+	}
 	/* Disable ESD thread */
 	sde_connector_schedule_status_work(connector, false);
 
@@ -1973,6 +1982,8 @@ sde_connector_atomic_best_encoder(struct drm_connector *connector,
 	if (c_conn->ops.atomic_best_encoder)
 		encoder = c_conn->ops.atomic_best_encoder(connector,
 				c_conn->display, connector_state);
+
+	c_conn->encoder = encoder;
 
 	return encoder;
 }
