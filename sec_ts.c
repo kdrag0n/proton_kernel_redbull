@@ -258,7 +258,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 
 	spi_read_len = len +
 		SEC_TS_SPI_READ_HEADER_SIZE + SEC_TS_SPI_CHECKSUM_SIZE;
-	spi_read_len = (spi_read_len + 3 + 20) & ~3;
+	spi_read_len = (spi_read_len + 3) & ~3;
 #endif
 	if (len <= ts->io_burstmax) {
 #ifdef I2C_INTERFACE
@@ -336,7 +336,6 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 
 			// read sequence start
 			spi_message_init(&msg);
-			//TODO: for test, increase read size by 20bytes
 			transfer[0].len = spi_read_len;
 			transfer[0].tx_buf = NULL;
 			transfer[0].rx_buf = ts->io_read_buf;
