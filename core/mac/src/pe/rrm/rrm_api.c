@@ -498,7 +498,6 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 	tDot11fIEAPChannelReport *ie_ap_chan_rpt;
 	uint8_t buf_left, buf_cons;
 	uint16_t ch_ctr = 0, idx_rpt = 0;
-	char req_ssid[WLAN_SSID_MAX_LEN] = {0};
 	char ch_buf[RRM_CH_BUF_LEN];
 	char *tmp_buf = NULL;
 	uint8_t *ch_lst = NULL;
@@ -536,21 +535,6 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 			pe_session->beaconParams.beaconInterval / maxDuration;
 
 	measDuration = pBeaconReq->measurement_request.Beacon.meas_duration;
-
-	if (pBeaconReq->measurement_request.Beacon.SSID.present)
-		qdf_snprintf(req_ssid, WLAN_SSID_MAX_LEN, "%s",
-			     pBeaconReq->measurement_request.Beacon.SSID.ssid);
-
-	pe_nofl_info("RX: [802.11 BCN_RPT] SSID:%s BSSID:%pM Token:%d op_class:%d ch:%d meas_mode:%d meas_duration:%d",
-		     req_ssid, pBeaconReq->measurement_request.Beacon.BSSID,
-		     pBeaconReq->measurement_token,
-		     pBeaconReq->measurement_request.Beacon.regClass,
-		     pBeaconReq->measurement_request.Beacon.channel,
-		     pBeaconReq->measurement_request.Beacon.meas_mode,
-		     measDuration);
-
-	pe_debug("RX: [802.11 BCN_RPT] max_dur: %d sign: %d max_meas_dur: %d",
-		 maxDuration, sign, maxMeasduration);
 
 	if (measDuration == 0 &&
 	    pBeaconReq->measurement_request.Beacon.meas_mode !=
