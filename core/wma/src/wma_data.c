@@ -2932,9 +2932,12 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 					WLAN_MGMT_NB_ID);
 	}
 
-	ucfg_pkt_capture_mgmt_tx(wma_handle->pdev,
-				 tx_frame, wma_handle->interfaces[vdev_id].mhz,
-				 mgmt_param.tx_param.preamble_type);
+	if (ucfg_pkt_capture_get_pktcap_mode() && PKT_CAPTURE_MODE_MGMT_ONLY) {
+		ucfg_pkt_capture_mgmt_tx(wma_handle->pdev,
+					 tx_frame,
+					 wma_handle->interfaces[vdev_id].mhz,
+					 mgmt_param.tx_param.preamble_type);
+	}
 
 	status = wlan_mgmt_txrx_mgmt_frame_tx(peer, wma_handle->mac_context,
 					      (qdf_nbuf_t)tx_frame, NULL,
@@ -3414,6 +3417,31 @@ uint8_t wma_rx_invalid_peer_ind(uint8_t vdev_id, void *wh)
 			QDF_MAC_ADDR_ARRAY(rx_inv_msg->ta));
 		qdf_mem_free(rx_inv_msg);
 	}
+
+	return 0;
+}
+
+int wma_dp_send_delba_ind(uint8_t vdev_id, uint8_t *peer_macaddr,
+			  uint8_t tid, uint8_t reason_code)
+{
+	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	struct lim_delba_req_info *req;
+
+	if (!wma || !peer_macaddr) {
+		wma_err("wma handle or mac addr is NULL");
+		return -EINVAL;
+	}
+	req = qdf_mem_malloc(sizeof(*req));
+	if (!req)
+		return -ENOMEM;
+	req->vdev_id = vdev_id;
+	qdf_mem_copy(req->peer_macaddr, peer_macaddr, QDF_MAC_ADDR_SIZE);
+	req->tid = tid;
+	req->reason_code = reason_code;
+	WMA_LOGD("req delba_ind vdev %d %pM tid %d reason %d",
+		 vdev_id, peer_macaddr, tid, reason_code);
+	wma_send_msg_high_priority(wma, SIR_HAL_REQ_SEND_DELBA_REQ_IND,
+				   (void *)req, 0);
 
 	return 0;
 }

@@ -552,6 +552,7 @@ static QDF_STATUS p2p_object_init_params(
 			cfg_get(psoc, CFG_GO_LINK_MONITOR_PERIOD);
 	p2p_soc_obj->param.p2p_device_addr_admin =
 			cfg_get(psoc, CFG_P2P_DEVICE_ADDRESS_ADMINISTRATED);
+
 	return QDF_STATUS_SUCCESS;
 }
 

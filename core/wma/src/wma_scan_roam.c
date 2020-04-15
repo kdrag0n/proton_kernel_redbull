@@ -78,6 +78,7 @@
 #include <wlan_mlme_main.h>
 #include <wlan_crypto_global_api.h>
 #include <cdp_txrx_mon.h>
+#include "wlan_blm_core.h"
 
 #ifdef FEATURE_WLAN_EXTSCAN
 #define WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION WAKELOCK_DURATION_RECOMMENDED
@@ -353,12 +354,14 @@ static void wma_roam_scan_offload_set_params(
 	params->fw_pmksa_cache = roam_req->pmkid_modes.fw_pmksa_cache;
 	params->rct_validity_timer = roam_req->rct_validity_timer;
 	params->is_adaptive_11r = roam_req->is_adaptive_11r_connection;
-	wma_debug("qos_caps %d, qos_enabled %d, ho_delay_for_rx %d, roam_scan_mode %d roam_preauth: retrycount %d, no_ack_timeout %d",
+	params->is_sae_same_pmk = roam_req->is_sae_single_pmk;
+	wma_debug("qos_caps %d, qos_enabled %d, ho_delay_for_rx %d, roam_scan_mode %d roam_preauth: retrycount %d, no_ack_timeout %d SAE Single PMK:%d",
 		 params->roam_offload_params.qos_caps,
 		 params->roam_offload_params.qos_enabled,
 		 params->roam_offload_params.ho_delay_for_rx, params->mode,
 		 params->roam_offload_params.roam_preauth_retry_count,
-		 params->roam_offload_params.roam_preauth_no_ack_timeout);
+		 params->roam_offload_params.roam_preauth_no_ack_timeout,
+		 params->is_sae_same_pmk);
 }
 #else
 static void wma_roam_scan_offload_set_params(
@@ -1403,6 +1406,7 @@ static QDF_STATUS wma_roam_scan_filter(tp_wma_handle wma_handle,
 	params->num_ssid_white_list = num_ssid_white_list;
 	params->num_bssid_preferred_list = num_bssid_preferred_list;
 	params->num_rssi_rejection_ap = num_rssi_rejection_ap;
+	params->delta_rssi = blm_get_rssi_blacklist_threshold(wma_handle->pdev);
 	qdf_mem_copy(params->bssid_avoid_list, roam_params->bssid_avoid_list,
 			MAX_BSSID_AVOID_LIST * sizeof(struct qdf_mac_addr));
 
@@ -1794,6 +1798,8 @@ QDF_STATUS wma_process_roaming_config(tp_wma_handle wma_handle,
 		if (qdf_status != QDF_STATUS_SUCCESS)
 			break;
 
+		wma_set_roam_triggers(wma_handle, &roam_req->roam_triggers);
+
 		/* Opportunistic scan runs on a timer, value set by
 		 * EmptyRefreshScanPeriod. Age out the entries after 3 such
 		 * cycles.
@@ -1991,6 +1997,18 @@ QDF_STATUS wma_process_roaming_config(tp_wma_handle wma_handle,
 
 		wma_send_disconnect_roam_params(wma_handle, roam_req);
 		wma_send_idle_roam_params(wma_handle, roam_req);
+
+		/*
+		 * Disable all roaming triggers if RSO stop is as part of
+		 * disconnect
+		 */
+		if (mode == WMI_ROAM_SCAN_MODE_NONE) {
+			struct roam_triggers roam_triggers;
+
+			roam_triggers.vdev_id = roam_req->sessionId;
+			roam_triggers.trigger_bitmap = 0;
+			wma_set_roam_triggers(wma_handle, &roam_triggers);
+		}
 
 		if (roam_req->reason ==
 		    REASON_OS_REQUESTED_ROAMING_NOW) {
@@ -2770,7 +2788,7 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 	A_UINT32 reassoc_rsp_len;
 	A_UINT32 reassoc_req_len;
 
-	WMA_LOGD("LFR3:%s", __func__);
+	WMA_LOGD("LFR3: Received WMA_ROAM_OFFLOAD_SYNCH_IND");
 	if (!event) {
 		WMA_LOGE("%s: event param null", __func__);
 		goto cleanup_label;
@@ -2828,7 +2846,6 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 				__func__);
 		goto cleanup_label;
 	}
-	WMA_LOGD("LFR3: Received WMA_ROAM_OFFLOAD_SYNCH_IND");
 
 	/*
 	 * All below length fields are unsigned and hence positive numbers.
@@ -2892,11 +2909,6 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 
 		roam_synch_data_len += sizeof(struct roam_offload_synch_ind);
 	}
-
-	WMA_LOGD("synch payload: LEN bcn:%d, req:%d, rsp:%d",
-			bcn_probe_rsp_len,
-			reassoc_req_len,
-			reassoc_rsp_len);
 
 	cds_host_diag_log_work(wma->roam_ho_wl,
 			       WMA_ROAM_HO_WAKE_LOCK_DURATION,
@@ -2994,6 +3006,9 @@ cleanup_label:
 			roam_req->Command = ROAM_SCAN_OFFLOAD_STOP;
 			roam_req->reason = REASON_ROAM_SYNCH_FAILED;
 			roam_req->sessionId = synch_event->vdev_id;
+			wma_debug("In cleanup: RSO Command:%d, reason %d vdev %d",
+				  roam_req->Command, roam_req->reason,
+				  roam_req->sessionId);
 			wma_process_roaming_config(wma, roam_req);
 		}
 	}
@@ -3605,27 +3620,36 @@ wma_rso_print_11kv_info(struct wmi_neighbor_report_data *neigh_rpt,
 		return;
 
 	tmp = buf;
-	for (i = 0; i < num_ch; i++) {
+	if (num_ch) {
 		buf_cons = qdf_snprint(tmp, buf_left, "{ ");
 		buf_left -= buf_cons;
 		tmp += buf_cons;
 
-		buf_cons = qdf_snprint(tmp, buf_left, "%d ",
-				       neigh_rpt->freq[i]);
-		buf_left -= buf_cons;
-		tmp += buf_cons;
+		for (i = 0; i < num_ch; i++) {
+			buf_cons = qdf_snprint(tmp, buf_left, "%d ",
+					       neigh_rpt->freq[i]);
+			buf_left -= buf_cons;
+			tmp += buf_cons;
+		}
 
 		buf_cons = qdf_snprint(tmp, buf_left, "}");
 		buf_left -= buf_cons;
 		tmp += buf_cons;
 	}
-	mlme_get_converted_timestamp(neigh_rpt->req_time, time);
-	WMA_LOGI("%s [%s] RX: VDEV[%d] %s", time,
-		 (type == 1) ? "BTM" : "NEIGH_RPT", vdev_id, buf);
 
-	mlme_get_converted_timestamp(neigh_rpt->resp_time, time1);
-	WMA_LOGI("%s [%s] TX: VDEV[%d]", time1,
-		 (type == 1) ? "BTM" : "NEIGH_RPT", vdev_id);
+	mlme_get_converted_timestamp(neigh_rpt->req_time, time);
+	WMA_LOGI("%s [%s] VDEV[%d]", time,
+		 (type == 1) ? "BTM_QUERY" : "NEIGH_RPT_REQ", vdev_id);
+
+	if (neigh_rpt->resp_time) {
+		mlme_get_converted_timestamp(neigh_rpt->resp_time, time1);
+		WMA_LOGI("%s [%s] VDEV[%d] %s", time1,
+			 (type == 1) ? "BTM_REQ" : "NEIGH_RPT_RSP", vdev_id,
+			 (num_ch > 0) ? buf : "NO Ch update");
+	} else {
+		WMA_LOGI("%s No response received from AP",
+			 (type == 1) ? "BTM" : "NEIGH_RPT");
+	}
 	qdf_mem_free(buf);
 }
 
@@ -3878,7 +3902,7 @@ QDF_STATUS wma_roam_scan_fill_self_caps(tp_wma_handle wma_handle,
 	if (mac->mlme_cfg->scoring.apsd_enabled)
 		selfCaps.apsd = 1;
 
-	selfCaps.rrm = mac->rrm.rrmSmeContext.rrmConfig.rrm_enabled;
+	selfCaps.rrm = mac->rrm.rrmConfig.rrm_enabled;
 
 	val = mac->mlme_cfg->feature_flags.enable_block_ack;
 	selfCaps.delayedBA =
@@ -6119,7 +6143,6 @@ int wma_roam_event_callback(WMA_HANDLE handle, uint8_t *event_buf,
 	case WMI_ROAM_REASON_DEAUTH:
 		WMA_LOGD("%s: Received disconnect roam event reason:%d",
 			 __func__, wmi_event->notif_params);
-
 		if (wmi_event->notif_params1)
 			frame = param_buf->deauth_disassoc_frame;
 		wma_handle->pe_disconnect_cb(wma_handle->mac_context,
@@ -6360,11 +6383,8 @@ int wma_handle_btm_blacklist_event(void *handle, uint8_t *cmd_param_info,
 QDF_STATUS wma_set_roam_triggers(tp_wma_handle wma,
 				 struct roam_triggers *triggers)
 {
-	if (!wma_is_vdev_valid(triggers->vdev_id)) {
-		WMA_LOGE("%s: vdev_id: %d is not active", __func__,
-			 triggers->vdev_id);
+	if (!wma_is_vdev_valid(triggers->vdev_id))
 		return QDF_STATUS_E_INVAL;
-	}
 
 	return wmi_unified_set_roam_triggers(wma->wmi_handle, triggers);
 }

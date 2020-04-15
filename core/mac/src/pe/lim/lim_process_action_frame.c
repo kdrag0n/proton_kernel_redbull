@@ -51,6 +51,7 @@
 #include <cdp_txrx_cmn.h>
 #include <cdp_txrx_peer_ops.h>
 #include "dot11f.h"
+#include "wlan_p2p_cfg_api.h"
 
 static last_processed_msg rrm_link_action_frm;
 
@@ -1285,7 +1286,8 @@ __lim_process_radio_measure_request(struct mac_context *mac, uint8_t *pRxPacketI
 			 HIGH_SEQ_NUM_OFFSET) |
 			pHdr->seqControl.seqNumLo);
 	if (curr_seq_num == mac->rrm.rrmPEContext.prev_rrm_report_seq_num &&
-	    mac->rrm.rrmPEContext.pCurrentReq) {
+	    (mac->rrm.rrmPEContext.pCurrentReq[DEFAULT_RRM_IDX] ||
+	     mac->rrm.rrmPEContext.pCurrentReq[DEFAULT_RRM_IDX + 1])) {
 		pe_err("rrm report req frame, seq num: %d is already in progress, drop it",
 			curr_seq_num);
 		return;
@@ -1941,6 +1943,15 @@ void lim_process_action_frame(struct mac_context *mac_ctx,
 		case SIR_MAC_WNM_BSS_TM_QUERY:
 		case SIR_MAC_WNM_BSS_TM_REQUEST:
 		case SIR_MAC_WNM_BSS_TM_RESPONSE:
+			if (cfg_p2p_is_roam_config_disabled(mac_ctx->psoc) &&
+			    session && LIM_IS_STA_ROLE(session) &&
+			    (policy_mgr_mode_specific_connection_count(
+				mac_ctx->psoc, PM_P2P_CLIENT_MODE, NULL) ||
+			     policy_mgr_mode_specific_connection_count(
+				mac_ctx->psoc, PM_P2P_GO_MODE, NULL))) {
+				pe_debug("p2p session active drop BTM frame");
+				break;
+			}
 		case SIR_MAC_WNM_NOTIF_REQUEST:
 		case SIR_MAC_WNM_NOTIF_RESPONSE:
 			rssi = WMA_GET_RX_RSSI_NORMALIZED(rx_pkt_info);

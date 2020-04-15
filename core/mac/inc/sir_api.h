@@ -724,6 +724,9 @@ struct bss_description {
 #endif
 	uint32_t assoc_disallowed;
 	uint32_t adaptive_11r_ap;
+#if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+	uint32_t is_single_pmk;
+#endif
 	/* Please keep the structure 4 bytes aligned above the ieFields */
 	uint32_t ieFields[1];
 };
@@ -2339,12 +2342,14 @@ struct roam_offload_scan_req {
 	uint8_t RoamKeyMgmtOffloadEnabled;
 	struct pmkid_mode_bits pmkid_modes;
 	bool is_adaptive_11r_connection;
+	bool is_sae_single_pmk;
 
 	/* Idle/Disconnect roam parameters */
 	struct wmi_idle_roam_params idle_roam_params;
 	struct wmi_disconnect_roam_params disconnect_roam_params;
 #endif
 	struct roam_ext_params roam_params;
+	struct roam_triggers roam_triggers;
 	uint8_t  middle_of_roaming;
 	uint32_t hi_rssi_scan_max_count;
 	uint32_t hi_rssi_scan_rssi_delta;

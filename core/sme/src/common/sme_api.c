@@ -59,6 +59,7 @@
 #include "wlan_mlme_main.h"
 #include "cfg_ucfg_api.h"
 #include "wlan_fwol_ucfg_api.h"
+#include "wlan_crypto_global_api.h"
 
 static QDF_STATUS init_sme_cmd_list(struct mac_context *mac);
 
@@ -831,12 +832,12 @@ void sme_update_fine_time_measurement_capab(mac_handle_t mac_handle,
 
 	if (!val) {
 		mac_ctx->rrm.rrmPEContext.rrmEnabledCaps.fine_time_meas_rpt = 0;
-		((tpRRMCaps)mac_ctx->rrm.rrmSmeContext.
-			rrmConfig.rm_capability)->fine_time_meas_rpt = 0;
+		((tpRRMCaps)mac_ctx->rrm.rrmConfig.
+			rm_capability)->fine_time_meas_rpt = 0;
 	} else {
 		mac_ctx->rrm.rrmPEContext.rrmEnabledCaps.fine_time_meas_rpt = 1;
-		((tpRRMCaps)mac_ctx->rrm.rrmSmeContext.
-			rrmConfig.rm_capability)->fine_time_meas_rpt = 1;
+		((tpRRMCaps)mac_ctx->rrm.rrmConfig.
+			rm_capability)->fine_time_meas_rpt = 1;
 	}
 
 	/* Inform this RRM IE change to FW */
@@ -1645,7 +1646,7 @@ QDF_STATUS sme_set_ese_beacon_request(mac_handle_t mac_handle,
 	const tCsrEseBeaconReqParams *pBeaconReq = NULL;
 	uint8_t counter = 0;
 	struct csr_roam_session *pSession = CSR_GET_SESSION(mac, sessionId);
-	tpRrmSMEContext pSmeRrmContext = &mac->rrm.rrmSmeContext;
+	tpRrmSMEContext pSmeRrmContext = &mac->rrm.rrmSmeContext[0];
 
 	if (pSmeRrmContext->eseBcnReqInProgress == true) {
 		sme_err("A Beacon Report Req is already in progress");
@@ -1673,6 +1674,7 @@ QDF_STATUS sme_set_ese_beacon_request(mac_handle_t mac_handle,
 	pSmeBcnReportReq->channelInfo.channelNum = 255;
 	pSmeBcnReportReq->channelList.numChannels = in_req->numBcnReqIe;
 	pSmeBcnReportReq->msgSource = eRRM_MSG_SOURCE_ESE_UPLOAD;
+	pSmeBcnReportReq->measurement_idx = 0;
 
 	for (counter = 0; counter < in_req->numBcnReqIe; counter++) {
 		pBeaconReq = &in_req->bcnReq[counter];
@@ -2056,8 +2058,6 @@ QDF_STATUS sme_process_msg(struct mac_context *mac, struct scheduler_msg *pMsg)
 	switch (pMsg->type) {
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	case eWNI_SME_HO_FAIL_IND:
-		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
-			  FL("LFR3: Rcvd eWNI_SME_HO_FAIL_IND"));
 		csr_process_ho_fail_ind(mac, pMsg->bodyptr);
 		qdf_mem_free(pMsg->bodyptr);
 		break;
@@ -2380,6 +2380,10 @@ QDF_STATUS sme_process_msg(struct mac_context *mac, struct scheduler_msg *pMsg)
 	case eWNI_SME_GET_ROAM_SCAN_CH_LIST_EVENT:
 		sme_process_roam_scan_ch_list_resp(mac, pMsg->bodyptr);
 		qdf_mem_free(pMsg->bodyptr);
+		break;
+	case eWNI_SME_MONITOR_MODE_VDEV_UP:
+		status = csr_process_monitor_mode_vdev_up_evt(mac,
+							      pMsg->bodyval);
 		break;
 	default:
 
@@ -3442,7 +3446,7 @@ QDF_STATUS sme_oem_update_capability(mac_handle_t mac_handle,
 	struct mac_context *pmac = MAC_CONTEXT(mac_handle);
 	uint8_t *bytes;
 
-	bytes = pmac->rrm.rrmSmeContext.rrmConfig.rm_capability;
+	bytes = pmac->rrm.rrmConfig.rm_capability;
 
 	if (cap->ftm_rr)
 		bytes[4] |= RM_CAP_FTM_RANGE_REPORT;
@@ -3470,7 +3474,7 @@ QDF_STATUS sme_oem_get_capability(mac_handle_t mac_handle,
 	struct mac_context *pmac = MAC_CONTEXT(mac_handle);
 	uint8_t *bytes;
 
-	bytes = pmac->rrm.rrmSmeContext.rrmConfig.rm_capability;
+	bytes = pmac->rrm.rrmConfig.rm_capability;
 
 	cap->ftm_rr = bytes[4] & RM_CAP_FTM_RANGE_REPORT;
 	cap->lci_capability = bytes[4] & RM_CAP_CIVIC_LOC_MEASUREMENT;
@@ -14464,7 +14468,8 @@ QDF_STATUS sme_fast_reassoc(mac_handle_t mac_handle,
 }
 #endif
 
-QDF_STATUS sme_set_del_pmkid_cache(mac_handle_t mac_handle, uint8_t session_id,
+QDF_STATUS sme_set_del_pmkid_cache(struct wlan_objmgr_psoc *psoc,
+				   uint8_t session_id,
 				   tPmkidCacheInfo *pmk_cache_info,
 				   bool is_add)
 {
@@ -16526,3 +16531,50 @@ void sme_reset_oem_data_event_handler_cb(mac_handle_t  mac_handle)
 	}
 }
 #endif
+
+QDF_STATUS sme_get_prev_connected_bss_ies(mac_handle_t mac_handle,
+					  uint8_t vdev_id,
+					  uint8_t **ies, uint32_t *ie_len)
+{
+	struct csr_roam_session *session;
+	struct mac_context *mac;
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	uint32_t len;
+	uint8_t *beacon_ie;
+
+	if (!mac_handle) {
+		sme_err("mac_handle is not valid");
+		return QDF_STATUS_E_INVAL;
+	}
+	mac = MAC_CONTEXT(mac_handle);
+	session = CSR_GET_SESSION(mac, vdev_id);
+	if (!session) {
+		sme_err("session not found");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	status = sme_acquire_global_lock(&mac->sme);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		sme_err("Failed to acquire sme lock; status: %d", status);
+		return status;
+	}
+
+	len = session->prev_assoc_ap_info.nBeaconLength;
+	if (!len) {
+		sme_debug("No IEs to return");
+		status = QDF_STATUS_E_INVAL;
+		goto end;
+	}
+	beacon_ie = qdf_mem_malloc(len);
+	if (!beacon_ie) {
+		status = QDF_STATUS_E_NOMEM;
+		goto end;
+	}
+	qdf_mem_copy(beacon_ie, session->prev_assoc_ap_info.pbFrames, len);
+
+	*ie_len = len;
+	*ies = beacon_ie;
+end:
+	sme_release_global_lock(&mac->sme);
+	return status;
+}

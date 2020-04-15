@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -223,6 +223,7 @@ struct sme_5g_band_pref_params {
  * @sme_session_id: SME session id
  * @type_of_persona: person type
  * @subtype_of_persona: sub type of persona
+ * @session_mon_mode_cb: callback registered with SME for monitor mode vdev up
  */
 struct sme_session_params {
 	csr_session_open_cb  session_open_cb;
@@ -233,6 +234,9 @@ struct sme_session_params {
 	uint8_t sme_session_id;
 	uint32_t type_of_persona;
 	uint32_t subtype_of_persona;
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+	csr_session_monitor_mode_cb session_monitor_mode_cb;
+#endif
 };
 
 #define MAX_CANDIDATE_INFO 10
@@ -2710,14 +2714,15 @@ QDF_STATUS sme_set_vc_mode_config(uint32_t vc_bitmap);
 
 /**
  * sme_set_del_pmkid_cache() - API to update PMKID cache
- * @mac_handle: Opaque handle to the global MAC context
+ * @psoc: psoc common object
  * @session_id: Session id
  * @pmk_cache_info: Pointer to PMK cache info
  * @is_add: boolean that implies whether to add or delete PMKID entry
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS sme_set_del_pmkid_cache(mac_handle_t mac_handle, uint8_t session_id,
+QDF_STATUS sme_set_del_pmkid_cache(struct wlan_objmgr_psoc *psoc,
+				   uint8_t session_id,
 				   tPmkidCacheInfo *pmk_cache_info,
 				   bool is_add);
 
@@ -4017,4 +4022,19 @@ static inline void sme_reset_oem_data_event_handler_cb(mac_handle_t  mac_handle)
 }
 #endif
 
+/**
+ * sme_get_prev_connected_bss_ies() - Get the previous connected AP IEs
+ * @mac_handle: The handle returned by mac_open.
+ * @vdev_id: vdev id
+ * @ies: IEs of the disconnected AP. Currently to carry beacon IEs.
+ * @ie_len: Length of the @ies
+ *
+ * This API extracts the IEs from the previous connected AP info and update
+ * them to the ies and ie_len.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS sme_get_prev_connected_bss_ies(mac_handle_t mac_handle,
+					  uint8_t vdev_id,
+					  uint8_t **ies, uint32_t *ie_len);
 #endif /* #if !defined( __SME_API_H ) */

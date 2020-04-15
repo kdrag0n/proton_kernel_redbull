@@ -919,7 +919,8 @@ int wlan_hdd_pm_qos_notify(struct notifier_block *nb, unsigned long curr_val,
 		return -EINVAL;
 	}
 
-	hdd_debug("PM QOS update. Current value: %ld", curr_val);
+	hdd_debug("PM QOS update: runtime_pm_prevented %d Current value: %ld",
+		  hdd_ctx->runtime_pm_prevented, curr_val);
 	qdf_spin_lock_irqsave(&hdd_ctx->pm_qos_lock);
 
 	if (!hdd_ctx->runtime_pm_prevented &&
@@ -1703,12 +1704,6 @@ static int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 		goto exit_with_code;
 	}
 
-	exit_code = wlan_hdd_validate_context(hdd_ctx);
-	if (exit_code) {
-		hdd_err("Invalid HDD context");
-		goto exit_with_code;
-	}
-
 	if (hdd_ctx->config->is_wow_disabled) {
 		hdd_err("wow is disabled");
 		return -EINVAL;
@@ -1953,14 +1948,16 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 			goto resume_ol_rx;
 	}
 
-	if (hdd_ctx->enable_dp_rx_threads)
-		dp_txrx_suspend(cds_get_context(QDF_MODULE_ID_SOC));
+	if (hdd_ctx->enable_dp_rx_threads) {
+		if (dp_txrx_suspend(cds_get_context(QDF_MODULE_ID_SOC)))
+			goto resume_ol_rx;
+	}
 
 	if (ucfg_pkt_capture_get_mode(hdd_ctx->psoc)) {
 		adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
 		if (adapter)
 			if (ucfg_pkt_capture_suspend_mon_thread(adapter->vdev))
-				goto resume_pkt_capture_mon_thread;
+				goto resume_dp_thread;
 	}
 
 	qdf_mtrace(QDF_MODULE_ID_HDD, QDF_MODULE_ID_HDD,
@@ -1983,7 +1980,6 @@ resume_dp_thread:
 	if (hdd_ctx->enable_dp_rx_threads)
 		dp_txrx_resume(cds_get_context(QDF_MODULE_ID_SOC));
 
-resume_pkt_capture_mon_thread:
 	/* Resume packet capture MON thread */
 	if (ucfg_pkt_capture_get_mode(hdd_ctx->psoc)) {
 		adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
