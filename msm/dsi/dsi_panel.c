@@ -540,9 +540,6 @@ int dsi_panel_cmd_set_transfer(struct dsi_panel *panel,
 		if (cmds->last_command)
 			cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
 
-		if (type == DSI_CMD_SET_VID_TO_CMD_SWITCH)
-			cmds->msg.flags |= MIPI_DSI_MSG_ASYNC_OVERRIDE;
-
 		len = ops->transfer(panel->host, &cmds->msg);
 		if (len < 0) {
 			rc = len;
@@ -1882,18 +1879,22 @@ static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 				enum dsi_cmd_set_type type)
 {
 	struct dsi_display_mode *mode;
+	struct dsi_panel_cmd_set *cmd;
 
 	if (!panel || !panel->cur_mode)
 		return -EINVAL;
 
 	mode = panel->cur_mode;
+	cmd = &mode->priv_info->cmd_sets[type];
 
-	if ((mode->priv_info->cmd_sets[type].count) &&
+	if ((cmd->count) &&
 			(type >= 0) && (type < DSI_CMD_SET_MAX))
 		pr_debug("send cmdset %s\n", cmd_set_prop_map[type]);
 
-	return dsi_panel_cmd_set_transfer(panel,
-					  &mode->priv_info->cmd_sets[type]);
+	if (type == DSI_CMD_SET_VID_TO_CMD_SWITCH)
+		cmd->cmds->msg.flags |= MIPI_DSI_MSG_ASYNC_OVERRIDE;
+
+	return dsi_panel_cmd_set_transfer(panel, cmd);
 }
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
