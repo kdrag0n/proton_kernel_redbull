@@ -1951,14 +1951,20 @@ static ssize_t stm_fts_cmd_show(struct device *dev,
 			else
 				setScanMode(SCAN_MODE_LOCKED, LOCKED_ACTIVE);
 			msleep(WAIT_FOR_FRESH_FRAMES);
-			setScanMode(SCAN_MODE_ACTIVE, 0x00);
-			msleep(WAIT_AFTER_SENSEOFF);
-			/* Delete the events related to some touch
-			 * (allow to call this function while touching
-			 * the screen without having a flooding of the
-			 * FIFO)
+			/* Skip sensing off when typeOfCommand[2]=0x01
+			 * to avoid sense on force cal after reading raw data
 			 */
-			flushFIFO();
+			if (!(numberParameters >= 3 &&
+				typeOfCommand[2] == 0x01)) {
+				setScanMode(SCAN_MODE_ACTIVE, 0x00);
+				msleep(WAIT_AFTER_SENSEOFF);
+				/* Delete the events related to some touch
+				 * (allow to call this function while touching
+				 * the screen without having a flooding of the
+				 * FIFO)
+				 */
+				flushFIFO();
+			}
 #ifdef READ_FILTERED_RAW
 			res = getMSFrame3(MS_FILTER, &frameMS);
 #else
@@ -2000,14 +2006,20 @@ static ssize_t stm_fts_cmd_show(struct device *dev,
 			else
 				setScanMode(SCAN_MODE_LOCKED, LOCKED_ACTIVE);
 			msleep(WAIT_FOR_FRESH_FRAMES);
-			setScanMode(SCAN_MODE_ACTIVE, 0x00);
-			msleep(WAIT_AFTER_SENSEOFF);
-			flushFIFO();
-			/* delete the events related to some touch
-			 * (allow to call this function while touching
-			 * the screen without having a flooding of the
-			 * FIFO)
+			/* Skip sensing off when typeOfCommand[2]=0x01
+			 * to avoid sense on force cal after reading raw data
 			 */
+			if (!(numberParameters >= 3 &&
+				typeOfCommand[2] == 0x01)) {
+				setScanMode(SCAN_MODE_ACTIVE, 0x00);
+				msleep(WAIT_AFTER_SENSEOFF);
+				flushFIFO();
+				/* delete the events related to some touch
+				 * (allow to call this function while touching
+				 * the screen without having a flooding of the
+				 * FIFO)
+				 */
+			}
 			if (numberParameters >= 2 &&
 				typeOfCommand[1] == LOCKED_LP_DETECT)
 #ifdef READ_FILTERED_RAW
@@ -2118,12 +2130,18 @@ static ssize_t stm_fts_cmd_show(struct device *dev,
 			break;
 		case 0x17:	/* Read mutual strength */
 			pr_info("Get 1 MS Strength\n");
-			setScanMode(SCAN_MODE_ACTIVE, 0xFF);
-			msleep(WAIT_FOR_FRESH_FRAMES);
-			setScanMode(SCAN_MODE_ACTIVE, 0x00);
-			msleep(WAIT_AFTER_SENSEOFF);
-			/* Flush outstanding touch events */
-			flushFIFO();
+			/* Skip sensing off when typeOfCommand[1]=0x01
+			 * to avoid sense on force cal after reading raw data
+			 */
+			if (!(numberParameters >= 2 &&
+				typeOfCommand[1] == 0x01)) {
+				setScanMode(SCAN_MODE_ACTIVE, 0xFF);
+				msleep(WAIT_FOR_FRESH_FRAMES);
+				setScanMode(SCAN_MODE_ACTIVE, 0x00);
+				msleep(WAIT_AFTER_SENSEOFF);
+				/* Flush outstanding touch events */
+				flushFIFO();
+			}
 			nodes = getMSFrame3(MS_STRENGTH, &frameMS);
 			if (nodes < 0) {
 				res = nodes;
