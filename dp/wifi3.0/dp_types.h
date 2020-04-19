@@ -579,6 +579,9 @@ struct dp_rx_tid {
 	/* Delba reason code for retries */
 	uint8_t delba_rcode;
 
+	/* Coex Override preserved windows size 1 based */
+	uint16_t rx_ba_win_size_override;
+
 };
 
 /**
@@ -745,6 +748,8 @@ struct dp_soc_stats {
 			struct cdp_pkt_info rx_invalid_pkt_len;
 			/* HAL ring access Fail error count */
 			uint32_t hal_ring_access_fail;
+			/* HAL ring access full Fail error count */
+			uint32_t hal_ring_access_full_fail;
 			/* RX DMA error count */
 			uint32_t rxdma_error[HAL_RXDMA_ERR_MAX];
 			/* RX REO DEST Desc Invalid Magic count */
@@ -763,6 +768,16 @@ struct dp_soc_stats {
 			uint32_t reo_cmd_send_fail;
 			/* RX msdu drop count due to scatter */
 			uint32_t scatter_msdu;
+			/* Delba sent count due to RX 2k jump */
+			uint32_t rx_2k_jump_delba_sent;
+			/* RX 2k jump msdu indicated to stack count */
+			uint32_t rx_2k_jump_to_stack;
+			/* RX 2k jump msdu dropped count */
+			uint32_t rx_2k_jump_drop;
+			/* REO OOR msdu drop count */
+			uint32_t reo_err_oor_drop;
+			/* REO OOR msdu indicated to stack count */
+			uint32_t reo_err_oor_to_stack;
 		} err;
 
 		/* packet count per core - per ring */
