@@ -13291,6 +13291,8 @@ static int __wlan_hdd_cfg80211_get_nud_stats(struct wiphy *wiphy,
 		goto exit;
 	}
 
+	hdd_update_sta_arp_stats(adapter);
+
 	if (nla_put_u16(skb, COUNT_FROM_NETDEV,
 			adapter->hdd_stats.hdd_arp_stats.tx_arp_req_count) ||
 	    nla_put_u16(skb, COUNT_TO_LOWER_MAC,
@@ -21227,9 +21229,9 @@ fn_end:
  * wlan_hdd_del_station() - delete station wrapper
  * @adapter: pointer to the hdd adapter
  *
- * Return: None
+ * Return: Errno
  */
-void wlan_hdd_del_station(struct hdd_adapter *adapter)
+int wlan_hdd_del_station(struct hdd_adapter *adapter)
 {
 	struct station_del_parameters del_sta;
 
@@ -21237,13 +21239,14 @@ void wlan_hdd_del_station(struct hdd_adapter *adapter)
 	del_sta.subtype = SIR_MAC_MGMT_DEAUTH >> 4;
 	del_sta.reason_code = eCsrForcedDeauthSta;
 
-	wlan_hdd_cfg80211_del_station(adapter->wdev.wiphy, adapter->dev,
-				      &del_sta);
+	return wlan_hdd_cfg80211_del_station(adapter->wdev.wiphy,
+					     adapter->dev, &del_sta);
 }
 #else
-void wlan_hdd_del_station(struct hdd_adapter *adapter)
+int wlan_hdd_del_station(struct hdd_adapter *adapter)
 {
-	wlan_hdd_cfg80211_del_station(adapter->wdev.wiphy, adapter->dev, NULL);
+	return wlan_hdd_cfg80211_del_station(adapter->wdev.wiphy,
+					     adapter->dev, NULL);
 }
 #endif
 
