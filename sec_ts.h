@@ -633,6 +633,18 @@ enum {
 	HEATMAP_FULL	= 2
 };
 
+/* Motion filter finite state machine (FSM) states
+ * SEC_TS_MF_FILTERED        - default coordinate filtering
+ * SEC_TS_MF_UNFILTERED      - unfiltered single-touch coordinates
+ * SEC_TS_MF_FILTERED_LOCKED - filtered coordinates. Locked until touch is
+ *			       lifted.
+ */
+enum motion_filter_state_t {
+	SEC_TS_MF_FILTERED         = 0,
+	SEC_TS_MF_UNFILTERED       = 1,
+	SEC_TS_MF_FILTERED_LOCKED  = 2
+};
+
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 /* Local heatmap */
@@ -842,6 +854,15 @@ struct sec_ts_data {
 
 	struct pm_qos_request pm_qos_req;
 
+	/* Stop changing motion filter and keep fw design */
+	u8 use_default_mf;
+	/* Motion filter finite state machine (FSM) state */
+	enum motion_filter_state_t mf_state;
+	/* Time of initial single-finger touch down. This timestamp is used to
+	 * compute the duration a single finger is touched before it is lifted.
+	 */
+	ktime_t mf_downtime;
+
 	u8 frame_type;
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
@@ -948,6 +969,10 @@ struct sec_ts_data {
 		u8 cali_report_param_ver[4];
 		};
 	};
+
+	/* slot id active state(bit mask) for all touch types
+	 **/
+	unsigned long tid_touch_state;
 
 #ifdef CONFIG_TOUCHSCREEN_TBN
 	struct tbn_context *tbn;

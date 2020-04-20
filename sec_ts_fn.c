@@ -439,6 +439,7 @@ static void set_continuous_report_enable(void *device_data)
 		goto err_out;
 	}
 
+	ts->use_default_mf = para;
 	scnprintf(buff, sizeof(buff), "%s", "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));

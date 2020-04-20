@@ -1216,6 +1216,71 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+/* Update a state machine used to toggle control of the touch IC's motion
+ * filter.
+ */
+static void update_motion_filter(struct sec_ts_data *ts)
+{
+	/* Motion filter timeout, in milliseconds */
+	const u32 mf_timeout_ms = 500;
+	u8 next_state;
+	/* Count the active touches */
+	u8 touches = hweight32(ts->tid_touch_state);
+
+	if (ts->use_default_mf)
+		return;
+
+	/* Determine the next filter state. The motion filter is enabled by
+	 * default and it is disabled while a single finger is touching the
+	 * screen. If another finger is touched down or if a timeout expires,
+	 * the motion filter is reenabled and remains enabled until all fingers
+	 * are lifted.
+	 */
+	next_state = ts->mf_state;
+	switch (ts->mf_state) {
+	case SEC_TS_MF_FILTERED:
+		if (touches == 1) {
+			next_state = SEC_TS_MF_UNFILTERED;
+			ts->mf_downtime = ktime_get();
+		}
+		break;
+	case SEC_TS_MF_UNFILTERED:
+		if (touches == 0) {
+			next_state = SEC_TS_MF_FILTERED;
+		} else if (touches > 1 ||
+			   ktime_after(ktime_get(),
+				       ktime_add_ms(ts->mf_downtime,
+						    mf_timeout_ms))) {
+			next_state = SEC_TS_MF_FILTERED_LOCKED;
+		}
+		break;
+	case SEC_TS_MF_FILTERED_LOCKED:
+		if (touches == 0)
+			next_state = SEC_TS_MF_FILTERED;
+		break;
+	}
+
+	/* Send command to update filter state */
+	if ((next_state == SEC_TS_MF_UNFILTERED) !=
+	    (ts->mf_state == SEC_TS_MF_UNFILTERED)) {
+		int ret;
+		u8 para;
+
+		pr_debug("%s: setting motion filter = %s.\n", __func__,
+			 (next_state == SEC_TS_MF_UNFILTERED) ?
+			 "false" : "true");
+		para = (next_state == SEC_TS_MF_UNFILTERED) ? 0x01 : 0x00;
+		ret = ts->sec_ts_write(ts, SEC_TS_CMD_SET_CONT_REPORT,
+				       &para, 1);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+			 "%s: write reg %#x para %#x failed, returned %i\n",
+			__func__, SEC_TS_CMD_SET_CONT_REPORT, para, ret);
+		}
+	}
+	ts->mf_state = next_state;
+}
+
 static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 {
 	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
@@ -1537,13 +1602,15 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 
 				if (ts->touch_count > 0)
 					ts->touch_count--;
-				if (ts->touch_count == 0) {
+				if (ts->touch_count == 0 ||
+					ts->tid_touch_state == 0) {
 					input_report_key(ts->input_dev,
 						BTN_TOUCH, 0);
 					input_report_key(ts->input_dev,
 						BTN_TOOL_FINGER, 0);
 					ts->check_multi = 0;
 				}
+				__clear_bit(t_id, &ts->tid_touch_state);
 
 			} else if (ts->coord[t_id].action ==
 					SEC_TS_COORDINATE_ACTION_PRESS) {
@@ -1562,6 +1629,7 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 						(unsigned int)ts->coord[t_id].z;
 
 				input_mt_slot(ts->input_dev, t_id);
+				__set_bit(t_id, &ts->tid_touch_state);
 				input_mt_report_slot_state(ts->input_dev,
 					MT_TOOL_FINGER, 1);
 				input_report_key(ts->input_dev, BTN_TOUCH, 1);
@@ -1621,6 +1689,7 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 				input_mt_slot(ts->input_dev, t_id);
 				input_mt_report_slot_state(ts->input_dev,
 					MT_TOOL_FINGER, 1);
+				__set_bit(t_id, &ts->tid_touch_state);
 				input_report_key(ts->input_dev, BTN_TOUCH, 1);
 				input_report_key(ts->input_dev,
 							BTN_TOOL_FINGER, 1);
@@ -2082,6 +2151,12 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	sec_ts_read_event(ts);
 
 	mutex_unlock(&ts->eventlock);
+
+#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
+	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+	/* Disable the firmware motion filter during single touch */
+	update_motion_filter(ts);
+#endif
 
 	pm_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 
@@ -3188,6 +3263,8 @@ static int sec_ts_probe(struct spi_device *client)
 	}
 
 	ts->touch_count = 0;
+	ts->tid_touch_state = 0;
+
 	ts->sec_ts_write = sec_ts_write;
 	ts->sec_ts_read = sec_ts_read;
 	ts->sec_ts_read_heap = sec_ts_read_heap;
@@ -3267,6 +3344,9 @@ static int sec_ts_probe(struct spi_device *client)
 	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
+	/* init motion filter mode */
+	ts->use_default_mf = 0;
+	ts->mf_state = SEC_TS_MF_FILTERED;
 #if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
 	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
 	/*
@@ -3471,6 +3551,8 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
+	ts->tid_touch_state = 0;
+
 #ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
 		input_report_key(ts->input_dev, KEY_SIDE_GESTURE, 0);
@@ -3534,6 +3616,7 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
+	ts->tid_touch_state = 0;
 
 #ifdef KEY_SIDE_GESTURE
 	if (ts->plat_data->support_sidegesture) {
