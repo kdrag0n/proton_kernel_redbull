@@ -1307,6 +1307,28 @@ static u32 dsi_ctrl_validate_msg_flags(struct dsi_ctrl *dsi_ctrl,
 	return flags;
 }
 
+static int dsi_msm_create_packet(struct mipi_dsi_packet *packet,
+			const struct mipi_dsi_msg *msg)
+{
+	int rc;
+	u8 tmp;
+	if (!packet)
+		return -EINVAL;
+
+	rc = mipi_dsi_create_packet(packet, msg);
+	if (rc)
+		return rc;
+
+	/* MSM chipsets swap the Data ID with the Word Count. So we need to shift
+	 * the header over. */
+	tmp = packet->header[0];
+	packet->header[0] = packet->header[1];
+	packet->header[1] = packet->header[2];
+	packet->header[2] = tmp;
+
+	return 0;
+}
+
 static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 			  const struct mipi_dsi_msg *msg,
 			  u32 flags)
@@ -1360,7 +1382,7 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 		goto kickoff;
 	}
 
-	rc = mipi_dsi_create_packet(&packet, msg);
+	rc = dsi_msm_create_packet(&packet, msg);
 	if (rc) {
 		DSI_CTRL_ERR(dsi_ctrl, "Failed to create message packet, rc=%d\n",
 				rc);
