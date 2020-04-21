@@ -1356,7 +1356,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 		memset(v4l2->frame, 0, v4l2->format.sizeimage);
 		/* populate the data buffer, rearranging into final locations */
 		for (local_i = 0; local_i < num_elements; local_i++) {
-			/* enforce big-endian order */
+			/* big-endian order raw data into heatmap data type */
 			be16_to_cpus(&report.data[local_i]);
 			heatmap_value = report.data[local_i];
 
@@ -1456,10 +1456,11 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 			return false;
 		}
 
+		/* big-endian order raw data into heatmap data type */
 		for (i = max_y - 1; i >= 0; i--)
 			for (j = max_x - 1; j >= 0 ; j--)
-				v4l2->frame[index++] =
-					ts->heatmap_buff[(j * max_y) + i];
+				v4l2->frame[index++] = be16_to_cpup(
+					ts->heatmap_buff + (j * max_y) + i);
 	} else
 		return false;
 
