@@ -1213,8 +1213,7 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 	}
 }
 
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 /* Update a state machine used to toggle control of the touch IC's motion
  * filter.
  */
@@ -2149,8 +2148,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	} while (remain_event_count >= 0);
 
 	input_sync(ts->input_dev);
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	if (processed_pointer_event) {
 		heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
 
@@ -2233,8 +2231,7 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 
 	mutex_unlock(&ts->eventlock);
 
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	/* Disable the firmware motion filter during single touch */
 	update_motion_filter(ts);
 #endif
@@ -3434,8 +3431,7 @@ static int sec_ts_probe(struct spi_device *client)
 	/* init motion filter mode */
 	ts->use_default_mf = 0;
 	ts->mf_state = SEC_TS_MF_FILTERED;
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	/*
 	 * Heatmap_probe must be called before irq routine is registered,
 	 * because heatmap_read is called from the irq context.
@@ -3519,8 +3515,7 @@ static int sec_ts_probe(struct spi_device *client)
 err_register_drm_client:
 	free_irq(client->irq, ts);
 err_heatmap:
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	heatmap_remove(&ts->v4l2);
 err_irq:
 #endif
@@ -4073,8 +4068,7 @@ static int sec_ts_remove(struct spi_device *client)
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	heatmap_remove(&ts->v4l2);
 #endif
 
@@ -4133,8 +4127,7 @@ static int sec_ts_remove(struct spi_device *client)
 	class_destroy(sec_class);
 #endif
 
-#if defined(CONFIG_TOUCHSCREEN_HEATMAP) || \
-	defined(CONFIG_TOUCHSCREEN_HEATMAP_MODULE)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	kfree(ts->heatmap_buff);
 #endif
 	kfree(ts->gainTable);
