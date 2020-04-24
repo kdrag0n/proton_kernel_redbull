@@ -3022,8 +3022,8 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts,
 			     0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
-	input_set_abs_params(dev, ABS_MT_TOOL_TYPE, MT_TOOL_FINGER, MT_TOOL_MAX,
-				0, 0);
+	input_set_abs_params(dev, ABS_MT_TOOL_TYPE, MT_TOOL_FINGER,
+			     MT_TOOL_FINGER, 0, 0);
 #ifdef ABS_MT_CUSTOM
 	input_set_abs_params(dev, ABS_MT_CUSTOM, 0, 0xFFFF, 0, 0);
 #endif
