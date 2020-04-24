@@ -4889,7 +4889,7 @@ static void fts_resume_work(struct work_struct *work)
 	if (!info->sensor_sleep)
 		return;
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (info->tbn)
 		tbn_request_bus(info->tbn);
 #endif
@@ -4953,7 +4953,7 @@ static void fts_suspend_work(struct work_struct *work)
 
 	fts_set_switch_gpio(info, FTS_SWITCH_GPIO_VALUE_SLPI_MASTER);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (info->tbn)
 		tbn_release_bus(info->tbn);
 #endif
@@ -5566,7 +5566,7 @@ static int fts_probe(struct spi_device *client)
 
 	dev_set_drvdata(info->dev, info);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	info->tbn = tbn_init(info->dev);
 	if (!info->tbn) {
 		pr_err("ERROR: failed to init tbn context\n");
@@ -5938,7 +5938,7 @@ static int fts_remove(struct spi_device *client)
 
 	pr_info("%s\n", __func__);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	tbn_cleanup(info->tbn);
 #endif
 

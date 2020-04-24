@@ -43,7 +43,7 @@
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
@@ -481,7 +481,7 @@ struct fts_ts_info {
 	 */
 	ktime_t mf_downtime;
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	struct tbn_context	*tbn;
 #endif
 
