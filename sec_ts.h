@@ -52,7 +52,7 @@
 #include <linux/input/input_booster.h>
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
@@ -985,7 +985,7 @@ struct sec_ts_data {
 	bool palms_leaved_once;
 	bool grips_leaved_once;
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	struct tbn_context *tbn;
 #endif
 

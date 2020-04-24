@@ -3311,7 +3311,7 @@ static int sec_ts_probe(struct spi_device *client)
 	spi_set_drvdata(client, ts);
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	ts->tbn = tbn_init(&ts->client->dev);
 	if (!ts->tbn) {
 		input_err(true, &ts->client->dev,
@@ -3548,7 +3548,7 @@ err_allocate_input_dev_pad:
 	if (ts->input_dev)
 		input_free_device(ts->input_dev);
 err_allocate_input_dev:
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	tbn_cleanup(ts->tbn);
 err_init_tbn:
 #endif
@@ -4117,7 +4117,7 @@ static int sec_ts_remove(struct spi_device *client)
 
 	ts->plat_data->power(ts, false);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	tbn_cleanup(ts->tbn);
 #endif
 
@@ -4400,7 +4400,7 @@ static void sec_ts_suspend_work(struct work_struct *work)
 
 	sec_set_switch_gpio(ts, SEC_SWITCH_GPIO_VALUE_SLPI_MASTER);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (ts->tbn)
 		tbn_release_bus(ts->tbn);
 #endif
@@ -4418,7 +4418,7 @@ static void sec_ts_resume_work(struct work_struct *work)
 
 	mutex_lock(&ts->device_mutex);
 
-#ifdef CONFIG_TOUCHSCREEN_TBN
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (ts->tbn)
 		tbn_request_bus(ts->tbn);
 #endif
