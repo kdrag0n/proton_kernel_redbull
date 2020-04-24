@@ -37,6 +37,7 @@
 #include <linux/of_gpio.h>
 #include <linux/platform_device.h>
 #include <linux/pm_qos.h>
+#include <linux/power_supply.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/time.h>
@@ -507,6 +508,12 @@ enum switch_system_mode {
 	TO_FLASH_MODE			= 3,
 };
 
+enum noise_mode_param {
+	NOISE_MODE_DEFALUT	= 0x00,
+	NOISE_MODE_OFF		= 0x10,
+	NOISE_MODE_FORCE_ON	= 0x11,
+};
+
 enum {
 	TYPE_RAW_DATA			= 0,	/* Total - Offset : delta data
 						 **/
@@ -729,6 +736,7 @@ struct sec_ts_gesture_status {
 
 /* status id for sec_ts event */
 #define SEC_TS_EVENT_STATUS_ID_NOISE	0x64
+#define SEC_TS_EVENT_STATUS_ID_WLC	0x66
 #define SEC_TS_EVENT_STATUS_ID_GRIP	0x69
 #define SEC_TS_EVENT_STATUS_ID_PALM	0x70
 
@@ -878,6 +886,7 @@ struct sec_ts_data {
 	struct delayed_work fw_update_work;
 	struct workqueue_struct *fw_update_wq;
 #endif
+	struct work_struct charger_work;	/* charger work */
 	struct work_struct suspend_work;
 	struct work_struct resume_work;
 	struct workqueue_struct *event_wq;	/* Used for event handler,
@@ -984,6 +993,14 @@ struct sec_ts_data {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	struct tbn_context *tbn;
 #endif
+
+	struct power_supply *wireless_psy;
+	struct power_supply *usb_psy;
+	struct notifier_block psy_nb;
+	bool wlc_online;
+	bool usb_present;
+	bool keep_wlc_mode;
+	ktime_t usb_changed_timestamp;
 
 	int (*sec_ts_write)(struct sec_ts_data *ts, u8 reg,
 				u8 *data, int len);

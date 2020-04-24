@@ -375,9 +375,9 @@ static void set_noise_mode_enable(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] == 1)
-		para = 0x00;
+		para = NOISE_MODE_DEFALUT;
 	else if (sec->cmd_param[0] == 0)
-		para = 0x10;
+		para = NOISE_MODE_OFF;
 	else {
 		input_info(true, &ts->client->dev,
 			"%s: param error! param = %d\n",

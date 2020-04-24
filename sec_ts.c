@@ -31,6 +31,7 @@ static void sec_ts_reset_work(struct work_struct *work);
 static void sec_ts_fw_update_work(struct work_struct *work);
 static void sec_ts_suspend_work(struct work_struct *work);
 static void sec_ts_resume_work(struct work_struct *work);
+static void sec_ts_charger_work(struct work_struct *work);
 
 #ifdef USE_OPEN_CLOSE
 static int sec_ts_input_open(struct input_dev *dev);
@@ -1969,6 +1970,13 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						event_buff[7]);
 
 					switch (status_id) {
+					case SEC_TS_EVENT_STATUS_ID_WLC:
+						input_info(true,
+							&ts->client->dev,
+							"STATUS: wlc mode change to %x\n",
+							status_data_1);
+						break;
+
 					case SEC_TS_EVENT_STATUS_ID_NOISE:
 						input_info(true,
 							&ts->client->dev,
@@ -2248,35 +2256,6 @@ int get_tsp_status(void)
 	return 0;
 }
 EXPORT_SYMBOL(get_tsp_status);
-
-void sec_ts_set_charger(bool enable)
-{
-	return;
-/*
- *	int ret;
- *	u8 noise_mode_on[] = {0x01};
- *	u8 noise_mode_off[] = {0x00};
- *
- *	if (enable) {
- *		input_info(true, &ts->client->dev,
- *			"sec_ts_set_charger : charger CONNECTED!!\n");
- *		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_on,
- *				sizeof(noise_mode_on));
- *		if (ret < 0)
- *			input_err(true, &ts->client->dev,
- *				"sec_ts_set_charger: fail to write NOISE_ON\n");
- *	} else {
- *		input_info(true, &ts->client->dev,
- *			"sec_ts_set_charger : charger DISCONNECTED!!\n");
- *		ret = sec_ts_write(ts, SEC_TS_CMD_NOISE_MODE, noise_mode_off,
- *		sizeof(noise_mode_off));
- *		if (ret < 0)
- *			input_err(true, &ts->client->dev,
- *				"%s: fail to write NOISE_OFF\n", __func__);
- *	}
- **/
-}
-EXPORT_SYMBOL(sec_ts_set_charger);
 
 int sec_ts_glove_mode_enables(struct sec_ts_data *ts, int mode)
 {
@@ -3182,6 +3161,7 @@ static void sec_ts_device_init(struct sec_ts_data *ts)
 }
 
 static struct notifier_block sec_ts_screen_nb;
+static struct notifier_block sec_ts_psy_nb;
 
 #ifdef I2C_INTERFACE
 static int sec_ts_probe(struct i2c_client *client,
@@ -3268,6 +3248,7 @@ static int sec_ts_probe(struct spi_device *client)
 #endif
 	INIT_WORK(&ts->suspend_work, sec_ts_suspend_work);
 	INIT_WORK(&ts->resume_work, sec_ts_resume_work);
+	INIT_WORK(&ts->charger_work, sec_ts_charger_work);
 	ts->event_wq = alloc_workqueue("sec_ts-event-queue", WQ_UNBOUND |
 					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
 	if (!ts->event_wq) {
@@ -3501,6 +3482,16 @@ static int sec_ts_probe(struct spi_device *client)
 
 	ts_dup = ts;
 	ts->probe_done = true;
+
+	ts->wlc_online = false;
+	ts->usb_present = false;
+	ts->charger_mode = SEC_TS_BIT_CHARGER_MODE_NO;
+	ts->wireless_psy = power_supply_get_by_name("wireless");
+	ts->usb_psy = power_supply_get_by_name("usb");
+	ts->psy_nb = sec_ts_psy_nb;
+	ret = power_supply_reg_notifier(&ts->psy_nb);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "psy notifier register failed\n");
 
 	input_err(true, &ts->client->dev, "%s: done\n", __func__);
 	input_log_fix();
@@ -4055,6 +4046,7 @@ static int sec_ts_remove(struct spi_device *client)
 
 	cancel_work_sync(&ts->suspend_work);
 	cancel_work_sync(&ts->resume_work);
+	cancel_work_sync(&ts->charger_work);
 	destroy_workqueue(ts->event_wq);
 
 #ifdef SEC_TS_FW_UPDATE_ON_PROBE
@@ -4480,6 +4472,19 @@ static void sec_ts_resume_work(struct work_struct *work)
 				  "%s: failed to set 16:9 mode.\n", __func__);
 	}
 
+	/* set charger mode */
+	ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE,
+			       &ts->charger_mode, 1);
+	if (ret < 0)
+		input_err(true, &ts->client->dev,
+			  "%s: write reg %#x %#x failed, returned %i\n",
+			__func__, SET_TS_CMD_SET_CHARGER_MODE, ts->charger_mode,
+			ret);
+	else
+		input_info(true, &ts->client->dev, "%s: set charger mode %#x\n",
+			__func__, ts->charger_mode);
+	queue_work(ts->event_wq, &ts->charger_work);
+
 	/* Sense_on */
 	ret = sec_ts_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
 	if (ret < 0)
@@ -4491,6 +4496,84 @@ static void sec_ts_resume_work(struct work_struct *work)
 	complete_all(&ts->bus_resumed);
 
 	mutex_unlock(&ts->device_mutex);
+}
+
+static void sec_ts_charger_work(struct work_struct *work)
+{
+	int ret;
+	union power_supply_propval prop = {0,};
+	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
+					      charger_work);
+	u8 charger_mode = SEC_TS_BIT_CHARGER_MODE_NO;
+	bool usb_present = ts->usb_present;
+	bool wlc_online = ts->wlc_online;
+
+	/* usb case */
+	ret = power_supply_get_property(ts->usb_psy,
+					POWER_SUPPLY_PROP_PRESENT, &prop);
+	if (ret == 0) {
+		usb_present = !!prop.intval;
+		if (usb_present)
+			charger_mode = SEC_TS_BIT_CHARGER_MODE_WIRE_CHARGER;
+	}
+
+	/* wlc case */
+	ret = power_supply_get_property(ts->wireless_psy,
+					POWER_SUPPLY_PROP_ONLINE, &prop);
+	if (ret == 0) {
+		wlc_online = !!prop.intval;
+		if (wlc_online)
+			charger_mode = SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER;
+	}
+
+	/* rtx case */
+	ret = power_supply_get_property(ts->wireless_psy,
+					POWER_SUPPLY_PROP_RTX, &prop);
+	if (ret == 0)
+		pr_debug("%s: RTX %s", __func__,
+			(!!prop.intval) ? "ON" : "OFF");
+
+	if (usb_present == ts->usb_present &&
+	    wlc_online == ts->wlc_online &&
+	    ts->keep_wlc_mode == false)
+		return;
+
+	/* keep wlc mode if usb plug in w/ wlc off case */
+	if (ts->keep_wlc_mode) {
+		input_info(true, &ts->client->dev,
+			   "keep wlc mode after usb plug in during wlc online");
+		charger_mode = SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER;
+	}
+
+	input_info(true, &ts->client->dev,
+		"%s: keep_wlc_mode %d, USB(%d->%d), WLC(%d->%d), charger_mode(%#x->%#x)",
+		__func__,
+		ts->keep_wlc_mode,
+		ts->usb_present, usb_present,
+		ts->wlc_online, wlc_online,
+		ts->charger_mode, charger_mode);
+
+	if (ts->charger_mode != charger_mode) {
+		ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE,
+				       &charger_mode, 1);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev,
+			 "%s: write reg %#x %#x failed, returned %i\n",
+			__func__, SET_TS_CMD_SET_CHARGER_MODE, charger_mode,
+			ret);
+			return;
+		}
+
+		input_info(true, &ts->client->dev,
+			"%s: charger_mode change from %#x to %#x\n",
+			__func__, ts->charger_mode, charger_mode);
+		ts->charger_mode = charger_mode;
+	}
+
+	/* update final charger state */
+	ts->wlc_online = wlc_online;
+	ts->usb_present = usb_present;
+	ts->keep_wlc_mode = false;
 }
 
 static void sec_ts_aggregate_bus_state(struct sec_ts_data *ts)
@@ -4607,6 +4690,49 @@ static int sec_ts_screen_state_chg_callback(struct notifier_block *nb,
 
 static struct notifier_block sec_ts_screen_nb = {
 	.notifier_call = sec_ts_screen_state_chg_callback,
+};
+
+/*
+ * power supply callback
+ */
+static int sec_ts_psy_cb(struct notifier_block *nb,
+			       unsigned long val, void *data)
+{
+	u64 debounce = 500;
+	struct sec_ts_data *ts = container_of(nb, struct sec_ts_data, psy_nb);
+
+	pr_debug("%s: val %lu", __func__, val);
+
+	if (val != PSY_EVENT_PROP_CHANGED ||
+	    ts->wireless_psy == NULL ||
+	    ts->usb_psy == NULL ||
+	    (ts->wireless_psy != data && ts->usb_psy != data))
+		return NOTIFY_OK;
+
+	if (ts->usb_psy == data) {
+		ts->usb_changed_timestamp = ktime_get();
+		if (ts->wlc_online) {
+			input_dbg(true, &ts->client->dev,
+				"%s: ignore this usb_psy changed during wlc_online!",
+				__func__);
+			return NOTIFY_OK;
+		}
+	}
+
+	if (ts->wireless_psy == data) {
+		/* keep wlc mode after usb plug in during wlc online */
+		if (ts->wlc_online == true &&
+		    ts->usb_present == false &&
+		    ktime_before(ktime_get(),
+			ktime_add_ms(ts->usb_changed_timestamp, debounce)))
+			ts->keep_wlc_mode = true;
+	}
+	queue_work(ts->event_wq, &ts->charger_work);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block sec_ts_psy_nb = {
+	.notifier_call = sec_ts_psy_cb,
 };
 
 #ifdef CONFIG_OF
