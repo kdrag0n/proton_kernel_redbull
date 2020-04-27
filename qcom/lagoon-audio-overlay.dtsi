@@ -277,7 +277,7 @@
 &lagoon_snd {
 	qcom,model = "lito-lagoonmtp-snd-card";
 	qcom,msm-mi2s-master = <1>, <1>, <1>, <1>, <1>, <1>;
-	qcom,wcn-btfm = <0>;
+	qcom,wcn-btfm = <1>;
 	qcom,ext-disp-audio-rx = <0>;
 	qcom,audio-routing =
 		"AMIC1", "MIC BIAS1",
@@ -373,7 +373,7 @@
 	asoc-codec  = <&stub_codec>, <&bolero>;
 	asoc-codec-names = "msm-stub-codec.1", "bolero_codec";
 	qcom,wsa-max-devs = <2>;
-	qcom,wsa-devs = <&wsa883x_0221>, <&wsa883x_0222>;
+	qcom,wsa-devs = <&wsa883x_0222>, <&wsa883x_0221>;
 	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrRight";
 	qcom,codec-max-aux-devs = <1>;
 	qcom,codec-aux-devs = <&wcd938x_codec>;
