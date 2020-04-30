@@ -878,6 +878,8 @@ static SOC_ENUM_SINGLE_EXT_DECL(bt_sample_rate_rx, bt_sample_rate_rx_text);
 static SOC_ENUM_SINGLE_EXT_DECL(bt_sample_rate_tx, bt_sample_rate_tx_text);
 static SOC_ENUM_SINGLE_EXT_DECL(afe_loopback_tx_chs, afe_loopback_tx_ch_text);
 
+static struct platform_device *spdev;
+
 static bool is_initial_boot;
 static bool codec_reg_done;
 static struct snd_soc_aux_dev *msm_aux_dev;
@@ -8610,6 +8612,63 @@ static void msm_i2s_auxpcm_deinit(void)
 	}
 }
 
+static int kona_notifier_service_cb(struct notifier_block *this,
+					 unsigned long opcode, void *ptr)
+{
+	int ret;
+	struct snd_soc_card *card = NULL;
+	const char *be_dl_name = LPASS_BE_QUIN_TDM_RX_0;
+	struct snd_soc_pcm_runtime *rtd;
+
+	pr_debug("%s: Service opcode 0x%lx\n", __func__, opcode);
+
+	switch (opcode) {
+	case AUDIO_NOTIFIER_SERVICE_DOWN:
+		/*
+		 * Use flag to ignore initial boot notifications
+		 * On initial boot msm_adsp_power_up_config is
+		 * called on init. There is no need to clear
+		 * and set the config again on initial boot.
+		 */
+		if (is_initial_boot)
+			break;
+		if (!spdev)
+			return -EINVAL;
+		card = platform_get_drvdata(spdev);
+		snd_soc_card_change_online_state(card, 0);
+		break;
+	case AUDIO_NOTIFIER_SERVICE_UP:
+		if (is_initial_boot) {
+			is_initial_boot = false;
+			break;
+		}
+		if (!spdev)
+			return -EINVAL;
+
+		card = platform_get_drvdata(spdev);
+		rtd = snd_soc_get_pcm_runtime(card, be_dl_name);
+		if (!rtd) {
+			dev_err(card->dev,
+				"%s: snd_soc_get_pcm_runtime for %s failed!\n",
+				__func__, be_dl_name);
+			ret = -EINVAL;
+			goto err;
+		}
+
+		snd_soc_card_change_online_state(card, 1);
+		break;
+	default:
+		break;
+	}
+err:
+	return NOTIFY_OK;
+}
+
+static struct notifier_block service_nb = {
+	.notifier_call  = kona_notifier_service_cb,
+	.priority = -INT_MAX,
+};
+
 static int kona_ssr_enable(struct device *dev, void *data)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -8706,6 +8765,7 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	int ret = 0;
 	uint index = 0;
 	struct clk *lpass_audio_hw_vote = NULL;
+	u32 bolero_audio_intf = 0;
 
 	if (!pdev->dev.of_node) {
 		dev_err(&pdev->dev, "%s: No platform supplied from device tree\n", __func__);
@@ -8768,6 +8828,8 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	}
 	dev_info(&pdev->dev, "%s: Sound card %s registered\n",
 		 __func__, card->name);
+
+	spdev = pdev;
 
 	pdata->hph_en1_gpio_p = of_parse_phandle(pdev->dev.of_node,
 						"qcom,hph-en1-gpio", 0);
@@ -8905,6 +8967,19 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 #if IS_ENABLED(CONFIG_SND_SOC_CODEC_DETECT)
 	codec_detect_hs_state_callback(codec_state);
 #endif
+	ret = of_property_read_u32(pdev->dev.of_node, "qcom,bolero_audio_intf",
+					&bolero_audio_intf);
+
+	if (!ret && bolero_audio_intf) {
+		dev_info(&pdev->dev, "%s: DT match bolero audio interface\n",
+			__func__);
+	} else {
+		ret = audio_notifier_register("KONA", AUDIO_NOTIFIER_ADSP_DOMAIN,
+				      &service_nb);
+		if (ret < 0)
+			pr_err("%s: Audio notifier register failed ret = %d\n",
+				__func__, ret);
+	}
 
 	return 0;
 err:
