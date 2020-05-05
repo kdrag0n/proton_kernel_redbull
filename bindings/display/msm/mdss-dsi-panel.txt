@@ -430,6 +430,20 @@ Optional properties:
 					height values. This property is specified per timing node to support
 					resolution's alignment restrictions.
 - qcom,esd-check-enabled:		Boolean used to enable ESD recovery feature.
+- google,mdss-dsi-te2-info		An array that lists the
+					sequence of rising edge value and falling edge value of TE2 signals.
+					Each command will have the format defined
+					as below:
+					sequence 1: <90HZ_rising_edge 90HZ_falling_edge>
+					sequence 2: <60HZ_rising_edge 60HZ_falling_edge>
+					sequence 3: <LP_HIGH_rising_edge LP_HIGH_falling_edge>
+					sequence 4: <LP_LOW_rising_edge LP_LOW_falling_edge>
+					Example:
+					google,mdss-dsi-te2-info = <1978 1980>, //90HZ
+								   <1978 1980>, //60HZ
+								   <1978 1980>, //LP_HIGH
+					                           <1978 1980>; //LP_LOW
+- google,mdss-dsi-te2-lp-threshold	The value is used to seperate TE2_EDGE_LP_HIGH and TE2_EDGE_LP_LOW.
 - qcom,mdss-dsi-panel-status-command:	A byte stream formed by multiple dcs packets based on
 					qcom dsi controller protocol, to read the panel status.
 					This value is used to kick in the ESD recovery.
