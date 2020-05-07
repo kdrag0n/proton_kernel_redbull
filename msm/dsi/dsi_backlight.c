@@ -748,6 +748,9 @@ static ssize_t als_table_store(struct device *dev,
 	u32 ranges[BL_RANGE_MAX] = {0};
 	char *buf_dup;
 
+	if (unlikely(!bl || !bl->bl_notifier))
+		return -EINVAL;
+
 	if (count == 0)
 		return -EINVAL;
 
