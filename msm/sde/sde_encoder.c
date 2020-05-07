@@ -1804,12 +1804,18 @@ static void _sde_encoder_dsc_disable(struct sde_encoder_virt *sde_enc)
 	if (!_sde_encoder_is_dsc_enabled(&sde_enc->base))
 		return;
 
-	if (!sde_enc || !sde_enc->phys_encs[0] ||
-			!sde_enc->phys_encs[0]->connector) {
+	if (!sde_enc || !sde_enc->phys_encs[0]) {
 		SDE_ERROR("invalid params %d %d\n",
 			!sde_enc, sde_enc ? !sde_enc->phys_encs[0] : -1);
 		return;
 	}
+
+	/*
+	 * Connector can be null if the first virt modeset after suspend
+	 * is called with dynamic clock or dms enabled.
+	 */
+	if (!sde_enc->phys_encs[0]->connector)
+		return;
 
 	if (sde_enc->cur_master)
 		hw_ctl = sde_enc->cur_master->hw_ctl;
@@ -2915,6 +2921,8 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	/* store the mode_info */
 	sde_connector_state_get_mode_info(conn->state, &sde_enc->mode_info);
 
+	sde_crtc_set_compression_ratio(sde_enc->mode_info, sde_enc->crtc);
+
 	/* release resources before seamless mode change */
 	if (msm_is_mode_seamless_dms(adj_mode) ||
 			(msm_is_mode_seamless_dyn_clk(adj_mode) &&
@@ -3324,7 +3332,9 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 
 	_sde_encoder_input_handler_register(drm_enc);
 
-	if (!(msm_is_mode_seamless_vrr(cur_mode)
+	if ((drm_enc->crtc->state->connectors_changed &&
+			sde_encoder_in_clone_mode(drm_enc)) ||
+			!(msm_is_mode_seamless_vrr(cur_mode)
 			|| msm_is_mode_seamless_dms(cur_mode)
 			|| msm_is_mode_seamless_dyn_clk(cur_mode)))
 		kthread_init_delayed_work(&sde_enc->delayed_off_work,
@@ -6039,12 +6049,41 @@ int sde_encoder_update_caps_for_cont_splash(struct drm_encoder *encoder,
 	return ret;
 }
 
+static void sde_encoder_wait_for_ctl_idle(struct sde_encoder_virt *sde_enc)
+{
+	int i = 0, rc = 0;
+	struct sde_encoder_phys *phys;
+	struct sde_hw_ctl *ctl;
+
+	for (i = 0; i < sde_enc->num_phys_encs; i++) {
+		phys = sde_enc->phys_encs[i];
+
+		if (!phys || !phys->hw_ctl)
+			return;
+
+		ctl = phys->hw_ctl;
+		if (ctl && ctl->ops.get_scheduler_status) {
+			rc = wait_event_timeout(phys->pending_kickoff_wq,
+				(ctl->ops.get_scheduler_status(ctl) & BIT(0)),
+				msecs_to_jiffies(KICKOFF_TIMEOUT_MS));
+			if (!rc) {
+				SDE_ERROR("wait for ctl idle failed\n");
+				SDE_EVT32(SDE_EVTLOG_ERROR);
+				return;
+			}
+
+			SDE_EVT32(ctl->ops.get_scheduler_status(ctl));
+		}
+	}
+}
+
 int sde_encoder_display_failure_notification(struct drm_encoder *enc,
 	bool skip_pre_kickoff)
 {
 	struct msm_drm_thread *event_thread = NULL;
 	struct msm_drm_private *priv = NULL;
 	struct sde_encoder_virt *sde_enc = NULL;
+	bool posted_start_en = false;
 
 	if (!enc || !enc->dev || !enc->dev->dev_private) {
 		SDE_ERROR("invalid parameters\n");
@@ -6062,9 +6101,15 @@ int sde_encoder_display_failure_notification(struct drm_encoder *enc,
 		return -EINVAL;
 	}
 
-	SDE_EVT32_VERBOSE(DRMID(enc));
-
 	event_thread = &priv->event_thread[sde_enc->crtc->index];
+
+	if (sde_enc->cur_master && sde_enc->cur_master->connector)
+		posted_start_en = (sde_connector_get_property(
+				sde_enc->cur_master->connector->state,
+				CONNECTOR_PROP_CMD_FRAME_TRIGGER_MODE) ==
+				FRAME_DONE_WAIT_POSTED_START) ? true : false;
+
+	SDE_EVT32_VERBOSE(DRMID(enc), posted_start_en);
 
 	if (!skip_pre_kickoff) {
 		kthread_queue_work(&event_thread->worker,
@@ -6079,7 +6124,16 @@ int sde_encoder_display_failure_notification(struct drm_encoder *enc,
 	 */
 	sde_encoder_helper_switch_vsync(enc, true);
 
-	if (!skip_pre_kickoff)
+	if (skip_pre_kickoff)
+		return 0;
+	else if (posted_start_en)
+		/*
+		 * Make sure that the frame transfer is completed after
+		 * switching to watchdog vsync. The timeout will be
+		 * handled in the commit context for posted start usecases.
+		 */
+		sde_encoder_wait_for_ctl_idle(sde_enc);
+	else
 		sde_encoder_wait_for_event(enc, MSM_ENC_TX_COMPLETE);
 
 	return 0;

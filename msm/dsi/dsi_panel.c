@@ -646,6 +646,9 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 
 	dsi = &panel->mipi_device;
 
+	if (panel->bl_config.bl_inverted_dbv)
+		bl_lvl = (((bl_lvl & 0xff) << 8) | (bl_lvl >> 8));
+
 	rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
 	if (rc < 0)
 		DSI_ERR("failed to update dcs backlight:%d\n", bl_lvl);
@@ -2295,6 +2298,9 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel)
 		panel->bl_config.brightness_max_level = val;
 	}
 
+	panel->bl_config.bl_inverted_dbv = utils->read_bool(utils->data,
+		"qcom,mdss-dsi-bl-inverted-dbv");
+
 	if (panel->bl_config.type == DSI_BACKLIGHT_PWM) {
 		rc = dsi_panel_parse_bl_pwm_config(panel);
 		if (rc) {
@@ -3549,9 +3555,20 @@ int dsi_panel_get_mode_count(struct dsi_panel *panel)
 	num_bit_clks = !panel->dyn_clk_caps.dyn_clk_support ? 1 :
 					panel->dyn_clk_caps.bit_clk_list_len;
 
-	/* Inflate num_of_modes by fps and bit clks in dfps */
-	panel->num_display_modes = (num_cmd_modes * num_bit_clks) +
-			(num_video_modes * num_bit_clks * num_dfps_rates);
+	/*
+	 * Inflate num_of_modes by fps and bit clks in dfps.
+	 * Single command mode for video mode panels supporting
+	 * panel operating mode switch.
+	 */
+	num_video_modes = num_video_modes * num_bit_clks * num_dfps_rates;
+
+	if ((panel->panel_mode == DSI_OP_VIDEO_MODE) &&
+			(panel->panel_mode_switch_enabled))
+		num_cmd_modes  = 1;
+	else
+		num_cmd_modes = num_cmd_modes * num_bit_clks;
+
+	panel->num_display_modes = num_video_modes + num_cmd_modes;
 
 error:
 	return rc;
