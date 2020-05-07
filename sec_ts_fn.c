@@ -111,6 +111,7 @@ static void set_grip_detection_enable(void *device_data);
 static void set_wet_mode_enable(void *device_data);
 static void set_noise_mode_enable(void *device_data);
 static void set_continuous_report_enable(void *device_data);
+static void set_charger_nb_enable(void *device_data);
 
 static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("fw_update", fw_update),},
@@ -218,6 +219,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("set_noise_mode_enable", set_noise_mode_enable),},
 	{SEC_CMD("set_continuous_report_enable",
 		set_continuous_report_enable),},
+	{SEC_CMD("set_charger_nb_enable", set_charger_nb_enable),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
 
@@ -440,6 +442,42 @@ static void set_continuous_report_enable(void *device_data)
 	}
 
 	ts->use_default_mf = para;
+	scnprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+	return;
+
+err_out:
+	scnprintf(buff, sizeof(buff), "%s", "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, false);
+}
+
+static void set_charger_nb_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[4] = { 0 };
+
+	input_info(true, &ts->client->dev,
+		"%s: %d\n", __func__, sec->cmd_param[0]);
+
+	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_SYSFS, true);
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] == 1)
+		ts->ignore_charger_nb = 0;
+	else if (sec->cmd_param[0] == 0)
+		ts->ignore_charger_nb = 1;
+	else {
+		input_info(true, &ts->client->dev,
+			"%s: param error! param = %d\n",
+			__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
 	scnprintf(buff, sizeof(buff), "%s", "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));

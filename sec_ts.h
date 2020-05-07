@@ -860,6 +860,8 @@ struct sec_ts_data {
 
 	struct pm_qos_request pm_qos_req;
 
+	/* Stop changing charger mode by notifier */
+	u8 ignore_charger_nb;
 	/* Stop changing motion filter and keep fw design */
 	u8 use_default_mf;
 	/* Motion filter finite state machine (FSM) state */

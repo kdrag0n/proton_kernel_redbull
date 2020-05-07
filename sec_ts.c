@@ -3409,6 +3409,7 @@ static int sec_ts_probe(struct spi_device *client)
 	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
+	ts->ignore_charger_nb = 0;
 	/* init motion filter mode */
 	ts->use_default_mf = 0;
 	ts->mf_state = SEC_TS_MF_FILTERED;
@@ -4706,7 +4707,8 @@ static int sec_ts_psy_cb(struct notifier_block *nb,
 	if (val != PSY_EVENT_PROP_CHANGED ||
 	    ts->wireless_psy == NULL ||
 	    ts->usb_psy == NULL ||
-	    (ts->wireless_psy != data && ts->usb_psy != data))
+	    (ts->wireless_psy != data && ts->usb_psy != data) ||
+	    ts->ignore_charger_nb == 1)
 		return NOTIFY_OK;
 
 	if (ts->usb_psy == data) {
