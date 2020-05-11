@@ -204,6 +204,7 @@ void release_cam_gyro(void)
 		kfree(ctrl);
 	}
 }
+EXPORT_SYMBOL_GPL(release_cam_gyro);
 
 MODULE_DESCRIPTION("Invensense ICM20690 Gyro sensor");
 MODULE_LICENSE("GPL v2");
