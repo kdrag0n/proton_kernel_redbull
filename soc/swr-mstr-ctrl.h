@@ -126,7 +126,6 @@ struct swr_mstr_ctrl {
 	struct mutex reslock;
 	struct mutex pm_lock;
 	struct mutex irq_lock;
-	struct mutex ssr_lock;
 	u32 swrm_base_reg;
 	char __iomem *swrm_dig_base;
 	char __iomem *swrm_hctl_reg;
@@ -181,6 +180,7 @@ struct swr_mstr_ctrl {
 	int hw_core_clk_en;
 	int aud_core_clk_en;
 	int clk_src;
+	u32 disable_div2_clk_switch;
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_swrm_dent;
 	struct dentry *debugfs_peek;
