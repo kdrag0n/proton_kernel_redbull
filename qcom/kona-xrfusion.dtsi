@@ -4,6 +4,7 @@
 #include "kona-audio-overlay.dtsi"
 #include "kona-thermal-overlay.dtsi"
 #include "kona-xr-pinctrl-overlay.dtsi"
+#include "camera/kona-camera-sensor-xrfusion.dtsi"
 
 &tlmm {
 	display_panel_led1_default: display_panel_led1_default {
@@ -94,6 +95,89 @@
 		};
 	};
 
+	cam_sensor_6dof_vana_active: cam_sensor_6dof_vana_active {
+		/*  AVDD LDO */
+		mux {
+			pins = "gpio43";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio43";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_6dof_vana_suspend: cam_sensor_6dof_vana_suspend {
+		/*  AVDD LDO */
+		mux {
+			pins = "gpio43";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio43";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_6dof_vdig_active: cam_sensor_6dof_vdig_active {
+		/*  VDIG LDO */
+		mux {
+			pins = "gpio42";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio42";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_6dof_vdig_suspend: cam_sensor_6dof_vdig_suspend {
+		/*  VDIG LDO */
+		mux {
+			pins = "gpio42";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio42";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_6dof_vio_active: cam_sensor_6dof_vio_active {
+		/*  VIO LDO */
+		mux {
+			pins = "gpio41";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio41";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_6dof_vio_suspend: cam_sensor_6dof_vio_suspend {
+		/*  VIO LDO */
+		mux {
+			pins = "gpio41";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio41";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
 };
 
 &vendor {
@@ -214,11 +298,22 @@
 				<&bolero>;
 };
 
+&pm8150_l10 {
+	regulator-max-microvolt = <3304000>;
+	qcom,init-voltage = <3304000>;
+};
+
 &qupv3_se1_i2c {
 	status = "ok";
 	qcom,clk-freq-out = <1000000>;
 	#address-cells = <1>;
 	#size-cells = <0>;
+	xrfancontroller: xrfancontroller@50 {
+		compatible = "maxim,xrfancontroller";
+		reg = <0x50>;
+		qcom,fan-pwr-en = <&tlmm 38 0x00>;
+		qcom,fan-pwr-bp = <&tlmm 39 0x00>;
+	};
 };
 
 &qupv3_se13_i2c {

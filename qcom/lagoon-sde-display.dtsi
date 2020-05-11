@@ -125,10 +125,26 @@
 		cell-index = <0>;
 		label = "wb_display";
 	};
+
+	ext_disp: qcom,msm-ext-disp {
+		compatible = "qcom,msm-ext-disp";
+
+		ext_disp_audio_codec: qcom,msm-ext-disp-audio-codec-rx {
+			compatible = "qcom,msm-ext-disp-audio-codec-rx";
+		};
+	};
+
+};
+
+&sde_dp {
+	qcom,dp-usbpd-detection = <&pm7250b_pdphy>;
+	qcom,ext-disp = <&ext_disp>;
+
+	qcom,dp-aux-switch = <&fsa4480>;
 };
 
 &mdss_mdp {
-	connectors = <&sde_wb &sde_dsi>;
+	connectors = <&sde_wb &sde_dsi &sde_dp>;
 };
 
 &dsi_rm69299_visionox_amoled_video {
