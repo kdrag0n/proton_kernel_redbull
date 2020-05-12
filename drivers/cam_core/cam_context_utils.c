@@ -465,6 +465,9 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 			rc = cam_sync_check_valid(
 				req->in_map_entries[j].sync_id);
 			if (rc) {
+				spin_lock(&ctx->lock);
+				list_del_init(&req->list);
+				spin_unlock(&ctx->lock);
 				CAM_ERR(CAM_CTXT,
 					"invalid in map sync object %d",
 					req->in_map_entries[j].sync_id);
@@ -563,6 +566,7 @@ int32_t cam_context_acquire_dev_to_hw(struct cam_context *ctx,
 	param.event_cb = ctx->irq_cb_intf;
 	param.num_acq = cmd->num_resources;
 	param.acquire_info = cmd->resource_hdl;
+	param.session_hdl = cmd->session_handle;
 
 	/* call HW manager to reserve the resource */
 	rc = ctx->hw_mgr_intf->hw_acquire(ctx->hw_mgr_intf->hw_mgr_priv,

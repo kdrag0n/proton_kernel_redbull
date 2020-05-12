@@ -1279,6 +1279,7 @@ static int __cam_isp_ctx_notify_sof_in_activated_state(
 			notify.trigger = CAM_TRIGGER_POINT_SOF;
 			notify.req_id = ctx_isp->req_info.last_bufdone_req_id;
 			notify.sof_timestamp_val = ctx_isp->sof_timestamp_val;
+			notify.trigger_id = ctx_isp->trigger_id;
 
 			ctx->ctx_crm_intf->notify_trigger(&notify);
 			CAM_DBG(CAM_ISP, "Notify CRM  SOF frame %lld ctx %u",
@@ -1953,8 +1954,14 @@ end:
 		if (notify.error == CRM_KMD_ERR_FATAL) {
 			req_msg.session_hdl = ctx_isp->base->session_hdl;
 			req_msg.u.err_msg.device_hdl = ctx_isp->base->dev_hdl;
-			req_msg.u.err_msg.error_type =
-				CAM_REQ_MGR_ERROR_TYPE_RECOVERY;
+
+			if (error_type == CAM_ISP_HW_ERROR_CSID_FATAL)
+				req_msg.u.err_msg.error_type =
+					CAM_REQ_MGR_ERROR_TYPE_FULL_RECOVERY;
+			else
+				req_msg.u.err_msg.error_type =
+					CAM_REQ_MGR_ERROR_TYPE_RECOVERY;
+
 			req_msg.u.err_msg.link_hdl = ctx_isp->base->link_hdl;
 			req_msg.u.err_msg.request_id = error_request_id;
 			req_msg.u.err_msg.resource_size = 0x0;
@@ -3375,7 +3382,7 @@ static int __cam_isp_ctx_rdi_only_sof_in_bubble_state(
 static int __cam_isp_ctx_rdi_only_reg_upd_in_bubble_applied_state(
 	struct cam_isp_context *ctx_isp, void *evt_data)
 {
-	struct cam_ctx_request  *req;
+	struct cam_ctx_request  *req = NULL;
 	struct cam_context      *ctx = ctx_isp->base;
 	struct cam_isp_ctx_req  *req_isp;
 	struct cam_req_mgr_trigger_notify  notify;
@@ -4491,6 +4498,7 @@ static int __cam_isp_ctx_link_in_acquired(struct cam_context *ctx,
 	ctx->link_hdl = link->link_hdl;
 	ctx->ctx_crm_intf = link->crm_cb;
 	ctx_isp->subscribe_event = link->subscribe_event;
+	ctx_isp->trigger_id = link->trigger_id;
 
 	/* change state only if we had the init config */
 	if (ctx_isp->init_received) {
@@ -4507,9 +4515,12 @@ static int __cam_isp_ctx_unlink_in_acquired(struct cam_context *ctx,
 	struct cam_req_mgr_core_dev_link_setup *unlink)
 {
 	int rc = 0;
+	struct cam_isp_context *ctx_isp =
+		(struct cam_isp_context *) ctx->ctx_priv;
 
 	ctx->link_hdl = -1;
 	ctx->ctx_crm_intf = NULL;
+	ctx_isp->trigger_id = -1;
 
 	return rc;
 }
@@ -4524,6 +4535,7 @@ static int __cam_isp_ctx_get_dev_info_in_acquired(struct cam_context *ctx,
 	dev_info->dev_id = CAM_REQ_MGR_DEVICE_IFE;
 	dev_info->p_delay = 1;
 	dev_info->trigger = CAM_TRIGGER_POINT_SOF;
+	dev_info->trigger_on = true;
 
 	return rc;
 }
