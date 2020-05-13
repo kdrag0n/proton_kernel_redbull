@@ -793,6 +793,66 @@ static int tx_macro_set_bcs(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static const char * const bcs_ch_sel_mux_text[] = {
+	"SWR_MIC0", "SWR_MIC1", "SWR_MIC2", "SWR_MIC3",
+	"SWR_MIC4", "SWR_MIC5", "SWR_MIC6", "SWR_MIC7",
+	"SWR_MIC8", "SWR_MIC9", "SWR_MIC10", "SWR_MIC11",
+};
+
+static const struct soc_enum bcs_ch_sel_mux_enum =
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(bcs_ch_sel_mux_text),
+			    bcs_ch_sel_mux_text);
+
+static int tx_macro_get_bcs_ch_sel(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+				snd_soc_kcontrol_component(kcontrol);
+	struct tx_macro_priv *tx_priv = NULL;
+	struct device *tx_dev = NULL;
+	int value = 0;
+
+	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
+		return -EINVAL;
+
+	if (tx_priv->version == BOLERO_VERSION_2_1)
+		value = (snd_soc_component_read32(component,
+			BOLERO_CDC_VA_TOP_CSR_SWR_CTRL)) & 0x0F;
+	else if (tx_priv->version == BOLERO_VERSION_2_0)
+		value = (snd_soc_component_read32(component,
+			BOLERO_CDC_TX_TOP_CSR_SWR_CTRL)) & 0x0F;
+
+	ucontrol->value.integer.value[0] = value;
+	return 0;
+}
+
+static int tx_macro_put_bcs_ch_sel(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+				snd_soc_kcontrol_component(kcontrol);
+	struct tx_macro_priv *tx_priv = NULL;
+	struct device *tx_dev = NULL;
+	int value;
+
+	if (!tx_macro_get_data(component, &tx_dev, &tx_priv, __func__))
+		return -EINVAL;
+
+	if (ucontrol->value.integer.value[0] < 0 ||
+	    ucontrol->value.integer.value[0] > ARRAY_SIZE(bcs_ch_sel_mux_text))
+		return -EINVAL;
+
+	value = ucontrol->value.integer.value[0];
+	if (tx_priv->version == BOLERO_VERSION_2_1)
+		snd_soc_component_update_bits(component,
+			BOLERO_CDC_VA_TOP_CSR_SWR_CTRL, 0x0F, value);
+	else if (tx_priv->version == BOLERO_VERSION_2_0)
+		snd_soc_component_update_bits(component,
+			BOLERO_CDC_TX_TOP_CSR_SWR_CTRL, 0x0F, value);
+
+	return 0;
+}
+
 static int tx_macro_enable_dmic(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
@@ -920,11 +980,12 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 		if (tx_unmute_delay < unmute_delay)
 			tx_unmute_delay = unmute_delay;
 		/* schedule work queue to Remove Mute */
-		schedule_delayed_work(&tx_priv->tx_mute_dwork[decimator].dwork,
-				      msecs_to_jiffies(tx_unmute_delay));
+		queue_delayed_work(system_freezable_wq,
+				   &tx_priv->tx_mute_dwork[decimator].dwork,
+				   msecs_to_jiffies(tx_unmute_delay));
 		if (tx_priv->tx_hpf_work[decimator].hpf_cut_off_freq !=
 							CF_MIN_3DB_150HZ) {
-			schedule_delayed_work(
+			queue_delayed_work(system_freezable_wq,
 				&tx_priv->tx_hpf_work[decimator].dwork,
 				msecs_to_jiffies(hpf_delay));
 			snd_soc_component_update_bits(component,
@@ -2243,6 +2304,9 @@ static const struct snd_kcontrol_new tx_macro_snd_controls_common[] = {
 
 	SOC_SINGLE_EXT("DEC0_BCS Switch", SND_SOC_NOPM, 0, 1, 0,
 		       tx_macro_get_bcs, tx_macro_set_bcs),
+
+	SOC_ENUM_EXT("BCS CH_SEL", bcs_ch_sel_mux_enum,
+			tx_macro_get_bcs_ch_sel, tx_macro_put_bcs_ch_sel),
 };
 
 static const struct snd_kcontrol_new tx_macro_snd_controls_v3[] = {
@@ -3234,6 +3298,10 @@ static const struct of_device_id tx_macro_dt_match[] = {
 };
 
 static const struct dev_pm_ops bolero_dev_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(
+		pm_runtime_force_suspend,
+		pm_runtime_force_resume
+	)
 	SET_RUNTIME_PM_OPS(
 		bolero_runtime_suspend,
 		bolero_runtime_resume,

@@ -22,6 +22,7 @@
 #include <soc/swr-common.h>
 #include <linux/regmap.h>
 #include <dsp/msm-audio-event-notify.h>
+#include <dsp/digital-cdc-rsc-mgr.h>
 #include "swrm_registers.h"
 #include "swr-mstr-ctrl.h"
 
@@ -364,33 +365,77 @@ static int swrm_request_hw_vote(struct swr_mstr_ctrl *swrm,
 {
 	int ret = 0;
 
+	mutex_lock(&swrm->devlock);
 	if (core_type == LPASS_HW_CORE) {
 		if (swrm->lpass_core_hw_vote) {
 			if (enable) {
-				ret =
-				   clk_prepare_enable(swrm->lpass_core_hw_vote);
-				if (ret < 0)
-					dev_err(swrm->dev,
-						"%s:lpass core hw enable failed\n",
-						__func__);
-			} else
-				clk_disable_unprepare(swrm->lpass_core_hw_vote);
+				if (!swrm->dev_up) {
+					dev_dbg(swrm->dev, "%s: device is down or SSR state\n",
+							__func__);
+					trace_printk("%s: device is down or SSR state\n",
+							__func__);
+					mutex_unlock(&swrm->devlock);
+					return -ENODEV;
+				}
+				if (++swrm->hw_core_clk_en == 1) {
+					ret =
+					   digital_cdc_rsc_mgr_hw_vote_enable(
+							swrm->lpass_core_hw_vote);
+					if (ret < 0) {
+						dev_err(swrm->dev,
+							"%s:lpass core hw enable failed\n",
+							__func__);
+						--swrm->hw_core_clk_en;
+					}
+				}
+			} else {
+				--swrm->hw_core_clk_en;
+				if (swrm->hw_core_clk_en < 0)
+					swrm->hw_core_clk_en = 0;
+				else if (swrm->hw_core_clk_en == 0)
+					digital_cdc_rsc_mgr_hw_vote_disable(
+							swrm->lpass_core_hw_vote);
+			}
 		}
 	}
 	if (core_type == LPASS_AUDIO_CORE) {
 		if (swrm->lpass_core_audio) {
 			if (enable) {
-				ret =
-				   clk_prepare_enable(swrm->lpass_core_audio);
-				if (ret < 0)
-					dev_err(swrm->dev,
-						"%s:lpass audio hw enable failed\n",
-						__func__);
-			} else
-				clk_disable_unprepare(swrm->lpass_core_audio);
+				if (!swrm->dev_up) {
+					dev_dbg(swrm->dev, "%s: device is down or SSR state\n",
+							__func__);
+					trace_printk("%s: device is down or SSR state\n",
+							__func__);
+					mutex_unlock(&swrm->devlock);
+					return -ENODEV;
+				}
+				if (++swrm->aud_core_clk_en == 1) {
+					ret =
+					   digital_cdc_rsc_mgr_hw_vote_enable(
+							swrm->lpass_core_audio);
+					if (ret < 0) {
+						dev_err(swrm->dev,
+							"%s:lpass audio hw enable failed\n",
+							__func__);
+						--swrm->aud_core_clk_en;
+					}
+				}
+			} else {
+				--swrm->aud_core_clk_en;
+				if (swrm->aud_core_clk_en < 0)
+					swrm->aud_core_clk_en = 0;
+				else if (swrm->aud_core_clk_en == 0)
+					digital_cdc_rsc_mgr_hw_vote_disable(
+							swrm->lpass_core_audio);
+			}
 		}
 	}
 
+	mutex_unlock(&swrm->devlock);
+	dev_dbg(swrm->dev, "%s: hw_clk_en: %d audio_core_clk_en: %d\n",
+		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
+	trace_printk("%s: hw_clk_en: %d audio_core_clk_en: %d\n",
+		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
 	return ret;
 }
 
@@ -571,10 +616,10 @@ static int swr_master_bulk_write(struct swr_mstr_ctrl *swrm, u32 *reg_addr,
 		for (i = 0; i < length; i++) {
 		/* wait for FIFO WR command to complete to avoid overflow */
 		/*
-		 * Reduce sleep from 100us to 10us to meet KPIs
+		 * Reduce sleep from 100us to 50us to meet KPIs
 		 * This still meets the hardware spec
 		 */
-			usleep_range(10, 12);
+			usleep_range(50, 55);
 			swr_master_write(swrm, reg_addr[i], val[i]);
 		}
 		mutex_unlock(&swrm->iolock);
@@ -1636,9 +1681,12 @@ static void swrm_enable_slave_irq(struct swr_mstr_ctrl *swrm)
 	}
 	dev_dbg(swrm->dev, "%s: slave status: 0x%x\n", __func__, status);
 	for (i = 0; i < (swrm->master.num_dev + 1); i++) {
-		if (status & SWRM_MCP_SLV_STATUS_MASK)
+		if (status & SWRM_MCP_SLV_STATUS_MASK) {
+			swrm_cmd_fifo_wr_cmd(swrm, 0xFF, i, 0x0,
+					SWRS_SCP_INT_STATUS_CLEAR_1);
 			swrm_cmd_fifo_wr_cmd(swrm, 0x4, i, 0x0,
-						SWRS_SCP_INT_STATUS_MASK_1);
+					SWRS_SCP_INT_STATUS_MASK_1);
+		}
 		status >>= 2;
 	}
 }
@@ -1942,6 +1990,17 @@ handle_irq:
 				dev_dbg(swrm->dev,
 					"%s: device %d got detached\n",
 					__func__, devnum);
+				if (devnum == 0) {
+					/*
+					 * enable host irq if device 0 detached
+					 * as hw will mask host_irq at slave
+					 * but will not unmask it afterwards.
+					 */
+					swrm_cmd_fifo_wr_cmd(swrm, 0xFF, devnum, 0x0,
+						SWRS_SCP_INT_STATUS_CLEAR_1);
+					swrm_cmd_fifo_wr_cmd(swrm, 0x4, devnum, 0x0,
+						SWRS_SCP_INT_STATUS_MASK_1);
+				}
 				break;
 			case SWR_ATTACHED_OK:
 				dev_dbg(swrm->dev,
@@ -1965,6 +2024,11 @@ handle_irq:
 			dev_err_ratelimited(swrm->dev,
 					"%s: SWR bus clsh detected\n",
 					__func__);
+			swrm->intr_mask &=
+				~SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
+			swr_master_write(swrm,
+				SWR_MSTR_RX_SWRM_CPU_INTERRUPT_EN,
+				swrm->intr_mask);
 			break;
 		case SWRM_INTERRUPT_STATUS_RD_FIFO_OVERFLOW:
 			dev_dbg(swrm->dev, "%s: SWR read FIFO overflow\n",
@@ -2238,22 +2302,15 @@ static void swrm_device_wakeup_vote(struct swr_master *mstr)
 		dev_err(swrm->dev, "%s Failed to hold suspend\n", __func__);
 		return;
 	}
-	if (++swrm->hw_core_clk_en == 1)
-		if (swrm_request_hw_vote(swrm, LPASS_HW_CORE, true)) {
-			dev_err(swrm->dev, "%s:lpass core hw enable failed\n",
-				__func__);
-			--swrm->hw_core_clk_en;
-		}
-	if ( ++swrm->aud_core_clk_en == 1)
-		if (swrm_request_hw_vote(swrm, LPASS_AUDIO_CORE, true)) {
-			dev_err(swrm->dev, "%s:lpass audio hw enable failed\n",
-				__func__);
-			--swrm->aud_core_clk_en;
-		}
-	dev_dbg(swrm->dev, "%s: hw_clk_en: %d audio_core_clk_en: %d\n",
-		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
-	trace_printk("%s: hw_clk_en: %d audio_core_clk_en: %d\n",
-		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
+	mutex_lock(&swrm->reslock);
+	if (swrm_request_hw_vote(swrm, LPASS_HW_CORE, true))
+		dev_err(swrm->dev, "%s:lpass core hw enable failed\n",
+			__func__);
+	if (swrm_request_hw_vote(swrm, LPASS_AUDIO_CORE, true))
+		dev_err(swrm->dev, "%s:lpass audio hw enable failed\n",
+			__func__);
+	mutex_unlock(&swrm->reslock);
+
 	pm_runtime_get_sync(swrm->dev);
 }
 
@@ -2268,22 +2325,11 @@ static void swrm_device_wakeup_unvote(struct swr_master *mstr)
 	}
 	pm_runtime_mark_last_busy(swrm->dev);
 	pm_runtime_put_autosuspend(swrm->dev);
-	dev_dbg(swrm->dev, "%s: hw_clk_en: %d audio_core_clk_en: %d\n",
-		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
 
-	trace_printk("%s: hw_clk_en: %d audio_core_clk_en: %d\n",
-		__func__, swrm->hw_core_clk_en, swrm->aud_core_clk_en);
-	--swrm->aud_core_clk_en;
-	if (swrm->aud_core_clk_en < 0)
-		swrm->aud_core_clk_en = 0;
-	else if (swrm->aud_core_clk_en == 0)
-		swrm_request_hw_vote(swrm, LPASS_AUDIO_CORE, false);
-
-	--swrm->hw_core_clk_en;
-	if (swrm->hw_core_clk_en < 0)
-		swrm->hw_core_clk_en = 0;
-	else if (swrm->hw_core_clk_en == 0)
-		swrm_request_hw_vote(swrm, LPASS_HW_CORE, false);
+	mutex_lock(&swrm->reslock);
+	swrm_request_hw_vote(swrm, LPASS_AUDIO_CORE, false);
+	swrm_request_hw_vote(swrm, LPASS_HW_CORE, false);
+	mutex_unlock(&swrm->reslock);
 
 	swrm_unlock_sleep(swrm);
 }
@@ -3287,6 +3333,8 @@ int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 			swrm_device_down(&pdev->dev);
 		mutex_lock(&swrm->devlock);
 		swrm->dev_up = false;
+		swrm->hw_core_clk_en = 0;
+		swrm->aud_core_clk_en = 0;
 		mutex_unlock(&swrm->devlock);
 		mutex_lock(&swrm->reslock);
 		swrm->state = SWR_MSTR_SSR;

@@ -943,6 +943,7 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 		ret_size = SIZEOF_CFG_CMD(afe_param_id_meta_i2s_cfg);
 		break;
 	case HDMI_RX:
+	case HDMI_RX_MS:
 	case DISPLAY_PORT_RX:
 		ret_size =
 		SIZEOF_CFG_CMD(afe_param_id_hdmi_multi_chan_audio_cfg);
@@ -984,6 +985,8 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 		break;
 	case RT_PROXY_PORT_001_RX:
 	case RT_PROXY_PORT_001_TX:
+	case RT_PROXY_PORT_002_RX:
+	case RT_PROXY_PORT_002_TX:
 		ret_size = SIZEOF_CFG_CMD(afe_param_id_rt_proxy_port_cfg);
 		break;
 	case AFE_PORT_ID_USB_RX:
@@ -4166,6 +4169,7 @@ static int q6afe_send_enc_config(u16 port_id,
 	struct asm_aptx_ad_speech_mode_cfg_t speech_codec_init_param;
 	struct param_hdr_v3 param_hdr;
 	int ret;
+	uint32_t frame_size_ctl_value_v2;
 
 	pr_debug("%s:update DSP for enc format = %d\n", __func__, format);
 
@@ -4253,14 +4257,38 @@ static int q6afe_send_enc_config(u16 port_id,
 			frame_ctl_param.ctl_type = enc_blk_param.
 				enc_blk_config.aac_config.frame_ctl.ctl_type;
 			frame_ctl_param.ctl_value = frame_size_ctl_value;
+
 			pr_debug("%s: send AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL\n",
-				  __func__);
+				__func__);
 			ret = q6afe_pack_and_set_param_in_band(port_id,
 					q6audio_get_port_index(port_id),
 					param_hdr,
 					(u8 *) &frame_ctl_param);
 			if (ret) {
 				pr_err("%s: AAC_FRM_SIZE_CONTROL failed %d\n",
+					__func__, ret);
+				goto exit;
+			}
+		}
+		frame_size_ctl_value_v2 = enc_blk_param.enc_blk_config.
+				aac_config.frame_ctl_v2.ctl_value;
+		if (frame_size_ctl_value_v2 > 0) {
+			param_hdr.param_id =
+				AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL;
+			param_hdr.param_size = sizeof(frame_ctl_param);
+			frame_ctl_param.ctl_type = enc_blk_param.
+				enc_blk_config.aac_config.frame_ctl_v2.ctl_type;
+			frame_ctl_param.ctl_value = enc_blk_param.
+				enc_blk_config.aac_config.frame_ctl_v2.ctl_value;
+
+			pr_debug("%s: send AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL V2\n",
+				__func__);
+			ret = q6afe_pack_and_set_param_in_band(port_id,
+					q6audio_get_port_index(port_id),
+					param_hdr,
+					(u8 *) &frame_ctl_param);
+			if (ret) {
+				pr_err("%s: AAC_FRM_SIZE_CONTROL with VBR support failed %d\n",
 					__func__, ret);
 				goto exit;
 			}
@@ -4714,6 +4742,7 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		cfg_type = AFE_PARAM_ID_META_I2S_CONFIG;
 		break;
 	case HDMI_RX:
+	case HDMI_RX_MS:
 	case DISPLAY_PORT_RX:
 		cfg_type = AFE_PARAM_ID_HDMI_CONFIG;
 		break;
@@ -4751,6 +4780,8 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		break;
 	case RT_PROXY_PORT_001_RX:
 	case RT_PROXY_PORT_001_TX:
+	case RT_PROXY_PORT_002_RX:
+	case RT_PROXY_PORT_002_TX:
 		cfg_type = AFE_PARAM_ID_RT_PROXY_CONFIG;
 		break;
 	case INT_BT_SCO_RX:
@@ -4961,6 +4992,7 @@ int afe_get_port_index(u16 port_id)
 	case MI2S_RX: return IDX_MI2S_RX;
 	case MI2S_TX: return IDX_MI2S_TX;
 	case HDMI_RX: return IDX_HDMI_RX;
+	case HDMI_RX_MS: return IDX_HDMI_RX_MS;
 	case DISPLAY_PORT_RX: return IDX_DISPLAY_PORT_RX;
 	case AFE_PORT_ID_PRIMARY_SPDIF_RX: return IDX_PRIMARY_SPDIF_RX;
 	case AFE_PORT_ID_PRIMARY_SPDIF_TX: return IDX_PRIMARY_SPDIF_TX;
@@ -5298,6 +5330,10 @@ int afe_get_port_index(u16 port_id)
 		return IDX_AFE_PORT_ID_RX_CODEC_DMA_RX_7;
 	case AFE_LOOPBACK_TX:
 		return IDX_AFE_LOOPBACK_TX;
+	case RT_PROXY_PORT_002_RX:
+		return IDX_RT_PROXY_PORT_002_RX;
+	case RT_PROXY_PORT_002_TX:
+		return IDX_RT_PROXY_PORT_002_TX;
 	default:
 		pr_err("%s: port 0x%x\n", __func__, port_id);
 		return -EINVAL;
@@ -5420,6 +5456,7 @@ int afe_open(u16 port_id,
 		cfg_type = AFE_PARAM_ID_META_I2S_CONFIG;
 		break;
 	case HDMI_RX:
+	case HDMI_RX_MS:
 	case DISPLAY_PORT_RX:
 		cfg_type = AFE_PARAM_ID_HDMI_CONFIG;
 		break;
@@ -7310,6 +7347,7 @@ int afe_validate_port(u16 port_id)
 	case MI2S_RX:
 	case MI2S_TX:
 	case HDMI_RX:
+	case HDMI_RX_MS:
 	case DISPLAY_PORT_RX:
 	case AFE_PORT_ID_PRIMARY_SPDIF_RX:
 	case AFE_PORT_ID_PRIMARY_SPDIF_TX:
@@ -7495,6 +7533,8 @@ int afe_validate_port(u16 port_id)
 	case AFE_PORT_ID_TX_CODEC_DMA_TX_5:
 	case AFE_PORT_ID_RX_CODEC_DMA_RX_6:
 	case AFE_PORT_ID_RX_CODEC_DMA_RX_7:
+	case RT_PROXY_PORT_002_RX:
+	case RT_PROXY_PORT_002_TX:
 	{
 		ret = 0;
 		break;
