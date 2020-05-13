@@ -1126,7 +1126,7 @@ int cam_sensor_util_request_gpio_table(
 
 	return rc;
 }
-
+EXPORT_SYMBOL_GPL(cam_sensor_util_request_gpio_table);
 
 static int32_t cam_sensor_validate(void *ptr, size_t remain_buf)
 {
