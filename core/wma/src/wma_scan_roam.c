@@ -78,7 +78,7 @@
 #include <wlan_mlme_main.h>
 #include <wlan_crypto_global_api.h>
 #include <cdp_txrx_mon.h>
-#include "wlan_blm_core.h"
+#include "wlan_blm_api.h"
 
 #ifdef FEATURE_WLAN_EXTSCAN
 #define WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION WAKELOCK_DURATION_RECOMMENDED
@@ -326,6 +326,8 @@ static void wma_roam_scan_offload_set_params(
 				(roam_req->ConnectedNetwork.authentication,
 				 roam_req->ConnectedNetwork.encryption);
 
+	params->disable_self_roam =
+				!roam_req->enable_self_bss_roam;
 	params->roam_offload_enabled = roam_req->roam_offload_enabled;
 	params->roam_offload_params.ho_delay_for_rx =
 				roam_req->ho_delay_for_rx;
@@ -1406,7 +1408,7 @@ static QDF_STATUS wma_roam_scan_filter(tp_wma_handle wma_handle,
 	params->num_ssid_white_list = num_ssid_white_list;
 	params->num_bssid_preferred_list = num_bssid_preferred_list;
 	params->num_rssi_rejection_ap = num_rssi_rejection_ap;
-	params->delta_rssi = blm_get_rssi_blacklist_threshold(wma_handle->pdev);
+	params->delta_rssi = wlan_blm_get_rssi_blacklist_threshold(wma_handle->pdev);
 	qdf_mem_copy(params->bssid_avoid_list, roam_params->bssid_avoid_list,
 			MAX_BSSID_AVOID_LIST * sizeof(struct qdf_mac_addr));
 
@@ -2770,6 +2772,29 @@ wma_roam_update_vdev(tp_wma_handle wma,
 	qdf_mem_free(add_sta_params);
 }
 
+/**
+ * wma_post_roam_sync_failure: Send roam sync failure ind to fw
+ * @wma: wma handle
+ * @vdev_id: session id
+ *
+ * Return: None
+ */
+static void wma_post_roam_sync_failure(tp_wma_handle wma, uint8_t vdev_id)
+{
+	struct roam_offload_scan_req *roam_req;
+
+	roam_req = qdf_mem_malloc(sizeof(struct roam_offload_scan_req));
+	if (roam_req) {
+		roam_req->Command = ROAM_SCAN_OFFLOAD_STOP;
+		roam_req->reason = REASON_ROAM_SYNCH_FAILED;
+		roam_req->sessionId = vdev_id;
+		wma_debug("In cleanup: RSO Command:%d, reason %d vdev %d",
+			  roam_req->Command, roam_req->reason,
+			  roam_req->sessionId);
+		wma_process_roaming_config(wma, roam_req);
+	}
+}
+
 int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 					 uint32_t len)
 {
@@ -2781,7 +2806,6 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 	uint8_t channel;
 	uint16_t ie_len = 0;
 	int status = -EINVAL;
-	struct roam_offload_scan_req *roam_req;
 	qdf_time_t roam_synch_received = qdf_get_system_timestamp();
 	uint32_t roam_synch_data_len;
 	A_UINT32 bcn_probe_rsp_len;
@@ -3001,16 +3025,8 @@ cleanup_label:
 			wma->csr_roam_synch_cb(wma->mac_context,
 					       roam_synch_ind_ptr, NULL,
 					       SIR_ROAMING_ABORT);
-		roam_req = qdf_mem_malloc(sizeof(struct roam_offload_scan_req));
-		if (roam_req && synch_event) {
-			roam_req->Command = ROAM_SCAN_OFFLOAD_STOP;
-			roam_req->reason = REASON_ROAM_SYNCH_FAILED;
-			roam_req->sessionId = synch_event->vdev_id;
-			wma_debug("In cleanup: RSO Command:%d, reason %d vdev %d",
-				  roam_req->Command, roam_req->reason,
-				  roam_req->sessionId);
-			wma_process_roaming_config(wma, roam_req);
-		}
+		if (synch_event)
+			wma_post_roam_sync_failure(wma, synch_event->vdev_id);
 	}
 	if (roam_synch_ind_ptr && roam_synch_ind_ptr->join_rsp)
 		qdf_mem_free(roam_synch_ind_ptr->join_rsp);
@@ -3211,6 +3227,7 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 						   event);
 	if (QDF_IS_STATUS_ERROR(qdf_status)) {
 		wma_err("Failed to send the EV_ROAM");
+		wma_post_roam_sync_failure(wma, synch_event->vdev_id);
 		return status;
 	}
 	wma_debug("Posted EV_ROAM to VDEV SM");
