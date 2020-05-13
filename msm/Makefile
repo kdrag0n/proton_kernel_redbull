@@ -129,3 +129,5 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_notifier.o\
 
 obj-$(CONFIG_DRM_MSM)	+= msm_drm.o
+
+obj-$(CONFIG_DRM_FBDEV_EMULATION) += msm_fbdev.o
