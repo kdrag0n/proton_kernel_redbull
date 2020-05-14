@@ -135,3 +135,14 @@ all.config
 
 # fetched Android config fragments
 kernel/configs/android-*.cfg
+
+# Object directory
+out/
+
+# Flasher artifacts
+flasher/*.dtb
+flasher/dtbo*.img
+flasher/Image*
+flasher/version
+builds/
+*.zip
