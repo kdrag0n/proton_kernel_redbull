@@ -81,7 +81,7 @@ static int dsi_backlight_update_dcs(struct dsi_backlight_config *bl, u32 bl_lvl)
 	struct dsi_panel *panel;
 	struct mipi_dsi_device *dsi;
 	size_t num_params;
-	u16 brightness;
+	const u32 hbyte = bl->high_byte_offset;
 
 	if (!bl || (bl_lvl > 0xffff)) {
 		pr_err("invalid params\n");
@@ -95,20 +95,19 @@ static int dsi_backlight_update_dcs(struct dsi_backlight_config *bl, u32 bl_lvl)
 
 	dsi = &panel->mipi_device;
 
-	num_params = bl->bl_max_level > 0xFF ? 2 : 1;
+	num_params = bl->bl_max_level >= BIT(hbyte) ? 2 : 1;
 	if (num_params == 2) {
-		const u32 hbyte = bl->high_byte_offset;
-		/* update bit assignment according to high byte offset */
-		brightness = ((bl_lvl >> hbyte) << 8) |
-			     ((BIT(hbyte) - 1) & bl_lvl);
-		/* update byte order according to endianness */
-		if (bl->big_endian)
-			brightness = cpu_to_be16(brightness);
+		u8 payload[2] = { bl_lvl >> hbyte, (BIT(hbyte) - 1) & bl_lvl };
+
+		rc = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					&payload, sizeof(payload));
 	} else {
-		brightness = (u16)bl_lvl;
+		u8 payload = bl_lvl;
+
+		rc = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					&payload, sizeof(payload));
 	}
 
-	rc = mipi_dsi_dcs_set_display_brightness(dsi, brightness, num_params);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
 
@@ -1813,9 +1812,6 @@ int dsi_panel_bl_parse_config(struct device *parent, struct dsi_backlight_config
 	if (rc)
 		pr_debug("[%s] error while parsing backlight ranges, rc=%d\n",
 			panel->name, rc);
-
-	bl->big_endian = utils->read_bool(utils->data,
-					"google,dsi-bl-cmd-big-endian");
 
 	rc = utils->read_u32(utils->data, "google,dsi-bl-cmd-high-byte-offset",
 		&val);

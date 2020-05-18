@@ -192,7 +192,6 @@ struct dsi_backlight_config {
 	u16 *lut;
 	bool bl_update_pending;
 	bool allow_bl_update;
-	bool big_endian;
 	bool dimming_mode;
 	u32 high_byte_offset;
 	unsigned int last_state;
