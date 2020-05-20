@@ -4142,14 +4142,7 @@ static void sec_ts_shutdown(struct i2c_client *client)
 static void sec_ts_shutdown(struct spi_device *client)
 #endif
 {
-#ifdef I2C_INTERFACE
-	struct sec_ts_data *ts = i2c_get_clientdata(client);
-#else
-	struct sec_ts_data *ts = spi_get_drvdata(client);
-#endif
-
-	input_info(true, &ts->client->dev, "%s\n", __func__);
-
+	pr_info("%s\n", __func__);
 	sec_ts_remove(client);
 }
 
