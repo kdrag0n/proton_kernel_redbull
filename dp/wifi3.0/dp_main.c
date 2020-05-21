@@ -80,6 +80,13 @@ cdp_dump_flow_pool_info(struct cdp_soc_t *soc)
 #define DEINIT_RX_HW_STATS_LOCK(_soc) /* no op */
 #endif
 
+#ifdef DP_PEER_EXTENDED_API
+#define SET_PEER_REF_CNT_ONE(_peer) \
+	qdf_atomic_set(&(_peer)->ref_cnt, 1)
+#else
+#define SET_PEER_REF_CNT_ONE(_peer)
+#endif
+
 #ifdef WLAN_FEATURE_DP_EVENT_HISTORY
 /*
  * If WLAN_CFG_INT_NUM_CONTEXTS is changed, HIF_NUM_INT_CONTEXTS
@@ -150,7 +157,7 @@ bool is_dp_verbose_debug_enabled;
 static uint8_t dp_soc_ring_if_nss_offloaded(struct dp_soc *soc,
 					    enum hal_ring_type ring_type,
 					    int ring_num);
-#define DP_INTR_POLL_TIMER_MS	10
+#define DP_INTR_POLL_TIMER_MS	5
 /* Generic AST entry aging timer value */
 #define DP_AST_AGING_TIMER_DEFAULT_MS	1000
 #define DP_MCS_LENGTH (6*MAX_MCS)
@@ -1492,6 +1499,102 @@ void dp_srng_access_end(struct dp_intr *int_ctx, struct dp_soc *dp_soc,
 #endif /* WLAN_FEATURE_DP_EVENT_HISTORY */
 
 /*
+ * dp_should_timer_irq_yield() - Decide if the bottom half should yield
+ * @soc: DP soc handle
+ * @work_done: work done in softirq context
+ * @start_time: start time for the softirq
+ *
+ * Return: enum with yield code
+ */
+static enum timer_yield_status
+dp_should_timer_irq_yield(struct dp_soc *soc, uint32_t work_done,
+			  uint64_t start_time)
+{
+	uint64_t cur_time = qdf_get_log_timestamp();
+
+	if (!work_done)
+		return DP_TIMER_WORK_DONE;
+
+	if (cur_time - start_time > DP_MAX_TIMER_EXEC_TIME_TICKS)
+		return DP_TIMER_TIME_EXHAUST;
+
+	return DP_TIMER_NO_YIELD;
+}
+
+/**
+ * dp_process_lmac_rings() - Process LMAC rings
+ * @int_ctx: interrupt context
+ * @total_budget: budget of work which can be done
+ *
+ * Return: work done
+ */
+static int dp_process_lmac_rings(struct dp_intr *int_ctx, int total_budget)
+{
+	struct dp_intr_stats *intr_stats = &int_ctx->intr_stats;
+	struct dp_soc *soc = int_ctx->soc;
+	uint32_t remaining_quota = total_budget;
+	struct dp_pdev *pdev = NULL;
+	uint32_t work_done  = 0;
+	int budget = total_budget;
+	int ring = 0;
+	int mac_id;
+
+	/* Process LMAC interrupts */
+	for  (ring = 0 ; ring < MAX_PDEV_CNT; ring++) {
+		pdev = soc->pdev_list[ring];
+		if (!pdev)
+			continue;
+		for (mac_id = 0; mac_id < NUM_RXDMA_RINGS_PER_PDEV; mac_id++) {
+			int mac_for_pdev = dp_get_mac_id_for_pdev(mac_id,
+								pdev->pdev_id);
+			if (int_ctx->rx_mon_ring_mask & (1 << mac_for_pdev)) {
+				work_done = dp_mon_process(soc, mac_for_pdev,
+							   remaining_quota);
+				if (work_done)
+					intr_stats->num_rx_mon_ring_masks++;
+				budget -= work_done;
+				if (budget <= 0)
+					goto budget_done;
+				remaining_quota = budget;
+			}
+
+			if (int_ctx->rxdma2host_ring_mask &
+					(1 << mac_for_pdev)) {
+				work_done = dp_rxdma_err_process(int_ctx, soc,
+								 mac_for_pdev,
+								 remaining_quota);
+				if (work_done)
+					intr_stats->num_rxdma2host_ring_masks++;
+				budget -=  work_done;
+				if (budget <= 0)
+					goto budget_done;
+				remaining_quota = budget;
+			}
+
+			if (int_ctx->host2rxdma_ring_mask &
+						(1 << mac_for_pdev)) {
+				union dp_rx_desc_list_elem_t *desc_list = NULL;
+				union dp_rx_desc_list_elem_t *tail = NULL;
+				struct dp_srng *rx_refill_buf_ring =
+					&pdev->rx_refill_buf_ring;
+
+				intr_stats->num_host2rxdma_ring_masks++;
+				DP_STATS_INC(pdev, replenish.low_thresh_intrs,
+						1);
+				dp_rx_buffers_replenish(soc, mac_for_pdev,
+							rx_refill_buf_ring,
+							&soc->rx_desc_buf[mac_for_pdev],
+							0, &desc_list, &tail);
+			}
+		}
+	}
+
+
+budget_done:
+	return total_budget - budget;
+}
+
+/*
  * dp_service_srngs() - Top level interrupt handler for DP Ring interrupts
  * @dp_ctx: DP SOC handle
  * @budget: Number of frames/descriptors that can be processed in one shot
@@ -1512,8 +1615,6 @@ static uint32_t dp_service_srngs(void *dp_ctx, uint32_t dp_budget)
 	uint8_t rx_wbm_rel_mask = int_ctx->rx_wbm_rel_ring_mask;
 	uint8_t reo_status_mask = int_ctx->reo_status_ring_mask;
 	uint32_t remaining_quota = dp_budget;
-	struct dp_pdev *pdev = NULL;
-	int mac_id;
 
 	dp_verbose_debug("tx %x rx %x rx_err %x rx_wbm_rel %x reo_status %x rx_mon_ring %x host2rxdma %x rxdma2host %x\n",
 			 tx_mask, rx_mask, rx_err_mask, rx_wbm_rel_mask,
@@ -1612,54 +1713,12 @@ static uint32_t dp_service_srngs(void *dp_ctx, uint32_t dp_budget)
 			int_ctx->intr_stats.num_reo_status_ring_masks++;
 	}
 
-	/* Process LMAC interrupts */
-	for  (ring = 0 ; ring < MAX_PDEV_CNT; ring++) {
-		pdev = soc->pdev_list[ring];
-		if (!pdev)
-			continue;
-		for (mac_id = 0; mac_id < NUM_RXDMA_RINGS_PER_PDEV; mac_id++) {
-			int mac_for_pdev = dp_get_mac_id_for_pdev(mac_id,
-								pdev->pdev_id);
-			if (int_ctx->rx_mon_ring_mask & (1 << mac_for_pdev)) {
-				work_done = dp_mon_process(soc, mac_for_pdev,
-							   remaining_quota);
-				if (work_done)
-					intr_stats->num_rx_mon_ring_masks++;
-				budget -= work_done;
-				if (budget <= 0)
-					goto budget_done;
-				remaining_quota = budget;
-			}
-
-			if (int_ctx->rxdma2host_ring_mask &
-					(1 << mac_for_pdev)) {
-				work_done = dp_rxdma_err_process(int_ctx, soc,
-								 mac_for_pdev,
-								 remaining_quota);
-				if (work_done)
-					intr_stats->num_rxdma2host_ring_masks++;
-				budget -=  work_done;
-				if (budget <= 0)
-					goto budget_done;
-				remaining_quota = budget;
-			}
-
-			if (int_ctx->host2rxdma_ring_mask &
-						(1 << mac_for_pdev)) {
-				union dp_rx_desc_list_elem_t *desc_list = NULL;
-				union dp_rx_desc_list_elem_t *tail = NULL;
-				struct dp_srng *rx_refill_buf_ring =
-					&pdev->rx_refill_buf_ring;
-
-				intr_stats->num_host2rxdma_ring_masks++;
-				DP_STATS_INC(pdev, replenish.low_thresh_intrs,
-						1);
-				dp_rx_buffers_replenish(soc, mac_for_pdev,
-							rx_refill_buf_ring,
-							&soc->rx_desc_buf[mac_for_pdev],
-							0, &desc_list, &tail);
-			}
-		}
+	work_done = dp_process_lmac_rings(int_ctx, remaining_quota);
+	if (work_done) {
+		budget -=  work_done;
+		if (budget <= 0)
+			goto budget_done;
+		remaining_quota = budget;
 	}
 
 	qdf_lro_flush(int_ctx->lro_ctx);
@@ -1679,15 +1738,48 @@ budget_done:
 static void dp_interrupt_timer(void *arg)
 {
 	struct dp_soc *soc = (struct dp_soc *) arg;
+	enum timer_yield_status yield = DP_TIMER_NO_YIELD;
+	uint32_t work_done  = 0, total_work_done = 0;
+	int budget = 0xffff;
+	uint32_t remaining_quota = budget;
+	uint64_t start_time;
 	int i;
 
-	if (qdf_atomic_read(&soc->cmn_init_done)) {
-		for (i = 0;
-			i < wlan_cfg_get_num_contexts(soc->wlan_cfg_ctx); i++)
-			dp_service_srngs(&soc->intr_ctx[i], 0xffff);
+	if (!qdf_atomic_read(&soc->cmn_init_done))
+		return;
 
-		qdf_timer_mod(&soc->int_timer, DP_INTR_POLL_TIMER_MS);
+	start_time = qdf_get_log_timestamp();
+
+	while (yield == DP_TIMER_NO_YIELD) {
+		for (i = 0;
+		     i < wlan_cfg_get_num_contexts(soc->wlan_cfg_ctx); i++) {
+			if (!soc->intr_ctx[i].rx_mon_ring_mask)
+				continue;
+
+			work_done = dp_process_lmac_rings(&soc->intr_ctx[i],
+							  remaining_quota);
+			if (work_done) {
+				budget -=  work_done;
+				if (budget <= 0) {
+					yield = DP_TIMER_WORK_EXHAUST;
+					goto budget_done;
+				}
+				remaining_quota = budget;
+				total_work_done += work_done;
+			}
+		}
+
+		yield = dp_should_timer_irq_yield(soc, total_work_done,
+						  start_time);
+		total_work_done = 0;
 	}
+
+budget_done:
+	if (yield == DP_TIMER_WORK_EXHAUST ||
+	    yield == DP_TIMER_TIME_EXHAUST)
+		qdf_timer_mod(&soc->int_timer, 1);
+	else
+		qdf_timer_mod(&soc->int_timer, DP_INTR_POLL_TIMER_MS);
 }
 
 /*
@@ -3042,8 +3134,6 @@ static void dp_soc_cmn_cleanup(struct dp_soc *soc)
 	dp_tx_soc_detach(soc);
 
 	qdf_spinlock_destroy(&soc->rx.defrag.defrag_lock);
-
-	dp_reo_cmdlist_destroy(soc);
 	qdf_spinlock_destroy(&soc->rx.reo_cmd_lock);
 }
 
@@ -3656,8 +3746,10 @@ wdi_attach_fail:
 
 fail2:
 	dp_rx_pdev_detach(pdev);
+	dp_ipa_uc_detach(soc, pdev);
 
 fail1:
+	soc->pdev_count--;
 	if (pdev->invalid_peer)
 		qdf_mem_free(pdev->invalid_peer);
 	dp_pdev_detach((struct cdp_pdev *)pdev, 0);
@@ -3940,6 +4032,11 @@ static void dp_pdev_deinit(struct cdp_pdev *txrx_pdev, int force)
 	dp_cal_client_detach(&pdev->cal_client_ctx);
 
 	soc->pdev_count--;
+
+	/* only do soc common cleanup when last pdev do detach */
+	if (!(soc->pdev_count))
+		dp_reo_cmdlist_destroy(soc);
+
 	wlan_cfg_pdev_detach(pdev->wlan_cfg_ctx);
 	if (pdev->invalid_peer)
 		qdf_mem_free(pdev->invalid_peer);
@@ -4019,6 +4116,10 @@ static void dp_pdev_detach(struct cdp_pdev *txrx_pdev, int force)
 		dp_rx_desc_pool_free(soc, rx_desc_pool);
 	}
 
+	/* only do soc common cleanup when last pdev do detach */
+	if (!(soc->pdev_count))
+		dp_soc_cmn_cleanup(soc);
+
 	soc->pdev_list[pdev->pdev_id] = NULL;
 	qdf_mem_free(pdev);
 }
@@ -4041,11 +4142,6 @@ static void dp_pdev_detach_wifi3(struct cdp_pdev *txrx_pdev, int force)
 		dp_pdev_deinit(txrx_pdev, force);
 		dp_pdev_detach(txrx_pdev, force);
 	}
-
-	/* only do soc common cleanup when last pdev do detach */
-	if (!(soc->pdev_count))
-		dp_soc_cmn_cleanup(soc);
-
 }
 
 /*
@@ -4919,6 +5015,12 @@ static void dp_vdev_flush_peers(struct cdp_vdev *vdev_handle, bool unmap_only)
 		if (!peer)
 			continue;
 
+		dp_info("peer ref cnt %d", qdf_atomic_read(&peer->ref_cnt));
+		/*
+		 * set ref count to one to force delete the peers
+		 * with ref count leak
+		 */
+		SET_PEER_REF_CNT_ONE(peer);
 		dp_info("peer: %pM is getting unmap",
 			peer->mac_addr.raw);
 		/* free AST entries of peer */
@@ -4967,6 +5069,7 @@ static void dp_vdev_detach_wifi3(struct cdp_vdev *vdev_handle,
 	if (!hif_is_target_ready(HIF_GET_SOFTC(soc->hif_handle)))
 		dp_vdev_flush_peers((struct cdp_vdev *)vdev, false);
 
+	dp_rx_vdev_detach(vdev);
 	/*
 	 * Use peer_ref_mutex while accessing peer_list, in case
 	 * a peer is in the process of being removed from the list.
@@ -5013,8 +5116,6 @@ static void dp_vdev_detach_wifi3(struct cdp_vdev *vdev_handle,
 	qdf_spin_unlock_bh(&pdev->vdev_list_lock);
 
 	dp_tx_vdev_detach(vdev);
-	dp_rx_vdev_detach(vdev);
-
 free_vdev:
 	if (wlan_op_mode_monitor == vdev->opmode) {
 		if (soc->intr_mode == DP_INTR_POLL)
@@ -6006,7 +6107,6 @@ void dp_peer_unref_delete(void *peer_handle)
 #ifdef PEER_CACHE_RX_PKTS
 static inline void dp_peer_rx_bufq_resources_deinit(struct dp_peer *peer)
 {
-	dp_rx_flush_rx_cached(peer, true);
 	qdf_list_destroy(&peer->bufq_info.cached_bufq);
 	qdf_spinlock_destroy(&peer->bufq_info.bufq_lock);
 }
@@ -6025,6 +6125,7 @@ static inline void dp_peer_rx_bufq_resources_deinit(struct dp_peer *peer)
 static void dp_peer_delete_wifi3(void *peer_handle, uint32_t bitmap)
 {
 	struct dp_peer *peer = (struct dp_peer *)peer_handle;
+	struct dp_soc *soc = peer->vdev->pdev->soc;
 
 	/* redirect the peer's rx delivery function to point to a
 	 * discard func
@@ -6052,6 +6153,9 @@ static void dp_peer_delete_wifi3(void *peer_handle, uint32_t bitmap)
 		FL("peer %pK (%pM)"),  peer, peer->mac_addr.raw);
 
 	dp_local_peer_id_free(peer->vdev->pdev, peer);
+
+	/* Drop all rx packets before deleting peer */
+	dp_clear_peer_internal(soc, peer);
 
 	dp_peer_rx_bufq_resources_deinit(peer);
 
@@ -9790,10 +9894,37 @@ static void dp_process_wow_ack_rsp(struct cdp_soc_t *soc_hdl,
 	}
 }
 
+/**
+ * dp_process_target_suspend_req() - process target suspend request
+ * @soc_hdl: datapath soc handle
+ * @pdev_id: data path pdev handle id
+ *
+ * Return: none
+ */
+static void dp_process_target_suspend_req(struct cdp_soc_t *soc_hdl,
+					  struct cdp_pdev *opaque_pdev)
+{
+	struct dp_soc *soc = (struct dp_soc *)soc_hdl;
+	struct dp_pdev *pdev = (struct dp_pdev *)opaque_pdev;
+
+	if (qdf_unlikely(!pdev)) {
+		dp_err("pdev is NULL");
+		return;
+	}
+
+	/* Stop monitor reap timer and reap any pending frames in ring */
+	if (pdev->rx_pktlog_mode != DP_RX_PKTLOG_DISABLED &&
+	    soc->reap_timer_init) {
+		qdf_timer_sync_cancel(&soc->mon_reap_timer);
+		dp_service_mon_rings(soc, DP_MON_REAP_BUDGET);
+	}
+}
+
 static struct cdp_bus_ops dp_ops_bus = {
 	.bus_suspend = dp_bus_suspend,
 	.bus_resume = dp_bus_resume,
 	.process_wow_ack_rsp = dp_process_wow_ack_rsp,
+	.process_target_suspend_req = dp_process_target_suspend_req
 };
 
 static struct cdp_ocb_ops dp_ops_ocb = {

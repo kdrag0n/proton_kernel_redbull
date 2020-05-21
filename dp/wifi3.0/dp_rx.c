@@ -110,14 +110,16 @@ void dp_rx_dump_info_and_assert(struct dp_soc *soc, void *hal_ring,
  *	       or NULL during dp rx initialization or out of buffer
  *	       interrupt.
  * @tail: tail of descs list
+ * @func_name: name of the caller function
  * Return: return success or failure
  */
-QDF_STATUS dp_rx_buffers_replenish(struct dp_soc *dp_soc, uint32_t mac_id,
+QDF_STATUS __dp_rx_buffers_replenish(struct dp_soc *dp_soc, uint32_t mac_id,
 				struct dp_srng *dp_rxdma_srng,
 				struct rx_desc_pool *rx_desc_pool,
 				uint32_t num_req_buffers,
 				union dp_rx_desc_list_elem_t **desc_list,
-				union dp_rx_desc_list_elem_t **tail)
+				union dp_rx_desc_list_elem_t **tail,
+				const char *func_name)
 {
 	uint32_t num_alloc_desc;
 	uint16_t num_desc_to_free = 0;
@@ -244,7 +246,8 @@ QDF_STATUS dp_rx_buffers_replenish(struct dp_soc *dp_soc, uint32_t mac_id,
 		qdf_assert_always((*desc_list)->rx_desc.in_use == 0);
 
 		(*desc_list)->rx_desc.in_use = 1;
-
+		dp_rx_desc_update_dbg_info(&(*desc_list)->rx_desc,
+					   func_name, RX_DESC_REPLENISHED);
 		dp_verbose_debug("rx_netbuf=%pK, buf=%pK, paddr=0x%llx, cookie=%d",
 				 rx_netbuf, qdf_nbuf_data(rx_netbuf),
 				 (unsigned long long)paddr,
@@ -1830,26 +1833,11 @@ more_data:
 
 		dp_rx_desc_nbuf_sanity_check(ring_desc, rx_desc);
 
-		/* TODO */
-		/*
-		 * Need a separate API for unmapping based on
-		 * phyiscal address
-		 */
-		qdf_nbuf_unmap_single(soc->osdev, rx_desc->nbuf,
-					QDF_DMA_FROM_DEVICE);
-		rx_desc->unmapped = 1;
-
-		core_id = smp_processor_id();
-		DP_STATS_INC(soc, rx.ring_packets[core_id][ring_id], 1);
-
 		/* Get MPDU DESC info */
 		hal_rx_mpdu_desc_info_get(ring_desc, &mpdu_desc_info);
 
 		/* Get MSDU DESC info */
 		hal_rx_msdu_desc_info_get(ring_desc, &msdu_desc_info);
-
-		if (mpdu_desc_info.mpdu_flags & HAL_MPDU_F_RETRY_BIT)
-			qdf_nbuf_set_rx_retry_flag(rx_desc->nbuf, 1);
 
 		if (qdf_unlikely(msdu_desc_info.msdu_flags &
 				 HAL_MSDU_F_MSDU_CONTINUATION)) {
@@ -1879,6 +1867,20 @@ more_data:
 			}
 
 		}
+
+		/*
+		 * move unmap after scattered msdu waiting break logic
+		 * in case double skb unmap happened.
+		 */
+		qdf_nbuf_unmap_single(soc->osdev, rx_desc->nbuf,
+				      QDF_DMA_FROM_DEVICE);
+		rx_desc->unmapped = 1;
+
+		core_id = smp_processor_id();
+		DP_STATS_INC(soc, rx.ring_packets[core_id][ring_id], 1);
+
+		if (mpdu_desc_info.mpdu_flags & HAL_MPDU_F_RETRY_BIT)
+			qdf_nbuf_set_rx_retry_flag(rx_desc->nbuf, 1);
 
 		if (qdf_unlikely(mpdu_desc_info.mpdu_flags &
 				 HAL_MPDU_F_RAW_AMPDU))
@@ -1944,7 +1946,12 @@ more_data:
 						rx_desc);
 
 		num_rx_bufs_reaped++;
-		if (dp_rx_reap_loop_pkt_limit_hit(soc, num_rx_bufs_reaped))
+		/*
+		 * only if complete msdu is received for scatter case,
+		 * then allow break.
+		 */
+		if (is_prev_msdu_last &&
+		    dp_rx_reap_loop_pkt_limit_hit(soc, num_rx_bufs_reaped))
 			break;
 	}
 done:
@@ -2444,6 +2451,10 @@ dp_pdev_rx_buffers_attach(struct dp_soc *dp_soc, uint32_t mac_id,
 
 			dp_rx_desc_prep(&desc_list->rx_desc, nbuf);
 			desc_list->rx_desc.in_use = 1;
+			dp_rx_desc_alloc_dbg_info(&desc_list->rx_desc);
+			dp_rx_desc_update_dbg_info(&desc_list->rx_desc,
+						   __func__,
+						   RX_DESC_REPLENISHED);
 
 			hal_rxdma_buff_addr_info_set(rxdma_ring_entry, paddr,
 						     desc_list->rx_desc.cookie,
@@ -2576,28 +2587,26 @@ dp_rx_nbuf_prepare(struct dp_soc *soc, struct dp_pdev *pdev)
 
 #ifdef DP_RX_SPECIAL_FRAME_NEED
 bool dp_rx_deliver_special_frame(struct dp_soc *soc, struct dp_peer *peer,
-				 qdf_nbuf_t nbuf, uint32_t frame_mask)
+				 qdf_nbuf_t nbuf, uint32_t frame_mask,
+				 uint8_t *rx_tlv_hdr)
 {
 	uint32_t l2_hdr_offset = 0;
 	uint16_t msdu_len = 0;
-	uint32_t pkt_len = 0;
-	uint8_t *rx_tlv_hdr;
+	uint32_t skip_len;
 
-	if (qdf_unlikely(qdf_nbuf_is_frag(nbuf)))
-		return false;
-
-	rx_tlv_hdr = qdf_nbuf_data(nbuf);
 	l2_hdr_offset =
 		hal_rx_msdu_end_l3_hdr_padding_get(rx_tlv_hdr);
 
-	msdu_len = QDF_NBUF_CB_RX_PKT_LEN(nbuf);
-	pkt_len = msdu_len + l2_hdr_offset + RX_PKT_TLVS_LEN;
-	QDF_NBUF_CB_RX_NUM_ELEMENTS_IN_LIST(nbuf) = 1;
+	if (qdf_unlikely(qdf_nbuf_is_frag(nbuf))) {
+		skip_len = l2_hdr_offset;
+	} else {
+		msdu_len = QDF_NBUF_CB_RX_PKT_LEN(nbuf);
+		skip_len = l2_hdr_offset + RX_PKT_TLVS_LEN;
+		qdf_nbuf_set_pktlen(nbuf, msdu_len + skip_len);
+	}
 
-	qdf_nbuf_set_pktlen(nbuf, pkt_len);
-	qdf_nbuf_pull_head(nbuf,
-			   RX_PKT_TLVS_LEN +
-			   l2_hdr_offset);
+	QDF_NBUF_CB_RX_NUM_ELEMENTS_IN_LIST(nbuf) = 1;
+	qdf_nbuf_pull_head(nbuf, skip_len);
 
 	if (dp_rx_is_special_frame(nbuf, frame_mask)) {
 		dp_rx_deliver_to_stack(soc, peer->vdev, peer,
