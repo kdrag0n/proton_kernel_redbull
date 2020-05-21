@@ -4,8 +4,8 @@
  *
  * @author		(C) 2019 ON Semiconductor.
  * @file		PhoneUpdate.h
- * @date		svn:$Date:: 2019-08-30 15:19:05 +0900#$
- * @version		svn:$Revision: 12 $
+ * @date		svn:$Date:: 2019-10-18 16:42:00 +0900#$
+ * @version		svn:$Revision: 18 $
  * @attention
  *
  **/
