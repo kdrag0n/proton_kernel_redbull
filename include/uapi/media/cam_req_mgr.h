@@ -449,6 +449,7 @@ struct cam_req_mgr_error_msg {
  * @request_id: request id of the frame
  * @frame_id: frame id of the frame
  * @timestamp: timestamp of the frame
+ * @bf_timestamp: timestamp of the AF STATS BF frame
  * @link_hdl: link handle associated with this message
  * @sof_status: sof status success or fail
  * @frame_id_meta: refers to the meta for
@@ -459,6 +460,7 @@ struct cam_req_mgr_frame_msg {
 	uint64_t request_id;
 	uint64_t frame_id;
 	uint64_t timestamp;
+	uint64_t bf_timestamp;
 	int32_t  link_hdl;
 	uint32_t sof_status;
 	uint32_t frame_id_meta;

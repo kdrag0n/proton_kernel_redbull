@@ -617,6 +617,7 @@ static void __cam_isp_ctx_send_sof_boot_timestamp(
 	req_msg.u.frame_msg.frame_id = ctx_isp->frame_id;
 	req_msg.u.frame_msg.request_id = request_id;
 	req_msg.u.frame_msg.timestamp = ctx_isp->boot_timestamp;
+	req_msg.u.frame_msg.bf_timestamp = ctx_isp->bf_timestamp;
 	req_msg.u.frame_msg.link_hdl = ctx_isp->base->link_hdl;
 	req_msg.u.frame_msg.sof_status = sof_event_status;
 	req_msg.u.frame_msg.frame_id_meta = ctx_isp->frame_id_meta;
@@ -628,9 +629,11 @@ static void __cam_isp_ctx_send_sof_boot_timestamp(
 	}
 
 	CAM_DBG(CAM_ISP,
-		"request id:%lld frame number:%lld boot time stamp:0x%llx status:%u",
+		"request id:%lld frame number:%lld boot time stamp:0x%llx, bf timestamp:%llu status:%u",
 		 request_id, ctx_isp->frame_id,
-		 ctx_isp->boot_timestamp, sof_event_status);
+		 ctx_isp->boot_timestamp,
+		 ctx_isp->bf_timestamp,
+		 sof_event_status);
 
 	if (cam_req_mgr_notify_message(&req_msg,
 		V4L_EVENT_CAM_REQ_MGR_SOF_BOOT_TS,
@@ -757,6 +760,8 @@ static int __cam_isp_ctx_handle_buf_done_for_request(
 	struct cam_isp_ctx_req *req_isp;
 	struct cam_context *ctx = ctx_isp->base;
 	uint64_t  buf_done_req_id;
+	struct timespec ts;
+	uint64_t bf_timestamp_val;
 
 	trace_cam_buf_done("ISP", ctx, req);
 
@@ -821,6 +826,15 @@ static int __cam_isp_ctx_handle_buf_done_for_request(
 			}
 
 			continue;
+		}
+
+		if (done->resource_handle[i] == CAM_ISP_IFE_OUT_RES_STATS_BF) {
+			get_monotonic_boottime(&ts);
+			bf_timestamp_val = (uint64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+			CAM_DBG(CAM_ISP, "[%lld] BF timestamp %llu",
+				req->request_id,
+				bf_timestamp_val);
+			ctx_isp->bf_timestamp = bf_timestamp_val;
 		}
 
 		if (!req_isp->bubble_detected) {
