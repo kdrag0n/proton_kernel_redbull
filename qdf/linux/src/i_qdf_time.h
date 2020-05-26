@@ -36,7 +36,7 @@
 #ifdef MSM_PLATFORM
 #include <asm/arch_timer.h>
 #endif
-#ifdef CONFIG_CNSS
+#if IS_ENABLED(CONFIG_CNSS)
 #include <net/cnss.h>
 #endif
 
