@@ -5544,6 +5544,45 @@ static const struct snd_soc_dapm_widget msm_int_rt5514_dapm_widgets[] = {
 		msm_mic_event, SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
 };
 
+#ifndef CONFIG_TDM_DISABLE
+static void msm_add_tdm_snd_controls(struct snd_soc_component *component)
+{
+	snd_soc_add_component_controls(component, msm_tdm_snd_controls,
+				ARRAY_SIZE(msm_tdm_snd_controls));
+}
+#else
+static void msm_add_tdm_snd_controls(struct snd_soc_component *component)
+{
+	return;
+}
+#endif
+
+#ifndef CONFIG_MI2S_DISABLE
+static void msm_add_mi2s_snd_controls(struct snd_soc_component *component)
+{
+	snd_soc_add_component_controls(component, msm_mi2s_snd_controls,
+				ARRAY_SIZE(msm_mi2s_snd_controls));
+}
+#else
+static void msm_add_mi2s_snd_controls(struct snd_soc_component *component)
+{
+	return;
+}
+#endif
+
+#ifndef CONFIG_AUXPCM_DISABLE
+static void msm_add_auxpcm_snd_controls(struct snd_soc_component *component)
+{
+	snd_soc_add_component_controls(component, msm_auxpcm_snd_controls,
+				ARRAY_SIZE(msm_auxpcm_snd_controls));
+}
+#else
+static void msm_add_auxpcm_snd_controls(struct snd_soc_component *component)
+{
+	return;
+}
+#endif
+
 static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret = -EINVAL;
@@ -5584,6 +5623,10 @@ static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
+	msm_add_tdm_snd_controls(component);
+	msm_add_mi2s_snd_controls(component);
+	msm_add_auxpcm_snd_controls(component);
+
 	snd_soc_dapm_new_controls(dapm, msm_int_rt5514_dapm_widgets,
 				ARRAY_SIZE(msm_int_rt5514_dapm_widgets));
 
@@ -5609,45 +5652,6 @@ static int msm_wcn_init_lito(struct snd_soc_pcm_runtime *rtd)
 	return snd_soc_dai_set_channel_map(codec_dai, ARRAY_SIZE(tx_ch),
 					   tx_ch, ARRAY_SIZE(rx_ch), rx_ch);
 }
-
-#ifndef CONFIG_TDM_DISABLE
-static void msm_add_tdm_snd_controls(struct snd_soc_component *component)
-{
-	snd_soc_add_component_controls(component, msm_tdm_snd_controls,
-				ARRAY_SIZE(msm_tdm_snd_controls));
-}
-#else
-static void msm_add_tdm_snd_controls(struct snd_soc_component *component)
-{
-	return;
-}
-#endif
-
-#ifndef CONFIG_MI2S_DISABLE
-static void msm_add_mi2s_snd_controls(struct snd_soc_component *component)
-{
-	snd_soc_add_component_controls(component, msm_mi2s_snd_controls,
-				ARRAY_SIZE(msm_mi2s_snd_controls));
-}
-#else
-static void msm_add_mi2s_snd_controls(struct snd_soc_component *component)
-{
-	return;
-}
-#endif
-
-#ifndef CONFIG_AUXPCM_DISABLE
-static void msm_add_auxpcm_snd_controls(struct snd_soc_component *component)
-{
-	snd_soc_add_component_controls(component, msm_auxpcm_snd_controls,
-				ARRAY_SIZE(msm_auxpcm_snd_controls));
-}
-#else
-static void msm_add_auxpcm_snd_controls(struct snd_soc_component *component)
-{
-	return;
-}
-#endif
 
 static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
 {
@@ -5690,11 +5694,11 @@ static int msm_int_audrx_init(struct snd_soc_pcm_runtime *rtd)
  *			__func__, ret);
  *		return ret;
  *	}
+ *
+ *	msm_add_tdm_snd_controls(component);
+ *	msm_add_mi2s_snd_controls(component);
+ *	msm_add_auxpcm_snd_controls(component);
  */
-
-	msm_add_tdm_snd_controls(component);
-	msm_add_mi2s_snd_controls(component);
-	msm_add_auxpcm_snd_controls(component);
 
 	snd_soc_dapm_new_controls(dapm, msm_int_dapm_widgets,
 				ARRAY_SIZE(msm_int_dapm_widgets));
