@@ -605,7 +605,7 @@ CONFIG_ATH_PCIE_ACCESS_DEBUG := n
 ifeq ($(CONFIG_IPA), y)
 CONFIG_IPA_OFFLOAD := y
 endif
-ifeq ($(CONFIG_IPA3), y)
+ifeq ($(CONFIG_IPA3), m)
 CONFIG_IPA_OFFLOAD := y
 endif
 
