@@ -87,6 +87,8 @@
 #define WCN_CDC_SLIM_TX_CH_MAX 2
 #define WCN_CDC_SLIM_TX_CH_MAX_LITO 3
 
+#define KONA_ENTRY_MAX_LEN 64
+
 enum {
 	RX_PATH = 0,
 	TX_PATH,
@@ -196,6 +198,7 @@ struct msm_asoc_mach_data {
 	int hac_amp_gpio;
 	struct clk *lpass_audio_hw_vote;
 	int core_audio_vote_count;
+	bool call_state;
 };
 
 struct tdm_port {
@@ -4019,6 +4022,79 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			aux_pcm_tx_sample_rate_put),
 };
 
+static ssize_t kona_read_call_state(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	ssize_t ret;
+	struct msm_asoc_mach_data *pdata = NULL;
+	struct platform_device *pdev = to_platform_device(dev);
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+
+	pdata = snd_soc_card_get_drvdata(card);
+
+	if (pdata->call_state)
+		ret = scnprintf(buf, KONA_ENTRY_MAX_LEN, "%u\n",
+			 (unsigned int)true);
+	else
+		ret = scnprintf(buf, KONA_ENTRY_MAX_LEN, "%u\n",
+			 (unsigned int)false);
+
+	dev_dbg(dev, "%s: %d\n",
+			__func__, pdata->call_state ? 1 : 0);
+
+	return ret;
+}
+
+static DEVICE_ATTR(call_state, 0644, kona_read_call_state,
+	NULL);
+
+static struct attribute *kona_fs_attrs[] = {
+	&dev_attr_call_state.attr,
+	NULL,
+};
+
+static struct attribute_group kona_fs_attrs_group = {
+	.attrs = kona_fs_attrs,
+};
+
+static int call_en_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+
+	pdata = snd_soc_card_get_drvdata(component->card);
+
+	if (ucontrol->value.integer.value[0])
+		pdata->call_state = true;
+	else
+		pdata->call_state = false;
+
+	sysfs_notify(&component->card->dev->kobj, NULL, dev_attr_call_state.attr.name);
+
+	return 0;
+}
+
+static int call_en_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(component->card);
+
+	ucontrol->value.integer.value[0] = pdata->call_state;
+
+	return 0;
+}
+
+static const struct snd_kcontrol_new call_state_controls[] = {
+	SOC_SINGLE_EXT("CALL EN", SND_SOC_NOPM, 0, 1, 0,
+			call_en_get,
+			call_en_put),
+};
+
 static int hac_amp_en_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
@@ -5619,6 +5695,14 @@ static int msm_tdm_ch_init(struct snd_soc_pcm_runtime *rtd)
 				ARRAY_SIZE(hac_amp_controls));
 	if (ret < 0) {
 		pr_err("%s: add hac snd controls failed: %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	ret = snd_soc_add_component_controls(component, call_state_controls,
+				ARRAY_SIZE(call_state_controls));
+	if (ret < 0) {
+		pr_err("%s: add call state snd controls failed: %d\n",
 			__func__, ret);
 		return ret;
 	}
@@ -9066,6 +9150,13 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	if (ret)
 		pr_err("%s: Registration with SND event FWK failed ret = %d\n",
 			__func__, ret);
+
+	pdata->call_state = false;
+
+	ret = sysfs_create_group(&pdev->dev.kobj,
+		&kona_fs_attrs_group);
+	if (ret)
+		pr_err("%s:fs_attrs failed, ret=%d\n", __func__, ret);
 
 	is_initial_boot = true;
 
