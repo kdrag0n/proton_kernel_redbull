@@ -871,6 +871,7 @@ struct sec_ts_data {
 	 */
 	ktime_t mf_downtime;
 
+	u8 print_format;
 	u8 frame_type;
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	struct v4l2_heatmap v4l2;

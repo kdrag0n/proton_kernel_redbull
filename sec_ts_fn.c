@@ -112,6 +112,7 @@ static void set_wet_mode_enable(void *device_data);
 static void set_noise_mode_enable(void *device_data);
 static void set_continuous_report_enable(void *device_data);
 static void set_charger_nb_enable(void *device_data);
+static void set_print_format(void *device_data);
 
 static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("fw_update", fw_update),},
@@ -220,9 +221,9 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("set_continuous_report_enable",
 		set_continuous_report_enable),},
 	{SEC_CMD("set_charger_nb_enable", set_charger_nb_enable),},
+	{SEC_CMD("set_print_format", set_print_format),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
-
 
 static void set_palm_detection_enable(void *device_data)
 {
@@ -2126,7 +2127,7 @@ ErrorRead:
 int sec_ts_read_raw_data(struct sec_ts_data *ts,
 		struct sec_cmd_data *sec, struct sec_ts_test_mode *mode)
 {
-	int ii;
+	int ii, jj;
 	int ret = 0;
 	const unsigned int buff_size = ts->tx_count * ts->rx_count *
 					CMD_RESULT_WORD_LEN;
@@ -2181,14 +2182,34 @@ int sec_ts_read_raw_data(struct sec_ts_data *ts,
 			}
 			buff_len += scnprintf(buff + buff_len,
 					      buff_size - buff_len, "\n      ");
-			for (ii = 0; ii < (ts->rx_count + ts->tx_count); ii++) {
-				buff_len += scnprintf(buff + buff_len,
-						      buff_size - buff_len,
-						      "%3d,", ts->pFrame[ii]);
-				if (ii >= ts->tx_count - 1)
+			if (!ts->print_format) {
+				for (ii = 0;
+				     ii < (ts->rx_count + ts->tx_count);
+				     ii++) {
 					buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len,
+						"%3d,", ts->pFrame[ii]);
+					if (ii >= ts->tx_count - 1)
+						buff_len += scnprintf(
+							buff + buff_len,
 							buff_size - buff_len,
 							"\n");
+				}
+			} else {
+				for (ii = ts->tx_count;
+				     ii < (ts->rx_count + ts->tx_count);
+				     ii++) {
+					buff_len += scnprintf(buff + buff_len,
+							buff_size - buff_len,
+							"%3d,", ts->pFrame[ii]);
+				}
+				buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len, "\n");
+				for (ii = 0; ii < ts->tx_count; ii++) {
+					buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len,
+						"%3d,\n", ts->pFrame[ii]);
+				}
 			}
 		} else {
 			if (mode->spec_check == SPEC_NO_CHECK)
@@ -2205,14 +2226,31 @@ int sec_ts_read_raw_data(struct sec_ts_data *ts,
 						    "NG %d %d\n", ts->rx_count,
 						    ts->tx_count);
 			}
-			for (ii = 0; ii < (ts->rx_count * ts->tx_count); ii++) {
-				buff_len += scnprintf(buff + buff_len,
-						    buff_size - buff_len,
-						    "%3d,", ts->pFrame[ii]);
+			if (!ts->print_format) {
+				for (ii = 0;
+				     ii < (ts->rx_count * ts->tx_count); ii++) {
+					buff_len += scnprintf(buff + buff_len,
+							buff_size - buff_len,
+							"%3d,", ts->pFrame[ii]);
 				if (ii % ts->tx_count == (ts->tx_count - 1))
 					buff_len += scnprintf(buff + buff_len,
 							buff_size - buff_len,
 							"\n");
+				}
+			} else {
+				for (ii = 0; ii < ts->tx_count; ii++) {
+					for (jj = 0; jj < ts->rx_count; jj++) {
+						buff_len += scnprintf(
+							buff + buff_len,
+							buff_size - buff_len,
+							"%3d,",
+							ts->pFrame[(jj *
+							  ts->tx_count) + ii]);
+					}
+					buff_len += scnprintf(buff + buff_len,
+							buff_size - buff_len,
+							"\n");
+				}
 			}
 		}
 	} else {
@@ -7378,6 +7416,21 @@ static void debug(void *device_data)
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
 
+static void set_print_format(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	ts->print_format = !!sec->cmd_param[0];
+
+	snprintf(buff, sizeof(buff), "%s", "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+}
+
 static void not_support_cmd(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
@@ -7571,7 +7624,7 @@ int sec_ts_run_rawdata_type(struct sec_ts_data *ts, struct sec_cmd_data *sec)
 {
 	short min[REGION_TYPE_COUNT], max[REGION_TYPE_COUNT];
 	enum spec_check_type spec_check = SPEC_NO_CHECK;
-	int i, ii;
+	int i, ii, jj;
 	int ret = -1;
 	u8 data_type = 0;
 	u8 touch_type = sec->cmd_param[1];
@@ -7662,17 +7715,30 @@ int sec_ts_run_rawdata_type(struct sec_ts_data *ts, struct sec_cmd_data *sec)
 
 		buff_len += scnprintf(buff + buff_len,
 					buff_size - buff_len, "\n");
-
-		for (ii = 0; ii < (ts->rx_count * ts->tx_count); ii++) {
-			buff_len += scnprintf(buff + buff_len,
+		if (!ts->print_format) {
+			for (ii = 0; ii < (ts->rx_count * ts->tx_count); ii++) {
+				buff_len += scnprintf(buff + buff_len,
 					buff_size - buff_len,
 					"%3d,", ts->pFrame[ii]);
-			if (ii % ts->tx_count == (ts->tx_count - 1))
+				if (ii % ts->tx_count == (ts->tx_count - 1))
+					buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len,
+						"\n");
+			}
+		} else {
+			for (ii = 0; ii < ts->tx_count; ii++) {
+				for (jj = 0; jj < ts->rx_count; jj++) {
+					buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len,
+						"%3d,",
+						ts->pFrame[(jj * ts->tx_count)
+								+ ii]);
+				}
 				buff_len += scnprintf(buff + buff_len,
 						buff_size - buff_len,
 						"\n");
+			}
 		}
-
 	} else if (touch_type > 0) {
 		ret = sec_ts_read_channel(ts, data_type, min,
 					max, &spec_check);
@@ -7690,15 +7756,30 @@ int sec_ts_run_rawdata_type(struct sec_ts_data *ts, struct sec_cmd_data *sec)
 
 		buff_len += scnprintf(buff + buff_len,
 				buff_size - buff_len, "\n      ");
-
-		for (ii = 0; ii < (ts->rx_count + ts->tx_count); ii++) {
-			buff_len += scnprintf(buff + buff_len,
+		if (!ts->print_format) {
+			for (ii = 0; ii < (ts->rx_count + ts->tx_count); ii++) {
+				buff_len += scnprintf(buff + buff_len,
 					buff_size - buff_len,
 					"%3d,", ts->pFrame[ii]);
-			if (ii >= ts->tx_count - 1)
+				if (ii >= ts->tx_count - 1)
+					buff_len += scnprintf(buff + buff_len,
+							buff_size - buff_len,
+							"\n");
+			}
+		} else {
+			for (ii = ts->tx_count;
+			     ii < (ts->rx_count + ts->tx_count); ii++) {
 				buff_len += scnprintf(buff + buff_len,
 						buff_size - buff_len,
-						"\n");
+						"%3d,", ts->pFrame[ii]);
+			}
+			buff_len += scnprintf(buff + buff_len,
+					      buff_size - buff_len, "\n");
+			for (ii = 0; ii < ts->tx_count; ii++) {
+				buff_len += scnprintf(buff + buff_len,
+						buff_size - buff_len,
+						"%3d,\n", ts->pFrame[ii]);
+			}
 		}
 	}
 
