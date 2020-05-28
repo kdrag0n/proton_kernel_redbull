@@ -4143,7 +4143,8 @@ static void sec_ts_shutdown(struct spi_device *client)
 #endif
 {
 	pr_info("%s\n", __func__);
-	sec_ts_remove(client);
+	if (ts_dup)
+		sec_ts_remove(client);
 }
 
 int sec_ts_stop_device(struct sec_ts_data *ts)
