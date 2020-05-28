@@ -141,6 +141,12 @@ int doFWupdate(UINT_16 CAL_ID, UINT_32 MODULE_MAKER)
 	if (module_angle == MA_WIDE && CAL_ID == 0x3)
 		code_header = 0x01;
 
+	// If fw update failure, use recovery mechanism to enforce fw update.
+	if(CAL_ID == 0x0 && module_vendor == 0x0) {
+		code_vendor = 9;
+		code_header = 0x01;
+	}
+
 	if (code_vendor != 0 && code_header != 0) {
 		BootMode();
 		CAM_INFO(CAM_SENSOR,
@@ -194,7 +200,7 @@ bool checkOISFWversion(UINT_16 *cal_id, UINT_32 *module_maker)
 		"[OISFW]:%s CAL_ID = 0x%04x, MODULE_MAKER = 0x%x\n",
 		__func__, *cal_id, *module_maker);
 
-	if (FW_version >= OIS_CUR_FW_VERSION) {
+	if (FW_version >= OIS_CUR_FW_VERSION && FW_version != 0x00) {
 		CAM_INFO(CAM_SENSOR,
 			"[OISFW]%s: No need to update.\n", __func__);
 	} else {
