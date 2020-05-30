@@ -1520,6 +1520,7 @@
 		qcom,active-only;
 		status = "ok";
 		operating-points-v2 = <&keepalive_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	bus_proxy_client: qcom,bus_proxy_client {
@@ -3213,6 +3214,7 @@
 			<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_LLCC>;
 		qcom,active-only;
 		operating-points-v2 = <&llcc_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-perf";
 	};
 
 	cpu_cpu_llcc_bwmon: qcom,cpu-cpu-llcc-bwmon@90b6400 {
@@ -3248,6 +3250,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-perf";
 	};
 
 	cpu_llcc_ddr_bwmon: qcom,cpu-llcc-ddr-bwmon@90cd000 {
@@ -3281,6 +3284,7 @@
 		governor = "performance";
 		qcom,src-dst-ports = <MSM_BUS_MASTER_NPU MSM_BUS_SLAVE_LLCC>;
 		operating-points-v2 = <&suspendable_llcc_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-perf";
 	};
 
 	npu_npu_llcc_bwmon: qcom,npu-npu-llcc-bwmon@9960300 {
@@ -3308,6 +3312,7 @@
 		governor = "performance";
 		qcom,src-dst-ports = <MSM_BUS_SLAVE_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		operating-points-v2 = <&suspendable_ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-perf";
 	};
 
 	npu_llcc_ddr_bwmon: qcom,npu-llcc-ddr-bwmon@90CE000 {
@@ -3326,6 +3331,7 @@
 		governor = "performance";
 		qcom,src-dst-ports = <MSM_BUS_MASTER_NPU MSM_BUS_SLAVE_EBI_CH0>;
 		operating-points-v2 = <&suspendable_ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-perf";
 	};
 
 	npudsp_npu_ddr_bwmon: qcom,npudsp-npu-ddr-bwmon@70200 {
@@ -3355,6 +3361,7 @@
 			<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_LLCC>;
 		qcom,active-only;
 		operating-points-v2 = <&llcc_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu0_llcc_ddr_lat: qcom,cpu0-llcc-ddr-lat {
@@ -3364,6 +3371,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu0_cpu_ddr_latfloor: qcom,cpu0-cpu-ddr-latfloor {
@@ -3373,6 +3381,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu0_memlat_cpugrp: qcom,cpu0-cpugrp {
@@ -3435,6 +3444,7 @@
 			<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_LLCC>;
 		qcom,active-only;
 		operating-points-v2 = <&llcc_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu6_llcc_ddr_lat: qcom,cpu6-llcc-ddr-lat {
@@ -3444,6 +3454,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu6_cpu_ddr_latfloor: qcom,cpu6-cpu-ddr-latfloor {
@@ -3453,6 +3464,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu7_cpu_ddr_latfloor: qcom,cpu7-cpu-ddr-latfloor {
@@ -3462,6 +3474,7 @@
 			<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0>;
 		qcom,active-only;
 		operating-points-v2 = <&ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-powersave";
 	};
 
 	cpu4_memlat_cpugrp: qcom,cpu4-cpugrp {

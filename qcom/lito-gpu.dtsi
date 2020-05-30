@@ -17,6 +17,7 @@
 		governor = "bw_vbif";
 		qcom,src-dst-ports = <26 512>;
 		operating-points-v2 = <&suspendable_ddr_bw_opp_table>;
+		qcom,msm-bus,name = "devbw-bw_vbif";
 	};
 
 	gpu_opp_table: gpu-opp-table {
