@@ -444,6 +444,7 @@ static void hal_reg_write_work(void *arg)
 		hal_verbose_debug("read_idx %u srng 0x%x, addr 0x%pK dequeue_val %u sched delay %llu us",
 				  hal->read_idx, ring_id, addr, write_val, delta_us);
 
+		qdf_atomic_dec(&hal->active_work_cnt);
 		hal->read_idx = (hal->read_idx + 1) &
 					(HAL_REG_WRITE_QUEUE_LEN - 1);
 		q_elem = &hal->reg_write_queue[(hal->read_idx)];
@@ -485,7 +486,7 @@ static void hal_reg_write_enqueue(struct hal_soc *hal_soc,
 	uint32_t write_idx;
 
 	if (srng->reg_write_in_progress) {
-		hal_verbose_debug("Already in progress srng ring id 0x%x addr 0x%x val %u",
+		hal_verbose_debug("Already in progress srng ring id 0x%x addr 0x%pK val %u",
 				  srng->ring_id, addr, value);
 		qdf_atomic_inc(&hal_soc->stats.wstats.coalesces);
 		srng->wstats.coalesces++;
@@ -524,8 +525,9 @@ static void hal_reg_write_enqueue(struct hal_soc *hal_soc,
 	q_elem->valid = true;
 
 	srng->reg_write_in_progress  = true;
+	qdf_atomic_inc(&hal_soc->active_work_cnt);
 
-	hal_verbose_debug("write_idx %u srng ring id 0x%x addr 0x%x val %u",
+	hal_verbose_debug("write_idx %u srng ring id 0x%x addr 0x%pK val %u",
 			  write_idx, srng->ring_id, addr, value);
 
 	qdf_queue_work(hal_soc->qdf_dev, hal_soc->reg_write_wq,
@@ -650,6 +652,14 @@ void hal_dump_reg_write_stats(struct hal_soc *hal_soc_hdl)
 		  hist[REG_WRITE_SCHED_DELAY_SUB_5000us],
 		  hist[REG_WRITE_SCHED_DELAY_GE_5000us]);
 }
+
+int hal_get_reg_write_pending_work(void *hal_soc)
+{
+	struct hal_soc *hal = (struct hal_soc *)hal_soc;
+
+	return qdf_atomic_read(&hal->active_work_cnt);
+}
+
 #else
 static inline QDF_STATUS hal_delayed_reg_write_init(struct hal_soc *hal)
 {
@@ -726,6 +736,7 @@ void *hal_attach(void *hif_handle, qdf_device_t qdf_dev)
 	hal_target_based_configure(hal);
 	hal_reg_write_fail_history_init(hal);
 
+	qdf_atomic_init(&hal->active_work_cnt);
 	hal_delayed_reg_write_init(hal);
 
 	return (void *)hal;
