@@ -12,6 +12,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/of.h>
 #include <linux/freezer.h>
+#include <linux/version.h>
 #include <sound/core.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -2528,8 +2529,11 @@ static int msm_lsm_open(struct snd_pcm_substream *substream)
 	prtd->lsm_client->event_type = LSM_DET_EVENT_TYPE_LEGACY;
 	prtd->lsm_client->fe_id = rtd->dai_link->id;
 	prtd->lsm_client->unprocessed_data = 0;
-
-	prtd->ws = wakeup_source_register(NULL, "lsm-client");
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 110))
+	prtd->ws = wakeup_source_register(rtd->dev, "lsm-client");
+#else
+	prtd->ws = wakeup_source_register("lsm-client");
+#endif
 	if (!prtd->ws) {
 		pr_err("%s: could not register wakeup_source - lsm-client\n", __func__);
 		return -ENODEV;
