@@ -402,6 +402,11 @@ int afe_port_start_v2(u16 port_id, union afe_port_config *afe_config,
 		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
 		      struct afe_enc_config *enc_config,
 		      struct afe_dec_config *dec_config);
+int afe_port_start_v3(u16 port_id, union afe_port_config *afe_config,
+		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
+		      struct afe_enc_config *enc_config,
+		      struct afe_dec_config *dec_config,
+		      struct afe_ttp_config *ttp_config);
 int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 	int l_ch, int r_ch, u32 enable);
 int afe_spk_prot_get_calib_data(struct afe_spkr_prot_get_vi_calib *calib);
@@ -487,6 +492,9 @@ void afe_register_wakeup_irq_callback(
 	void (*afe_cb_wakeup_irq)(void *handle));
 int afe_get_doa_tracking_mon(u16 port_id,
 	struct doa_tracking_mon_param *doa_tracking_data);
+int afe_set_pll_clk_drift(u16 port_id, int32_t set_clk_drift,
+			  uint32_t clk_reset);
+int afe_set_clk_id(u16 port_id, uint32_t clk_id);
 
 enum {
 	AFE_LPASS_CORE_HW_BLOCK_ID_NONE,
