@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -30,7 +30,7 @@ QDF_STATUS wlan_mgmt_txrx_desc_pool_init(
 {
 	uint32_t i;
 
-	mgmt_txrx_info(
+	mgmt_txrx_debug(
 			"mgmt_txrx ctx: %pK pdev: %pK mgmt desc pool size %d",
 			mgmt_txrx_pdev_ctx, mgmt_txrx_pdev_ctx->pdev,
 			MGMT_DESC_POOL_MAX);
@@ -127,7 +127,7 @@ struct mgmt_txrx_desc_elem_t *wlan_mgmt_txrx_desc_get(
 	qdf_spin_unlock_bh(&mgmt_txrx_pdev_ctx->mgmt_desc_pool.desc_pool_lock);
 
 	/* acquire the wakelock when there are pending mgmt tx frames */
-	qdf_wake_lock_timeout_acquire(mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
+	qdf_wake_lock_timeout_acquire(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
 				      MGMT_TXRX_WAKELOCK_TIMEOUT_TX_CMP);
 	qdf_runtime_pm_prevent_suspend(
 		&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
@@ -172,7 +172,7 @@ void wlan_mgmt_txrx_desc_put(
 	if (release_wakelock) {
 		qdf_runtime_pm_allow_suspend(
 			&mgmt_txrx_pdev_ctx->wakelock_tx_runtime_cmp);
-		qdf_wake_lock_release(mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
+		qdf_wake_lock_release(&mgmt_txrx_pdev_ctx->wakelock_tx_cmp,
 				      MGMT_TXRX_WAKELOCK_REASON_TX_CMP);
 	}
 }
