@@ -90,12 +90,12 @@ static struct msm_vidc_codec_data kona_codec_data[] =  {
 };
 
 static struct msm_vidc_codec_data lagoon_codec_data[] =  {
-	CODEC_ENTRY(V4L2_PIX_FMT_H264, MSM_VIDC_ENCODER, 0, 675, 320),
-	CODEC_ENTRY(V4L2_PIX_FMT_HEVC, MSM_VIDC_ENCODER, 0, 675, 320),
-	CODEC_ENTRY(V4L2_PIX_FMT_MPEG2, MSM_VIDC_DECODER, 0, 200, 200),
-	CODEC_ENTRY(V4L2_PIX_FMT_H264, MSM_VIDC_DECODER, 0, 200, 200),
-	CODEC_ENTRY(V4L2_PIX_FMT_HEVC, MSM_VIDC_DECODER, 0, 200, 200),
-	CODEC_ENTRY(V4L2_PIX_FMT_VP9, MSM_VIDC_DECODER, 0, 200, 200),
+	CODEC_ENTRY(V4L2_PIX_FMT_H264, MSM_VIDC_ENCODER, 25, 675, 320),
+	CODEC_ENTRY(V4L2_PIX_FMT_HEVC, MSM_VIDC_ENCODER, 25, 675, 320),
+	CODEC_ENTRY(V4L2_PIX_FMT_MPEG2, MSM_VIDC_DECODER, 25, 200, 200),
+	CODEC_ENTRY(V4L2_PIX_FMT_H264, MSM_VIDC_DECODER, 25, 200, 200),
+	CODEC_ENTRY(V4L2_PIX_FMT_HEVC, MSM_VIDC_DECODER, 25, 200, 200),
+	CODEC_ENTRY(V4L2_PIX_FMT_VP9, MSM_VIDC_DECODER, 60, 200, 200),
 };
 
 /* Update with SM6150 data */
@@ -931,11 +931,15 @@ static struct msm_vidc_common_data lito_common_data_v0[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 2220544,
+		.value = 1958400,
 		/**
-		 * ((3840x2176)/256)@60 + ((8192x8192)/256)@1fps
-		 * UHD@30 decode + UHD@30 encode + ((8192x8192)/256)@1fps
+		 * ((3840x2176)/256)@60
+		 * UHD@30 decode + UHD@30 encode
 		 */
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-hq-mbs-per-frame",
@@ -1014,10 +1018,14 @@ static struct msm_vidc_common_data lito_common_data_v1[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 1486144,
+		.value = 1224000,
 		/**
-		 * UHD@30 decode + 1080@30 encode + ((8192x8192)/256)@1fps
+		 * UHD@30 decode + 1080@30 encode
 		 */
+	},
+		{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-hq-mbs-per-frame",
@@ -1096,11 +1104,15 @@ static struct msm_vidc_common_data lagoon_common_data_v0[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 2220544,
+		.value = 1958400,
 		/**
-		 * ((3840x2176)/256)@60fps decode + ((8192x8192)/256)@1fps
-		 * UHD@30 decode + 1080@30 encode + ((8192x8192)/256)@1fps
+		 * ((3840x2176)/256)@60
+		 * UHD@30 decode + UHD@30 encode
 		 */
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144,/* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -1120,7 +1132,7 @@ static struct msm_vidc_common_data lagoon_common_data_v0[] = {
 	},
 	{
 		.key = "qcom,max-b-frame-mbs-per-sec",
-		.value = 244800, /* ((1920x1088)/256) MBs@30fps */
+		.value = 489600, /* ((1920x1088)/256) MBs@60fps */
 	},
 	{
 		.key = "qcom,power-collapse-delay",
@@ -1179,8 +1191,14 @@ static struct msm_vidc_common_data lagoon_common_data_v1[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 1486144,
-		/* UHD@30 decode + 1080@30 encode + ((8192x8192)/256)@1fps */
+		.value = 1224000,
+		/**
+		 * UHD@30 decode + 1080@30 encode
+		 */
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -1200,7 +1218,7 @@ static struct msm_vidc_common_data lagoon_common_data_v1[] = {
 	},
 	{
 		.key = "qcom,max-b-frame-mbs-per-sec",
-		.value = 244800, /* ((1920x1088)/256) MBs@30fps */
+		.value = 489600, /* ((1920x1088)/256) MBs@60fps */
 	},
 	{
 		.key = "qcom,power-collapse-delay",
@@ -1259,13 +1277,17 @@ static struct msm_vidc_common_data kona_common_data[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 8882176,
+		.value = 7833600,
 		/**
 		 * (7680x4320@60fps, 3840x2176@240fps
 		 * Greater than 4096x2176@120fps,
-		 *  8192x4320@48fps) + ((16384x16384)/256)@1fps
+		 *  8192x4320@48fps)
 		 */
 
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 1048576, /* ((16384x16384)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -1407,8 +1429,11 @@ static struct msm_vidc_common_data bengal_common_data_v0[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 751744,
-		/* ((1088x1920)/256)@60fps + ((8192x8192)/256)@1fps */
+		.value = 489600, /* ((1088x1920)/256)@60fps */
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -1463,8 +1488,11 @@ static struct msm_vidc_common_data bengal_common_data_v1[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 506944,
-		/* ((1088x1920)/256)@30fps + ((8192x8192)/256)@1fps */
+		.value = 244800, /* ((1088x1920)/256)@30fps */
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -1519,8 +1547,12 @@ static struct msm_vidc_common_data scuba_common_data[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 506944,
-		/* ((1088x1920)/256)@30fps + ((8192x8192)/256)@1fps */
+		.value = 352800,
+		/* ((1088x1920)/256)@30fps + ((720x1280)/256)@30fps*/
+	},
+	{
+		.key = "qcom,max-image-load",
+		.value = 262144, /* ((8192x8192)/256)@1fps */
 	},
 	{
 		.key = "qcom,max-mbpf",
@@ -2162,9 +2194,6 @@ void *vidc_get_drv_data(struct device *dev)
 			ddr_type, driver_data->ubwc_config ?
 			driver_data->ubwc_config->highest_bank_bit : -1);
 	} else if (!strcmp(match->compatible, "qcom,bengal-vidc")) {
-		d_vpr_h("Disable NOC error recovery");
-		msm_vidc_err_recovery_disable =
-				VIDC_DISABLE_NOC_ERR_RECOV;
 		rc = msm_vidc_read_rank(driver_data, dev);
 		if (rc) {
 			d_vpr_e("Failed to get ddr rank, use Dual Rank DDR\n");
