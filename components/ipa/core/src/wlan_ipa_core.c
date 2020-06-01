@@ -26,8 +26,7 @@
 #include "sir_api.h"
 #include "host_diag_core_event.h"
 #include "wlan_objmgr_vdev_obj.h"
-#include "osif_psoc_sync.h"
-#include <wlan_cfg80211.h>
+#include "qdf_platform.h"
 
 static struct wlan_ipa_priv *gp_ipa;
 static void wlan_ipa_set_pending_tx_timer(struct wlan_ipa_priv *ipa_ctx);
@@ -3373,27 +3372,12 @@ static void __wlan_ipa_uc_fw_op_event_handler(void *data)
  */
 static void wlan_ipa_uc_fw_op_event_handler(void *data)
 {
-	int ret;
-	struct osif_psoc_sync *psoc_sync;
-	struct uc_op_work_struct *uc_op_work =
-		(struct uc_op_work_struct *)data;
-
-	if (!uc_op_work || !uc_op_work->osdev) {
-		ipa_err("Invalid op work");
-		return;
-	}
-
-	/* This event handler needs to wait for psoc transition */
-	ret = osif_psoc_sync_trans_start_wait(uc_op_work->osdev->dev,
-					      &psoc_sync);
-	if (ret) {
-		ipa_err("op start ret: %d", ret);
+	if (qdf_is_recovering()) {
+		ipa_err("in recovering");
 		return;
 	}
 
 	__wlan_ipa_uc_fw_op_event_handler(data);
-
-	osif_psoc_sync_trans_stop(psoc_sync);
 }
 
 /**
@@ -3684,4 +3668,24 @@ void wlan_ipa_fw_rejuvenate_send_msg(struct wlan_ipa_priv *ipa_ctx)
 		qdf_mem_free(msg);
 	}
 	ipa_ctx->stats.num_send_msg++;
+}
+
+void wlan_ipa_flush_pending_vdev_events(struct wlan_ipa_priv *ipa_ctx,
+					uint8_t vdev_id)
+{
+	struct wlan_ipa_uc_pending_event *event;
+	struct wlan_ipa_uc_pending_event *next_event;
+
+	qdf_mutex_acquire(&ipa_ctx->ipa_lock);
+
+	qdf_list_for_each_del(&ipa_ctx->pending_event, event, next_event,
+			      node) {
+		if (event->session_id == vdev_id) {
+			qdf_list_remove_node(&ipa_ctx->pending_event,
+					     &event->node);
+			qdf_mem_free(event);
+		}
+	}
+
+	qdf_mutex_release(&ipa_ctx->ipa_lock);
 }

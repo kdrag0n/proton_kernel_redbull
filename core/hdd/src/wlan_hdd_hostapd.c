@@ -1496,7 +1496,6 @@ static void hdd_fill_station_info(struct hdd_adapter *adapter,
 	 * should always be true.
 	 */
 	is_dot11_mode_abgn = true;
-	stainfo->support_mode |= is_dot11_mode_abgn << HDD_80211_MODE_ABGN;
 
 	if (event->vht_caps.present) {
 		stainfo->vht_present = true;
@@ -1512,6 +1511,11 @@ static void hdd_fill_station_info(struct hdd_adapter *adapter,
 	stainfo->support_mode |=
 			(event->he_caps_present << HDD_80211_MODE_AX);
 
+	if (event->he_caps_present && !(event->vht_caps.present ||
+					event->ht_caps.present))
+		is_dot11_mode_abgn = false;
+
+	stainfo->support_mode |= is_dot11_mode_abgn << HDD_80211_MODE_ABGN;
 	/* Initialize DHCP info */
 	stainfo->dhcp_phase = DHCP_PHASE_ACK;
 	stainfo->dhcp_nego_status = DHCP_NEGO_STOP;
@@ -5968,8 +5972,15 @@ int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 	struct osif_vdev_sync *vdev_sync;
 
 	errno = osif_vdev_sync_op_start(dev, &vdev_sync);
+	/*
+	 * The stop_ap can be called in the same context through
+	 * wlan_hdd_del_virtual_intf. As vdev_trans is already taking place as
+	 * part of the del_vitrtual_intf, this vdev_op cannot start.
+	 * Return 0 in case op is not started so that the kernel frees the
+	 * beacon memory properly.
+	 */
 	if (errno)
-		return errno;
+		return 0;
 
 	errno = __wlan_hdd_cfg80211_stop_ap(wiphy, dev);
 
