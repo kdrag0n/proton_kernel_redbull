@@ -492,10 +492,12 @@ struct uc_rm_work_struct {
  * struct uc_op_work_struct
  * @work: uC OP work
  * @msg: OP message
+ * @osdev: poiner to qdf net device, used by osif_psoc_sync_trans_start_wait
  */
 struct uc_op_work_struct {
 	qdf_work_t work;
 	struct op_msg_type *msg;
+	qdf_device_t osdev;
 };
 
 /**
@@ -722,7 +724,7 @@ struct wlan_ipa_priv {
 #define WLAN_IPA_DBG_DUMP_RX_LEN 84
 #define WLAN_IPA_DBG_DUMP_TX_LEN 48
 
-#define IPA_RESOURCE_COMP_WAIT_TIME	100
+#define IPA_RESOURCE_COMP_WAIT_TIME	500
 
 #ifdef FEATURE_METERING
 #define IPA_UC_SHARING_STATES_WAIT_TIME	500

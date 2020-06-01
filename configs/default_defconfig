@@ -884,14 +884,7 @@ CONFIG_PLD_PCIE_CNSS_FLAG := y
 endif
 endif
 
-ifeq ($(CONFIG_CNSS2), y)
-ifeq ($(CONFIG_HIF_PCI), y)
-CONFIG_PLD_PCIE_CNSS_FLAG := y
-CONFIG_PLD_PCIE_INIT_FLAG := y
-endif
-endif
-
-ifeq ($(CONFIG_CNSS2), m)
+ifeq (y,$(findstring y,$(CONFIG_CNSS2) $(CONFIG_CNSS2_MODULE)))
 ifeq ($(CONFIG_HIF_PCI), y)
 CONFIG_PLD_PCIE_CNSS_FLAG := y
 CONFIG_PLD_PCIE_INIT_FLAG := y

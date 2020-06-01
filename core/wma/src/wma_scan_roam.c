@@ -1814,14 +1814,10 @@ QDF_STATUS wma_process_roaming_config(tp_wma_handle wma_handle,
 				break;
 
 			mode = WMI_ROAM_SCAN_MODE_PERIODIC;
-			/* Don't use rssi triggered roam scans if external app
-			 * is in control of channel list.
-			 */
-			if (roam_req->ChannelCacheType != CHANNEL_LIST_STATIC ||
-			    roam_req->roam_force_rssi_trigger)
+			if (roam_req->roam_force_rssi_trigger)
 				mode |= WMI_ROAM_SCAN_MODE_RSSI_CHANGE;
 
-		} else {
+		} else if (roam_req->roam_force_rssi_trigger) {
 			mode = WMI_ROAM_SCAN_MODE_RSSI_CHANGE;
 		}
 
@@ -2115,14 +2111,10 @@ QDF_STATUS wma_process_roaming_config(tp_wma_handle wma_handle,
 				break;
 
 			mode = WMI_ROAM_SCAN_MODE_PERIODIC;
-			/* Don't use rssi triggered roam scans if external app
-			 * is in control of channel list.
-			 */
-			if (roam_req->ChannelCacheType != CHANNEL_LIST_STATIC ||
-			    roam_req->roam_force_rssi_trigger)
+			if (roam_req->roam_force_rssi_trigger)
 				mode |= WMI_ROAM_SCAN_MODE_RSSI_CHANGE;
 
-		} else {
+		} else if (roam_req->roam_force_rssi_trigger) {
 			mode = WMI_ROAM_SCAN_MODE_RSSI_CHANGE;
 		}
 
@@ -2934,10 +2926,10 @@ int wma_mlme_roam_synch_event_handler_cb(void *handle, uint8_t *event,
 		roam_synch_data_len += sizeof(struct roam_offload_synch_ind);
 	}
 
-	cds_host_diag_log_work(wma->roam_ho_wl,
+	cds_host_diag_log_work(&wma->roam_ho_wl,
 			       WMA_ROAM_HO_WAKE_LOCK_DURATION,
 			       WIFI_POWER_EVENT_WAKELOCK_WOW);
-	qdf_wake_lock_timeout_acquire(wma->roam_ho_wl,
+	qdf_wake_lock_timeout_acquire(&wma->roam_ho_wl,
 				      WMA_ROAM_HO_WAKE_LOCK_DURATION);
 
 	wma->interfaces[synch_event->vdev_id].roam_synch_in_progress = true;
@@ -3197,6 +3189,7 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 	struct wma_txrx_node *iface = NULL;
 	wmi_roam_synch_event_fixed_param *synch_event = NULL;
 	WMI_ROAM_SYNCH_EVENTID_param_tlvs *param_buf = NULL;
+	struct vdev_mlme_obj *mlme_obj;
 
 	if (!event) {
 		wma_err_rl("event param null");
@@ -3221,6 +3214,11 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 	}
 
 	iface = &wma->interfaces[synch_event->vdev_id];
+	mlme_obj = wlan_vdev_mlme_get_cmpt_obj(iface->vdev);
+	if (mlme_obj)
+		mlme_obj->mgmt.generic.tx_pwrlimit =
+				synch_event->max_allowed_tx_power;
+
 	qdf_status = wlan_vdev_mlme_sm_deliver_evt(iface->vdev,
 						   WLAN_VDEV_SM_EV_ROAM,
 						   len,
@@ -3275,10 +3273,10 @@ int wma_roam_auth_offload_event_handler(WMA_HANDLE handle, uint8_t *event,
 		return -EINVAL;
 	}
 
-	cds_host_diag_log_work(wma->roam_preauth_wl,
+	cds_host_diag_log_work(&wma->roam_preauth_wl,
 			       WMA_ROAM_PREAUTH_WAKE_LOCK_DURATION,
 			       WIFI_POWER_EVENT_WAKELOCK_WOW);
-	qdf_wake_lock_timeout_acquire(wma->roam_ho_wl,
+	qdf_wake_lock_timeout_acquire(&wma->roam_ho_wl,
 				      WMA_ROAM_HO_WAKE_LOCK_DURATION);
 
 	WMI_MAC_ADDR_TO_CHAR_ARRAY(&rso_auth_start_ev->candidate_ap_bssid,
@@ -4700,10 +4698,10 @@ int wma_extscan_operations_event_handler(void *handle,
 			return -EINVAL;
 		}
 
-		cds_host_diag_log_work(wma->extscan_wake_lock,
+		cds_host_diag_log_work(&wma->extscan_wake_lock,
 				       WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION,
 				       WIFI_POWER_EVENT_WAKELOCK_EXT_SCAN);
-		qdf_wake_lock_timeout_acquire(wma->extscan_wake_lock,
+		qdf_wake_lock_timeout_acquire(&wma->extscan_wake_lock,
 				      WMA_EXTSCAN_CYCLE_WAKE_LOCK_DURATION);
 		oprn_ind->scanEventType = WIFI_EXTSCAN_CYCLE_STARTED_EVENT;
 		oprn_ind->status = 0;
@@ -4718,7 +4716,7 @@ int wma_extscan_operations_event_handler(void *handle,
 	case WMI_EXTSCAN_CYCLE_COMPLETED_EVENT:
 		WMA_LOGD("%s: received WMI_EXTSCAN_CYCLE_COMPLETED_EVENT",
 			 __func__);
-		qdf_wake_lock_release(wma->extscan_wake_lock,
+		qdf_wake_lock_release(&wma->extscan_wake_lock,
 				      WIFI_POWER_EVENT_WAKELOCK_EXT_SCAN);
 		oprn_ind->scanEventType = WIFI_EXTSCAN_CYCLE_COMPLETED_EVENT;
 		oprn_ind->status = 0;

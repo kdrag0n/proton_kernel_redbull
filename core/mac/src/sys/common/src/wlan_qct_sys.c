@@ -63,7 +63,6 @@ static void umac_stop_complete_cb(void *user_data)
 	QDF_STATUS qdf_status = qdf_event_set(stop_evt);
 
 	QDF_ASSERT(QDF_IS_STATUS_SUCCESS(qdf_status));
-
 }
 #else
 static void umac_stop_complete_cb(void *user_data)

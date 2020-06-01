@@ -820,7 +820,7 @@ static QDF_STATUS wma_handle_vdev_detach(tp_wma_handle wma_handle,
 	/* Acquire wake lock only when you expect a response from firmware */
 	if (wmi_service_enabled(wma_handle->wmi_handle,
 				   wmi_service_sync_delete_cmds)) {
-		wma_acquire_wakelock(wma_handle->wmi_cmd_rsp_wake_lock,
+		wma_acquire_wakelock(&wma_handle->wmi_cmd_rsp_wake_lock,
 				     WMA_FW_RSP_EVENT_WAKE_LOCK_DURATION);
 	}
 	WMA_LOGD("Call txrx detach with callback for vdev %d", vdev_id);
@@ -1461,6 +1461,7 @@ int wma_vdev_start_resp_handler(void *handle, uint8_t *cmd_param_info,
 	struct vdev_up_params param = {0};
 	target_resource_config *wlan_res_cfg;
 	struct wlan_objmgr_psoc *psoc = wma->psoc;
+	struct vdev_mlme_obj *mlme_obj;
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 	struct mac_context *mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
 #endif
@@ -1540,7 +1541,10 @@ int wma_vdev_start_resp_handler(void *handle, uint8_t *cmd_param_info,
 	}
 
 	iface = &wma->interfaces[resp_event->vdev_id];
-
+	mlme_obj = wlan_vdev_mlme_get_cmpt_obj(iface->vdev);
+	if (!mlme_obj)
+		return -EINVAL;
+	mlme_obj->mgmt.generic.tx_pwrlimit = resp_event->max_allowed_tx_power;
 	req_msg = wma_find_vdev_req(wma, resp_event->vdev_id,
 				    WMA_TARGET_REQ_TYPE_VDEV_START,
 				    true);
@@ -1798,6 +1802,24 @@ QDF_STATUS wma_peer_unmap_conf_cb(uint8_t vdev_id,
 	return qdf_status;
 }
 
+static bool wma_objmgr_peer_exist(tp_wma_handle wma, uint8_t vdev_id,
+				  uint8_t *peer_addr, uint8_t *peer_vdev_id)
+{
+	struct wlan_objmgr_peer *peer;
+
+	peer = wlan_objmgr_get_peer_by_mac(wma->psoc, peer_addr,
+					   WLAN_LEGACY_WMA_ID);
+	if (!peer)
+		return false;
+
+	if (peer_vdev_id)
+		*peer_vdev_id = wlan_vdev_get_id(wlan_peer_get_vdev(peer));
+
+	wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
+
+	return true;
+}
+
 /**
  * wma_remove_peer() - remove peer information from host driver and fw
  * @wma: wma handle
@@ -1842,6 +1864,13 @@ QDF_STATUS wma_remove_peer(tp_wma_handle wma, uint8_t *bssid,
 	if (!peer) {
 		WMA_LOGE("%s: PEER is NULL for vdev_id: %d", __func__, vdev_id);
 		QDF_BUG(0);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!wma_objmgr_peer_exist(wma, vdev_id, peer_addr, NULL)) {
+		wma_err("peer doesn't exist peer_addr %pM vdevid %d peer_count %d",
+			 peer_addr, vdev_id,
+			 wma->interfaces[vdev_id].peer_count);
 		return QDF_STATUS_E_INVAL;
 	}
 	peer_unmap_conf_support_enabled =
@@ -2583,7 +2612,7 @@ __wma_handle_vdev_stop_rsp(wmi_vdev_stopped_event_fixed_param *resp_event)
 	wma_clear_iface_key(iface);
 	qdf_runtime_pm_allow_suspend(
 			&iface->vdev_stop_runtime_wakelock);
-	wma_release_wakelock(iface->vdev_stop_wakelock);
+	wma_release_wakelock(&iface->vdev_stop_wakelock);
 
 	req_msg = wma_find_vdev_req(wma, resp_event->vdev_id,
 				    WMA_TARGET_REQ_TYPE_VDEV_STOP, true);
@@ -3646,7 +3675,7 @@ int wma_vdev_delete_handler(void *handle, uint8_t *cmd_param_info,
 	qdf_mc_timer_stop(&req_msg->event_timeout);
 	qdf_mc_timer_destroy(&req_msg->event_timeout);
 
-	wma_release_wakelock(wma->wmi_cmd_rsp_wake_lock);
+	wma_release_wakelock(&wma->wmi_cmd_rsp_wake_lock);
 
 	/* Send response to upper layers */
 	wma_vdev_detach_callback(req_msg->user_data);
@@ -3698,7 +3727,7 @@ int wma_peer_delete_handler(void *handle, uint8_t *cmd_param_info,
 		return -EINVAL;
 	}
 
-	wma_release_wakelock(wma->wmi_cmd_rsp_wake_lock);
+	wma_release_wakelock(&wma->wmi_cmd_rsp_wake_lock);
 
 	/* Cleanup timeout handler */
 	qdf_mc_timer_stop(&req_msg->event_timeout);
@@ -4188,7 +4217,7 @@ void wma_vdev_resp_timer(void *data)
 
 		if (wmi_service_enabled(wma->wmi_handle,
 					   wmi_service_sync_delete_cmds)) {
-			wma_release_wakelock(wma->wmi_cmd_rsp_wake_lock);
+			wma_release_wakelock(&wma->wmi_cmd_rsp_wake_lock);
 		}
 		del_sta_self_params->status = QDF_STATUS_E_TIMEOUT;
 
@@ -5834,7 +5863,7 @@ static void wma_delete_sta_req_ap_mode(tp_wma_handle wma,
 			goto send_del_rsp;
 		}
 
-		wma_acquire_wakelock(wma->wmi_cmd_rsp_wake_lock,
+		wma_acquire_wakelock(&wma->wmi_cmd_rsp_wake_lock,
 				     WMA_FW_RSP_EVENT_WAKE_LOCK_DURATION);
 
 		return;
@@ -5914,7 +5943,7 @@ static void wma_del_tdls_sta(tp_wma_handle wma, tpDeleteStaParams del_sta)
 			goto send_del_rsp;
 		}
 
-		wma_acquire_wakelock(wma->wmi_cmd_rsp_wake_lock,
+		wma_acquire_wakelock(&wma->wmi_cmd_rsp_wake_lock,
 				WMA_FW_RSP_EVENT_WAKE_LOCK_DURATION);
 	}
 
