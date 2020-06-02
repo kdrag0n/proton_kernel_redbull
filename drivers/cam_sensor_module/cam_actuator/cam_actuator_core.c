@@ -418,6 +418,9 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
+	struct timespec ts;
+	uint64_t *actuator_trigger_timestamp;
+	uint64_t vcm_trigger_time;
 
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -609,6 +612,10 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 		offset = (uint32_t *)&csl_packet->payload;
 		offset += csl_packet->cmd_buf_offset / sizeof(uint32_t);
 		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+
+		get_monotonic_boottime(&ts);
+		vcm_trigger_time = (uint64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+
 		rc = cam_sensor_i2c_command_parser(
 			&a_ctrl->io_master_info,
 			i2c_reg_settings,
@@ -618,6 +625,23 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				"Auto move lens parsing failed: %d", rc);
 			goto end;
 		}
+
+		rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle,
+			&generic_ptr, &len_of_buff);
+		if (rc < 0) {
+			CAM_ERR(CAM_OIS, "Failed to get cpu buf");
+			return rc;
+		}
+		if (!generic_ptr) {
+			CAM_ERR(CAM_OIS, "invalid generic_ptr");
+			return -EINVAL;
+		}
+
+		offset = (uint32_t *)((uint8_t *)generic_ptr +
+			cmd_desc->offset);
+		actuator_trigger_timestamp = (uint64_t *)offset;
+		*actuator_trigger_timestamp = vcm_trigger_time;
+
 		cam_actuator_update_req_mgr(a_ctrl, csl_packet);
 		break;
 	case CAM_ACTUATOR_PACKET_MANUAL_MOVE_LENS:
