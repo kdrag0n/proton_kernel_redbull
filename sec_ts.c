@@ -4555,19 +4555,25 @@ static void sec_ts_charger_work(struct work_struct *work)
 		ts->charger_mode, charger_mode);
 
 	if (ts->charger_mode != charger_mode) {
-		ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE,
+		if (ts->power_status == SEC_TS_STATE_POWER_ON) {
+			ret = ts->sec_ts_write(ts, SET_TS_CMD_SET_CHARGER_MODE,
 				       &charger_mode, 1);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev,
-			 "%s: write reg %#x %#x failed, returned %i\n",
-			__func__, SET_TS_CMD_SET_CHARGER_MODE, charger_mode,
-			ret);
-			return;
-		}
+			if (ret < 0) {
+				input_err(true, &ts->client->dev,
+				"%s: write reg %#x %#x failed, returned %i\n",
+				__func__, SET_TS_CMD_SET_CHARGER_MODE,
+				charger_mode, ret);
+				return;
+			}
 
-		input_info(true, &ts->client->dev,
-			"%s: charger_mode change from %#x to %#x\n",
-			__func__, ts->charger_mode, charger_mode);
+			input_info(true, &ts->client->dev,
+				"%s: charger_mode change from %#x to %#x\n",
+				__func__, ts->charger_mode, charger_mode);
+		} else {
+			input_info(true, &ts->client->dev,
+				"%s: ONLY update charger_mode status from %#x to %#x, then will apply during resume\n",
+				__func__, ts->charger_mode, charger_mode);
+		}
 		ts->charger_mode = charger_mode;
 	}
 
@@ -4729,7 +4735,10 @@ static int sec_ts_psy_cb(struct notifier_block *nb,
 			ktime_add_ms(ts->usb_changed_timestamp, debounce)))
 			ts->keep_wlc_mode = true;
 	}
-	queue_work(ts->event_wq, &ts->charger_work);
+
+	if (ts->power_status == SEC_TS_STATE_POWER_ON)
+		queue_work(ts->event_wq, &ts->charger_work);
+
 	return NOTIFY_OK;
 }
 
