@@ -27,6 +27,7 @@
 #include <linux/input/heatmap.h>
 #endif
 #include <linux/input/mt.h>
+#include <linux/input/touch_offload.h>
 #include "sec_cmd.h"
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -872,10 +873,15 @@ struct sec_ts_data {
 	ktime_t mf_downtime;
 
 	u8 print_format;
-	u8 frame_type;
+	u8 ms_frame_type;
+	u8 ss_frame_type;
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	struct v4l2_heatmap v4l2;
 	strength_t *heatmap_buff;
+#endif
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	struct touch_offload_context offload;
 #endif
 
 #ifdef USE_POWER_RESET_WORK

@@ -1690,7 +1690,7 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 
 	/* Set raw type to TYPE_INVALID_DATA if change before */
 	ret = ts->sec_ts_read(ts,
-		SEC_TS_CMD_MUTU_RAW_TYPE, &ts->frame_type, 1);
+		SEC_TS_CMD_MUTU_RAW_TYPE, &ts->ms_frame_type, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 			"%s: read rawdata type failed\n",
@@ -1698,7 +1698,7 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 		goto ErrorExit;
 	}
 
-	if (ts->frame_type != TYPE_INVALID_DATA) {
+	if (ts->ms_frame_type != TYPE_INVALID_DATA) {
 		ret = ts->sec_ts_write(ts, SEC_TS_CMD_MUTU_RAW_TYPE, &mode, 1);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
@@ -1711,7 +1711,7 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 			  "%s: Set rawdata type failed\n", __func__);
 		goto ErrorExit;
 	}
-	ts->frame_type = w_type;
+	ts->ms_frame_type = w_type;
 
 	sec_ts_delay(50);
 
@@ -1874,7 +1874,7 @@ ErrorRelease:
 		input_err(true, &ts->client->dev,
 			  "%s: Set rawdata type failed\n", __func__);
 	else
-		ts->frame_type = mode;
+		ts->ms_frame_type = mode;
 
 ErrorExit:
 	kfree(pRead);
