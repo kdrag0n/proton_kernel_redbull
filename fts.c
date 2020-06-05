@@ -4075,7 +4075,30 @@ static int update_motion_filter(struct fts_ts_info *info)
 	return 0;
 }
 
+int fts_disable_grip(struct fts_ts_info *info)
+{
+	uint8_t cmd[] = {0xC0, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	int res;
+
+	res = fts_write(cmd, sizeof(cmd));
+	if (res < 0)
+		pr_err("%s: fts_write failed with res=%d.\n", __func__,
+		       res);
+
+	return res;
+}
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+
+static void fts_offload_resume_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = container_of(work, struct delayed_work,
+						  work);
+	struct fts_ts_info *info = container_of(dwork, struct fts_ts_info,
+						offload_resume_work);
+
+	fts_disable_grip(info);
+}
 
 static void fts_populate_coordinate_channel(struct fts_ts_info *info,
 					struct touch_offload_frame *frame,
@@ -5315,6 +5338,19 @@ static void fts_resume_work(struct work_struct *work)
 	heatmap_enable();
 #endif
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	/* Set touch_offload configuration */
+	if (info->offload.offload_running) {
+		pr_info("%s: applying touch_offload settings.\n", __func__);
+		if (!info->offload.config.filter_grip) {
+			/* The grip disable command will not take effect unless
+			 * it is delayed ~100ms.
+			 */
+			schedule_delayed_work(&info->offload_resume_work, 100);
+		}
+	}
+#endif
+
 	fts_enableInterrupt(true);
 
 	complete_all(&info->bus_resumed);
@@ -6275,6 +6311,8 @@ static int fts_probe(struct spi_device *client)
 	info->offload.caps.filter_grip = true;
 	info->offload.caps.filter_palm = true;
 	info->offload.caps.num_sensitivity_settings = 1;
+
+	INIT_DELAYED_WORK(&info->offload_resume_work, fts_offload_resume_work);
 
 	info->offload.hcallback = (void *)info;
 	info->offload.report_cb = fts_offload_report;
