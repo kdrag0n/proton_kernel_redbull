@@ -6196,8 +6196,11 @@ static int fts_pm_suspend(struct device *dev)
 	if (info->resume_bit == 1 || info->sensor_sleep == false) {
 #ifdef SUPPORT_PROX_PALM
 		/* Don't block CPU suspend during phone call*/
-		if (info->bus_refmask == FTS_BUS_REF_PHONE_CALL)
+		if (info->bus_refmask == FTS_BUS_REF_PHONE_CALL) {
+			fts_enableInterrupt(false);
+			enable_irq_wake(info->client->irq);
 			return 0;
+		}
 #endif
 		pr_warn("%s: can't suspend because touch bus is in use!\n",
 			__func__);
@@ -6209,6 +6212,13 @@ static int fts_pm_suspend(struct device *dev)
 
 static int fts_pm_resume(struct device *dev)
 {
+#ifdef SUPPORT_PROX_PALM
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+	if (info->bus_refmask == FTS_BUS_REF_PHONE_CALL) {
+		fts_enableInterrupt(true);
+		disable_irq_wake(info->client->irq);
+	}
+#endif
 	return 0;
 }
 
