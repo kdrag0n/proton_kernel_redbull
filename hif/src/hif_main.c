@@ -396,6 +396,94 @@ void *hif_get_dev_ba(struct hif_opaque_softc *hif_handle)
 	return scn->mem;
 }
 qdf_export_symbol(hif_get_dev_ba);
+
+#ifdef HIF_CPU_PERF_AFFINE_MASK
+/**
+ * __hif_cpu_hotplug_notify() - CPU hotplug event handler
+ * @cpu: CPU Id of the CPU generating the event
+ * @cpu_up: true if the CPU is online
+ *
+ * Return: None
+ */
+static void __hif_cpu_hotplug_notify(void *context,
+				     uint32_t cpu, bool cpu_up)
+{
+	struct hif_softc *scn = context;
+
+	if (!scn)
+		return;
+	if (hif_is_driver_unloading(scn) || hif_is_recovery_in_progress(scn))
+		return;
+
+	if (cpu_up) {
+		hif_config_irq_set_perf_affinity_hint(GET_HIF_OPAQUE_HDL(scn));
+		hif_debug("Setting affinity for online CPU: %d", cpu);
+	} else {
+		hif_debug("Skip setting affinity for offline CPU: %d", cpu);
+	}
+}
+
+/**
+ * hif_cpu_hotplug_notify - cpu core up/down notification
+ * handler
+ * @cpu: CPU generating the event
+ * @cpu_up: true if the CPU is online
+ *
+ * Return: None
+ */
+static void hif_cpu_hotplug_notify(void *context, uint32_t cpu, bool cpu_up)
+{
+	struct qdf_op_sync *op_sync;
+
+	if (qdf_op_protect(&op_sync))
+		return;
+
+	__hif_cpu_hotplug_notify(context, cpu, cpu_up);
+
+	qdf_op_unprotect(op_sync);
+}
+
+static void hif_cpu_online_cb(void *context, uint32_t cpu)
+{
+	hif_cpu_hotplug_notify(context, cpu, true);
+}
+
+static void hif_cpu_before_offline_cb(void *context, uint32_t cpu)
+{
+	hif_cpu_hotplug_notify(context, cpu, false);
+}
+
+static void hif_cpuhp_register(struct hif_softc *scn)
+{
+	if (!scn) {
+		hif_info_high("cannot register hotplug notifiers");
+		return;
+	}
+	qdf_cpuhp_register(&scn->cpuhp_event_handle,
+			   scn,
+			   hif_cpu_online_cb,
+			   hif_cpu_before_offline_cb);
+}
+
+static void hif_cpuhp_unregister(struct hif_softc *scn)
+{
+	if (!scn) {
+		hif_info_high("cannot unregister hotplug notifiers");
+		return;
+	}
+	qdf_cpuhp_unregister(&scn->cpuhp_event_handle);
+}
+
+#else
+static void hif_cpuhp_register(struct hif_softc *scn)
+{
+}
+
+static void hif_cpuhp_unregister(struct hif_softc *scn)
+{
+}
+#endif /* ifdef HIF_CPU_PERF_AFFINE_MASK */
+
 /**
  * hif_open(): hif_open
  * @qdf_ctx: QDF Context
@@ -444,7 +532,7 @@ struct hif_opaque_softc *hif_open(qdf_device_t qdf_ctx, uint32_t mode,
 		qdf_mem_free(scn);
 		scn = NULL;
 	}
-
+	hif_cpuhp_register(scn);
 	return GET_HIF_OPAQUE_HDL(scn);
 }
 
@@ -494,9 +582,78 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 	}
 
 	hif_uninit_rri_on_ddr(scn);
+	hif_cpuhp_unregister(scn);
 
 	hif_bus_close(scn);
 	qdf_mem_free(scn);
+}
+
+/**
+ * hif_get_num_active_tasklets() - get the number of active
+ *		tasklets pending to be completed.
+ * @scn: HIF context
+ *
+ * Returns: the number of tasklets which are active
+ */
+static inline int hif_get_num_active_tasklets(struct hif_softc *scn)
+{
+	return qdf_atomic_read(&scn->active_tasklet_cnt);
+}
+
+/**
+ * hif_get_num_active_grp_tasklets() - get the number of active
+ *		datapath group tasklets pending to be completed.
+ * @scn: HIF context
+ *
+ * Returns: the number of datapath group tasklets which are active
+ */
+static inline int hif_get_num_active_grp_tasklets(struct hif_softc *scn)
+{
+	return qdf_atomic_read(&scn->active_grp_tasklet_cnt);
+}
+
+#if (defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
+	defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390) || \
+	defined(QCA_WIFI_QCN9000) || defined(QCA_WIFI_QCA6490) || \
+	defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_QCA5018))
+/**
+ * hif_get_num_pending_work() - get the number of entries in
+ *		the workqueue pending to be completed.
+ * @scn: HIF context
+ *
+ * Returns: the number of tasklets which are active
+ */
+static inline int hif_get_num_pending_work(struct hif_softc *scn)
+{
+	return hal_get_reg_write_pending_work(scn->hal_soc);
+}
+#else
+
+static inline int hif_get_num_pending_work(struct hif_softc *scn)
+{
+	return 0;
+}
+#endif
+
+QDF_STATUS hif_try_complete_tasks(struct hif_softc *scn)
+{
+	uint32_t task_drain_wait_cnt = 0;
+	int tasklet = 0, grp_tasklet = 0, work = 0;
+
+	while ((tasklet = hif_get_num_active_tasklets(scn)) ||
+	       (grp_tasklet = hif_get_num_active_grp_tasklets(scn)) ||
+	       (work = hif_get_num_pending_work(scn))) {
+		if (++task_drain_wait_cnt > HIF_TASK_DRAIN_WAIT_CNT) {
+			hif_err("pending tasklets %d grp tasklets %d work %d",
+				tasklet, grp_tasklet, work);
+			return QDF_STATUS_E_FAULT;
+		}
+		hif_info("waiting for tasklets %d grp tasklets %d work %d",
+			 tasklet, grp_tasklet, work);
+		msleep(10);
+	}
+
+	return QDF_STATUS_SUCCESS;
 }
 
 #if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
