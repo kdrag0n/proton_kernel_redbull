@@ -3803,7 +3803,7 @@ static int hdd_open(struct net_device *net_dev)
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
 
-	errno = osif_vdev_sync_trans_start_wait(net_dev, &vdev_sync);
+	errno = osif_vdev_sync_trans_start(net_dev, &vdev_sync);
 	if (errno)
 		return errno;
 
@@ -4504,9 +4504,7 @@ hdd_alloc_station_adapter(struct hdd_context *hdd_ctx, tSirMacAddr mac_addr,
 	if (QDF_IS_STATUS_ERROR(qdf_status))
 		goto free_net_dev;
 
-	qdf_status = qdf_event_create(&adapter->qdf_session_close_event);
-	if (QDF_IS_STATUS_ERROR(qdf_status))
-		goto free_net_dev;
+	init_completion(&adapter->vdev_destroy_event);
 
 	qdf_status = hdd_monitor_mode_qdf_create_event(adapter, session_type);
 	if (QDF_IS_STATUS_ERROR(qdf_status)) {
@@ -4658,7 +4656,7 @@ QDF_STATUS hdd_sme_close_session_callback(uint8_t vdev_id)
 	 * valid, before signaling completion
 	 */
 	if (WLAN_HDD_ADAPTER_MAGIC == adapter->magic)
-		qdf_event_set(&adapter->qdf_session_close_event);
+		complete(&adapter->vdev_destroy_event);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -4716,6 +4714,7 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 	struct hdd_context *hdd_ctx;
 	uint8_t vdev_id;
 	struct wlan_objmgr_vdev *vdev;
+	long rc;
 
 	vdev_id = adapter->vdev_id;
 	hdd_nofl_debug("destroying vdev %d", vdev_id);
@@ -4751,7 +4750,7 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 	hdd_objmgr_put_vdev(vdev);
 
 	/* close sme session (destroy vdev in firmware via legacy API) */
-	qdf_event_reset(&adapter->qdf_session_close_event);
+	INIT_COMPLETION(adapter->vdev_destroy_event);
 	status = sme_close_session(hdd_ctx->mac_handle, adapter->vdev_id);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("failed to close sme session; status:%d", status);
@@ -4759,11 +4758,9 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 	}
 
 	/* block on a completion variable until sme session is closed */
-	status = qdf_wait_for_event_completion(
-			&adapter->qdf_session_close_event,
-			SME_CMD_VDEV_CREATE_DELETE_TIMEOUT);
-
-	if (QDF_IS_STATUS_ERROR(status)) {
+	rc = wait_for_completion_timeout(&adapter->vdev_destroy_event,
+					 SME_CMD_VDEV_CREATE_DELETE_TIMEOUT);
+	if (rc) {
 		clear_bit(SME_SESSION_OPENED, &adapter->event_flags);
 
 		if (adapter->device_mode == QDF_NDI_MODE)
@@ -4772,11 +4769,6 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 		if (status == QDF_STATUS_E_TIMEOUT) {
 			hdd_err("timed out waiting for sme close session");
 			sme_cleanup_session(hdd_ctx->mac_handle, vdev_id);
-		} else if (adapter->qdf_session_close_event.force_set) {
-			hdd_info("SSR occurred during sme close session");
-		} else {
-			hdd_err("failed to wait for sme close session; status:%u",
-				status);
 		}
 	}
 
@@ -9046,7 +9038,11 @@ void hdd_bus_bandwidth_deinit(struct hdd_context *hdd_ctx)
 {
 	hdd_enter();
 
+	/* it is expecting the timer has been stopped or not started
+	 * when coming deinit.
+	 */
 	QDF_BUG(!qdf_periodic_work_stop_sync(&hdd_ctx->bus_bw_work));
+
 	qdf_periodic_work_destroy(&hdd_ctx->bus_bw_work);
 	hdd_pm_qos_remove_request(hdd_ctx);
 	qdf_spinlock_destroy(&hdd_ctx->bus_bw_lock);
@@ -15075,6 +15071,20 @@ static void hdd_driver_unload(void)
 	pr_info("%s: Unloading driver v%s\n", WLAN_MODULE_NAME,
 		QWLAN_VERSIONSTR);
 
+	/*
+	 * Wait for any trans to complete and then start the driver trans
+	 * for the unload. This will ensure that the driver trans proceeds only
+	 * after all trans have been completed. As a part of this trans, set
+	 * the driver load/unload flag to further ensure that any upcoming
+	 * trans are rejected via wlan_hdd_validate_context.
+	 */
+	status = osif_driver_sync_trans_start_wait(&driver_sync);
+	QDF_BUG(QDF_IS_STATUS_SUCCESS(status));
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("Unable to unload wlan; status:%u", status);
+		return;
+	}
+
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	if (hif_ctx) {
 		/*
@@ -15095,6 +15105,12 @@ static void hdd_driver_unload(void)
 		 */
 		hdd_bus_bw_compute_timer_stop(hdd_ctx);
 	}
+
+	/*
+	 * Stop the trans before calling unregister_driver as that involves a
+	 * call to pld_remove which in itself is a psoc transaction
+	 */
+	osif_driver_sync_trans_stop(driver_sync);
 
 	/* trigger SoC remove */
 	wlan_hdd_unregister_driver();
