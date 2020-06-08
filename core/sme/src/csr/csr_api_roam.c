@@ -3538,20 +3538,10 @@ QDF_STATUS csr_roam_call_callback(struct mac_context *mac, uint32_t sessionId,
 		csr_dump_connection_stats(mac, pSession, roam_info, u1, u2);
 
 	if (pSession->callback) {
-		if (roam_info) {
+		if (roam_info)
 			roam_info->sessionId = (uint8_t) sessionId;
-			/*
-			 * the reasonCode will be passed to supplicant by
-			 * cfg80211_disconnected. Based on the document,
-			 * the reason code passed to supplicant needs to set
-			 * to 0 if unknown. eSIR_BEACON_MISSED reason code is
-			 * not recognizable so that we set to 0 instead.
-			 */
-			if (roam_info->reasonCode == eSIR_MAC_BEACON_MISSED)
-				roam_info->reasonCode = 0;
-		}
 		status = pSession->callback(pSession->pContext, roam_info,
-					roamId, u1, u2);
+					    roamId, u1, u2);
 	}
 	/*
 	 * EVENT_WLAN_STATUS_V2: eCSR_ROAM_ASSOCIATION_COMPLETION,
@@ -5339,6 +5329,8 @@ static bool csr_roam_select_bss(struct mac_context *mac_ctx,
 	enum policy_mgr_con_mode mode;
 	uint8_t chan_id;
 	QDF_STATUS qdf_status;
+	eCsrPhyMode self_phymode = mac_ctx->roam.configParam.phyMode;
+	tDot11fBeaconIEs *bcn_ies;
 
 	vdev = wlan_objmgr_get_vdev_by_id_from_pdev(mac_ctx->pdev,
 						    vdev_id,
@@ -5361,6 +5353,29 @@ static bool csr_roam_select_bss(struct mac_context *mac_ctx,
 		 * sessions exempted
 		 */
 		result = &scan_result->Result;
+		bcn_ies = result->pvIes;
+		/*
+		 * If phymode is configured to DOT11 Only profile.
+		 * Don't connect to profile which is less than them.
+		 */
+		if (bcn_ies && ((self_phymode == eCSR_DOT11_MODE_11n_ONLY &&
+		   !bcn_ies->HTCaps.present) ||
+		   (self_phymode == eCSR_DOT11_MODE_11ac_ONLY &&
+		   !bcn_ies->VHTCaps.present) ||
+		   (self_phymode == eCSR_DOT11_MODE_11ax_ONLY &&
+		   !bcn_ies->he_cap.present))) {
+			sme_info("self_phymode %d mismatch HT %d VHT %d HE %d",
+				self_phymode, bcn_ies->HTCaps.present,
+				bcn_ies->VHTCaps.present,
+				bcn_ies->he_cap.present);
+			*roam_state = eCsrStopRoamingDueToConcurrency;
+			status = true;
+			*roam_bss_entry = csr_ll_next(&bss_list->List,
+						      *roam_bss_entry,
+						      LL_ACCESS_LOCK);
+			continue;
+		}
+
 		/*
 		 * Ignore the BSS if any other vdev is already connected
 		 * to it.
@@ -19257,22 +19272,38 @@ void csr_rso_command_fill_11w_params(struct mac_context *mac_ctx,
 #endif
 
 /**
- * csr_get_peer_pmf_status() - Get the PMF capability of peer
+ * csr_update_btm_offload_config() - Update btm config param to fw
  * @mac_ctx: Global mac ctx
+ * @command: Roam offload command
+ * @req_buf: roam offload scan request
  * @session: roam session
  *
- * Return: True if PMF is enabled, false otherwise.
+ * Return: None
  */
-static bool csr_get_peer_pmf_status(struct mac_context *mac_ctx,
-				    struct csr_roam_session *session)
+static void csr_update_btm_offload_config(struct mac_context *mac_ctx,
+					  uint8_t command,
+					  struct roam_offload_scan_req *req_buf,
+					  struct csr_roam_session *session)
 {
 	struct wlan_objmgr_peer *peer;
 	bool is_pmf_enabled;
 
+	req_buf->btm_offload_config =
+			mac_ctx->mlme_cfg->btm.btm_offload_config;
+
+	/* Return if INI is disabled */
+	if (!req_buf->btm_offload_config)
+		return;
+
+	/* For RSO Stop Disable BTM offload to firmware */
+	if (command == ROAM_SCAN_OFFLOAD_STOP) {
+		req_buf->btm_offload_config = 0;
+		return;
+	}
 
 	if (!session->pConnectBssDesc) {
 		sme_err("Connected Bss Desc is NULL");
-		return false;
+		return;
 	}
 
 	peer = wlan_objmgr_get_peer(mac_ctx->psoc,
@@ -19282,7 +19313,7 @@ static bool csr_get_peer_pmf_status(struct mac_context *mac_ctx,
 	if (!peer) {
 		sme_debug("Peer of peer_mac %pM not found",
 			  session->pConnectBssDesc->bssId);
-		return false;
+		return;
 	}
 
 	is_pmf_enabled = mlme_get_peer_pmf_status(peer);
@@ -19290,7 +19321,12 @@ static bool csr_get_peer_pmf_status(struct mac_context *mac_ctx,
 	sme_debug("get is_pmf_enabled %d for %pM", is_pmf_enabled,
 		  session->pConnectBssDesc->bssId);
 
-	return is_pmf_enabled;
+	/* If peer does not support PMF in case of OCE/MBO
+	 * Connection, Disable BTM offload to firmware.
+	 */
+	if (session->pConnectBssDesc->mbo_oce_enabled_ap &&
+	    !is_pmf_enabled)
+		req_buf->btm_offload_config = 0;
 }
 
 /**
@@ -19564,15 +19600,7 @@ csr_create_roam_scan_offload_request(struct mac_context *mac_ctx,
 	req_buf->lca_config_params.num_disallowed_aps =
 		mac_ctx->mlme_cfg->lfr.lfr3_num_disallowed_aps;
 
-	/* For RSO Stop or if peer does not support PMF, Disable BTM offload
-	 * to firmware.
-	 */
-	if (command == ROAM_SCAN_OFFLOAD_STOP ||
-	    !csr_get_peer_pmf_status(mac_ctx, session))
-		req_buf->btm_offload_config = 0;
-	else
-		req_buf->btm_offload_config =
-			mac_ctx->mlme_cfg->btm.btm_offload_config;
+	csr_update_btm_offload_config(mac_ctx, command, req_buf, session);
 
 	req_buf->btm_solicited_timeout =
 		mac_ctx->mlme_cfg->btm.btm_solicited_timeout;
@@ -22712,6 +22740,7 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 	struct wlan_objmgr_vdev *vdev;
 	struct mlme_roam_after_data_stall *vdev_roam_params;
 	uint32_t chan_id;
+	struct wlan_crypto_pmksa *pmksa;
 
 	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(mac_ctx->psoc, session_id,
 						    WLAN_LEGACY_SME_ID);
@@ -22970,6 +22999,35 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 		} else {
 			sme_debug("PMKID Not found in cache for " QDF_MAC_ADDR_STR,
 				  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes));
+			if (roam_synch_data->pmk_len) {
+				pmksa = qdf_mem_malloc(sizeof(*pmksa));
+				if (!pmksa) {
+					status = QDF_STATUS_E_NOMEM;
+					goto end;
+				}
+
+				session->pmk_len = roam_synch_data->pmk_len;
+				qdf_mem_zero(session->psk_pmk,
+					     sizeof(session->psk_pmk));
+				qdf_mem_copy(session->psk_pmk,
+					     roam_synch_data->pmk,
+					     session->pmk_len);
+
+				qdf_copy_macaddr(&pmksa->bssid,
+						 &session->
+						 connectedProfile.bssid);
+				qdf_mem_copy(pmksa->pmkid,
+					     roam_synch_data->pmkid, PMKID_LEN);
+				qdf_mem_copy(pmksa->pmk, roam_synch_data->pmk,
+					     roam_synch_data->pmk_len);
+				pmksa->pmk_len = roam_synch_data->pmk_len;
+
+				if (wlan_crypto_set_del_pmksa(vdev, pmksa, true)
+					!= QDF_STATUS_SUCCESS) {
+					qdf_mem_zero(pmksa, sizeof(*pmksa));
+					qdf_mem_free(pmksa);
+				}
+			}
 		}
 		qdf_mem_zero(pmkid_cache, sizeof(*pmkid_cache));
 		qdf_mem_free(pmkid_cache);
