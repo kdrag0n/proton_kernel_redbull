@@ -370,7 +370,7 @@ static inline void hal_write_address_32_mb(struct hal_soc *hal_soc,
 		hal_write32_mb(hal_soc, offset, value);
 }
 
-#if defined(FEATURE_HAL_DELAYED_WRITE)
+#if defined(FEATURE_HAL_DELAYED_REG_WRITE)
 static inline void hal_srng_write_address_32_mb(struct hal_soc *hal_soc,
 						struct hal_srng *srng,
 						void __iomem *addr,
@@ -497,6 +497,16 @@ void hal_dump_reg_write_srng_stats(struct hal_soc *hal_soc_hdl);
  * Return: none
  */
 void hal_dump_reg_write_stats(struct hal_soc *hal_soc_hdl);
+
+/**
+ * hal_get_reg_write_pending_work() - get the number of entries
+ *		pending in the workqueue to be processed.
+ * @hal_soc: HAL soc handle
+ *
+ * Returns: the number of entries pending to be processed
+ */
+int hal_get_reg_write_pending_work(void *hal_soc);
+
 #else
 static inline void hal_dump_reg_write_srng_stats(struct hal_soc *hal_soc_hdl)
 {
@@ -504,6 +514,11 @@ static inline void hal_dump_reg_write_srng_stats(struct hal_soc *hal_soc_hdl)
 
 static inline void hal_dump_reg_write_stats(struct hal_soc *hal_soc_hdl)
 {
+}
+
+static inline int hal_get_reg_write_pending_work(void *hal_soc)
+{
+	return 0;
 }
 #endif
 

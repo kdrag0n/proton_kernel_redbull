@@ -766,6 +766,8 @@ struct dp_soc_stats {
 			uint32_t hal_rxdma_err_dup;
 			/* REO cmd send fail/requeue count */
 			uint32_t reo_cmd_send_fail;
+			/* REO cmd send drain count */
+			uint32_t reo_cmd_send_drain;
 			/* RX msdu drop count due to scatter */
 			uint32_t scatter_msdu;
 			/* Delba sent count due to RX 2k jump */
@@ -780,6 +782,8 @@ struct dp_soc_stats {
 			uint32_t reo_err_oor_to_stack;
 			/* REO OOR scattered msdu count */
 			uint32_t reo_err_oor_sg_count;
+			/* RX msdu rejected count on delivery to vdev stack_fn*/
+			uint32_t rejected;
 		} err;
 
 		/* packet count per core - per ring */
