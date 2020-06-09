@@ -662,8 +662,6 @@ static int sec_ts_memoryblockread(struct sec_ts_data *ts, u32 mem_addr,
 
 
 	ret = ts->sec_ts_read_heap(ts, cmd[0], data, mem_size);
-	/* need to wait 500us for reading next flash area */
-	udelay(500);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: memory read failed\n",
 				__func__);

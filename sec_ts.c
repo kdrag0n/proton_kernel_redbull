@@ -41,7 +41,39 @@ static void sec_ts_input_close(struct input_dev *dev);
 int sec_ts_read_information(struct sec_ts_data *ts);
 
 #ifndef I2C_INTERFACE
-int sec_ts_spi_delay(u8 reg);
+int sec_ts_spi_delay(u8 reg)
+{
+	switch (reg) {
+	case SEC_TS_READ_TOUCH_RAWDATA:
+		return 400;
+	case SEC_TS_CMD_HEATMAP_READ:
+		return 500;
+	case SEC_TS_READ_ALL_EVENT:
+		return 500;
+	case SEC_TS_READ_CSRAM_RTDP_DATA:
+		return 500;
+	case SEC_TS_CAAT_READ_STORED_DATA:
+		return 500;
+	case SEC_TS_CMD_FLASH_READ_DATA:
+		return 1800;
+	case SEC_TS_READ_FIRMWARE_INTEGRITY:
+		return 20*1000;
+	case SEC_TS_READ_SELFTEST_RESULT:
+		return 3500;
+	default: return 100;
+	}
+}
+
+int sec_ts_spi_post_delay(u8 reg)
+{
+	switch (reg) {
+	case SEC_TS_READ_TOUCH_RAWDATA:
+	case SEC_TS_CMD_FLASH_READ_DATA:
+	case SEC_TS_READ_SELFTEST_RESULT:
+		return 500;
+	default: return 0;
+	}
+}
 #endif
 
 int sec_ts_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
@@ -333,7 +365,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 			}
 
 			usleep_range(sec_ts_spi_delay(reg),
-					sec_ts_spi_delay(reg));
+					sec_ts_spi_delay(reg) + 1);
 
 			// read sequence start
 			spi_message_init(&msg);
@@ -392,6 +424,10 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		if (ret == 0)
 			memcpy(data, ts->io_read_buf +
 			       SEC_TS_SPI_READ_HEADER_SIZE, len);
+
+		usleep_range(sec_ts_spi_post_delay(reg),
+			     sec_ts_spi_post_delay(reg) + 1);
+
 #endif //I2C_INTERFACE
 	} else {
 		/*
@@ -500,7 +536,7 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 			}
 
 			usleep_range(sec_ts_spi_delay(reg),
-					sec_ts_spi_delay(reg));
+					sec_ts_spi_delay(reg) + 1);
 
 			copy_size = 0;
 			remain = spi_read_len;
@@ -602,6 +638,9 @@ static int sec_ts_read_internal(struct sec_ts_data *ts, u8 reg,
 		if (ret == 0)
 			memcpy(data, ts->io_read_buf +
 				SEC_TS_SPI_READ_HEADER_SIZE, len);
+
+		usleep_range(sec_ts_spi_post_delay(reg),
+			     sec_ts_spi_post_delay(reg) + 1);
 #endif
 	}
 skip_spi_read:
@@ -910,31 +949,6 @@ int sec_ts_read_bulk_heap(struct sec_ts_data *ts, u8 *data, int len)
 {
 	return sec_ts_read_bulk_internal(ts, data, len, true);
 }
-
-#ifndef I2C_INTERFACE
-int sec_ts_spi_delay(u8 reg)
-{
-	switch (reg) {
-	case SEC_TS_READ_TOUCH_RAWDATA:
-		return 400;
-	case SEC_TS_CMD_HEATMAP_READ:
-		return 500;
-	case SEC_TS_READ_ALL_EVENT:
-		return 500;
-	case SEC_TS_READ_CSRAM_RTDP_DATA:
-		return 500;
-	case SEC_TS_CAAT_READ_STORED_DATA:
-		return 500;
-	case SEC_TS_CMD_FLASH_READ_DATA:
-		return 1800;
-	case SEC_TS_READ_FIRMWARE_INTEGRITY:
-		return 20*1000;
-	case SEC_TS_READ_SELFTEST_RESULT:
-		return 3500;
-	default: return 100;
-	}
-}
-#endif
 
 static int sec_ts_read_from_customlib(struct sec_ts_data *ts, u8 *data, int len)
 {
