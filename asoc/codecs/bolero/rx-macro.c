@@ -378,6 +378,7 @@ struct rx_swr_ctrl_platform_data {
 							  void *data),
 			  void *swrm_handle,
 			  int action);
+	int (*pinctrl_setup)(void *handle, bool enable);
 };
 
 enum {
@@ -1388,11 +1389,7 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 			}
 		}
 		break;
-	case BOLERO_MACRO_EVT_SSR_UP:
-		trace_printk("%s, enter SSR up\n", __func__);
-		rx_priv->dev_up = true;
-		/* reset swr after ssr/pdr */
-		rx_priv->reset_swr = true;
+	case BOLERO_MACRO_EVT_PRE_SSR_UP:
 		/* enable&disable RX_CORE_CLK to reset GFMUX reg */
 		ret = bolero_clk_rsc_request_clock(rx_priv->dev,
 						rx_priv->default_clk_id,
@@ -1405,6 +1402,12 @@ static int rx_macro_event_handler(struct snd_soc_component *component,
 			bolero_clk_rsc_request_clock(rx_priv->dev,
 						rx_priv->default_clk_id,
 						RX_CORE_CLK, false);
+		break;
+	case BOLERO_MACRO_EVT_SSR_UP:
+		trace_printk("%s, enter SSR up\n", __func__);
+		rx_priv->dev_up = true;
+		/* reset swr after ssr/pdr */
+		rx_priv->reset_swr = true;
 
 		if (rx_priv->swr_ctrl_data)
 			swrm_wcd_notify(
@@ -4068,6 +4071,7 @@ static int rx_macro_probe(struct platform_device *pdev)
 	rx_priv->swr_plat_data.clk = rx_swrm_clock;
 	rx_priv->swr_plat_data.core_vote = rx_macro_core_vote;
 	rx_priv->swr_plat_data.handle_irq = NULL;
+	rx_priv->swr_plat_data.pinctrl_setup = NULL;
 
 	ret = of_property_read_u8_array(pdev->dev.of_node,
 				"qcom,rx-bcl-pmic-params", bcl_pmic_params,
