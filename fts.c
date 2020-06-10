@@ -5165,6 +5165,15 @@ int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
 		return ERROR_OP_NOT_ALLOW;
 	}
 
+#ifdef SUPPORT_PROX_PALM
+	if (enable && ref == FTS_BUS_REF_IRQ &&
+	    info->pm_suspend_during_phone_call) {
+		__pm_wakeup_event(info->wakesrc, jiffies_to_msecs(HZ));
+		mutex_unlock(&info->bus_mutex);
+		return ERROR_OP_NOT_ALLOW;
+	}
+#endif
+
 	if (enable) {
 		/* IRQs can only keep the bus active. IRQs received while the
 		 * bus is transferred to SLPI should be ignored.
@@ -6196,11 +6205,15 @@ static int fts_pm_suspend(struct device *dev)
 	if (info->resume_bit == 1 || info->sensor_sleep == false) {
 #ifdef SUPPORT_PROX_PALM
 		/* Don't block CPU suspend during phone call*/
+		mutex_lock(&info->bus_mutex);
 		if (info->bus_refmask == FTS_BUS_REF_PHONE_CALL) {
 			fts_enableInterrupt(false);
 			enable_irq_wake(info->client->irq);
+			info->pm_suspend_during_phone_call = true;
+			mutex_unlock(&info->bus_mutex);
 			return 0;
 		}
+		mutex_unlock(&info->bus_mutex);
 #endif
 		pr_warn("%s: can't suspend because touch bus is in use!\n",
 			__func__);
@@ -6214,10 +6227,14 @@ static int fts_pm_resume(struct device *dev)
 {
 #ifdef SUPPORT_PROX_PALM
 	struct fts_ts_info *info = dev_get_drvdata(dev);
-	if (info->bus_refmask == FTS_BUS_REF_PHONE_CALL) {
-		fts_enableInterrupt(true);
+	mutex_lock(&info->bus_mutex);
+	if (info->pm_suspend_during_phone_call) {
+		if (info->bus_refmask != 0)
+			fts_enableInterrupt(true);
 		disable_irq_wake(info->client->irq);
+		info->pm_suspend_during_phone_call = false;
 	}
+	mutex_unlock(&info->bus_mutex);
 #endif
 	return 0;
 }

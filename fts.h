@@ -480,6 +480,7 @@ struct fts_ts_info {
 #ifdef SUPPORT_PROX_PALM
 	int audio_status;
 	int prox_palm_status;
+	bool pm_suspend_during_phone_call;
 #endif
 	/* Stop changing motion filter and keep fw design */
 	bool use_default_mf;
