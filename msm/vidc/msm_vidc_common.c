@@ -1323,6 +1323,7 @@ static int wait_for_sess_signal_receipt(struct msm_vidc_inst *inst,
 {
 	int rc = 0;
 	struct hfi_device *hdev;
+	char crash_reason[MAX_SSR_REASON_LEN];
 
 	if (!inst) {
 		d_vpr_e("Invalid(%pK) instance id\n", inst);
@@ -1340,6 +1341,12 @@ static int wait_for_sess_signal_receipt(struct msm_vidc_inst *inst,
 	if (!rc) {
 		s_vpr_e(inst->sid, "Wait interrupted or timed out: %d\n",
 				SESSION_MSG_INDEX(cmd));
+		snprintf(crash_reason, MAX_SSR_REASON_LEN,
+			 "HW_RSP_Timeout - Wait interrupted or timed out: %d",
+			 SESSION_MSG_INDEX(cmd));
+
+		subsystem_set_crash_reason("venus", crash_reason);
+
 		msm_comm_kill_session(inst);
 		rc = -EIO;
 	} else {
