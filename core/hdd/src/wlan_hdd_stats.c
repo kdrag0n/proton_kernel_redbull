@@ -1203,6 +1203,8 @@ static void hdd_debugfs_process_ll_stats(struct hdd_adapter *adapter,
 
 		if (!results->num_peers)
 			priv->request_bitmap &= ~(WMI_LINK_STATS_ALL_PEER);
+
+		priv->request_bitmap &= ~(WMI_LINK_STATS_IFACE);
 	} else if (results->paramId & WMI_LINK_STATS_ALL_PEER) {
 		hdd_debugfs_process_peer_stats(adapter, results->results);
 		if (!results->moreResultToFollow)
@@ -6289,6 +6291,12 @@ int wlan_hdd_get_station_stats(struct hdd_adapter *adapter)
 		tx_nss = wlan_vdev_mlme_get_nss(adapter->vdev);
 		rx_nss = wlan_vdev_mlme_get_nss(adapter->vdev);
 	}
+	/* Intersection of self and AP's NSS capability */
+	if (tx_nss > wlan_vdev_mlme_get_nss(adapter->vdev))
+		tx_nss = wlan_vdev_mlme_get_nss(adapter->vdev);
+
+	if (rx_nss > wlan_vdev_mlme_get_nss(adapter->vdev))
+		rx_nss = wlan_vdev_mlme_get_nss(adapter->vdev);
 
 	/* save class a stats to legacy location */
 	adapter->hdd_stats.class_a_stat.tx_nss = tx_nss;

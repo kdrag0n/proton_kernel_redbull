@@ -228,6 +228,8 @@ enum mgmt_auth_type diag_auth_type_from_csr_type(enum csr_akm_type authtype)
 		n = AUTH_WPA_PSK;
 		break;
 	case eCSR_AUTH_TYPE_RSN:
+	case eCSR_AUTH_TYPE_SUITEB_EAP_SHA256:
+	case eCSR_AUTH_TYPE_SUITEB_EAP_SHA384:
 #ifdef WLAN_FEATURE_11W
 	case eCSR_AUTH_TYPE_RSN_8021X_SHA256:
 #endif
@@ -6304,6 +6306,8 @@ static QDF_STATUS csr_roam_save_params(struct mac_context *mac_ctx,
 	    (eCSR_AUTH_TYPE_FT_RSN_PSK == auth_type) ||
 	    (eCSR_AUTH_TYPE_FT_SAE == auth_type) ||
 	    (eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384 == auth_type) ||
+	    (eCSR_AUTH_TYPE_SUITEB_EAP_SHA256 == auth_type) ||
+	    (eCSR_AUTH_TYPE_SUITEB_EAP_SHA384 == auth_type) ||
 #if defined WLAN_FEATURE_11W
 	    (eCSR_AUTH_TYPE_RSN_PSK_SHA256 == auth_type) ||
 	    (eCSR_AUTH_TYPE_RSN_8021X_SHA256 == auth_type) ||
@@ -6487,6 +6491,8 @@ csr_roam_save_security_rsp_ie(struct mac_context *mac,
 		(eCSR_AUTH_TYPE_FT_RSN_PSK == authType)
 		|| (eCSR_AUTH_TYPE_FT_SAE == authType)
 		|| (eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384 == authType)
+		|| (eCSR_AUTH_TYPE_SUITEB_EAP_SHA256 == authType)
+		|| (eCSR_AUTH_TYPE_SUITEB_EAP_SHA384 == authType)
 #ifdef FEATURE_WLAN_WAPI
 		|| (eCSR_AUTH_TYPE_WAPI_WAI_PSK == authType) ||
 		(eCSR_AUTH_TYPE_WAPI_WAI_CERTIFICATE == authType)
@@ -15307,6 +15313,66 @@ void csr_clear_sae_single_pmk(struct mac_context *mac,
 }
 #endif
 
+void csr_roam_del_pmk_cache_entry(struct csr_roam_session *session,
+				  tPmkidCacheInfo *cached_pmksa)
+{
+	u32 curr_idx;
+	u8 del_pmk[CSR_RSN_MAX_PMK_LEN] = {0};
+	u32 i, del_idx;
+
+	/* copy the PMK of matched BSSID */
+	qdf_mem_copy(del_pmk, cached_pmksa->pmk, cached_pmksa->pmk_len);
+
+	/* Search for matching PMK in session PMK cache */
+	for (del_idx = 0; del_idx != session->NumPmkidCache; del_idx++) {
+		cached_pmksa = &session->PmkidCacheInfo[del_idx];
+		if (cached_pmksa->pmk_len && (!qdf_mem_cmp
+		    (cached_pmksa->pmk, del_pmk, cached_pmksa->pmk_len))) {
+			/* Clear this - matched entry */
+			qdf_mem_zero(cached_pmksa, sizeof(tPmkidCacheInfo));
+
+			/* Match Found, Readjust the other entries */
+			curr_idx = session->curr_cache_idx;
+			if (del_idx < curr_idx) {
+				for (i = del_idx; i < (curr_idx - 1); i++) {
+					qdf_mem_copy(&session->
+						     PmkidCacheInfo[i],
+						     &session->
+						     PmkidCacheInfo[i + 1],
+						     sizeof(tPmkidCacheInfo));
+				}
+
+				session->curr_cache_idx--;
+				qdf_mem_zero(&session->PmkidCacheInfo
+					     [session->curr_cache_idx],
+					     sizeof(tPmkidCacheInfo));
+			} else if (del_idx > curr_idx) {
+				for (i = del_idx; i > (curr_idx); i--) {
+					qdf_mem_copy(&session->
+						     PmkidCacheInfo[i],
+						     &session->
+						     PmkidCacheInfo[i - 1],
+						     sizeof(tPmkidCacheInfo));
+				}
+
+				qdf_mem_zero(&session->PmkidCacheInfo
+					     [session->curr_cache_idx],
+					     sizeof(tPmkidCacheInfo));
+			}
+
+			/* Decrement the count since an entry is been deleted */
+			session->NumPmkidCache--;
+			sme_debug("PMKID at index=%d deleted, current index=%d cache count=%d",
+				  del_idx, session->curr_cache_idx,
+				  session->NumPmkidCache);
+			/* As we re-adjusted entries by one position search
+			 * again from current index
+			 */
+			del_idx--;
+		}
+	}
+}
+
 QDF_STATUS csr_roam_del_pmkid_from_cache(struct mac_context *mac,
 					 uint32_t sessionId,
 					 tPmkidCacheInfo *pmksa,
@@ -15315,9 +15381,7 @@ QDF_STATUS csr_roam_del_pmkid_from_cache(struct mac_context *mac,
 	struct csr_roam_session *pSession = CSR_GET_SESSION(mac, sessionId);
 	bool fMatchFound = false;
 	uint32_t Index;
-	uint32_t curr_idx;
 	tPmkidCacheInfo *cached_pmksa;
-	uint32_t i;
 
 	if (!pSession) {
 		sme_err("session %d not found", sessionId);
@@ -15361,47 +15425,14 @@ QDF_STATUS csr_roam_del_pmkid_from_cache(struct mac_context *mac,
 			fMatchFound = 1;
 
 		if (fMatchFound) {
-			/* Clear this - matched entry */
-			qdf_mem_zero(cached_pmksa,
-				     sizeof(tPmkidCacheInfo));
+			/* Delete the matched PMK cache entry */
+			csr_roam_del_pmk_cache_entry(pSession, cached_pmksa);
 			break;
 		}
 	}
 
-	if (Index == CSR_MAX_PMKID_ALLOWED && !fMatchFound) {
+	if (Index == CSR_MAX_PMKID_ALLOWED && !fMatchFound)
 		sme_debug("No such PMKSA entry exists");
-		return QDF_STATUS_SUCCESS;
-	}
-
-	/* Match Found, Readjust the other entries */
-	curr_idx = pSession->curr_cache_idx;
-	if (Index < curr_idx) {
-		for (i = Index; i < (curr_idx - 1); i++) {
-			qdf_mem_copy(&pSession->PmkidCacheInfo[i],
-				     &pSession->PmkidCacheInfo[i + 1],
-				     sizeof(tPmkidCacheInfo));
-		}
-
-		pSession->curr_cache_idx--;
-		qdf_mem_zero(&pSession->PmkidCacheInfo
-			     [pSession->curr_cache_idx],
-			     sizeof(tPmkidCacheInfo));
-	} else if (Index > curr_idx) {
-		for (i = Index; i > (curr_idx); i--) {
-			qdf_mem_copy(&pSession->PmkidCacheInfo[i],
-				     &pSession->PmkidCacheInfo[i - 1],
-				     sizeof(tPmkidCacheInfo));
-		}
-
-		qdf_mem_zero(&pSession->PmkidCacheInfo
-			     [pSession->curr_cache_idx],
-			     sizeof(tPmkidCacheInfo));
-	}
-
-	/* Decrement the count since an entry has been deleted */
-	pSession->NumPmkidCache--;
-	sme_debug("PMKID at index=%d deleted, current index=%d cache count=%d",
-		Index, pSession->curr_cache_idx, pSession->NumPmkidCache);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -20788,6 +20819,13 @@ csr_roam_offload_scan(struct mac_context *mac_ctx, uint8_t session_id,
 		return QDF_STATUS_SUCCESS;
 	}
 
+	if ((roam_profile_akm == eCSR_AUTH_TYPE_SUITEB_EAP_SHA256 ||
+	    roam_profile_akm == eCSR_AUTH_TYPE_SUITEB_EAP_SHA384) &&
+	    !CSR_IS_FW_SUITEB_ROAM_SUPPORTED(fw_akm_bitmap)) {
+		sme_info("Roaming not supported for SUITEB connection");
+		return QDF_STATUS_SUCCESS;
+	}
+
 	/*
 	 * If fw doesn't advertise FT SAE, FT-FILS or FT-Suite-B capability,
 	 * don't support roaming to that profile
@@ -22777,7 +22815,8 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 		csr_roam_roaming_offload_timer_action(mac_ctx,
 				0, session_id, ROAMING_OFFLOAD_TIMER_STOP);
 		if (session->discon_in_progress ||
-		    MLME_IS_ROAM_STATE_STOPPED(mac_ctx->psoc, session_id) ||
+		    (MLME_IS_ROAM_STATE_STOPPED(mac_ctx->psoc, session_id) &&
+		    !vdev_roam_params->roam_invoke_in_progress) ||
 		    !CSR_IS_ROAM_JOINED(mac_ctx, session_id)) {
 			QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
 				FL("LFR3: Session not in connected state or disconnect is in progress %d"),
@@ -23000,6 +23039,15 @@ static QDF_STATUS csr_process_roam_sync_callback(struct mac_context *mac_ctx,
 			sme_debug("PMKID Not found in cache for " QDF_MAC_ADDR_STR,
 				  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes));
 			if (roam_synch_data->pmk_len) {
+				qdf_mem_copy(pmkid_cache->PMKID,
+					     roam_synch_data->pmkid, PMKID_LEN);
+				qdf_mem_copy(pmkid_cache->pmk,
+					     roam_synch_data->pmk,
+					     roam_synch_data->pmk_len);
+				pmkid_cache->pmk_len = roam_synch_data->pmk_len;
+
+				csr_update_pmk_cache(session, pmkid_cache);
+
 				pmksa = qdf_mem_malloc(sizeof(*pmksa));
 				if (!pmksa) {
 					status = QDF_STATUS_E_NOMEM;

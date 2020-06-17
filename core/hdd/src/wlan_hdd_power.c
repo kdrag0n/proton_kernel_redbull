@@ -609,7 +609,8 @@ void hdd_enable_host_offloads(struct hdd_adapter *adapter,
 	hdd_enable_arp_offload(adapter, trigger);
 	hdd_enable_ns_offload(adapter, trigger);
 	hdd_enable_mc_addr_filtering(adapter, trigger);
-	hdd_enable_hw_filter(adapter);
+	if (adapter->device_mode != QDF_NDI_MODE)
+		hdd_enable_hw_filter(adapter);
 	hdd_enable_action_frame_patterns(adapter);
 out:
 	hdd_exit();
@@ -1723,8 +1724,6 @@ static int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 		goto exit_with_code;
 	}
 
-	pld_request_bus_bandwidth(hdd_ctx->parent_dev, PLD_BUS_WIDTH_MEDIUM);
-
 	status = hdd_resume_wlan();
 	if (status != QDF_STATUS_SUCCESS) {
 		exit_code = 0;
@@ -1978,8 +1977,6 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	}
 
 	hdd_ctx->is_wiphy_suspended = true;
-
-	pld_request_bus_bandwidth(hdd_ctx->parent_dev, PLD_BUS_WIDTH_NONE);
 
 	hdd_exit();
 	return 0;

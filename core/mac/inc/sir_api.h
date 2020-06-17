@@ -3486,6 +3486,7 @@ struct auto_shutdown_cmd {
 };
 #endif
 
+#ifdef WLAN_POWER_DEBUG
 /**
  * struct power_stats_response - Power stats response
  * @cumulative_sleep_time_ms: cumulative sleep time in ms
@@ -3505,6 +3506,7 @@ struct power_stats_response {
 	uint32_t num_debug_register;
 	uint32_t *debug_registers;
 };
+#endif
 
 #ifdef WLAN_FEATURE_BEACON_RECEPTION_STATS
 #define MAX_BCNMISS_BITMAP 8
@@ -3586,6 +3588,8 @@ struct sir_set_ht_vht_cfg {
 #define WIFI_INVALID_PEER_ID            (-1)
 #define WIFI_INVALID_VDEV_ID            (-1)
 #define WIFI_MAX_AC                     (4)
+#define RATE_STAT_MCS_MASK              (0xFF00)
+#define RATE_STAT_GET_MCS_INDEX(x)      (((x) & RATE_STAT_MCS_MASK) >> 8)
 
 typedef struct {
 	uint32_t paramId;
