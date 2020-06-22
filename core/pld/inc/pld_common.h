@@ -24,7 +24,7 @@
 #include <linux/pm.h>
 #include <osapi_linux.h>
 
-#if IS_ENABLED(CONFIG_CNSS_UTILS)
+#if IS_ENABLED(CONFIG_CNSS_UTILS) || IS_ENABLED(CONFIG_CNSS_UTILS_MODULE)
 #include <net/cnss_utils.h>
 #endif
 
@@ -38,7 +38,7 @@
 
 #define TOTAL_DUMP_SIZE         0x00200000
 
-#ifdef CONFIG_WCNSS_MEM_PRE_ALLOC
+#if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC)
 #include <net/cnss_prealloc.h>
 #endif
 
@@ -416,7 +416,7 @@ void pld_is_pci_link_down(struct device *dev);
 int pld_shadow_control(struct device *dev, bool enable);
 void pld_schedule_recovery_work(struct device *dev,
 				enum pld_recovery_reason reason);
-#if IS_ENABLED(CONFIG_CNSS_UTILS)
+#if IS_ENABLED(CONFIG_CNSS_UTILS) || IS_ENABLED(CONFIG_CNSS_UTILS_MODULE)
 /**
  * pld_set_wlan_unsafe_channel() - Set unsafe channel
  * @dev: device
@@ -803,7 +803,7 @@ int pld_pci_read_config_dword(struct pci_dev *pdev, int offset, uint32_t *val);
  *         Non zero failure code for errors
  */
 int pld_pci_write_config_dword(struct pci_dev *pdev, int offset, uint32_t val);
-#if defined(CONFIG_WCNSS_MEM_PRE_ALLOC) && defined(FEATURE_SKB_PRE_ALLOC)
+#if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC) && defined(FEATURE_SKB_PRE_ALLOC)
 
 /**
  * pld_nbuf_pre_alloc() - get allocated nbuf from platform driver.
