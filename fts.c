@@ -270,7 +270,6 @@ static ssize_t fts_fwupdate_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "{ %08X }\n", info->fwupdate_stat);
 }
 
-
 /***************************************** UTILITIES
   * (current fw_ver/conf_id, active mode, file fw_ver/conf_id)
   ***************************************************/
@@ -3965,6 +3964,7 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 	} else if (info->heatmap_mode == FTS_HEATMAP_FULL) {
 		MutualSenseFrame ms_frame = { 0 };
 		uint32_t frame_index = 0, x, y;
+		uint32_t x_val, y_val;
 
 		result = getMSFrame3(MS_STRENGTH, &ms_frame);
 		if (result <= 0) {
@@ -3978,16 +3978,19 @@ static bool read_heatmap_raw(struct v4l2_heatmap *v4l2)
 				/* Rotate frame counter-clockwise and invert
 				 * if necessary.
 				 */
-				if (!info->board->sensor_inverted) {
-					heatmap_value =
-					    (strength_t)ms_frame.node_data[
-						((max_x-1) - x) * max_y + y];
-				} else {
-					heatmap_value =
-					    (strength_t)ms_frame.node_data[
-						((max_x-1) - x) * max_y +
-						((max_y-1) - y)];
-				}
+				if (info->board->sensor_inverted_x)
+					x_val = (max_x - 1) - x;
+				else
+					x_val = x;
+				if (info->board->sensor_inverted_y)
+					y_val = (max_y - 1) - y;
+				else
+					y_val = y;
+
+				heatmap_value =
+				    (strength_t)ms_frame.node_data[
+					x_val * max_y + y_val];
+
 				v4l2->frame[frame_index++] = heatmap_value;
 			}
 		}
@@ -4258,7 +4261,6 @@ static int fts_identify_panel(struct fts_ts_info *info)
 	u32 filter_panel_index, filter_extinfo_index, filter_extinfo_mask;
 	u32 filter_extinfo_value, filter_extinfo_fw;
 	const char *name;
-	u32 inverted;
 	int i;
 	int ret = 0;
 
@@ -4356,13 +4358,6 @@ get_panel_info_failed:
 	else
 		info->board->limits_name = name;
 	pr_info("limits name = %s\n", info->board->limits_name);
-
-	inverted = 0;
-	if (info->board->panel)
-		of_property_read_u32_index(np, "st,sensor_inverted",
-					   panel_index, &inverted);
-	info->board->sensor_inverted = (inverted != 0);
-	pr_info("Sensor inverted = %u\n", inverted);
 
 	return ret;
 }
@@ -5682,6 +5677,16 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	}
 	bdata->x_axis_max = coords[0];
 	bdata->y_axis_max = coords[1];
+
+	bdata->sensor_inverted_x = 0;
+	if (of_property_read_bool(np, "st,sensor_inverted_x"))
+		bdata->sensor_inverted_x = 1;
+	pr_info("Sensor inverted x = %u\n", bdata->sensor_inverted_x);
+
+	bdata->sensor_inverted_y = 0;
+	if (of_property_read_bool(np, "st,sensor_inverted_y"))
+		bdata->sensor_inverted_y = 1;
+	pr_info("Sensor inverted y = %u\n", bdata->sensor_inverted_y);
 
 	return OK;
 }

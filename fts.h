@@ -290,7 +290,8 @@ struct fts_hw_platform_data {
 	const char *avdd_reg_name;	/* /< name of the AVDD regulator */
 	const char *fw_name;
 	const char *limits_name;
-	bool sensor_inverted;
+	bool sensor_inverted_x;
+	bool sensor_inverted_y;
 	int x_axis_max;
 	int y_axis_max;
 	bool auto_fw_update;
