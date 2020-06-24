@@ -36,10 +36,6 @@
 #include <linux/string.h>
 #include <qdf_list.h>
 
-#if IS_ENABLED(CONFIG_CNSS)
-#include <net/cnss.h>
-#endif
-
 #if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC)
 #include <net/cnss_prealloc.h>
 #endif

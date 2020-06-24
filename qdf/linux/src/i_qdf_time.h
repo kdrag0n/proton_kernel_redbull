@@ -36,9 +36,6 @@
 #ifdef MSM_PLATFORM
 #include <asm/arch_timer.h>
 #endif
-#if IS_ENABLED(CONFIG_CNSS)
-#include <net/cnss.h>
-#endif
 
 typedef unsigned long __qdf_time_t;
 typedef ktime_t  __qdf_ktime_t;
