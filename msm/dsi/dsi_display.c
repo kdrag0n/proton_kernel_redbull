@@ -7494,12 +7494,27 @@ int dsi_display_post_enable(struct dsi_display *display)
 {
 	int rc = 0, err;
 
-	if (!display) {
+	if (!display || !display->panel) {
 		DSI_ERR("Invalid params\n");
 		return -EINVAL;
 	}
 
 	mutex_lock(&display->display_lock);
+
+	/* Some features may need panel extinfo in post_enable */
+	if (!display->panel->vendor_info.extinfo_read) {
+		err = dsi_panel_get_vendor_extinfo(display->panel);
+		if (err)
+			DSI_ERR("[%s] failed to get extinfo, err=%d\n",
+				display->name, err);
+	}
+
+	if (!display->panel->vendor_info.is_sn) {
+		err = dsi_panel_get_sn(display->panel);
+		if (err)
+			DSI_ERR("[%s] failed to get SN, err=%d\n",
+						display->name, err);
+	}
 
 	if (display->panel->cur_mode->dsi_mode_flags & DSI_MODE_FLAG_POMS) {
 		if (display->config.panel_mode == DSI_OP_CMD_MODE)
@@ -7512,19 +7527,6 @@ int dsi_display_post_enable(struct dsi_display *display)
 		if (rc)
 			DSI_ERR("[%s] panel post-enable failed, rc=%d\n",
 				display->name, rc);
-	}
-
-	/* shouldn't read sn if post_enable fails */
-	if (!rc && !display->panel->vendor_info.is_sn) {
-		err = dsi_panel_get_sn(display->panel);
-		if (err)
-			DSI_ERR("[%s] failed to get SN, err=%d\n",
-						display->name, err);
-
-		err = dsi_panel_get_vendor_extinfo(display->panel);
-		if (err)
-			DSI_ERR("[%s] failed to get extinfo, err=%d\n",
-			       display->name, err);
 	}
 
 	/* remove the clk vote for CMD mode panels */
