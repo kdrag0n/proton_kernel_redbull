@@ -933,7 +933,7 @@ enum phy_ch_width hdd_map_nl_chan_width(enum nl80211_chan_width ch_width)
 }
 
 #if defined(WLAN_FEATURE_NAN) && \
-	   (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
+	   (KERNEL_VERSION(4, 14, 0) <= LINUX_VERSION_CODE)
 /**
  * wlan_hdd_convert_nan_type() - Convert nl type to qdf type
  * @nl_type: NL80211 interface type
@@ -965,6 +965,11 @@ static void wlan_hdd_set_nan_if_type(struct hdd_adapter *adapter)
 {
 	adapter->wdev.iftype = NL80211_IFTYPE_NAN;
 }
+
+static bool wlan_hdd_is_vdev_creation_allowed(struct wlan_objmgr_psoc *psoc)
+{
+	return ucfg_nan_is_vdev_creation_allowed(psoc);
+}
 #else
 static QDF_STATUS wlan_hdd_convert_nan_type(enum nl80211_iftype nl_type,
 					    enum QDF_OPMODE *out_qdf_type)
@@ -974,6 +979,11 @@ static QDF_STATUS wlan_hdd_convert_nan_type(enum nl80211_iftype nl_type,
 
 static void wlan_hdd_set_nan_if_type(struct hdd_adapter *adapter)
 {
+}
+
+static bool wlan_hdd_is_vdev_creation_allowed(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
 }
 #endif
 
@@ -2098,6 +2108,12 @@ int hdd_update_tgt_cfg(hdd_handle_t hdd_handle, struct wma_tgt_cfg *cfg)
 		goto pdev_close;
 	}
 
+	status = ucfg_reg_set_band(hdd_ctx->pdev, band_capability);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("Failed to update regulatory band info");
+		goto pdev_close;
+	}
+
 	if (!cds_is_driver_recovering() || cds_is_driver_in_bad_state()) {
 		hdd_ctx->reg.reg_domain = cfg->reg_domain;
 		hdd_ctx->reg.eeprom_rd_ext = cfg->eeprom_rd_ext;
@@ -2404,9 +2420,12 @@ static int __hdd_mon_open(struct net_device *dev)
 	if (!ret)
 		ret = hdd_enable_monitor_mode(dev);
 
-	if (!ret)
+	if (!ret) {
+		hdd_set_current_throughput_level(hdd_ctx,
+						 PLD_BUS_WIDTH_VERY_HIGH);
 		pld_request_bus_bandwidth(hdd_ctx->parent_dev,
 					  PLD_BUS_WIDTH_VERY_HIGH);
+	}
 
 	return ret;
 }
@@ -2447,10 +2466,11 @@ static int hdd_mon_open(struct net_device *net_dev)
  */
 static int __hdd_pktcapture_open(struct net_device *dev)
 {
-	int ret;
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	struct hdd_adapter *sta_adapter;
+	QDF_STATUS status;
+	int ret;
 
 	hdd_enter_dev(dev);
 
@@ -2465,22 +2485,23 @@ static int __hdd_pktcapture_open(struct net_device *dev)
 	}
 
 	adapter->vdev = hdd_objmgr_get_vdev(sta_adapter);
-	if (!adapter->vdev)
+	if (!adapter->vdev) {
+		hdd_err("station interface is not up");
 		return -EINVAL;
+	}
 
 	hdd_mon_mode_ether_setup(dev);
 
-	ret = ucfg_pkt_capture_register_callbacks(adapter->vdev,
-						  hdd_mon_rx_packet_cbk,
-						  adapter);
+	status = ucfg_pkt_capture_register_callbacks(adapter->vdev,
+						     hdd_mon_rx_packet_cbk,
+						     adapter);
+	ret = qdf_status_to_os_return(status);
 	if (ret) {
-		hdd_objmgr_put_vdev(sta_adapter->vdev);
+		hdd_objmgr_put_vdev(adapter->vdev);
 		return ret;
 	}
 
-	ret = ucfg_pkt_capture_enable_ops(adapter->vdev);
-	if (!ret)
-		set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
 
 	return ret;
 }
@@ -2508,6 +2529,72 @@ static int hdd_pktcapture_open(struct net_device *net_dev)
 	osif_vdev_sync_trans_stop(vdev_sync);
 
 	return errno;
+}
+
+/**
+ * hdd_del_monitor_interface() - Delete monitor interface
+ * @hdd_ctx: hdd context
+ *
+ * Return: void
+ */
+static void hdd_del_monitor_interface(struct hdd_context *hdd_ctx)
+{
+	struct hdd_adapter *adapter;
+
+	adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
+	if (adapter) {
+		struct osif_vdev_sync *vdev_sync;
+
+		vdev_sync = osif_vdev_sync_unregister(adapter->dev);
+
+		if (hdd_is_interface_up(adapter)) {
+			hdd_stop_adapter(hdd_ctx, adapter);
+			hdd_deinit_adapter(hdd_ctx, adapter, true);
+		}
+
+		hdd_close_adapter(hdd_ctx, adapter, true);
+
+		if (vdev_sync) {
+			osif_vdev_sync_wait_for_ops(vdev_sync);
+			osif_vdev_sync_destroy(vdev_sync);
+		}
+	}
+}
+
+/**
+ * hdd_close_monitor_interface() - Close monitor interface
+ * @hdd_ctx: hdd context
+ *
+ * Return: void
+ */
+static void hdd_close_monitor_interface(struct hdd_context *hdd_ctx)
+{
+	struct hdd_adapter *adapter;
+
+	adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
+	if (adapter) {
+		struct osif_vdev_sync *vdev_sync;
+
+		vdev_sync = osif_vdev_sync_unregister(
+				adapter->dev);
+
+		wlan_hdd_del_monitor(hdd_ctx, adapter, true);
+
+		if (vdev_sync) {
+			osif_vdev_sync_wait_for_ops(vdev_sync);
+			osif_vdev_sync_destroy(vdev_sync);
+		}
+	}
+}
+#else
+static inline void
+hdd_del_monitor_interface(struct hdd_context *hdd_ctx)
+{
+}
+
+static inline void
+hdd_close_monitor_interface(struct hdd_context *hdd_ctx)
+{
 }
 #endif
 
@@ -3871,10 +3958,15 @@ static int __hdd_stop(struct net_device *dev)
 				     WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
 				     WLAN_CONTROL_PATH);
 
-	if (adapter->device_mode == QDF_STA_MODE)
+	if (adapter->device_mode == QDF_STA_MODE) {
 		hdd_lpass_notify_stop(hdd_ctx);
 
-	if (wlan_hdd_is_session_type_monitor(adapter->device_mode)) {
+		if (ucfg_pkt_capture_get_mode(hdd_ctx->psoc))
+			hdd_close_monitor_interface(hdd_ctx);
+	}
+
+	if (wlan_hdd_is_session_type_monitor(adapter->device_mode) &&
+	    adapter->vdev) {
 		ucfg_pkt_capture_deregister_callbacks(adapter->vdev);
 		hdd_objmgr_put_vdev(adapter->vdev);
 		adapter->vdev = NULL;
@@ -4820,18 +4912,21 @@ hdd_store_nss_chains_cfg_in_vdev(struct hdd_adapter *adapter)
 {
 	struct wlan_mlme_nss_chains vdev_ini_cfg;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	struct wlan_objmgr_vdev *vdev;
 
 	/* Populate the nss chain params from ini for this vdev type */
 	sme_populate_nss_chain_params(hdd_ctx->mac_handle, &vdev_ini_cfg,
 				      adapter->device_mode,
 				      hdd_ctx->num_rf_chains);
 
+	vdev = hdd_objmgr_get_vdev(adapter);
 	/* Store the nss chain config into the vdev */
-	if (adapter->vdev)
+	if (vdev) {
 		sme_store_nss_chains_cfg_in_vdev(adapter->vdev, &vdev_ini_cfg);
-	else
+		hdd_objmgr_put_vdev(vdev);
+	} else {
 		hdd_err("Vdev is NULL");
-
+	}
 }
 
 bool hdd_is_vdev_in_conn_state(struct hdd_adapter *adapter)
@@ -6131,6 +6226,10 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 
 	hdd_enter();
 
+	if (adapter->device_mode == QDF_STA_MODE &&
+	    ucfg_pkt_capture_get_mode(hdd_ctx->psoc))
+		hdd_del_monitor_interface(hdd_ctx);
+
 	if (adapter->vdev_id != WLAN_UMAC_VDEV_ID_MAX)
 		wlan_hdd_cfg80211_deregister_frames(adapter);
 
@@ -6274,15 +6373,11 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 		break;
 
 	case QDF_MONITOR_MODE:
-		if (wlan_hdd_is_session_type_monitor(QDF_MONITOR_MODE)) {
-			adapter = hdd_get_adapter(hdd_ctx, QDF_MONITOR_MODE);
-
-			if (adapter->vdev) {
-				ucfg_pkt_capture_deregister_callbacks(
-						adapter->vdev);
-				hdd_objmgr_put_vdev(adapter->vdev);
-				adapter->vdev = NULL;
-			}
+		if (wlan_hdd_is_session_type_monitor(QDF_MONITOR_MODE) &&
+		    adapter->vdev) {
+			ucfg_pkt_capture_deregister_callbacks(adapter->vdev);
+			hdd_objmgr_put_vdev(adapter->vdev);
+			adapter->vdev = NULL;
 		}
 		wlan_hdd_scan_abort(adapter);
 		hdd_deregister_hl_netdev_fc_timer(adapter);
@@ -12966,7 +13061,7 @@ hdd_open_adapters_for_mission_mode(struct hdd_context *hdd_ctx)
 	 * Create separate interface (wifi-aware0) for NAN. All NAN commands
 	 * should go on this new interface.
 	 */
-	if (ucfg_nan_is_vdev_creation_allowed(hdd_ctx->psoc)) {
+	if (wlan_hdd_is_vdev_creation_allowed(hdd_ctx->psoc)) {
 		mac_addr = wlan_hdd_get_intf_addr(hdd_ctx, QDF_NAN_DISC_MODE);
 		status = hdd_open_adapter_no_trans(hdd_ctx, QDF_NAN_DISC_MODE,
 						   "wifi-aware%d", mac_addr);
@@ -14142,6 +14237,7 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	static const char wlan_on_str[] = "ON";
 	int ret;
 	unsigned long rc;
+	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 
 	if (copy_from_user(buf, user_buf, 3)) {
 		pr_err("Failed to read buffer\n");
@@ -14171,6 +14267,13 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 			return ret;
 		}
 	}
+
+	/*
+	 * Flush idle shutdown work for cases to synchronize the wifi on
+	 * during the idle shutdown.
+	 */
+	if (hdd_ctx)
+		hdd_psoc_idle_timer_stop(hdd_ctx);
 
 exit:
 	return count;
@@ -16668,11 +16771,19 @@ wlan_hdd_add_monitor_check(struct hdd_context *hdd_ctx,
 
 		adapter = hdd_get_adapter(hdd_ctx, mode);
 		if (adapter) {
+			struct osif_vdev_sync *vdev_sync;
+
+			vdev_sync = osif_vdev_sync_unregister(adapter->dev);
+			if (vdev_sync)
+				osif_vdev_sync_wait_for_ops(vdev_sync);
 			wlan_hdd_release_intf_addr(hdd_ctx,
 						   adapter->mac_addr.bytes);
 			hdd_stop_adapter(hdd_ctx, adapter);
 			hdd_deinit_adapter(hdd_ctx, adapter, true);
 			hdd_close_adapter(hdd_ctx, adapter, rtnl_held);
+
+			if (vdev_sync)
+				osif_vdev_sync_destroy(vdev_sync);
 		}
 	}
 

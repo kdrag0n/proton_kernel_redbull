@@ -14745,7 +14745,7 @@ wlan_hdd_iftype_data_mem_free(struct hdd_context *hdd_ctx)
 #endif
 
 #if defined(WLAN_FEATURE_NAN) && \
-	   (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
+	   (KERNEL_VERSION(4, 14, 0) <= LINUX_VERSION_CODE)
 static void wlan_hdd_set_nan_if_mode(struct wiphy *wiphy)
 {
 	wiphy->interface_modes |= BIT(NL80211_IFTYPE_NAN);
@@ -18102,6 +18102,30 @@ static int wlan_hdd_cfg80211_connect_start(struct hdd_adapter *adapter,
 				adapter->scan_info.scan_add_ie.length;
 		}
 
+		/*
+		 * When connecting between two profiles there could be scenario
+		 * when the vdev create and vdev destroy clears the additional
+		 * scan IEs in roam profile and when the supplicant doesn't
+		 * issue scan request. So the unicast frames that are sent from
+		 * the STA doesn't have the additional MBO IE.
+		 */
+		if (adapter->device_mode == QDF_STA_MODE &&
+		    (adapter->scan_info.default_scan_ies ||
+		     adapter->scan_info.scan_add_ie.length) &&
+		    !roam_profile->nAddIEScanLength) {
+			if (adapter->scan_info.default_scan_ies) {
+				roam_profile->pAddIEScan =
+					adapter->scan_info.default_scan_ies;
+				roam_profile->nAddIEScanLength =
+					adapter->scan_info.default_scan_ies_len;
+			} else if (adapter->scan_info.scan_add_ie.length) {
+				roam_profile->pAddIEScan =
+					adapter->scan_info.scan_add_ie.addIEdata;
+				roam_profile->nAddIEScanLength =
+					adapter->scan_info.scan_add_ie.length;
+			}
+		}
+
 		if ((policy_mgr_is_hw_dbs_capable(hdd_ctx->psoc) == true)
 			&& (false == wlan_hdd_handle_sap_sta_dfs_conc(adapter,
 				roam_profile))) {
@@ -21257,8 +21281,8 @@ int wlan_hdd_del_station(struct hdd_adapter *adapter)
 	struct station_del_parameters del_sta;
 
 	del_sta.mac = NULL;
-	del_sta.subtype = SIR_MAC_MGMT_DEAUTH >> 4;
-	del_sta.reason_code = eCsrForcedDeauthSta;
+	del_sta.subtype = IEEE80211_STYPE_DEAUTH >> 4;
+	del_sta.reason_code = WLAN_REASON_DEAUTH_LEAVING;
 
 	return wlan_hdd_cfg80211_del_station(adapter->wdev.wiphy,
 					     adapter->dev, &del_sta);
@@ -23431,7 +23455,7 @@ wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
 #endif
 
 #if defined(WLAN_FEATURE_NAN) && \
-	   (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
+	   (KERNEL_VERSION(4, 14, 0) <= LINUX_VERSION_CODE)
 static int
 wlan_hdd_cfg80211_start_nan(struct wiphy *wiphy, struct wireless_dev *wdev,
 			    struct cfg80211_nan_conf *conf)
@@ -23791,7 +23815,7 @@ static struct cfg80211_ops wlan_hdd_cfg80211_ops = {
 	.external_auth = wlan_hdd_cfg80211_external_auth,
 #endif
 #if defined(WLAN_FEATURE_NAN) && \
-	   (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
+	   (KERNEL_VERSION(4, 14, 0) <= LINUX_VERSION_CODE)
 	.start_nan = wlan_hdd_cfg80211_start_nan,
 	.stop_nan = wlan_hdd_cfg80211_stop_nan,
 	.add_nan_func = wlan_hdd_cfg80211_add_nan_func,
