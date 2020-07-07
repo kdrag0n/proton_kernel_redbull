@@ -969,13 +969,18 @@ struct gamma_calibration_info {
 	size_t len;
 };
 
-struct gamma_fixup_info {
+struct gamma_fixup_location {
 	u32 src_idx;
 	u32 dst_idx;
-	u32 fixup_len;
+	u8 cmd;
+	u8 mask;
+};
+
+struct gamma_fixup_info {
+	struct gamma_fixup_location *fixup_loc;
+	u32 fixup_loc_count;
 	u32 panel_id_len;
 	u8 *panel_id;
-	u8 cmd;
 };
 
 struct gamma_switch_data {
@@ -1672,22 +1677,23 @@ static int s6e3hc2_check_gamma_payload(const u8 *src, size_t len)
 }
 
 static void s6e3hc2_gamma_fixup_after_overwrite(
-			const struct gamma_fixup_info *fixup_gamma,
-			u8 *gamma_buf, size_t len)
+			const struct gamma_fixup_location *fixup_loc,
+			u8 *gamma_buf, const size_t len)
 {
-	u32 src_idx, dst_idx, fixup_len;
+	const u32 src_idx = fixup_loc->src_idx;
+	const u32 dst_idx = fixup_loc->dst_idx;
+	const u8 mask = fixup_loc->mask;
 
-	src_idx = fixup_gamma->src_idx;
-	dst_idx = fixup_gamma->dst_idx;
-	fixup_len = fixup_gamma->fixup_len;
-
-	if (len < src_idx + fixup_len || len < dst_idx + fixup_len) {
+	if (len <= src_idx || len <= dst_idx) {
 		pr_warn("gamma length %zu of cmd 0x%x not enough\n", len,
-						fixup_gamma->cmd);
+							fixup_loc->cmd);
 		return;
 	}
 
-	memcpy(gamma_buf + dst_idx, gamma_buf + src_idx, fixup_len);
+	if (mask) {
+		gamma_buf[dst_idx] &= ~mask;
+		gamma_buf[dst_idx] |= (gamma_buf[src_idx] & mask);
+	}
 }
 
 static int s6e3hc2_overwrite_gamma_bands(
@@ -1732,9 +1738,15 @@ static int s6e3hc2_overwrite_gamma_bands(
 		}
 
 		memcpy(tmp_buf, payload + CALI_GAMMA_HEADER_SIZE, payload_len);
-		if (fixup_gamma && cmd == fixup_gamma->cmd)
-			s6e3hc2_gamma_fixup_after_overwrite(fixup_gamma,
-							tmp_buf, payload_len);
+		if (fixup_gamma && fixup_gamma->fixup_loc) {
+			int cnt;
+
+			for (cnt = 0; cnt < fixup_gamma->fixup_loc_count; cnt++)
+				if (cmd == fixup_gamma->fixup_loc[cnt].cmd)
+					s6e3hc2_gamma_fixup_after_overwrite(
+						&fixup_gamma->fixup_loc[cnt],
+						tmp_buf, payload_len);
+		}
 		read_len = CALI_GAMMA_HEADER_SIZE + payload_len;
 	}
 
@@ -1970,8 +1982,12 @@ static const struct attribute_group gamma_group = {
 static void
 s6e3hc2_gamma_release_fixup_info(struct gamma_fixup_info *fixup_gamma)
 {
-	if (!fixup_gamma || !fixup_gamma->panel_id)
+	if (!fixup_gamma)
 		return;
+
+	kfree(fixup_gamma->fixup_loc);
+	fixup_gamma->fixup_loc = NULL;
+	fixup_gamma->fixup_loc_count = 0;
 
 	kfree(fixup_gamma->panel_id);
 	fixup_gamma->panel_id = NULL;
@@ -1985,8 +2001,8 @@ s6e3hc2_gamma_create_fixup_info(struct dsi_panel *panel,
 {
 	struct dsi_display *display;
 	struct device_node *of_node;
-	int rc, loc_len;
-	u32 id_len, fixup_loc[GAMMA_FIXUP_LOCATION_LEN];
+	int i, rc, id_len, loc_len, offset = 0;
+	u32 loc_count, *fixup_loc;
 
 	if (unlikely(!panel || !fixup_gamma))
 		return;
@@ -2023,25 +2039,45 @@ s6e3hc2_gamma_create_fixup_info(struct dsi_panel *panel,
 
 	loc_len = of_property_count_u32_elems(of_node,
 			"google,gamma_fixup_location");
-	if (loc_len != ARRAY_SIZE(fixup_loc)) {
+	if (loc_len <= 0 || loc_len % GAMMA_FIXUP_LOCATION_LEN != 0) {
 		pr_err("invalid format\n");
 		goto error;
 	}
+
+	loc_count = loc_len / GAMMA_FIXUP_LOCATION_LEN;
+	fixup_loc = kcalloc(loc_len, sizeof(*fixup_loc), GFP_KERNEL);
+	if (!fixup_loc)
+		goto error;
 
 	rc = of_property_read_u32_array(of_node,
 			"google,gamma_fixup_location", fixup_loc, loc_len);
 	if (rc) {
 		pr_err("Failed to parse location\n");
-		goto error;
+		goto error_fixup_loc;
 	}
 
-	fixup_gamma->cmd = fixup_loc[0];
-	fixup_gamma->src_idx = fixup_loc[1];
-	fixup_gamma->dst_idx = fixup_loc[2];
-	fixup_gamma->fixup_len = fixup_loc[3];
+	fixup_gamma->fixup_loc = kcalloc(loc_count,
+				sizeof(*fixup_gamma->fixup_loc), GFP_KERNEL);
+	if (!fixup_gamma->fixup_loc)
+		goto error_fixup_loc;
+
+	for (i = 0; i < loc_count; i++) {
+		fixup_gamma->fixup_loc[i].cmd = fixup_loc[offset];
+		fixup_gamma->fixup_loc[i].src_idx = fixup_loc[offset + 1];
+		fixup_gamma->fixup_loc[i].dst_idx = fixup_loc[offset + 2];
+		fixup_gamma->fixup_loc[i].mask = fixup_loc[offset + 3];
+		offset += GAMMA_FIXUP_LOCATION_LEN;
+	}
+
+	fixup_gamma->fixup_loc_count = loc_count;
 	fixup_gamma->panel_id_len = id_len;
 
+	kfree(fixup_loc);
+
 	return;
+
+error_fixup_loc:
+	kfree(fixup_loc);
 error:
 	kfree(fixup_gamma->panel_id);
 	fixup_gamma->panel_id = NULL;
