@@ -477,7 +477,7 @@ static int cam_ois_shift_data_enqueue(struct cam_ois_shift *o_shift_data,
  *
  * Returns success or failure
  */
-static void cam_ois_read_work(struct work_struct *work)
+static void cam_ois_read_work(struct kthread_work *work)
 {
 	uint8_t buf[10] = { 0 };
 	int32_t rc = 0;
@@ -570,7 +570,7 @@ static enum hrtimer_restart cam_ois_shift_timer(struct hrtimer *timer)
 		return HRTIMER_NORESTART;
 	}
 
-	queue_work(ois_timer_in->ois_wq, &ois_timer_in->g_work);
+	kthread_queue_work(&ois_timer_in->o_ctrl->worker, &ois_timer_in->g_work);
 	currtime = ktime_get();
 	interval = ktime_set(0, READ_OUT_TIME);
 	hrtimer_forward(timer, currtime, interval);
@@ -593,7 +593,6 @@ static int cam_ois_stop_shift_reader(struct cam_ois_ctrl_t *o_ctrl)
 		return -EFAULT;
 	}
 	hrtimer_cancel(&o_ctrl->timer.hr_timer);
-	destroy_workqueue(o_ctrl->timer.ois_wq);
 	o_ctrl->timer.ois_timer_state = CAM_OIS_TIME_INACTIVE;
 	CAM_INFO(CAM_OIS, "Successfully stopped OIS shift reader.");
 	return 0;
@@ -628,12 +627,7 @@ static int cam_ois_start_shift_reader(struct cam_ois_ctrl_t *o_ctrl)
 	o_ctrl->timer.o_ctrl = o_ctrl;
 
 	// set worker function and work queue
-	INIT_WORK(&o_ctrl->timer.g_work, cam_ois_read_work);
-	o_ctrl->timer.ois_wq = alloc_workqueue("ois_wq", WQ_HIGHPRI, 1);
-	if (!o_ctrl->timer.ois_wq) {
-		CAM_ERR(CAM_OIS, "ois_wq create failed.");
-		return -EFAULT;
-	}
+	kthread_init_work(&o_ctrl->timer.g_work, cam_ois_read_work);
 
 	// set timer
 	ktime = ktime_set(0, READ_OUT_TIME);

@@ -9,6 +9,29 @@
 #include "cam_ois_core.h"
 #include "cam_debug_util.h"
 
+static long cam_ois_create_thread(struct cam_ois_ctrl_t *o_ctrl)
+{
+	struct sched_param param = { .sched_priority = 15 };
+	kthread_init_worker(&o_ctrl->worker);
+	o_ctrl->worker_thread = kthread_run(kthread_worker_fn, &o_ctrl->worker,
+					    "ois_worker");
+	if (IS_ERR(o_ctrl->worker_thread)) {
+		return -EFAULT;
+	}
+	if (sched_setscheduler(o_ctrl->worker_thread,
+			       SCHED_FIFO, &param) != 0) {
+		CAM_ERR(CAM_OIS, "sched_setscheduler failed on ois_worker");
+	}
+	return 0;
+}
+
+static long cam_ois_destroy_thread(struct cam_ois_ctrl_t *o_ctrl)
+{
+	kthread_stop(o_ctrl->worker_thread);
+	o_ctrl->worker_thread = NULL;
+	return 0;
+}
+
 static long cam_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
@@ -197,6 +220,11 @@ static int cam_ois_i2c_driver_probe(struct i2c_client *client,
 	if (rc)
 		goto soc_free;
 
+	rc = cam_ois_create_thread(o_ctrl);
+	if (rc) {
+		CAM_ERR(CAM_OIS, "failed: couldn't create ois worker %d", rc);
+		goto soc_free;
+	}
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 
 	return rc;
@@ -232,6 +260,8 @@ static int cam_ois_i2c_driver_remove(struct i2c_client *client)
 	cam_ois_shutdown(o_ctrl);
 	mutex_unlock(&(o_ctrl->ois_mutex));
 	cam_unregister_subdev(&(o_ctrl->v4l2_dev_str));
+
+	cam_ois_destroy_thread(o_ctrl);
 
 	soc_private =
 		(struct cam_ois_soc_private *)soc_info->soc_private;
@@ -299,6 +329,12 @@ static int32_t cam_ois_platform_driver_probe(
 	}
 	o_ctrl->bridge_intf.device_hdl = -1;
 
+	rc = cam_ois_create_thread(o_ctrl);
+	if (rc) {
+		CAM_ERR(CAM_OIS, "failed: couldn't create ois worker %d", rc);
+		goto unreg_subdev;
+	}
+
 	platform_set_drvdata(pdev, o_ctrl);
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 
@@ -347,6 +383,8 @@ static int cam_ois_platform_driver_remove(struct platform_device *pdev)
 	kfree(o_ctrl->io_master_info.cci_client);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&o_ctrl->v4l2_dev_str.sd, NULL);
+	cam_ois_destroy_thread(o_ctrl);
+
 	mutex_destroy(&o_ctrl->ois_shift_mutex);
 	kfree(o_ctrl);
 
