@@ -2721,6 +2721,23 @@ static int dsi_display_wake_up(struct dsi_display *display)
 	return 0;
 }
 
+static void dsi_display_mask_overflow(struct dsi_display *display, u32 flags,
+						bool enable)
+{
+	struct dsi_display_ctrl *ctrl;
+	int i;
+
+	if (!(flags & DSI_CTRL_CMD_LAST_COMMAND))
+		return;
+
+	display_for_each_ctrl(i, display) {
+		ctrl = &display->ctrl[i];
+		if (!ctrl)
+			continue;
+		dsi_ctrl_mask_overflow(ctrl->ctrl, enable);
+	}
+}
+
 static int dsi_display_broadcast_cmd(struct dsi_display *display,
 				     const struct mipi_dsi_msg *msg)
 {
@@ -2750,6 +2767,7 @@ static int dsi_display_broadcast_cmd(struct dsi_display *display,
 	 * 2. Trigger commands
 	 */
 	m_ctrl = &display->ctrl[display->cmd_master_idx];
+	dsi_display_mask_overflow(display, m_flags, true);
 	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, msg, &m_flags);
 	if (rc) {
 		DSI_ERR("[%s] cmd transfer failed on master,rc=%d\n",
@@ -2785,6 +2803,7 @@ static int dsi_display_broadcast_cmd(struct dsi_display *display,
 	}
 
 error:
+	dsi_display_mask_overflow(display, m_flags, false);
 	return rc;
 }
 
@@ -5277,11 +5296,13 @@ static void dsi_display_firmware_display(const struct firmware *fw,
 	struct dsi_display *display = context;
 
 	if (fw) {
-		DSI_DEBUG("reading data from firmware, size=%zd\n",
+		DSI_INFO("reading data from firmware, size=%zd\n",
 			fw->size);
 
 		display->fw = fw;
 		display->name = "dsi_firmware_display";
+	} else {
+		DSI_INFO("no firmware available, fallback to device node\n");
 	}
 
 	if (dsi_display_init(display))
@@ -5345,12 +5366,6 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 				"qcom,dsi-default-panel", 0);
 		if (!panel_node)
 			DSI_WARN("default panel not found\n");
-
-		if (IS_ENABLED(CONFIG_DSI_PARSER))
-			firm_req = !request_firmware_nowait(
-				THIS_MODULE, 1, "dsi_prop",
-				&pdev->dev, GFP_KERNEL, display,
-				dsi_display_firmware_display);
 	}
 
 	boot_disp->node = pdev->dev.of_node;
@@ -5365,6 +5380,13 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, display);
 
 	/* initialize display in firmware callback */
+	if (!boot_disp->boot_disp_en && IS_ENABLED(CONFIG_DSI_PARSER)) {
+		firm_req = !request_firmware_nowait(
+			THIS_MODULE, 1, "dsi_prop",
+			&pdev->dev, GFP_KERNEL, display,
+			dsi_display_firmware_display);
+	}
+
 	if (!firm_req) {
 		rc = dsi_display_init(display);
 		if (rc)
@@ -6071,6 +6093,7 @@ void dsi_display_adjust_mode_timing(struct dsi_display *display,
 	case DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_HFP:
 		vtotal = DSI_V_TOTAL(&dsi_mode->timing);
 		old_htotal = DSI_H_TOTAL_DSC(&dsi_mode->timing);
+		do_div(old_htotal, display->ctrl_count);
 		new_htotal = dsi_mode->timing.clk_rate_hz * lanes;
 		div = bpp * vtotal * dsi_mode->timing.refresh_rate;
 		if (dsi_display_is_type_cphy(display)) {
@@ -6080,14 +6103,15 @@ void dsi_display_adjust_mode_timing(struct dsi_display *display,
 		do_div(new_htotal, div);
 		if (old_htotal > new_htotal)
 			dsi_mode->timing.h_front_porch -=
-					(old_htotal - new_htotal);
+			((old_htotal - new_htotal) * display->ctrl_count);
 		else
 			dsi_mode->timing.h_front_porch +=
-					(new_htotal - old_htotal);
+			((new_htotal - old_htotal) * display->ctrl_count);
 		break;
 
 	case DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_VFP:
 		htotal = DSI_H_TOTAL_DSC(&dsi_mode->timing);
+		do_div(htotal, display->ctrl_count);
 		new_vtotal = dsi_mode->timing.clk_rate_hz * lanes;
 		div = bpp * htotal * dsi_mode->timing.refresh_rate;
 		if (dsi_display_is_type_cphy(display)) {
