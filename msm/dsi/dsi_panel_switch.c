@@ -537,13 +537,13 @@ static int s6e3hc2_te2_update(struct dsi_panel *panel)
 	const u8 global_para[] = { 0xB0, 0x2C, 0xF2 };
 	const u8 tout_enable[] = { 0xF2, 0x01 };
 
+	if (s6e3hc2_te2_set_edge_info(panel))
+		goto error;
+
 	if (DSI_WRITE_CMD_BUF(dsi, global_para))
 		goto error;
 
 	if (DSI_WRITE_CMD_BUF(dsi, tout_enable))
-		goto error;
-
-	if (s6e3hc2_te2_set_edge_info(panel))
 		goto error;
 
 	return 0;
