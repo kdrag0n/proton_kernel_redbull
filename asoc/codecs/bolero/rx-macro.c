@@ -378,7 +378,6 @@ struct rx_swr_ctrl_platform_data {
 							  void *data),
 			  void *swrm_handle,
 			  int action);
-	int (*pinctrl_setup)(void *handle, bool enable);
 };
 
 enum {
@@ -3995,6 +3994,12 @@ static int rx_macro_probe(struct platform_device *pdev)
 	u32 is_used_rx_swr_gpio = 1;
 	const char *is_used_rx_swr_gpio_dt = "qcom,is-used-swr-gpio";
 
+	if (!bolero_is_va_macro_registered(&pdev->dev)) {
+		dev_err(&pdev->dev,
+			"%s: va-macro not registered yet, defer\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
 	rx_priv = devm_kzalloc(&pdev->dev, sizeof(struct rx_macro_priv),
 			    GFP_KERNEL);
 	if (!rx_priv)
@@ -4071,7 +4076,6 @@ static int rx_macro_probe(struct platform_device *pdev)
 	rx_priv->swr_plat_data.clk = rx_swrm_clock;
 	rx_priv->swr_plat_data.core_vote = rx_macro_core_vote;
 	rx_priv->swr_plat_data.handle_irq = NULL;
-	rx_priv->swr_plat_data.pinctrl_setup = NULL;
 
 	ret = of_property_read_u8_array(pdev->dev.of_node,
 				"qcom,rx-bcl-pmic-params", bcl_pmic_params,
