@@ -1,20 +1,25 @@
 #include "scuba.dtsi"
 / {
+	/delete-node/ secure_display_region;
+};
+
+/ {
 	reserved-memory {
-		/delete-node/ removed_region@a0000000;
+		/delete-node/ removed_region@60000000;
 		/delete-node/ qseecom_region;
 		/delete-node/ qseecom_ta_region;
+		/delete-node/ disp_rdump_region@5c000000;
 
-		tz_removed_region: tz_removed_region@a0000000 {
+		tz_removed_region: tz_removed_region@60000000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0xa0000000 0x0 0x100000>;
+			reg = <0x0 0x60000000 0x0 0x100000>;
 		};
 
-		pimem_removed_region: pimem_removed_region@a0e00000 {
+		pimem_removed_region: pimem_removed_region@60100000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0xa0e00000 0x0 0x1100000>;
+			reg = <0x0 0x60100000 0x0 0x1e00000>;
 		};
 
 		qseecom_mem: qseecom_region {
@@ -36,11 +41,11 @@
 };
 
 &soc {
-	qcom_seecom: qseecom@a1800000 {
-		reg = <0xa1800000 0x700000>;
+	qcom_seecom: qseecom@61800000 {
+		reg = <0x61800000 0x700000>;
 	};
 
-	qcom_smcinvoke: smcinvoke@a1800000 {
-		reg = <0xa1800000 0x700000>;
+	qcom_smcinvoke: smcinvoke@61800000 {
+		reg = <0x61800000 0x700000>;
 	};
 };
