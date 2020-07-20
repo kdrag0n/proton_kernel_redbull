@@ -1005,58 +1005,7 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data,
 #endif
 
 			/* check mis-cal */
-			if (ts->plat_data->mis_cal_check) {
-				u8 buff[2];
-				u8 mis_cal_data;
-
-				buff[0] = STATE_MANAGE_OFF;
-				ret = ts->sec_ts_write(ts,
-					SEC_TS_CMD_STATEMANAGE_ON, buff, 1);
-				if (ret < 0)
-					input_err(true, &ts->client->dev,
-						"%s: mis_cal_check error[1] ret: %d\n",
-						__func__, ret);
-
-				buff[0] = TOUCH_SYSTEM_MODE_TOUCH;
-				buff[1] = TOUCH_MODE_STATE_TOUCH;
-				ret = ts->sec_ts_write(ts,
-					SEC_TS_CMD_CHG_SYSMODE, buff, 2);
-				if (ret < 0)
-					input_err(true, &ts->client->dev,
-						"%s: mis_cal_check error[2] ret: %d\n",
-						__func__, ret);
-
-				input_info(true, &ts->client->dev,
-					"%s: mis_cal check\n", __func__);
-				ret = ts->sec_ts_write(ts,
-					SEC_TS_CMD_MIS_CAL_CHECK, NULL, 0);
-				if (ret < 0)
-					input_err(true, &ts->client->dev,
-						"%s: mis_cal_check error[3] ret: %d\n",
-						__func__, ret);
-				sec_ts_delay(200);
-
-				ret = ts->sec_ts_read(ts,
-					SEC_TS_CMD_MIS_CAL_READ,
-					&mis_cal_data, 1);
-				if (ret < 0)
-					input_err(true, &ts->client->dev,
-						"%s: fail!, %d\n",
-						__func__, ret);
-				else
-					input_info(true, &ts->client->dev,
-						"%s: mis_cal data : %d\n",
-						__func__, mis_cal_data);
-
-				buff[0] = STATE_MANAGE_ON;
-				ret = ts->sec_ts_write(ts,
-					SEC_TS_CMD_STATEMANAGE_ON, buff, 1);
-				if (ret < 0)
-					input_err(true, &ts->client->dev,
-						"%s: mis_cal_check error[4] ret: %d\n",
-						__func__, ret);
-			}
-
+			sec_ts_run_cal_check(ts);
 			/* Update calibration report */
 			sec_ts_read_calibration_report(ts);
 		} else
