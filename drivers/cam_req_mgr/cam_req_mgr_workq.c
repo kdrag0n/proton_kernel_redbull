@@ -89,7 +89,7 @@ static int cam_req_mgr_process_task(struct crm_workq_task *task)
  * cam_req_mgr_process_workq() - main loop handling
  * @w: workqueue task pointer
  */
-static void cam_req_mgr_process_workq(struct work_struct *w)
+static void cam_req_mgr_process_workq(struct kthread_work *w)
 {
 	struct cam_req_mgr_core_workq *workq = NULL;
 	struct crm_workq_task         *task;
@@ -152,11 +152,6 @@ int cam_req_mgr_workq_enqueue_task(struct crm_workq_task *task,
 		? prio : CRM_TASK_PRIORITY_0;
 
 	WORKQ_ACQUIRE_LOCK(workq, flags);
-		if (!workq->job) {
-			rc = -EINVAL;
-			WORKQ_RELEASE_LOCK(workq, flags);
-			goto end;
-		}
 
 	list_add_tail(&task->entry,
 		&workq->task.process_head[task->priority]);
@@ -165,7 +160,7 @@ int cam_req_mgr_workq_enqueue_task(struct crm_workq_task *task,
 	CAM_DBG(CAM_CRM, "enq task %pK pending_cnt %d",
 		task, atomic_read(&workq->task.pending_cnt));
 
-	queue_work(workq->job, &workq->work);
+	kthread_queue_work(&workq->job_worker, &workq->work);
 	WORKQ_RELEASE_LOCK(workq, flags);
 end:
 	return rc;
@@ -176,10 +171,12 @@ int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 	struct cam_req_mgr_core_workq **workq, enum crm_workq_context in_irq,
 	int flags)
 {
-	int32_t i, wq_flags = 0, max_active_tasks = 0;
+	int32_t i, max_active_tasks = 0;
 	struct crm_workq_task  *task;
 	struct cam_req_mgr_core_workq *crm_workq = NULL;
 	char buf[128] = "crm_workq-";
+	struct sched_param param = { .sched_priority = 1 };
+	int error;
 
 	if (!*workq) {
 		crm_workq = kzalloc(sizeof(struct cam_req_mgr_core_workq),
@@ -187,24 +184,31 @@ int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 		if (crm_workq == NULL)
 			return -ENOMEM;
 
-		wq_flags |= WQ_UNBOUND;
-		if (flags & CAM_WORKQ_FLAG_HIGH_PRIORITY)
-			wq_flags |= WQ_HIGHPRI;
-
 		if (flags & CAM_WORKQ_FLAG_SERIAL)
 			max_active_tasks = 1;
 
 		strlcat(buf, name, sizeof(buf));
 		CAM_DBG(CAM_CRM, "create workque crm_workq-%s", name);
-		crm_workq->job = alloc_workqueue(buf,
-			wq_flags, max_active_tasks, NULL);
-		if (!crm_workq->job) {
+		kthread_init_worker(&crm_workq->job_worker);
+		crm_workq->job_worker_thread = kthread_run(kthread_worker_fn,
+							&crm_workq->job_worker,
+							buf);
+		if (IS_ERR(crm_workq->job_worker_thread)) {
 			kfree(crm_workq);
 			return -ENOMEM;
 		}
 
+		/* non-fatal error, ignore if occurs */
+		error = sched_setscheduler(crm_workq->job_worker_thread,
+					   SCHED_FIFO,
+					   &param);
+		if (error){
+			CAM_WARN(CAM_CRM, "Unable to set SCHED_FIFO, error %d",
+				 error);
+		}
+
 		/* Workq attributes initialization */
-		INIT_WORK(&crm_workq->work, cam_req_mgr_process_workq);
+		kthread_init_work(&crm_workq->work, cam_req_mgr_process_workq);
 		spin_lock_init(&crm_workq->lock_bh);
 		CAM_DBG(CAM_CRM, "LOCK_DBG workq %s lock %pK",
 			name, &crm_workq->lock_bh);
@@ -246,16 +250,16 @@ EXPORT_SYMBOL_GPL(cam_req_mgr_workq_create);
 void cam_req_mgr_workq_destroy(struct cam_req_mgr_core_workq **crm_workq)
 {
 	unsigned long flags = 0;
-	struct workqueue_struct   *job;
+	struct task_struct *job;
 
 	CAM_DBG(CAM_CRM, "destroy workque %pK", crm_workq);
 	if (*crm_workq) {
 		WORKQ_ACQUIRE_LOCK(*crm_workq, flags);
-		if ((*crm_workq)->job) {
-			job = (*crm_workq)->job;
-			(*crm_workq)->job = NULL;
+		if ((*crm_workq)->job_worker_thread) {
+			job = (*crm_workq)->job_worker_thread;
+			(*crm_workq)->job_worker_thread = NULL;
 			WORKQ_RELEASE_LOCK(*crm_workq, flags);
-			destroy_workqueue(job);
+			kthread_stop(job);
 		} else {
 			WORKQ_RELEASE_LOCK(*crm_workq, flags);
 		}
