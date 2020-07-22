@@ -30,7 +30,9 @@
 
 #define CAM_VSYNC_REQ_MSG_ID_V01         0x20
 #define CAM_VSYNC_RESP_MSG_ID_V01        0x20
-#define CAM_VSYNC_REQ_MAX_MSG_LEN_V01    520
+/** The recv_buf_size should be at least the size of the largest qmi msg used by the
+    client/service, which in this case, it's sns_client_report_ind_msg_v01. */
+#define CAM_VSYNC_REQ_MAX_MSG_LEN_V01    sizeof(struct sns_client_report_ind_msg_v01)
 
 /**   QMI Service ID for this Sensors Service  */
 #define SNS_CLIENT_SVC_ID_V01               400
