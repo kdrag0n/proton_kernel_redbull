@@ -7,6 +7,9 @@
 
 #include <linux/i2c.h>
 #include <linux/gpio.h>
+#include <uapi/linux/sched/types.h>
+#include <linux/sched.h>
+#include <linux/kthread.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-ioctl.h>
@@ -117,8 +120,7 @@ struct cam_ois_shift_buffer {
  */
 struct cam_ois_timer_t {
 	struct hrtimer hr_timer;
-	struct workqueue_struct *ois_wq;
-	struct work_struct g_work;
+	struct kthread_work g_work;
 	enum cam_ois_timer_state_t ois_timer_state;
 	struct cam_ois_ctrl_t *o_ctrl;
 	int i2c_fail_count;
@@ -169,6 +171,8 @@ struct cam_ois_ctrl_t {
 	struct cam_ois_shift_buffer buf;
 	struct cam_ois_timer_t timer;
 	struct mutex ois_shift_mutex;
+	struct kthread_worker worker;
+	struct task_struct *worker_thread;
 };
 
 #endif /*_CAM_OIS_DEV_H_ */
