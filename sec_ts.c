@@ -2963,7 +2963,7 @@ static int sec_ts_parse_dt(struct spi_device *client)
 			return -EINVAL;
 		}
 	} else {
-		input_err(true, dev,
+		input_dbg(true, dev,
 			  "%s: Failed to get tsp-icid gpio\n", __func__);
 	}
 
@@ -2992,8 +2992,9 @@ static int sec_ts_parse_dt(struct spi_device *client)
 	client->irq = gpio_to_irq(pdata->irq_gpio);
 
 	if (of_property_read_u32(np, "sec,irq_type", &pdata->irq_type)) {
-		input_err(true, dev,
-			  "%s: Failed to get irq_type property\n", __func__);
+		input_dbg(true, dev,
+			"%s: no irq_type property, set to default!\n",
+			__func__);
 		pdata->irq_type = IRQF_TRIGGER_LOW | IRQF_ONESHOT;
 	}
 
@@ -3039,7 +3040,7 @@ static int sec_ts_parse_dt(struct spi_device *client)
 		input_info(true, dev, "%s: TSP_ID : %d\n", __func__,
 			   gpio_get_value(pdata->tsp_id));
 	else
-		input_err(true, dev,
+		input_dbg(true, dev,
 			  "%s: Failed to get tsp-id gpio\n", __func__);
 
 	pdata->switch_gpio = of_get_named_gpio(np,
@@ -3105,11 +3106,11 @@ static int sec_ts_parse_dt(struct spi_device *client)
 
 	if (of_property_read_string_index(np, "sec,project_name", 0,
 					  &pdata->project_name))
-		input_err(true, &client->dev,
+		input_dbg(true, &client->dev,
 			"%s: skipped to get project_name property\n", __func__);
 	if (of_property_read_string_index(np, "sec,project_name",
 					  1, &pdata->model_name))
-		input_err(true, &client->dev,
+		input_dbg(true, &client->dev,
 			  "%s: skipped to get model_name property\n", __func__);
 
 #if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
@@ -3153,13 +3154,13 @@ static int sec_ts_parse_dt(struct spi_device *client)
 
 	if (of_property_read_string(np,
 		"sec,regulator_dvdd", &pdata->regulator_dvdd))
-		input_err(true, dev,
+		input_dbg(true, dev,
 			"%s: Failed to get regulator_dvdd name property\n",
 			__func__);
 
 	if (of_property_read_string(np,
 		"sec,regulator_avdd", &pdata->regulator_avdd))
-		input_err(true, dev,
+		input_dbg(true, dev,
 			"%s: Failed to get regulator_avdd name property\n",
 			__func__);
 
@@ -3189,14 +3190,14 @@ static int sec_ts_parse_dt(struct spi_device *client)
 	pdata->support_mt_pressure = true;
 
 #ifdef PAT_CONTROL
-	input_err(true, &client->dev,
+	input_info(true, &client->dev,
 		"%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, pat_function:%d mis_cal:%d dex:%d, gesture:%d\n",
 		__func__, pdata->io_burstmax, lcdtype, pdata->bringup,
 		pdata->firmware_name, count, pdata->tsp_id, pdata->tsp_icid,
 		pdata->pat_function, pdata->mis_cal_check, pdata->support_dex,
 		pdata->support_sidegesture);
 #else
-	input_err(true, &client->dev,
+	input_info(true, &client->dev,
 		  "%s: buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, dex:%d, gesture:%d\n",
 		  __func__, pdata->io_burstmax, lcdtype, pdata->bringup,
 		  pdata->firmware_name, count, pdata->tsp_id, pdata->tsp_icid,
@@ -3928,7 +3929,7 @@ static int sec_ts_probe(struct spi_device *client)
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "psy notifier register failed\n");
 
-	input_err(true, &ts->client->dev, "%s: done\n", __func__);
+	input_info(true, &ts->client->dev, "%s: done\n", __func__);
 	input_log_fix();
 
 	return 0;
@@ -4624,7 +4625,7 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 	mutex_lock(&ts->device_mutex);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_ON) {
-		input_err(true, &ts->client->dev,
+		input_info(true, &ts->client->dev,
 			  "%s: already power on\n", __func__);
 		goto out;
 	}
@@ -5283,7 +5284,6 @@ static int __init sec_ts_init(void)
 		return -ENODEV;
 	}
 #endif
-	pr_err("%s %s\n", SECLOG, __func__);
 
 #ifdef I2C_INTERFACE
 	return i2c_add_driver(&sec_ts_driver);
