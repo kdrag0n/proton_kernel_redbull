@@ -965,6 +965,8 @@ int dsi_backlight_late_dpms(struct dsi_backlight_config *bl, int power_mode)
 	backlight_update_status(bd);
 	sysfs_notify(&bd->dev.kobj, NULL, "state");
 
+	pr_info("sysfs_notify state:0x%0x\n", bd->props.state);
+
 	return 0;
 }
 
