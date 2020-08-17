@@ -774,6 +774,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	void *arg)
 {
 	int rc = 0, pkt_opcode = 0;
+	int8_t retries = 3;
 	struct cam_control *cmd = (struct cam_control *)arg;
 	struct cam_sensor_power_ctrl_t *power_info =
 		&s_ctrl->sensordata->power_info;
@@ -959,10 +960,26 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto release_mutex;
 		}
 
+		s_ctrl->sensor_state = CAM_SENSOR_ACQUIRE;
+		s_ctrl->last_flush_req = 0;
+		CAM_INFO(CAM_SENSOR,
+			"CAM_ACQUIRE_DEV Success, sensor_id:0x%x,sensor_slave_addr:0x%x",
+			s_ctrl->sensordata->slave_info.sensor_id,
+			s_ctrl->sensordata->slave_info.sensor_slave_addr);
+
 #if IS_ENABLED(CONFIG_CAMERA_GYRO)
 		if (s_ctrl->sensordata->slave_info.sensor_id == 0x363 &&
 			s_ctrl->custom_gyro_support) {
-			rc = enable_cam_gyro();
+			/* From vendor spec, we need to add at least 10 ms delay time
+			 * to pacify the first writing of gyro settings after turning
+			 * the camera power on. Use the retry mechanism to fulfill this purpose.
+			 */
+			while ((rc = enable_cam_gyro()) && (retries > 0)) {
+				CAM_ERR(CAM_SENSOR, "CAM_GYRO_ENABLE failure, wait and retry");
+				retries--;
+				/* TBD: Delay 1 ms for each retry */
+				usleep_range(1000, 3000);
+			}
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR, "CAM_GYRO_ENABLE failure");
 				cam_sensor_power_down(s_ctrl);
@@ -971,13 +988,6 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				CAM_INFO(CAM_SENSOR, "CAM_GYRO_ENABLE success");
 		}
 #endif
-
-		s_ctrl->sensor_state = CAM_SENSOR_ACQUIRE;
-		s_ctrl->last_flush_req = 0;
-		CAM_INFO(CAM_SENSOR,
-			"CAM_ACQUIRE_DEV Success, sensor_id:0x%x,sensor_slave_addr:0x%x",
-			s_ctrl->sensordata->slave_info.sensor_id,
-			s_ctrl->sensordata->slave_info.sensor_slave_addr);
 	}
 		break;
 	case CAM_RELEASE_DEV: {
