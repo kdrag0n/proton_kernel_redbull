@@ -6814,8 +6814,15 @@ int msm_comm_qbuf_cache_operations(struct msm_vidc_inst *inst,
 			rc = msm_smem_cache_operations(mbuf->smem[i].dma_buf,
 					cache_op, offset, size, inst->sid);
 			if (rc)
-				print_vidc_buffer(VIDC_ERR,
-					"qbuf cache ops failed", inst, mbuf);
+				dprintk_ratelimit(VIDC_ERR,
+					"qbuf cache ops failed: %s: idx %2d fd %d off %d daddr %x size %d filled %d flags 0x%x ts %lld refcnt %d mflags 0x%x\n",
+					vb->type == INPUT_MPLANE ?
+					"OUTPUT" : "CAPTURE",
+					vb->index, vb->planes[i].m.fd,
+					vb->planes[i].data_offset, mbuf->smem[i].device_addr,
+					vb->planes[i].length, vb->planes[i].bytesused,
+					mbuf->vvb.flags, mbuf->vvb.vb2_buf.timestamp,
+					mbuf->smem[i].refcount, mbuf->flags);
 		}
 	}
 
