@@ -699,7 +699,9 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 	mutex_unlock(&bl->state_lock);
 
 	if (show_mode) {
-		const struct dsi_display_mode *mode = panel->cur_mode;
+		const struct dsi_display_mode *mode =
+				get_panel_display_mode(panel);
+
 		if (unlikely(!mode))
 			return -ENODEV;
 
