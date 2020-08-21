@@ -441,6 +441,13 @@ static int panel_post_enable(struct dsi_panel *panel)
 	return rc;
 }
 
+const struct dsi_display_mode *get_panel_display_mode(struct dsi_panel *panel)
+{
+	struct panel_switch_data *pdata = panel->private_data;
+
+	return unlikely(!pdata) ? NULL : pdata->display_mode;
+}
+
 static int panel_idle(struct dsi_panel *panel)
 {
 	struct panel_switch_data *pdata = panel->private_data;
