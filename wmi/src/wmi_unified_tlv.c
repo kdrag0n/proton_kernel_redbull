@@ -3140,6 +3140,10 @@ static QDF_STATUS send_scan_chan_list_cmd_tlv(wmi_unified_t wmi_handle,
 			WMI_SET_CHANNEL_FLAG(chan_info,
 					     WMI_CHAN_FLAG_QUARTER_RATE);
 
+		if (tchan_info->nan_disabled)
+			WMI_SET_CHANNEL_FLAG(chan_info,
+					     WMI_CHAN_FLAG_NAN_DISABLED);
+
 		/* also fill in power information */
 		WMI_SET_CHANNEL_MIN_POWER(chan_info,
 					  tchan_info->minpower);
