@@ -537,10 +537,6 @@ static bool sap_chan_sel_init(mac_handle_t mac_handle,
 		if (wlan_reg_is_dsrc_chan(mac->pdev, *pChans))
 			continue;
 
-		if (!mac->mlme_cfg->reg.etsi13_srd_chan_in_master_mode &&
-		    wlan_reg_is_etsi13_srd_chan(mac->pdev, *pChans))
-			continue;
-
 		if (true == chSafe) {
 			pSpectCh->valid = true;
 			for (chan_num = 0; chan_num < sap_ctx->num_of_channel;
