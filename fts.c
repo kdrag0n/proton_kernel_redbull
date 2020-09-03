@@ -4420,13 +4420,21 @@ static void fts_offload_report(void *handle,
 	input_set_timestamp(info->input_dev, report->timestamp);
 
 	for (i = 0; i < MAX_COORDS; i++) {
-		if (report->coords[i].status == COORD_STATUS_FINGER) {
+		if (report->coords[i].status != COORD_STATUS_INACTIVE) {
+			int mt_tool = MT_TOOL_FINGER;
+
 			input_mt_slot(info->input_dev, i);
 			touch_down = 1;
 			input_report_key(info->input_dev, BTN_TOUCH,
 					 touch_down);
+
+			if (report->coords[i].status == COORD_STATUS_EDGE ||
+			    report->coords[i].status == COORD_STATUS_PALM ||
+			    report->coords[i].status == COORD_STATUS_CANCEL)
+				mt_tool = MT_TOOL_PALM;
+
 			input_mt_report_slot_state(info->input_dev,
-						   MT_TOOL_FINGER, 1);
+						   mt_tool, 1);
 			input_report_abs(info->input_dev, ABS_MT_POSITION_X,
 					 report->coords[i].x);
 			input_report_abs(info->input_dev, ABS_MT_POSITION_Y,
