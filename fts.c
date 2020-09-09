@@ -174,6 +174,9 @@ void release_all_touches(struct fts_ts_info *info)
 		input_report_abs(info->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(info->input_dev, type, 0);
 		input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		info->offload.coords[i].status = COORD_STATUS_INACTIVE;
+#endif
 	}
 	input_report_key(info->input_dev, BTN_TOUCH, 0);
 	input_sync(info->input_dev);
