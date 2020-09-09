@@ -4031,6 +4031,9 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+			ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
+#endif
 			input_info(true, &ts->client->dev,
 				"%s: [RA] tID:%d mc:%d tc:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d\n",
 				__func__, i,
@@ -4099,6 +4102,9 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+			ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
+#endif
 			input_info(true, &ts->client->dev,
 				"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X|%X), id(%d,%d), p:%d\n",
 				__func__, i, ts->coord[i].mcount,
