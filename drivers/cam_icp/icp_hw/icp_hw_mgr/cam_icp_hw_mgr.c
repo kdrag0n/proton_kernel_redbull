@@ -2850,8 +2850,16 @@ static int cam_icp_allocate_fw_mem(void)
 	size_t len;
 	dma_addr_t iova;
 
+#ifdef CONFIG_DMA_API_DEBUG
+	// Allocating FW memory generates a warning when CONFIG_DMA_API_DEBUG is
+	// set. It causes kernel panic if CONFIG_PANIC_ON_WARN_DEFAULT_ENABLE is
+	// set. b/160928541
+	CAM_ERR(CAM_ICP, "CONFIG_DMA_API_DEBUG is set");
+	return -ENOMEM;
+#else
 	rc = cam_smmu_alloc_firmware(icp_hw_mgr.iommu_hdl,
 		&iova, &kvaddr, &len);
+#endif
 	if (rc)
 		return -ENOMEM;
 
