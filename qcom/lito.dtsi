@@ -36,7 +36,7 @@
 		mboxes = <&qmp_aop 0>;
 	};
 
-	aliases {
+	aliases: aliases {
 		serial0 = &qupv3_se2_2uart;	/*RUMI*/
 		ufshc1 = &ufshc_mem; /* Embedded UFS slot */
 		swr0 = &swr0;
