@@ -4206,6 +4206,7 @@ static void fts_populate_mutual_channel(struct fts_ts_info *info,
 			}
 		}
 	}
+	kfree(ms_frame.node_data);
 }
 
 static void fts_populate_self_channel(struct fts_ts_info *info,
@@ -4247,6 +4248,8 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 		memcpy(&self_strength->data[2 * self_strength->tx_size],
 		       ss_frame.sense_data, 2 * self_strength->rx_size);
 	}
+	kfree(ss_frame.force_data);
+	kfree(ss_frame.sense_data);
 }
 
 static void fts_populate_frame(struct fts_ts_info *info,
