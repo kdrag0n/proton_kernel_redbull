@@ -1836,6 +1836,37 @@ static void sec_ts_handle_coord_event(struct sec_ts_data *ts,
 		input_err(true, &ts->client->dev,
 				"%s: tid(%d) is out of range\n",
 				__func__, t_id);
+
+	if (t_id < MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT) {
+		if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_PRESS) {
+			input_dbg(false, &ts->client->dev,
+				"%s[P] tID:%d x:%d y:%d z:%d major:%d minor:%d tc:%d type:%X\n",
+				ts->dex_name,
+				t_id, ts->coord[t_id].x,
+				ts->coord[t_id].y, ts->coord[t_id].z,
+				ts->coord[t_id].major,
+				ts->coord[t_id].minor,
+				ts->touch_count,
+				ts->coord[t_id].ttype);
+
+		} else if (ts->coord[t_id].action ==
+			   SEC_TS_COORDINATE_ACTION_RELEASE) {
+			input_dbg(false, &ts->client->dev,
+				"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d\n",
+				ts->dex_name,
+				t_id, ts->coord[t_id].mcount,
+				ts->touch_count,
+				ts->coord[t_id].x, ts->coord[t_id].y,
+				ts->plat_data->img_version_of_ic[2],
+				ts->plat_data->img_version_of_ic[3],
+				ts->cal_status, ts->nv, ts->tspid_val,
+				ts->tspicid_val,
+				ts->coord[t_id].palm_count);
+
+			ts->coord[t_id].mcount = 0;
+			ts->coord[t_id].palm_count = 0;
+		}
+	}
 }
 
 #ifdef SEC_TS_SUPPORT_CUSTOMLIB
@@ -2205,7 +2236,6 @@ static void sec_ts_offload_set_running(struct sec_ts_data *ts, bool running)
 static void sec_ts_read_event(struct sec_ts_data *ts)
 {
 	int ret;
-	u8 t_id;
 	u8 event_id;
 	u8 left_event_count;
 	u8 read_event_buff[MAX_EVENT_COUNT][SEC_TS_EVENT_BUFF_SIZE] = { { 0 } };
@@ -2247,7 +2277,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 		/* run lpm interrupt handler */
 	}
 
-	ret = t_id = event_id = curr_pos = remain_event_count = 0;
+	ret = event_id = curr_pos = remain_event_count = 0;
 	/* repeat READ_ONE_EVENT until buffer is empty(No event) */
 	ret = sec_ts_read(ts, SEC_TS_READ_ONE_EVENT,
 			  (u8 *)read_event_buff[0], SEC_TS_EVENT_BUFF_SIZE);
@@ -2303,8 +2333,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	}
 
 	do {
-		s16 max_force_p = 0;
-
 		event_buff = read_event_buff[curr_pos];
 		event_id = event_buff[0] & 0x3;
 
@@ -2483,44 +2511,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				event_buff[3], event_buff[4], event_buff[5]);
 			break;
 		}
-
-		if (t_id < MAX_SUPPORT_TOUCH_COUNT + MAX_SUPPORT_HOVER_COUNT) {
-			if (ts->coord[t_id].action ==
-			    SEC_TS_COORDINATE_ACTION_PRESS) {
-				input_dbg(false, &ts->client->dev,
-					"%s[P] tID:%d x:%d y:%d z:%d major:%d minor:%d tc:%d type:%X\n",
-					ts->dex_name,
-					t_id, ts->coord[t_id].x,
-					ts->coord[t_id].y, ts->coord[t_id].z,
-					ts->coord[t_id].major,
-					ts->coord[t_id].minor,
-					ts->touch_count,
-					ts->coord[t_id].ttype);
-
-			} else if (ts->coord[t_id].action ==
-				   SEC_TS_COORDINATE_ACTION_RELEASE) {
-				input_dbg(false, &ts->client->dev,
-					"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d P%02XT%04X\n",
-					ts->dex_name,
-					t_id, ts->coord[t_id].mcount,
-					ts->touch_count,
-					ts->coord[t_id].x, ts->coord[t_id].y,
-					max_force_p,
-					ts->plat_data->img_version_of_ic[2],
-					ts->plat_data->img_version_of_ic[3],
-					ts->cal_status, ts->nv, ts->tspid_val,
-					ts->tspicid_val,
-					ts->coord[t_id].palm_count,
-					ts->cal_count, ts->tune_fix_ver);
-
-				ts->coord[t_id].action =
-						SEC_TS_COORDINATE_ACTION_NONE;
-				ts->coord[t_id].mcount = 0;
-				ts->coord[t_id].palm_count = 0;
-				max_force_p = 0;
-			}
-		}
-
 		curr_pos++;
 		remain_event_count--;
 	} while (remain_event_count >= 0);
@@ -4151,81 +4141,9 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 {
-	int i;
-
 	mutex_lock(&ts->eventlock);
-
-	for (i = 0; i < MAX_SUPPORT_TOUCH_COUNT; i++) {
-		input_mt_slot(ts->input_dev, i);
-		if (ts->plat_data->support_mt_pressure)
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
-					   false);
-
-		if ((ts->coord[i].action == SEC_TS_COORDINATE_ACTION_PRESS) ||
-			(ts->coord[i].action ==
-			 SEC_TS_COORDINATE_ACTION_MOVE)) {
-
-			input_info(true, &ts->client->dev,
-				"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X|%X), id(%d,%d), p:%d\n",
-				__func__, i, ts->coord[i].mcount,
-				ts->touch_count,
-				ts->plat_data->img_version_of_ic[2],
-				ts->plat_data->img_version_of_ic[3],
-				ts->cal_status, ts->nv, ts->cal_count,
-				ts->tspid_val, ts->tspicid_val,
-				ts->coord[i].palm_count);
-
-			do_gettimeofday(&ts->time_released[i]);
-
-			if (ts->time_longest <
-				(ts->time_released[i].tv_sec -
-				 ts->time_pressed[i].tv_sec))
-				ts->time_longest =
-					(ts->time_released[i].tv_sec -
-					 ts->time_pressed[i].tv_sec);
-		}
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
-		ts->offload.coords[i].major = 0;
-		ts->offload.coords[i].minor = 0;
-		ts->offload.coords[i].pressure = 0;
-#endif
-		ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
-		ts->coord[i].mcount = 0;
-		ts->coord[i].palm_count = 0;
-
-	}
-
-	input_mt_slot(ts->input_dev, 0);
-
-	input_report_key(ts->input_dev, BTN_TOUCH, false);
-	input_report_key(ts->input_dev, BTN_TOOL_FINGER, false);
-#ifdef SW_GLOVE
-	input_report_switch(ts->input_dev, SW_GLOVE, false);
-#endif
-	ts->touchkey_glove_mode_status = false;
-	ts->touch_count = 0;
-	ts->check_multi = 0;
-	ts->tid_palm_state = 0;
-	ts->tid_grip_state = 0;
-	ts->tid_touch_state = 0;
-	ts->palms_leaved_once = false;
-	ts->grips_leaved_once = false;
-
-#ifdef KEY_SIDE_GESTURE
-	if (ts->plat_data->support_sidegesture) {
-		input_report_key(ts->input_dev, KEY_SIDE_GESTURE, 0);
-		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_LEFT, 0);
-		input_report_key(ts->input_dev, KEY_SIDE_GESTURE_RIGHT, 0);
-	}
-#endif
-	input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
-	input_sync(ts->input_dev);
-
+	sec_ts_unlocked_release_all_finger(ts);
 	mutex_unlock(&ts->eventlock);
-
 }
 
 #ifdef USE_POWER_RESET_WORK
