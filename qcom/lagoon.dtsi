@@ -325,7 +325,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 earlycon=msm_geni_serial,0x98c000";
+		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 earlycon=msm_geni_serial,0x98c000 kpti=off";
 	};
 
 	soc: soc { };
@@ -536,6 +536,7 @@
 
 	bluetooth: bt_wcn3990 {
 		compatible = "qca,wcn3990";
+		qca,bt-sw-ctrl-gpio = <&tlmm 69 0>; /* SW_CTRL */
 		qca,bt-vdd-io-supply =   <&L11A>;  /* IO */
 		qca,bt-vdd-core-supply = <&L2E>; /* RFA */
 		qca,bt-vdd-pa-supply =   <&L10E>; /* CH0 */
@@ -946,12 +947,15 @@
 				  <SLEEP_TCS   1>,
 				  <WAKE_TCS    1>,
 				  <CONTROL_TCS 0>;
-		status = "disabled";
 
 		msm_bus_disp_rsc {
 			compatible = "qcom,msm-bus-rsc";
 			qcom,msm-bus-id = <MSM_BUS_RSC_DISP>;
-			status = "disabled";
+		};
+
+		sde_rsc_rpmh {
+			compatible = "qcom,sde-rsc-rpmh";
+			cell-index = <0>;
 		};
 	};
 
@@ -1881,7 +1885,7 @@
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 				<129 512 0 0>,
-				<129 512 0 1041408>;
+				<129 512 0 8171520>;
 
 		/* Outputs to mss */
 		qcom,smem-states = <&mpss_smp2p_out 0>;
@@ -1905,6 +1909,7 @@
 		interrupt-names = "tsens-upper-lower", "tsens-critical",
 				"tsens-0C";
 		0C-sensor-num = <16>;
+		tsens-reinit-wa;
 		#thermal-sensor-cells = <1>;
 	};
 
@@ -1920,6 +1925,7 @@
 		interrupt-names = "tsens-upper-lower", "tsens-critical",
 				"tsens-0C";
 		0C-sensor-num = <16>;
+		tsens-reinit-wa;
 		#thermal-sensor-cells = <1>;
 	};
 
@@ -2368,6 +2374,25 @@
 				compatible = "qcom,msm-fastrpc-rpmsg";
 				qcom,glink-channels = "fastrpcglink-apps-dsp";
 				qcom,intents = <0x64 64>;
+			};
+
+			qcom,msm_cdsprm_rpmsg {
+				compatible = "qcom,msm-cdsprm-rpmsg";
+				qcom,glink-channels = "cdsprmglink-apps-dsp";
+				qcom,intents = <0x20 12>;
+
+				qcom,cdsp-cdsp-l3-gov {
+					compatible = "qcom,cdsp-l3";
+					qcom,target-dev = <&cdsp_l3>;
+				};
+
+				msm_cdsp_rm: qcom,msm_cdsp_rm {
+					compatible = "qcom,msm-cdsp-rm";
+					qcom,qos-latency-us = <70>;
+					qcom,qos-maxhold-ms = <20>;
+					qcom,compute-cx-limit-en;
+					qcom,compute-priority-mode = <2>;
+				};
 			};
 
 			qcom,cdsp_glink_ssr {
@@ -3209,6 +3234,7 @@
 		vdd-3.3-ch1-supply = <&L11E>;
 		vdd-3.3-ch0-supply = <&L10E>;
 		qcom,vdd-cx-mx-config = <0 0>;
+		qcom,vdd-1.3-rfa-config = <1224000 1304000>;
 		qcom,vdd-3.3-ch1-config = <3000000 3312000>;
 		qcom,vdd-3.3-ch0-config = <3000000 3312000>;
 		qcom,smp2p_map_wlan_1_in {
@@ -3596,28 +3622,28 @@
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_LLCC 150000 500000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 150000 700000>,
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 75000 700000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 76800>,
-		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 150>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 55000>,
+		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 100>,
 
 		/* SVS */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_LLCC 625000 1200000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 625000 1100000>,
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 312500 1500000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 150000>,
-		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 260>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 134000>,
+		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 180>,
 
 		/* NOMINAL */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_LLCC 1250000 2400000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 1250000 1800000>,
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 625000 3100000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 400000>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 223000>,
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 450>,
 
 		/* TURBO */
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_LLCC 2000000 3500000>,
 		<MSM_BUS_MASTER_LLCC MSM_BUS_SLAVE_EBI_CH0 2000000 2000000>,
 		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 1000000 4100000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 400000>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 0 358000>,
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 550>;
 
 
@@ -3648,6 +3674,7 @@
 		qcom,additional-mapping = <0x146a8000 0x146a8000 0x2000>;
 		qcom,iommu-dma = "fastmap";
 		qcom,ipa-q6-smem-size = <26624>;
+		qcom,geometry-mapping = <0x0 0xF0000000>;
 	};
 
 	ipa_smmu_wlan: ipa_smmu_wlan {
@@ -3655,7 +3682,7 @@
 		iommus = <&apps_smmu 0x0441 0x0>;
 		/* ipa-uc ram */
 		qcom,additional-mapping = <0x1ea0000 0x1ea0000 0x80000>;
-		qcom,iommu-dma = "fastmap";
+		qcom,iommu-dma = "atomic";
 	};
 
 	ipa_smmu_uc: ipa_smmu_uc {

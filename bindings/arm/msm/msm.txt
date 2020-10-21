@@ -50,6 +50,9 @@ SoCs:
 - LITO
   compatible = "qcom,lito"
 
+- ORCHID
+  compatible = "qcom,orchid"
+
 - LAGOON
   compatible = "qcom,lagoon"
 
@@ -58,6 +61,12 @@ SoCs:
 
 - SCUBA
   compatible = "qcom,scuba"
+
+- SCUBAIOT
+  compatible = "qcom,scuba-iot"
+
+- SCUBAPIOT
+  compatible = "qcom,scubap-iot"
 
 - SDMSHRIKE
   compatible = "qcom,sdmshrike"
@@ -82,6 +91,12 @@ SoCs:
 
 - SDA660
   compatible = "qcom,sda660"
+
+- BENGAL_IOT
+  compatible = "qcom,bengal-iot"
+
+- BENGALP-IOT
+  compatible = "qcom,bengalp-iot"
 
 Generic board variants:
 
@@ -187,6 +202,8 @@ compatible = "qcom,lito-mtp"
 compatible = "qcom,lito-cdp"
 compatible = "qcom,lito-atp"
 compatible = "qcom,lito-qrd"
+compatible = "qcom,orchid-mtp"
+compatible = "qcom,orchid-cdp"
 compatible = "qcom,lagoon-rumi"
 compatible = "qcom,lagoon-mtp"
 compatible = "qcom,lagoon-cdp"
@@ -226,3 +243,7 @@ compatible = "qcom,sdm660-sim"
 compatible = "qcom,sda660-mtp"
 compatible = "qcom,sda660-cdp"
 compatible = "qcom,sda660-qrd"
+compatible = "qcom,bengal-iot"
+compatible = "qcom,bengalp-iot"
+compatible = "qcom,bengal-iot-idp"
+compatible = "qcom,bengalp-iot-idp"
