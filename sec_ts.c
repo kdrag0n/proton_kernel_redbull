@@ -2682,10 +2682,10 @@ static void sec_ts_offload_report(void *handle,
 					 report->coords[i].major);
 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR,
 					 report->coords[i].minor);
-#ifndef SKIP_PRESSURE
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE,
-					 report->coords[i].pressure);
-#endif
+			if (ts->plat_data->support_mt_pressure)
+				input_report_abs(ts->input_dev,
+					ABS_MT_PRESSURE,
+					report->coords[i].pressure);
 		} else {
 			input_mt_slot(ts->input_dev, i);
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
@@ -4080,6 +4080,8 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 	for (i = 0; i < MAX_SUPPORT_TOUCH_COUNT; i++) {
 		input_mt_slot(ts->input_dev, i);
+		if (ts->plat_data->support_mt_pressure)
+			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
 					   false);
 
@@ -4087,10 +4089,6 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 			(ts->coord[i].action ==
 			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
-			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-			ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
-#endif
 			input_info(true, &ts->client->dev,
 				"%s: [RA] tID:%d mc:%d tc:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d\n",
 				__func__, i,
@@ -4110,6 +4108,13 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 					 ts->time_pressed[i].tv_sec);
 		}
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
+		ts->offload.coords[i].major = 0;
+		ts->offload.coords[i].minor = 0;
+		ts->offload.coords[i].pressure = 0;
+#endif
+		ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 		ts->coord[i].mcount = 0;
 		ts->coord[i].palm_count = 0;
 
@@ -4151,6 +4156,8 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 
 	for (i = 0; i < MAX_SUPPORT_TOUCH_COUNT; i++) {
 		input_mt_slot(ts->input_dev, i);
+		if (ts->plat_data->support_mt_pressure)
+			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER,
 					   false);
 
@@ -4158,10 +4165,6 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 			(ts->coord[i].action ==
 			 SEC_TS_COORDINATE_ACTION_MOVE)) {
 
-			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-			ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
-#endif
 			input_info(true, &ts->client->dev,
 				"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X|%X), id(%d,%d), p:%d\n",
 				__func__, i, ts->coord[i].mcount,
@@ -4182,6 +4185,13 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 					 ts->time_pressed[i].tv_sec);
 		}
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		ts->offload.coords[i].status = COORD_STATUS_INACTIVE;
+		ts->offload.coords[i].major = 0;
+		ts->offload.coords[i].minor = 0;
+		ts->offload.coords[i].pressure = 0;
+#endif
+		ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 		ts->coord[i].mcount = 0;
 		ts->coord[i].palm_count = 0;
 
