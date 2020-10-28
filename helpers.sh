@@ -88,9 +88,7 @@ _ksetup_functions+=(
 	cf
 	ec
 	osize
-	glink
 	unsetup
-	utree
 )
 
 # Get kernel repository root for later use
@@ -375,11 +373,6 @@ function ssize() {
 	nm --size -r "$kroot/out/vmlinux" | rg -ve ' b ' -e ' B ' | head -${1:-25}
 }
 
-# Create a link to a commit on GitHub
-function glink() {
-	echo "https://github.com/kdrag0n/proton_$device_name/commit/$1"
-}
-
 # Clean up shell environment and remove all traces of ksetup
 function unsetup() {
 	# unset calls are silenced to prevent error spam when elements are
@@ -397,13 +390,4 @@ function unsetup() {
 	for var in "${_ksetup_vars[@]}"; do
 		unset -v "$var" > /dev/null 2>&1
 	done
-}
-
-# Update CAF subtrees to a given tag
-function utree() {
-        git subtree pull --prefix techpack/audio audio-kernel "$1"
-        git subtree pull --prefix techpack/data data-kernel "$1"
-        git subtree pull --prefix drivers/staging/qcacld-3.0 qcacld-3.0 "$1"
-        git subtree pull --prefix drivers/staging/qca-wifi-host-cmn qca-wifi-host-cmn "$1"
-        git subtree pull --prefix drivers/staging/fw-api fw-api "$1"
 }
