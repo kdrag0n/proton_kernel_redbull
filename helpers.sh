@@ -17,7 +17,7 @@
 kernel_name="ProtonKernel"
 
 # Defconfig name
-defconfig="vendor/kirin_defconfig"
+defconfig="redbull_defconfig"
 
 # Target architecture
 arch="arm64"
@@ -30,13 +30,13 @@ kmake_flags=(
 )
 
 # Target device name to use in flashable package names
-device_name="zenfone6"
+device_name="pixel5"
 
 # Target device's SSH hostname (on LAN)
-lan_ssh_host="zenfone6"
+lan_ssh_host="pixel5"
 
 # Target device's SSH hostname (on VPN)
-vpn_ssh_host="vzenfone6"
+vpn_ssh_host="vpixel5"
 
 
 #### BASE ####
@@ -161,7 +161,7 @@ function mkzip() {
 	fi
 
 	# Copy kernel image
-	cp "$kroot/out/arch/$arch/boot/Image.gz-dtb" "$kroot/flasher/"
+	cp "$kroot/out/arch/$arch/boot/Image.lz4-dtb" "$kroot/flasher/"
 
 	# Generate version banner to be shown during flash
 	echo "  • Installing $build_type build $version" >| "$kroot/flasher/version"
