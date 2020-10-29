@@ -487,11 +487,6 @@
 			label = "dfps_data_region";
 		};
 
-		disp_rdump_memory: disp_rdump_region@0xa0000000 {
-			reg = <0x0 0xA0000000 0x0 0x02300000>;
-			label = "disp_rdump_region";
-		};
-
 		/* global autoconfigured region for contiguous allocations */
 		linux,cma {
 			compatible = "shared-dma-pool";
