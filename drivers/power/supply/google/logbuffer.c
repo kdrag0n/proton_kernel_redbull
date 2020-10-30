@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 #include <linux/syscore_ops.h>
 #include <linux/miscdevice.h>
+#include <linux/vmalloc.h>
 
 #define LOG_BUFFER_ENTRIES      1024
 #define LOG_BUFFER_ENTRY_SIZE   256
