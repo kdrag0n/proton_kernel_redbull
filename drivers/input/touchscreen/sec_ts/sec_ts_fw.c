@@ -189,7 +189,7 @@ int sec_ts_system_reset(struct sec_ts_data *ts)
 			input_err(true, &ts->client->dev,
 				"%s: sw_reset time out!\n", __func__);
 		else
-			input_info(true,
+			input_dbg(true,
 				&ts->client->dev, "%s: sw_reset done\n",
 				__func__);
 	}

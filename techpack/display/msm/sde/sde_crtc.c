@@ -6175,7 +6175,7 @@ static void __sde_crtc_early_wakeup_work(struct kthread_work *work)
 	}
 
 	if (!sde_crtc->enabled) {
-		SDE_INFO("sde crtc is not enabled\n");
+		SDE_DEBUG("sde crtc is not enabled\n");
 		return;
 	}
 
