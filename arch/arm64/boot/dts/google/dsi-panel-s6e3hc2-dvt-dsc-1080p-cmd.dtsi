@@ -92,7 +92,7 @@
 				qcom,mdss-dsi-v-pulse-width = <4>;
 				qcom,mdss-dsi-on-command = [
 					07 01 00 00 00 00 01 01    /* Compression Enable */
-					05 01 00 00 78 00 01 11    /* sleep out, Wait 120 ms */
+					05 01 00 00 0a 00 01 11    /* sleep out, Wait 10 ms */
 
 					/* write ctl 60hz */
 					15 01 00 00 00 00 02 53 28
@@ -202,7 +202,7 @@
 				qcom,mdss-dsi-v-pulse-width = <4>;
 				qcom,mdss-dsi-on-command = [
 					07 01 00 00 00 00 01 01    /* Compression Enable */
-					05 01 00 00 78 00 01 11    /* sleep out, Wait 120 ms */
+					05 01 00 00 0a 00 01 11    /* sleep out, Wait 10 ms */
 
 					/* write ctl 90hz */
 					15 01 00 00 00 00 02 53 38
