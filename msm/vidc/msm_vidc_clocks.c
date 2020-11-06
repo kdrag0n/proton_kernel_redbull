@@ -1726,13 +1726,10 @@ int msm_vidc_decide_core_and_power_mode_iris1(struct msm_vidc_inst *inst)
 		msm_vidc_power_save_mode_enable(inst, enable);
 	} else if (cur_inst_lp_load + core_load <= max_freq) {
 		msm_vidc_power_save_mode_enable(inst, true);
-	} else if (cur_inst_lp_load + core_lp_load <= max_freq) {
+	} else {
 		s_vpr_h(inst->sid, "Moved all inst's to LP");
 		msm_vidc_move_core_to_power_save_mode(core,
 			VIDC_CORE_ID_1, inst->sid);
-	} else {
-		s_vpr_e(inst->sid, "Core cannot support this load\n");
-		return -EINVAL;
 	}
 
 	inst->clk_data.core_id = VIDC_CORE_ID_1;
