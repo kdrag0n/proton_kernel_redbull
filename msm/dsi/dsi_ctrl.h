@@ -239,6 +239,8 @@ struct dsi_ctrl_interrupts {
  *                           insert null packet.
  * @modeupdated:	  Boolean to send new roi if mode is updated.
  * @split_link_supported: Boolean to check if hw supports split link.
+ * @cmd_mode:		Boolean to indicate if panel is running in
+			command mode.
  */
 struct dsi_ctrl {
 	struct platform_device *pdev;
@@ -299,6 +301,7 @@ struct dsi_ctrl {
 	bool null_insertion_enabled;
 	bool modeupdated;
 	bool split_link_supported;
+	bool cmd_mode;
 };
 
 /**
@@ -861,4 +864,18 @@ void dsi_ctrl_set_continuous_clk(struct dsi_ctrl *dsi_ctrl, bool enable);
  * @dsi_ctrl:                      DSI controller handle.
  */
 int dsi_ctrl_wait4dynamic_refresh_done(struct dsi_ctrl *ctrl);
+
+/**
+ * dsi_ctrl_mask_overflow() -	API to mask/unmask overflow errors.
+ * @dsi_ctrl:			DSI controller handle.
+ * @enable:			variable to control masking/unmasking.
+ */
+void dsi_ctrl_mask_overflow(struct dsi_ctrl *dsi_ctrl, bool enable);
+
+/**
+ * dsi_ctrl_clear_slave_dma_status -   API to clear slave DMA status
+ * @dsi_ctrl:                   DSI controller handle.
+ * @flags:                      Modifiers
+ */
+int dsi_ctrl_clear_slave_dma_status(struct dsi_ctrl *dsi_ctrl, u32 flags);
 #endif /* _DSI_CTRL_H_ */

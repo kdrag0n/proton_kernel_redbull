@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -92,6 +92,14 @@ void dsi_ctrl_hw_cmn_host_setup(struct dsi_ctrl_hw *ctrl,
 	dsi_setup_trigger_controls(ctrl, cfg);
 	dsi_split_link_setup(ctrl, cfg);
 
+	/* Setup T_CLK_PRE extend register */
+	reg_value = DSI_R32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE);
+	if (cfg->t_clk_pre_extend)
+		reg_value |= BIT(0);
+	else
+		reg_value &= ~BIT(0);
+	DSI_W32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE, reg_value);
+
 	/* Setup clocking timing controls */
 	reg_value = ((cfg->t_clk_post & 0x3F) << 8);
 	reg_value |= (cfg->t_clk_pre & 0x3F);
@@ -181,6 +189,7 @@ void dsi_ctrl_hw_cmn_soft_reset(struct dsi_ctrl_hw *ctrl)
 	DSI_W32(ctrl, DSI_CTRL, reg_ctrl);
 	wmb(); /* make sure DSI controller is enabled again */
 	DSI_CTRL_HW_DBG(ctrl, "ctrl soft reset done\n");
+	SDE_EVT32(ctrl->index);
 }
 
 /**
@@ -769,7 +778,6 @@ void dsi_ctrl_hw_cmn_reset_cmd_fifo(struct dsi_ctrl_hw *ctrl)
 void dsi_ctrl_hw_cmn_trigger_command_dma(struct dsi_ctrl_hw *ctrl)
 {
 	DSI_W32(ctrl, DSI_CMD_MODE_DMA_SW_TRIGGER, 0x1);
-	DSI_CTRL_HW_DBG(ctrl, "CMD DMA triggered\n");
 }
 
 /**

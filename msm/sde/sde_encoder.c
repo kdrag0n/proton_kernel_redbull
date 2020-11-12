@@ -3447,7 +3447,8 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 
 	_sde_encoder_input_handler_register(drm_enc);
 
-	if ((drm_enc->crtc->state->connectors_changed &&
+	if ((drm_enc->crtc && drm_enc->crtc->state &&
+			drm_enc->crtc->state->connectors_changed &&
 			sde_encoder_in_clone_mode(drm_enc)) ||
 			!(msm_is_mode_seamless_vrr(cur_mode)
 			|| msm_is_mode_seamless_dms(cur_mode)
@@ -3811,6 +3812,11 @@ void sde_encoder_register_vblank_callback(struct drm_encoder *drm_enc,
 	SDE_DEBUG_ENC(sde_enc, "\n");
 	SDE_EVT32(DRMID(drm_enc), enable);
 
+	if (sde_encoder_in_clone_mode(drm_enc)) {
+		SDE_EVT32(DRMID(drm_enc), SDE_EVTLOG_ERROR);
+		return;
+	}
+
 	spin_lock_irqsave(&sde_enc->enc_spinlock, lock_flags);
 	sde_enc->crtc_vblank_cb = vbl_cb;
 	sde_enc->crtc_vblank_cb_data = vbl_data;
@@ -3882,20 +3888,15 @@ static void sde_encoder_frame_done_callback(
 			if (sde_enc->phys_encs[i] == ready_phys) {
 				SDE_EVT32_VERBOSE(DRMID(drm_enc), i,
 				     atomic_read(&sde_enc->frame_done_cnt[i]));
-				if (!atomic_add_unless(
-					&sde_enc->frame_done_cnt[i], 1, 1)) {
+				if (atomic_inc_return(
+					&sde_enc->frame_done_cnt[i]) > 1)
 					SDE_EVT32(DRMID(drm_enc), event,
 						ready_phys->intf_idx,
 						SDE_EVTLOG_ERROR);
-					SDE_ERROR_ENC(sde_enc,
-						"intf idx:%d, event:%d\n",
-						ready_phys->intf_idx, event);
-					return;
-				}
 			}
 
 			if (topology != SDE_RM_TOPOLOGY_PPSPLIT &&
-			    atomic_read(&sde_enc->frame_done_cnt[i]) != 1)
+			    !atomic_read(&sde_enc->frame_done_cnt[i]))
 				trigger = false;
 		}
 
@@ -3908,7 +3909,7 @@ static void sde_encoder_frame_done_callback(
 					&sde_enc->crtc_frame_event_cb_data,
 					event);
 			for (i = 0; i < sde_enc->num_phys_encs; i++)
-				atomic_set(&sde_enc->frame_done_cnt[i], 0);
+				atomic_dec(&sde_enc->frame_done_cnt[i]);
 		}
 	} else if (sde_enc->crtc_frame_event_cb) {
 		if (!is_cmd_mode)
