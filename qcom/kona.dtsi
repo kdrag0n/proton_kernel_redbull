@@ -333,6 +333,11 @@
 			qcom,skip-enable-check;
 
 			#freq-domain-cells = <2>;
+
+			cpu7_notify: cpu7-notify {
+				qcom,cooling-cpu = <&CPU7>;
+				#cooling-cells = <2>;
+			};
 		};
 	};
 
@@ -342,7 +347,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7";
+		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off";
 	};
 
 	firmware: firmware {
@@ -386,6 +391,12 @@
 			reg = <0x0 0x80860000 0x0 0x20000>;
 			compatible = "qcom,cmd-db";
 			no-map;
+		};
+
+		reserved_xbl_uefi_log: res_xbl_uefi_log_region@80880000 {
+			compatible = "removed-dma-pool";
+			no-map;
+			reg = <0x0 0x80880000 0x0 0x14000>;
 		};
 
 		smem_mem: smem_region@80900000 {
@@ -564,6 +575,7 @@
 		cnss_wlan_mem: cnss_wlan_region {
 			compatible = "shared-dma-pool";
 			alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
+			reusable;
 			alignment = <0x0 0x400000>;
 			size = <0x0 0x1400000>;
 		};
@@ -2439,6 +2451,7 @@
 		#clock-cells = <1>;
 		mboxes = <&qmp_aop 0>;
 		mbox-names = "qdss_clk";
+		qcom,clk-stop-bimc-log;
 	};
 
 	clock_gcc: qcom,gcc@100000 {
@@ -2787,6 +2800,7 @@
 		sw-reset = <&gpu_gx_sw_reset>;
 		parent-supply = <&VDD_GFX_LEVEL>;
 		vdd_parent-supply = <&VDD_GFX_LEVEL>;
+		qcom,skip-disable-before-sw-enable;
 		qcom,reset-aon-logic;
 		qcom,retain-regs;
 	};
@@ -4510,6 +4524,21 @@
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x104>;
 		};
+
+		osm_reg {
+			qcom,dump-size = <0x400>;
+			qcom,dump-id = <0x163>;
+		};
+
+		pcu_reg {
+			qcom,dump-size = <0x400>;
+			qcom,dump-id = <0x164>;
+		};
+
+		fsm_data {
+			qcom,dump-size = <0x400>;
+			qcom,dump-id = <0x165>;
+		};
 	};
 
 	qcom_tzlog: tz-log@146bf720 {
@@ -4703,15 +4732,16 @@
 		pinctrl-0 = <&cnss_wlan_en_active>;
 		pinctrl-1 = <&cnss_wlan_en_sleep>;
 		qcom,wlan-rc-num = <0>;
-		qcom,wlan-ramdump-dynamic = <0x400000>;
+		qcom,wlan-ramdump-dynamic = <0x420000>;
 		qcom,smmu-s1-enable;
 		qcom,converged-dt;
 		cnss-daemon-support;
 		qcom,cmd_db_name = "smpf2";
 		qcom,set-wlaon-pwr-ctrl;
+		cnss-enable-self-recovery;
 
 		qcom,msm-bus,name = "msm-cnss";
-		qcom,msm-bus,num-cases = <6>;
+		qcom,msm-bus,num-cases = <7>;
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 		/* no vote */
@@ -4725,7 +4755,9 @@
 		/* high: 240 - 800 Mbps, ddr freq: 451.2 MHz */
 		<MSM_BUS_MASTER_PCIE MSM_BUS_SLAVE_FIRST 100000 1804800>,
 		/* very high: 800 - 1400 Mbps, ddr freq: 1555.2 MHz */
-		<MSM_BUS_MASTER_PCIE MSM_BUS_SLAVE_FIRST 175000 6220800>;
+		<MSM_BUS_MASTER_PCIE MSM_BUS_SLAVE_FIRST 175000 6220800>,
+		/* low (latency critical): 18 - 60 Mbps, ddr freq: 547.2 MHz */
+		<MSM_BUS_MASTER_PCIE MSM_BUS_SLAVE_FIRST 7500 2188800>;
 
 		vdd-wlan-aon-supply = <&pm8150_s6>;
 		qcom,vdd-wlan-aon-config = <950000 950000 0 0 1>;
@@ -4835,6 +4867,15 @@
 				mhi,msi = <2>;
 				mhi,priority = <1>;
 				mhi,brstmode = <2>;
+			};
+
+			mhi_event@2 {
+				mhi,num-elements = <32>;
+				mhi,intmod = <1>;
+				mhi,msi = <0>;
+				mhi,priority = <2>;
+				mhi,brstmode = <2>;
+				mhi,data-type = <3>;
 			};
 		};
 
