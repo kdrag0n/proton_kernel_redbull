@@ -44,6 +44,7 @@
 		swr2 = &swr2;
 		sdhc1 = &sdhc_1; /* SDC1 eMMC slot */
 		sdhc2 = &sdhc_2; /* SDC2 SD Card slot */
+		display0 = &framebuffer0;
 	};
 
 	cpus {
@@ -478,6 +479,8 @@
 		};
 
 		cont_splash_memory: cont_splash_region {
+                        compatible = "removed-dma-pool";
+                        no-map;
 			reg = <0x0 0xA0000000 0x0 0x02300000>;
 			label = "cont_splash_region";
 		};
@@ -500,7 +503,29 @@
 	};
 
 	chosen {
+                #address-cells = <2>;
+                #size-cells = <2>;
+                ranges;
+
+                stdout-path = "display0";
 		bootargs = "rcu_nocbs=0-7";
+
+                /* hack: use framebuffer setup by bootloader.
+                 * the address is taken from the bootloader config (strings xbl.img | grep "Display Reserved")
+                 * it's wrong (it's closer to 0x9d500000, so the top is cut off), but I spent an hour
+                 * trying to find the right address and give up. It's just a temp hack anyways.
+                 */
+                framebuffer0: framebuffer@9d400000 {
+                        compatible = "simple-framebuffer";
+                        //reg = <0 0x9d400000 0 0xfd2000>;
+                        //02400000
+                        reg = <0x0 0xa0000000 0x0 0x02300000>;
+                        width = <1080>;
+                        height = <2340>;
+                        stride = <(1080 * 4)>;
+                        format = "a8r8g8b8";
+                        status = "okay";
+                };
 	};
 
 	soc: soc { };
