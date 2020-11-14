@@ -4,7 +4,7 @@
 #
 
 #
-# Compiler: Proton clang version 12.0.0 (https://github.com/llvm/llvm-project b1e78509678814de6684db3f7498d016f07a3d54)
+# Compiler: Proton clang version 12.0.0 (https://github.com/llvm/llvm-project e03ba2198dbb6b053f600c798770593d8f69055d)
 #
 CONFIG_GCC_VERSION=0
 CONFIG_CC_IS_CLANG=y
