@@ -4,5 +4,5 @@ set -ve
 
 cd "$(dirname "$0")"
 cd rd
-find . | cpio -o -H newc | gzip -c > ../rd-new.cpio
+find . | cpio -o -H newc | pigz -c > ../rd-new.cpio
 cd ..
