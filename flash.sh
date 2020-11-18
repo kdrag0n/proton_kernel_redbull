@@ -78,7 +78,7 @@ sync
 
 echo
 echo "Kernel installed!"
-echo "Rebooting in 3 seconds..."
-sleep 3
+echo "Rebooting in 2 seconds..."
+sleep 2
 # Busybox reboot doesn't work for some reason
 reboot_with_cmd ''
