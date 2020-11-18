@@ -2219,7 +2219,7 @@ struct usbpd *usbpd_create(struct device *parent)
 
 #ifdef CONFIG_DEBUG_FS
 	pd->log = logbuffer_register("usbpd");
-	if (IS_ERR_OR_NULL(pd->log)) {
+	if (IS_ERR(pd->log)) {
 		ret = PTR_ERR(pd->log);
 		goto free_pd;
 	}
