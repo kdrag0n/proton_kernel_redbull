@@ -4,7 +4,10 @@
 # Packages: sgdisk
 # Tools: /usr/bin/magiskboot /usr/bin/reboot_with_cmd
 # Kernel config: CONFIG_DEVTMPFS
+
+# OPTIONAL
 # Kernel cmdline: printk.devkmsg=on
+# Kernel console: fbcon on simplefb using bootloader framebuffer
 
 set -eufo pipefail
 
