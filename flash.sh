@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # REQUIREMENTS
-# Packages: sgdisk lz4
+# Packages: sgdisk
 # Tools: /usr/bin/magiskboot /usr/bin/reboot_with_cmd
 # Kernel config: CONFIG_DEVTMPFS
 # Kernel cmdline: printk.devkmsg=on
@@ -54,38 +54,26 @@ boot_part="$(find_part_by_name boot_$boot_slot)"
 vendor_boot_part="$(find_part_by_name vendor_boot_$boot_slot)"
 
 echo "Unpacking boot images"
-mkdir -p /tmp/new /tmp/boot /tmp/vendor_boot
-cd /tmp/new
-magiskboot unpack -nh "$PAYLOAD_DIR/boot_v2.img" 2>/dev/null
-
-cd ../boot
-src_boot_info="$(magiskboot unpack -nh "$boot_part" 2>&1)"
-src_boot_ver="$(echo "$src_boot_info" | grep '^HEADER_VER' | awk '{print $2}' | tr -d '[]')"
-
+mkdir -p /tmp/boot /tmp/vendor_boot
+cd /tmp/boot
+magiskboot unpack -n "$boot_part" 2>/dev/null
 cd ../vendor_boot
-magiskboot unpack -nh "$vendor_boot_part" 2>/dev/null
-vendor_cmdline="$(grep '^cmdline=' header)"
+magiskboot unpack -n "$vendor_boot_part" 2>/dev/null
 
-echo "Modifying boot image"
-cd ../new
-echo "  - Metadata"
-cp ../boot/header .
-sed -i "s|cmdline=$|cmdline=$vendor_cmdline|" header
-# Treatment for initial transition from v3
-if [ "$src_boot_ver" -eq 3 ]; then
-    echo "  - Ramdisk"
-    lz4 -dc ../boot/ramdisk.cpio > raw_ramdisk.cpio
-    lz4 -dc ../vendor_boot/ramdisk.cpio >> raw_ramdisk.cpio
-    lz4 -lc raw_ramdisk.cpio > ramdisk.cpio
-fi
-echo "  - Kernel"
-# currently a no-op
+echo "Modifying boot images"
+cd ..
+cp "$PAYLOAD_DIR/Image.lz4" boot/kernel
+cp "$PAYLOAD_DIR/dtb" vendor_boot/dtb
+echo "Repacking boot images"
+cd boot
+magiskboot repack -n "$boot_part" new.img 2>/dev/null
+cd ../vendor_boot
+magiskboot repack -n "$vendor_boot_part" new.img 2>/dev/null
 
-echo "Repacking boot image"
-magiskboot repack -n "$PAYLOAD_DIR/boot_v2.img" new.img 2>/dev/null
-
-echo "Flashing new boot image"
-cat new.img > "$boot_part"
+echo "Flashing new boot images"
+cd ..
+cat boot/new.img > "$boot_part"
+cat vendor_boot/new.img > "$vendor_boot_part"
 sync
 
 echo
