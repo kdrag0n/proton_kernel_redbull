@@ -1,6 +1,6 @@
 # kramflash
 
-kramflash is a simple bootable ramdisk that flashes a custom kernel on devices with boot image v3. It is not capable of flashing real GKIs because it doesn't manipulate any ramdisks for compatibility reasons, but it works with the 
+kramflash is a simple bootable ramdisk that flashes a custom kernel on devices with boot image v3. It is not capable of flashing real GKIs because it doesn't manipulate any ramdisks for compatibility reasons, but it works with the GKI boot scheme and partition layout.
 
 ## Requirements
 
