@@ -1,0 +1,5 @@
+*.img
+*.dtb
+*.lz4
+*.cpio
+rd/
