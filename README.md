@@ -15,3 +15,12 @@ Additionally, the kernel must be built with `CONFIG_DEVTMPFS=y` for the script t
 For the flasher to show output rather than appearing to freeze and crash at the bootloader splash, the kernel console needs to be configured to display output to the user. The easiest way to do this is to enable and use the default fbcon console and make it render to simplefb, backed by the continuous splash framebuffer that the bootloader sets up before starting Linux.
 
 If a console is present, adding `loglevel=2` to the kernel command-line is recommended to reduce spammy output and speed up boot significantly.
+
+## Payload
+
+The kernel payload should be placed in the `/payload` directory of the ramdisk, consisting of:
+
+- `Image.lz4`: LZ4-compressed kernel image **without** appended DTBs
+- `dtb`: Concatenated DTBs for supported devices
+
+DTBO flashing is not currently supported.
