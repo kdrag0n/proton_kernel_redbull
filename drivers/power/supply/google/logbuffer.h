@@ -32,20 +32,20 @@ struct logbuffer *logbuffer_register(char *name);
 
 void logbuffer_unregister(struct logbuffer *instance);
 #else
-void logbuffer_log(struct logbuffer *instance, const char *fmt, ...)
+static inline void logbuffer_log(struct logbuffer *instance, const char *fmt, ...)
 {
 	return;
 }
-void logbuffer_vlog(struct logbuffer *instance, const char *fmt,
+static inline void logbuffer_vlog(struct logbuffer *instance, const char *fmt,
 		    va_list args)
 {
 	return;
 }
-struct logbuffer *logbuffer_register(char *name)
+static inline struct logbuffer *logbuffer_register(char *name)
 {
 	return NULL;
 }
-void logbuffer_unregister(struct logbuffer *instance)
+static inline void logbuffer_unregister(struct logbuffer *instance)
 {
 	return;
 }
