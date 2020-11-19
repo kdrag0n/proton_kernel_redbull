@@ -239,7 +239,7 @@ struct smb5 {
 };
 
 /* All flags turned on */
-static int __debug_mask = -1;
+static int __debug_mask = 0;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
