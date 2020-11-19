@@ -645,8 +645,6 @@ void dump_ssoc_state(struct batt_ssoc_state *ssoc_state, struct logbuffer *log)
 
 	if (log) {
 		logbuffer_log(log, "%s", ssoc_state->ssoc_state_cstr);
-	} else {
-		pr_info("%s\n", ssoc_state->ssoc_state_cstr);
 	}
 }
 
