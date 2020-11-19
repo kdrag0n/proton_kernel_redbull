@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+oldwd="$PWD"
 cd "$(dirname "$0")"
 
 cat flash.sh > rd/init
@@ -18,4 +19,4 @@ python mkbootimg.py \
     --dtb_offset 0x1f00000 \
     --tags_offset 0x100 \
     --pagesize 4096 \
-    --output "${1:-flash-kernel.img}"
+    --output "$oldwd/${1:-flash.img}"
