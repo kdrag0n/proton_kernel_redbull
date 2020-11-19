@@ -3,12 +3,7 @@
 cd "$(dirname "$0")"
 
 cat flash.sh > rd/init
-#cp flash.sh rd/wrc
-#cp wrap.sh rd/init
 ./packrd-gz.sh
-
-#cat ../kernel/out/arch/arm64/boot/dts/google/*.dtb > /tmp/dtb
-#../kernel/out/arch/arm64/boot/Image.lz4 \
 
 python ~/py-mkbootimg/mkbootimg.py \
     --header_version 2 \
