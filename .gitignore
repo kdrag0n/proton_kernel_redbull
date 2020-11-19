@@ -141,9 +141,5 @@ kernel/configs/android-*.cfg
 out/
 
 # Flasher artifacts
-flasher/*.dtb
-flasher/dtbo*.img
-flasher/Image*
-flasher/version
+*.img
 builds/
-*.zip
