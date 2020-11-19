@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 cat flash.sh > rd/init
 ./packrd-gz.sh
 
-python ~/py-mkbootimg/mkbootimg.py \
+python mkbootimg.py \
     --header_version 2 \
     --os_version 11.0.0 \
     --os_patch_level 2020-11 \
