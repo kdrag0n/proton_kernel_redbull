@@ -32,12 +32,6 @@ kmake_flags=(
 # Target device name to use in flashable package names
 device_name="pixel5"
 
-# Target device's SSH hostname (on LAN)
-lan_ssh_host="pixel5"
-
-# Target device's SSH hostname (on VPN)
-vpn_ssh_host="vpixel5"
-
 
 #### BASE ####
 
@@ -49,8 +43,6 @@ _ksetup_vars+=(
 	arch
 	kmake_flags
 	device_name
-	lan_ssh_host
-	vpn_ssh_host
 	kroot
 	_ksetup_vars
 	_ksetup_functions
@@ -64,24 +56,16 @@ _ksetup_functions+=(
 	get_gcc_version
 	buildnum
 	zerover
-	zver
 	kmake
-	mkzip
-	dzip
+	mkimg
+	dimg
 	rel
 	crel
 	cleanbuild
 	incbuild
 	dbuild
 	ktest
-	sktest
-	vsktest
 	inc
-	pinc
-	sinc
-	vsinc
-	psinc
-	pvsinc
 	dc
 	cpc
 	mc
@@ -127,11 +111,6 @@ function zerover() {
 	rm "$kroot/out/.version"
 }
 
-# Retrieve the kernel version from a flashable package
-function zver() {
-	unzip -p "$1" Image.gz | gunzip -dc | strings | grep "Linux version [[:digit:]]"
-}
-
 
 #### COMPILATION ####
 
@@ -143,9 +122,9 @@ function kmake() {
 
 #### PACKAGE CREATION ####
 
-# Create a flashable package of the current kernel image at the specified path
-function mkzip() {
-	local fn="${1:-kernel.zip}"
+# Create a flashable image with the current kernel image at the specified path
+function mkimg() {
+	local fn="${1:-flash.img}"
 
 	# Populate fields based on build type (stable release or test build)
 	if [[ $RELEASE_VER -gt 0 ]]; then
@@ -158,27 +137,20 @@ function mkzip() {
 		local version="$(buildnum)"
 	fi
 
-	# Copy kernel image
-	cp "$kroot/out/arch/$arch/boot/Image.lz4-dtb" "$kroot/flasher/"
-
-	# Generate version banner to be shown during flash
-	echo "  • Installing $build_type build $version" >| "$kroot/flasher/version"
-	echo "  • Built on $(date "+%a %b %d, %Y")" >> "$kroot/flasher/version"
+	cp "$kroot/out/arch/$arch/boot/Image.lz4" "$kroot/flasher/rd/payload/"
+	cat "$kroot/out/arch/$arch/boot/dts/google/"*.dtb > "$kroot/flasher/rd/payload/dtb"
 
 	# Ensure that the directory containing $fn exists but $fn doesn't
 	mkdir -p "$(dirname "$fn")"
 	rm -f "$fn"
 
-	# Create ZIP
-	echo "  ZIP     $fn"
-	pushd "$kroot/flasher" > /dev/null
-	zip -qr9 "$OLDPWD/$fn" .
-	popd > /dev/null
+	echo "  IMG     $fn"
+	"$kroot/flasher/pack-img.sh" "$fn"
 }
 
 # Create a test package of the current kernel image
-function dzip() {
-	mkzip "builds/$kernel_name-$device_name-test$(buildnum).zip"
+function dimg() {
+	mkimg "builds/$kernel_name-$device_name-test$(buildnum).img"
 }
 
 # Build an incremental release package with the specified version
@@ -191,7 +163,7 @@ function rel() {
 	kmake LOCALVERSION="-v$ver" KBUILD_BUILD_VERSION=1 "$@" && \
 
 	# Create release package
-	RELEASE_VER="$ver" mkzip "builds/$kernel_name-$device_name-v$ver.zip"
+	RELEASE_VER="$ver" mkimg "builds/$kernel_name-$device_name-v$ver.img"
 }
 
 # Build a clean release package
@@ -204,130 +176,43 @@ function crel() {
 
 # Build a clean working-copy package
 function cleanbuild() {
-	kmake clean && kmake "$@" && mkzip
+	kmake clean && kmake "$@" && mkimg
 }
 
 # Build an incremental working-copy package
 function incbuild() {
-	kmake "$@" && mkzip
+	kmake "$@" && mkimg
 }
 
 # Build an incremental test package
 function dbuild() {
-	kmake "$@" && dzip
+	kmake "$@" && dimg
 }
 
 
 #### INSTALLATION ####
 
-# Flash the given kernel package (defaults to latest) on the device via ADB
+# Flash the given kernel package (defaults to latest) on the device via fastboot
 function ktest() {
-	local fn="${1:-kernel.zip}"
-	local backslash='\'
+	local fn="${1:-flash.img}"
 
-	# Wait for device to show up on ADB
-	adb wait-for-any
-
-	# Check if device is in Android or recovery
-	if adb shell pgrep gatekeeperd > /dev/null; then
-		# Device is in Android
-		local target_fn="${2:-/data/local/tmp/$fn}"
-
-		# Push package
-		msg "Pushing kernel package..."
-		adb push "$fn" "$target_fn" && \
-
-		# Execute flasher script
-		msg "Executing flasher on device..."
-		cat <<-END | adb shell su -c sh -
-		export PATH="/sbin/.core/busybox:\$PATH"
-
-		unzip -p "$target_fn" META-INF/com/google/android/update-binary | $backslash
-		/system/bin/sh /proc/self/fd/0 "" "" "$target_fn" && $backslash
-		{ /system/bin/svc power reboot || reboot; }
-		END
-	else
-		# Device is in recovery (assuming TWRP)
-		local target_fn="${2:-/tmp/$fn}"
-
-		# Push package
-		msg "Pushing kernel package..."
-		adb push "$fn" "$target_fn" && \
-
-		# Tell TWRP to flash it and reboot afterwards
-		msg "Executing flasher on device..."
-		adb shell "twrp install '$target_fn' && reboot"
+	# If in fastbootd
+	if fastboot devices 2>&1 | grep -q fastboot && fastboot getvar is-userspace 2>&1 | grep -q 'is-userspace: yes'; then
+		fastboot reboot bootloader
 	fi
-}
+	if adb devices 2>&1 | grep -q device; then
+		adb reboot bootloader
+	fi
 
-# Flash the given kernel package (default: latest) on the device via SSH to the given hostname (default: LAN)
-function sktest() {
-	local fn="${1:-kernel.zip}"
-	local hostname="${2:-$lan_ssh_host}"
-	local target_fn="${3:-$fn}"
-	local backslash='\'
-
-	# Push package
-	msg "Pushing kernel package..."
-	scp "$fn" "$hostname:$target_fn" && \
-
-	# Execute flasher script
-	msg "Executing flasher on device..." && \
-	cat <<-END | ssh "$hostname" su -c sh -
-	export PATH="/sbin/.core/busybox:\$PATH"
-	am broadcast -a net.dinglisch.android.tasker.ACTION_TASK --es task_name "Kernel Flash Warning" &
-
-	unzip -p "$target_fn" META-INF/com/google/android/update-binary | $backslash
-	/system/bin/sh /proc/self/fd/0 "" "" "\$(readlink -f "$target_fn")" && $backslash
-	{ { /system/bin/svc power reboot || reboot; } & exit; }
-	END
-}
-
-# Flash the given kernel package (default: latest) on the device via SSH over VPN
-function vsktest() {
-	sktest "$1" "$vpn_ssh_host" "$2"
+	fastboot boot "$fn"
 }
 
 
 #### BUILD & FLASH HELPERS ####
 
-# Build & flash an incremental working-copy kernel on the device via ADB
+# Build & flash an incremental working-copy kernel on the device via fastboot
 function inc() {
 	incbuild "$@" && ktest
-}
-
-# Build & flash an incremental test kernel on the device via ADB and keep a copy
-# of the package in /sdcard
-function pinc() {
-	dbuild "$@" && \
-	local fn="builds/$kernel_name-$device_name-test$(buildnum).zip" && \
-	ktest "$fn" "/sdcard/$(basename "$fn")"
-}
-
-# Build & flash an incremental working-copy kernel on the device via SSH over LAN
-function sinc() {
-	incbuild "$@" && sktest
-}
-
-# Build & flash an incremental working-copy kernel on the device via SSH over VPN
-function vsinc() {
-	incbuild "$@" && vsktest
-}
-
-# Build & flash an incremental test kernel on the device via SSH over LAN and
-# keep a copy of the package in /sdcard
-function psinc() {
-	dbuild "$@" && \
-	local fn="builds/$kernel_name-$device_name-test$(buildnum).zip" && \
-	sktest "$fn" "" "/sdcard/$(basename "$fn")"
-}
-
-# Build & flash an incremental test kernel on the device via SSH over VPN and
-# keep a copy of the package in /sdcard
-function pvsinc() {
-	dbuild "$@" && \
-	local fn="builds/$kernel_name-$device_name-test$(buildnum).zip" && \
-	vsktest "$fn" "/sdcard/$(basename "$fn")"
 }
 
 
