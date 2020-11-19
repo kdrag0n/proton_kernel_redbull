@@ -18,4 +18,4 @@ python mkbootimg.py \
     --dtb_offset 0x1f00000 \
     --tags_offset 0x100 \
     --pagesize 4096 \
-    --output flash-kernel.img
+    --output "${1:-flash-kernel.img}"
