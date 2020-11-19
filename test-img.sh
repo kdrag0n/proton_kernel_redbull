@@ -5,4 +5,4 @@ cd "$(dirname "$0")"
 ./pack-img.sh
 
 adb reboot bootloader
-fastboot boot flash-kernel.img
+fastboot boot flash.img
