@@ -44,6 +44,7 @@ kmake_flags+=(
 	OBJCOPY="llvm-objcopy"
 	OBJDUMP="llvm-objdump"
 	STRIP="llvm-strip"
+	LD="ld.lld"
 
 	CROSS_COMPILE="$gcc_prefix64"
 	CROSS_COMPILE_ARM32="$gcc_prefix32"
