@@ -51,6 +51,7 @@ endmenu
 config MSM_VIDC_V4L2
 	tristate "Support MSM techpack/video device"
 	depends on QCOM_LLCC
+	select VIDEOBUF2_CORE
 	---help---
 	  The device is represented by an out-of-tree video driver
 	  in techpack/video.  This config represents the truth regarding
