@@ -137,6 +137,7 @@ function mkimg() {
 		local version="$(buildnum)"
 	fi
 
+	rm -f "$kroot/flasher/rd/payload/"*
 	cp "$kroot/out/arch/$arch/boot/Image.lz4" "$kroot/flasher/rd/payload/"
 	cat "$kroot/out/arch/$arch/boot/dts/google/"*.dtb > "$kroot/flasher/rd/payload/dtb"
 
