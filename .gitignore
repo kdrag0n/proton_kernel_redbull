@@ -2,4 +2,4 @@
 *.dtb
 *.lz4
 *.cpio
-rd
+rd/init
