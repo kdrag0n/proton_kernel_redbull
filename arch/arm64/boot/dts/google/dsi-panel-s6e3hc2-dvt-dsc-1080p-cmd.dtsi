@@ -66,6 +66,7 @@
 
 		qcom,mdss-dsi-t-clk-post = <0x15>;
 		qcom,mdss-dsi-t-clk-pre = <0x12>;
+		qcom,ulps-enabled;
 
 		qcom,mdss-dsi-bl-notifier-ranges = <115 140 167 1023>;
 
