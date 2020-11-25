@@ -147,3 +147,6 @@ flasher/Image*
 flasher/version
 builds/
 *.zip
+
+flash.img
+flasher/
