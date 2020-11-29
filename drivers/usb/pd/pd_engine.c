@@ -2122,7 +2122,7 @@ static bool search_param(char *cmdline, const char *search_str)
 	return found_str ? true : false;
 }
 
-static void parse_cmdline()
+static void parse_cmdline(void)
 {
 	char *cmdline;
 	const char *chargingtest = CMDLINE_PARAM(CMDLINE_BOOT_MODE_KEY,
