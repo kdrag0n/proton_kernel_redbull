@@ -309,7 +309,7 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
 
-extern schedtune_cpu_margin(unsigned long util, int cpu);
+extern int schedtune_cpu_margin(unsigned long util, int cpu);
 
 /*
  * This function computes an effective utilization for the given CPU, to be
