@@ -69,8 +69,8 @@ const CODE_TBL_EXT CdTbl[] = {
 //	Local Function Prototype
 //**************************
 UINT_8	FlashBlockErase( UINT_8 SelMat , UINT_32 SetAddress );
-float fix2float( UINT_32 );
-UINT_32 float2fix( float );
+UINT_32 fix2float( UINT_32 );
+UINT_32 float2fix( UINT_32 );
 
 //********************************************************************************
 // Function Name 	: IOWrite32A
@@ -1158,26 +1158,26 @@ UINT_8	RdStatus( UINT_8 UcStBitChk )
 //********************************************************************************
 // Function Name 	: fix2float
 //********************************************************************************
-float fix2float( UINT_32 fix )
+UINT_32 fix2float( UINT_32 fix )
 {
 	if((fix & 0x80000000) > 0)
 	{
-		return ((float)fix - (float)0x100000000) / (float)0x7FFFFFFF;
+		return (fix - 0x100000000) / 0x7FFFFFFF;
 	} else {
-		return (float)fix / (float)0x7FFFFFFF;
+		return fix / 0x7FFFFFFF;
 	}
 }
 
 //********************************************************************************
 // Function Name 	: float2fix
 //********************************************************************************
-UINT_32 float2fix( float f )
+UINT_32 float2fix( UINT_32 f )
 {
 	if(f < 0)
 	{
-		return (UINT_32)(f * (float)0x7FFFFFFF + 0x100000000);
+		return (UINT_32)(f * 0x7FFFFFFF + 0x100000000);
 	} else {
-		return (UINT_32)(f * (float)0x7FFFFFFF);
+		return (UINT_32)(f * 0x7FFFFFFF);
 	}
 }
 
