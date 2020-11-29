@@ -132,7 +132,6 @@ struct batt_ssoc_state {
 	/* output of rate limiter */
 	qnum_t ssoc_rl;
 	struct batt_ssoc_rl_state ssoc_rl_state;
-	int ssoc_delta;
 
 	/* output of rate limiter */
 	int rl_rate;
@@ -740,7 +739,7 @@ static int ssoc_work(struct batt_ssoc_state *ssoc_state,
  * a fixed delta while UI is at 100% (i.e. in RL) to avoid showing 100% for
  * "too long" after disconnect.
  */
-#define SSOC_DELTA 3
+#define SSOC_DELTA 2
 void ssoc_change_curve(struct batt_ssoc_state *ssoc_state,
 		       enum ssoc_uic_type type)
 {
@@ -752,9 +751,9 @@ void ssoc_change_curve(struct batt_ssoc_state *ssoc_state,
 	if (ssoc_level >= SSOC_FULL) {
 		const qnum_t rlt = qnum_fromint(ssoc_state->rl_soc_threshold);
 
-		gdf -=  qnum_rconst(ssoc_state->ssoc_delta);
-		if (gdf < rlt - qnum_rconst(ssoc_state->ssoc_delta))
-			gdf = rlt - qnum_rconst(ssoc_state->ssoc_delta);
+		gdf -=  qnum_rconst(SSOC_DELTA);
+		if (gdf < rlt - qnum_rconst(SSOC_DELTA))
+			gdf = rlt - qnum_rconst(SSOC_DELTA);
 		type = SSOC_UIC_TYPE_DSG;
 	}
 
@@ -4410,11 +4409,6 @@ static void google_battery_init_work(struct work_struct *work)
 	if (ret < 0)
 		batt_drv->ssoc_state.rl_soc_threshold =
 				DEFAULT_BATT_DRV_RL_SOC_THRESHOLD;
-
-	ret = of_property_read_u32(node, "google,ssoc-delta",
-				   &batt_drv->ssoc_state.ssoc_delta);
-	if (ret < 0)
-		batt_drv->ssoc_state.ssoc_delta = SSOC_DELTA;
 
 	/* cycle count is cached, here since SSOC, chg_profile might use it */
 	batt_update_cycle_count(batt_drv);
