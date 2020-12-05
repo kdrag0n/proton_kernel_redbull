@@ -8,6 +8,33 @@ PAYLOAD_DIR=/payload
 # Populate PATH and other basic settings
 source /etc/profile
 
+reboot_end() {
+    echo "Rebooting in 3 seconds..."
+    # Rounded corner protection
+    echo
+    echo
+    sleep 3
+
+    # Wait for volume down keypress
+    #read -n1
+    # Wait for manual forced reboot
+    #sleep inf
+
+    # Busybox reboot doesn't work for some reason
+    reboot_with_cmd "$1"
+}
+
+on_exit() {
+    echo
+    echo
+    echo "ERROR!"
+
+    reboot_end bootloader
+}
+
+# Set trap before mounting in case devtmpfs fails
+trap on_exit EXIT
+
 # Mount essential pseudo-filesystems
 mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
@@ -72,7 +99,5 @@ sync
 
 echo
 echo "Kernel installed!"
-echo "Rebooting in 2 seconds..."
-sleep 2
-# Busybox reboot doesn't work for some reason
-reboot_with_cmd ''
+
+reboot_end ''
