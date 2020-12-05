@@ -77,14 +77,19 @@ vendor_boot_part="$(find_part_by_name vendor_boot_$boot_slot)"
 echo "Unpacking boot images"
 mkdir -p /tmp/boot /tmp/vendor_boot
 cd /tmp/boot
-magiskboot unpack -n "$boot_part" 2>/dev/null
+boot_info="$(magiskboot unpack -n "$boot_part" 2>&1)"
+boot_ver="$(echo "$boot_info" | grep HEADER_VER | awk '{print $2}' | tr -d '[]')"
+echo "  • Boot image version: v$boot_ver"
 cd ../vendor_boot
-magiskboot unpack -n "$vendor_boot_part" 2>/dev/null
+vendor_boot_info="$(magiskboot unpack -n "$vendor_boot_part" 2>&1)"
 
 echo "Modifying boot images"
 cd ..
 cp "$PAYLOAD_DIR/Image.lz4" boot/kernel
 cp "$PAYLOAD_DIR/dtb" vendor_boot/dtb
+# For v2
+cp "$PAYLOAD_DIR/dtb" boot/dtb
+
 echo "Repacking boot images"
 cd boot
 magiskboot repack -n "$boot_part" new.img 2>/dev/null
