@@ -54,16 +54,9 @@ cat <<EOF
 
 
 
- ____            _              
-|  _ \ _ __ ___ | |_ ___  _ __  
-| |_) | '__/ _ \| __/ _ \| '_ \ 
-|  __/| | | (_) | || (_) | | | |
-|_|   |_|  \___/ \__\___/|_| |_|
+$(cat $PAYLOAD_DIR/banner 2>/dev/null || echo -e 'Installing kernel with kramflash by kdrag0n')
 
-Proton Kernel for Pixel 5 & 4a 5G
-        v1.0 • by kdrag0n
-
-----------------------------------------
+---------------------------------
 
 EOF
 

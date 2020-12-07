@@ -22,6 +22,7 @@ The kernel payload should be placed in the `/payload` directory of the ramdisk, 
 
 - `Image.lz4`: LZ4-compressed kernel image **without** appended DTBs
 - `dtb`: Concatenated DTBs for supported devices
+- `banner`: Optional banner to show to the user when flashing
 
 DTBO flashing is not currently supported.
 
