@@ -2919,10 +2919,7 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 	conc_channel = policy_mgr_mode_specific_get_channel(hdd_ctx->psoc,
 							    PM_STA_MODE);
 	if (is_external_acs_policy && conc_channel) {
-		if ((conc_channel >= WLAN_REG_CH_NUM(CHAN_ENUM_36) &&
-		     (sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211A ||
-		      sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211ANY)) ||
-		     (conc_channel <= WLAN_REG_CH_NUM(CHAN_ENUM_14) &&
+		if ((conc_channel <= WLAN_REG_CH_NUM(CHAN_ENUM_14) &&
 		      (sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211B ||
 		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211G ||
 		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211ANY))) {
