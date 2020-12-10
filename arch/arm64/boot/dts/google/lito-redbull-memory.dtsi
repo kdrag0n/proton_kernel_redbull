@@ -33,7 +33,6 @@
  * pil_camera_mem:     0x86000000 0x500000
  * pil_npu_mem:        0x86500000 0x500000
  * pil_video_mem:      0x86a00000 0x500000
- * pil_cvp_mem:        0x86f00000 0x500000
  * pil_cdsp_mem:       0x87400000 0x1e00000
  * pil_adsp_mem:       0x89200000 0x2800000
  * pil_wlan_fw_mem:    0x8ba00000 0x200000
