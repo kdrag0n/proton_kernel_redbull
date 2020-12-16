@@ -952,6 +952,10 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 			}
 		}
 
+		// To correct the gyro offset data
+		if (o_ctrl->gyro_correct_enable)
+			GyroOffsetCorrect(&o_ctrl->io_master_info, o_ctrl->gyro_correct_index);
+
 		rc = cam_ois_apply_settings(o_ctrl, &o_ctrl->i2c_init_data);
 		if ((rc == -EAGAIN) &&
 			(o_ctrl->io_master_info.master_type == CCI_MASTER)) {
