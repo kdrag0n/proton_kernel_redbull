@@ -174,6 +174,9 @@ void release_all_touches(struct fts_ts_info *info)
 		input_report_abs(info->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(info->input_dev, type, 0);
 		input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		info->offload.coords[i].status = COORD_STATUS_INACTIVE;
+#endif
 	}
 	input_report_key(info->input_dev, BTN_TOUCH, 0);
 	input_sync(info->input_dev);
@@ -3089,7 +3092,16 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	info->offload.coords[touchId].x = x;
 	info->offload.coords[touchId].y = y;
+	info->offload.coords[touchId].major = major;
+	info->offload.coords[touchId].minor = minor;
 	info->offload.coords[touchId].status = COORD_STATUS_FINGER;
+
+#ifndef SKIP_PRESSURE
+	info->offload.coords[touchId].pressure = z;
+#else
+	/* Select a reasonable constant pressure */
+	info->offload.coords[touchId].pressure = 0x30;
+#endif
 
 	if (!info->offload.offload_running) {
 #endif
@@ -4075,12 +4087,19 @@ static int update_motion_filter(struct fts_ts_info *info)
 	return 0;
 }
 
-int fts_disable_grip(struct fts_ts_info *info)
+
+int fts_enable_grip(struct fts_ts_info *info, bool enable)
 {
-	uint8_t cmd[] = {0xC0, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	static uint8_t enable_cmd[]  =
+		{0xC0, 0x03, 0x10, 0xFF, 0x03, 0x00, 0x00, 0x00, 0x00};
+	static uint8_t disable_cmd[] =
+		{0xC0, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 	int res;
 
-	res = fts_write(cmd, sizeof(cmd));
+	if (enable)
+		res = fts_write(enable_cmd, sizeof(enable_cmd));
+	else
+		res = fts_write(disable_cmd, sizeof(disable_cmd));
 	if (res < 0)
 		pr_err("%s: fts_write failed with res=%d.\n", __func__,
 		       res);
@@ -4097,7 +4116,7 @@ static void fts_offload_resume_work(struct work_struct *work)
 	struct fts_ts_info *info = container_of(dwork, struct fts_ts_info,
 						offload_resume_work);
 
-	fts_disable_grip(info);
+	fts_enable_grip(info, false);
 }
 
 static void fts_populate_coordinate_channel(struct fts_ts_info *info,
@@ -4109,11 +4128,15 @@ static void fts_populate_coordinate_channel(struct fts_ts_info *info,
 	struct TouchOffloadDataCoord *dc =
 		(struct TouchOffloadDataCoord *)frame->channel_data[channel];
 	memset(dc, 0, frame->channel_data_size[channel]);
-	dc->size_bytes = TOUCH_OFFLOAD_FRAME_SIZE_COORD;
+	dc->header.channel_type = TOUCH_DATA_TYPE_COORD;
+	dc->header.channel_size = TOUCH_OFFLOAD_FRAME_SIZE_COORD;
 
 	for (j = 0; j < MAX_COORDS; j++) {
 		dc->coords[j].x = info->offload.coords[j].x;
 		dc->coords[j].y = info->offload.coords[j].y;
+		dc->coords[j].major = info->offload.coords[j].major;
+		dc->coords[j].minor = info->offload.coords[j].minor;
+		dc->coords[j].pressure = info->offload.coords[j].pressure;
 		dc->coords[j].status = info->offload.coords[j].status;
 	}
 }
@@ -4147,7 +4170,8 @@ static void fts_populate_mutual_channel(struct fts_ts_info *info,
 	}
 	mutual_strength->tx_size = getForceLen();
 	mutual_strength->rx_size = getSenseLen();
-	mutual_strength->size_bytes =
+	mutual_strength->header.channel_type = frame->channel_type[channel];
+	mutual_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
 					    mutual_strength->tx_size);
 
@@ -4182,6 +4206,7 @@ static void fts_populate_mutual_channel(struct fts_ts_info *info,
 			}
 		}
 	}
+	kfree(ms_frame.node_data);
 }
 
 static void fts_populate_self_channel(struct fts_ts_info *info,
@@ -4195,7 +4220,8 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 		(struct TouchOffloadData1d *)frame->channel_data[channel];
 	self_strength->tx_size = getForceLen();
 	self_strength->rx_size = getSenseLen();
-	self_strength->size_bytes =
+	self_strength->header.channel_type = frame->channel_type[channel];
+	self_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_1D(self_strength->rx_size,
 					    self_strength->tx_size);
 
@@ -4222,6 +4248,8 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 		memcpy(&self_strength->data[2 * self_strength->tx_size],
 		       ss_frame.sense_data, 2 * self_strength->rx_size);
 	}
+	kfree(ss_frame.force_data);
+	kfree(ss_frame.sense_data);
 }
 
 static void fts_populate_frame(struct fts_ts_info *info,
@@ -4241,6 +4269,20 @@ static void fts_populate_frame(struct fts_ts_info *info,
 			fts_populate_mutual_channel(info, frame, i);
 		else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_SELF) != 0)
 			fts_populate_self_channel(info, frame, i);
+	}
+}
+
+static void fts_offload_set_running(struct fts_ts_info *info, bool running)
+{
+	if (info->offload.offload_running != running) {
+		info->offload.offload_running = running;
+		if (running) {
+			pr_info("%s: disabling FW grip.\n", __func__);
+			fts_enable_grip(info, false);
+		} else {
+			pr_info("%s: enabling FW grip.\n", __func__);
+			fts_enable_grip(info, true);
+		}
 	}
 }
 
@@ -4328,22 +4370,25 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	}
 
-	error = touch_offload_reserve_frame(&info->offload, &frame);
-	if (error != 0) {
-		pr_debug("%s: Could not reserve a frame: error=%d.\n",
-			 __func__, error);
-
-		/* Consider a lack of buffers to be the feature stopping */
-		info->offload.offload_running = false;
-	} else {
-		info->offload.offload_running = true;
-
-		fts_populate_frame(info, frame);
-
-		error = touch_offload_queue_frame(&info->offload, frame);
+	if (processed_pointer_event) {
+		error = touch_offload_reserve_frame(&info->offload, &frame);
 		if (error != 0) {
-			pr_err("%s: Failed to queue reserved frame: error=%d.\n",
-			       __func__, error);
+			pr_debug("%s: Could not reserve a frame: error=%d.\n",
+				 __func__, error);
+
+			/* Stop offload when there are no buffers available */
+			fts_offload_set_running(info, false);
+		} else {
+			fts_offload_set_running(info, true);
+
+			fts_populate_frame(info, frame);
+
+			error = touch_offload_queue_frame(&info->offload,
+							  frame);
+			if (error != 0) {
+				pr_err("%s: Failed to queue reserved frame: error=%d.\n",
+				       __func__, error);
+			}
 		}
 	}
 #endif
@@ -4372,6 +4417,8 @@ static void fts_offload_report(void *handle,
 	bool touch_down = 0;
 	int i;
 
+	input_set_timestamp(info->input_dev, report->timestamp);
+
 	for (i = 0; i < MAX_COORDS; i++) {
 		if (report->coords[i].status == COORD_STATUS_FINGER) {
 			input_mt_slot(info->input_dev, i);
@@ -4384,10 +4431,14 @@ static void fts_offload_report(void *handle,
 					 report->coords[i].x);
 			input_report_abs(info->input_dev, ABS_MT_POSITION_Y,
 					 report->coords[i].y);
+			input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR,
+					 report->coords[i].major);
+			input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR,
+					 report->coords[i].minor);
 
 #ifndef SKIP_PRESSURE
 			input_report_abs(info->input_dev, ABS_MT_PRESSURE,
-					 0x30);
+					 report->coords[i].pressure);
 #endif
 		} else {
 			input_mt_slot(info->input_dev, i);
@@ -4887,7 +4938,9 @@ static irqreturn_t fts_isr(int irq, void *handle)
 	struct fts_ts_info *info = handle;
 
 	info->timestamp = ktime_get();
+#if !IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	input_set_timestamp(info->input_dev, info->timestamp);
+#endif
 
 	return IRQ_WAKE_THREAD;
 }
@@ -6293,6 +6346,13 @@ static int fts_probe(struct spi_device *client)
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	info->offload.caps.touch_offload_major_version = 1;
+	info->offload.caps.touch_offload_minor_version = 0;
+	/* ID equivalent to the 4-byte, little-endian string: '00b5' */
+	info->offload.caps.device_id =
+	    '5' << 24 | 'b' << 16 | '0' << 8 | '0' << 0;
+	info->offload.caps.display_width = info->board->x_axis_max;
+	info->offload.caps.display_height = info->board->y_axis_max;
 	info->offload.caps.tx_size = getForceLen();
 	info->offload.caps.rx_size = getSenseLen();
 	info->offload.caps.bus_type = BUS_TYPE_SPI;
