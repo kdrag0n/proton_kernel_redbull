@@ -375,5 +375,88 @@ int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl)
 }
 EXPORT_SYMBOL_GPL(getFWVersion);
 
+int GyroOffsetCorrect(struct camera_io_master *io_master_info, uint32_t gyro_correct_index)
+{
+	int rc = 0;
+	uint32_t AddrGyroZ = 0;
+	uint32_t AddrAccelX = 0;
+	uint32_t AddrAccelY = 0;
+	uint32_t AddrAccelZ = 0;
+	uint32_t UlReadVal = 0;
+
+	g_io_master_info = io_master_info;
+	if (g_io_master_info == NULL)
+		return -EINVAL;
+
+	CAM_INFO(CAM_SENSOR,
+		"[OISFW]:%s gyro_correct_index = %d\n",
+			__func__, gyro_correct_index);
+
+	if (gyro_correct_index > 0) {
+		// Program Memory to read
+		if (gyro_correct_index == 1) {
+			AddrGyroZ = 0x0008469C;
+			AddrAccelX = 0x00084698;
+			AddrAccelY = 0x0008469A;
+			AddrAccelZ = 0x0008469C;
+		} else if (gyro_correct_index == 2)  {
+			AddrGyroZ = 0x00084634;
+			AddrAccelX = 0x00084630;
+			AddrAccelY = 0x00084632;
+			AddrAccelZ = 0x00084634;
+		} else {
+			CAM_INFO(CAM_SENSOR,
+				"[OISFW]:%s index is not supported : %d\n",
+					__func__, gyro_correct_index);
+			return -EINVAL;
+		}
+	} else {
+		CAM_INFO(CAM_SENSOR,
+			"[OISFW]:%s index is out of range : %d\n",
+				__func__, gyro_correct_index);
+		return -EINVAL;
+	}
+
+	rc = checkHighLevelCommand(20);
+	if (rc != 0) {
+		CAM_ERR(CAM_SENSOR,
+			"[OISFW]:%s checkHighLevelCommand failed = %d\n",
+			__func__, rc);
+		return -EINVAL;
+	} else {
+		// Gyro Offset Z
+		RamWrite32A(0x3000, AddrGyroZ);
+		RamRead32A(0x4000, &UlReadVal);
+		UlReadVal = UlReadVal & 0xFFFF;
+		UlReadVal = ((UlReadVal << 8) & 0xff00) | ((UlReadVal >> 8) & 0x00ff);
+		RamWrite32A(0x03A8, UlReadVal);
+
+		// Accel Offset X
+		RamWrite32A(0x3000, AddrAccelX);
+		RamRead32A(0x4000, &UlReadVal);
+		UlReadVal = (UlReadVal & 0xFFFF0000) >> 16;
+		UlReadVal = ((UlReadVal << 8) & 0xff00) | ((UlReadVal >> 8) & 0x00ff);
+		RamWrite32A(0x0454, UlReadVal);
+
+		// Accel Offset Y
+		RamWrite32A(0x3000, AddrAccelY);
+		RamRead32A(0x4000, &UlReadVal);
+		UlReadVal = (UlReadVal & 0xFFFF0000) >> 16;
+		UlReadVal = ((UlReadVal << 8) & 0xff00) | ((UlReadVal >> 8) & 0x00ff);
+		RamWrite32A(0x0480, UlReadVal);
+
+		// Accel Offset Z
+		RamWrite32A(0x3000, AddrAccelZ);
+		RamRead32A(0x4000, &UlReadVal);
+		UlReadVal = (UlReadVal & 0xFFFF0000) >> 16;
+		UlReadVal = ((UlReadVal << 8) & 0xff00) | ((UlReadVal >> 8) & 0x00ff);
+		RamWrite32A(0x04AC, UlReadVal);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL_GPL(GyroOffsetCorrect);
+
+
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Fw Update");

@@ -173,6 +173,8 @@ struct cam_ois_ctrl_t {
 	struct mutex ois_shift_mutex;
 	struct kthread_worker worker;
 	struct task_struct *worker_thread;
+	uint32_t gyro_correct_enable;
+	uint32_t gyro_correct_index;
 };
 
 #endif /*_CAM_OIS_DEV_H_ */
