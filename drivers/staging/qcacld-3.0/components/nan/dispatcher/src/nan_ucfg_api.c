@@ -32,6 +32,7 @@
 #include "wlan_policy_mgr_api.h"
 #include "cfg_ucfg_api.h"
 #include "cfg_nan.h"
+#include "wlan_mlme_api.h"
 
 struct wlan_objmgr_psoc;
 struct wlan_objmgr_vdev;
@@ -1164,4 +1165,19 @@ ucfg_nan_set_vdev_creation_supp_by_fw(struct wlan_objmgr_psoc *psoc, bool set)
 	}
 
 	psoc_nan_obj->nan_caps.nan_vdev_allowed = set;
+}
+
+bool ucfg_is_nan_allowed_on_chan(struct wlan_objmgr_pdev *pdev, uint32_t chan)
+{
+	bool nan_allowed = false;
+
+	/* Check for SRD channels only */
+	if (!wlan_reg_is_etsi13_srd_chan(pdev, chan))
+		return true;
+
+	wlan_mlme_get_srd_master_mode_for_vdev(wlan_pdev_get_psoc(pdev),
+					       QDF_NAN_DISC_MODE,
+					       &nan_allowed);
+
+	return nan_allowed;
 }

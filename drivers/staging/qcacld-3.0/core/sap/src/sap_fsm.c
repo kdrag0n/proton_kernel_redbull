@@ -3272,6 +3272,8 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 	struct mac_context *mac_ctx;
 	tSapChSelSpectInfo spect_info_obj = { NULL, 0 };
 	uint16_t ch_width;
+	bool srd_chan_enabled;
+	enum QDF_OPMODE vdev_opmode;
 
 	mac_ctx = sap_get_mac_context();
 	if (!mac_ctx) {
@@ -3374,11 +3376,15 @@ static QDF_STATUS sap_get_channel_list(struct sap_context *sap_ctx,
 		    !dfs_master_enable))
 			continue;
 
+		vdev_opmode = wlan_vdev_mlme_get_opmode(sap_ctx->vdev);
+		wlan_mlme_get_srd_master_mode_for_vdev(mac_ctx->psoc,
+						       vdev_opmode,
+						       &srd_chan_enabled);
+
 		/* Dont scan ETSI13 SRD channels if the ETSI13 SRD channels
 		 * are not enabled in master mode
 		 */
-		if (!wlan_reg_is_etsi13_srd_chan_allowed_master_mode(mac_ctx->
-								     pdev) &&
+		if (!srd_chan_enabled &&
 		    wlan_reg_is_etsi13_srd_chan(mac_ctx->pdev,
 						WLAN_REG_CH_NUM(loop_count)))
 			continue;

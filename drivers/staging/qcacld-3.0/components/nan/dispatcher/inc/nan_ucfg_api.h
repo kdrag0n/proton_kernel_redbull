@@ -414,6 +414,19 @@ QDF_STATUS ucfg_disable_nan_discovery(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS
 ucfg_nan_disable_ndi(struct wlan_objmgr_psoc *psoc, uint32_t ndi_vdev_id);
+
+/**
+ * ucfg_is_nan_allowed_on_chan() - Check if NAN is allowed on given chan
+ * @pdev: pdev context
+ * @chan: Channel to be checked
+ *
+ * Check if NAN/NDP can be enabled on given channel.
+ * Validate SRD channels based on the ini and reg domain. Assume rest of the
+ * channels support NAN/NDP for now.
+ *
+ * Return: True if NAN is allowed on the given channel
+ */
+bool ucfg_is_nan_allowed_on_chan(struct wlan_objmgr_pdev *pdev, uint32_t chan);
 #else /* WLAN_FEATURE_NAN */
 
 static inline
@@ -483,6 +496,12 @@ QDF_STATUS
 ucfg_nan_disable_ndi(struct wlan_objmgr_psoc *psoc, uint32_t ndi_vdev_id)
 {
 	return QDF_STATUS_E_INVAL;
+}
+
+static inline
+bool ucfg_is_nan_allowed_on_chan(struct wlan_objmgr_pdev *pdev, uint32_t chan)
+{
+	return false;
 }
 #endif /* WLAN_FEATURE_NAN */
 #endif /* _NAN_UCFG_API_H_ */

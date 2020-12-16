@@ -2689,19 +2689,17 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
 	struct sap_config *sap_config;
 	struct sk_buff *temp_skbuff;
-	int ret, i, ch_cnt = 0;
+	int ret, i;
 	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_ACS_MAX + 1];
 	bool ht_enabled, ht40_enabled, vht_enabled;
 	uint8_t ch_width;
 	enum qca_wlan_vendor_acs_hw_mode hw_mode;
 	enum policy_mgr_con_mode pm_mode;
 	QDF_STATUS qdf_status;
-	bool skip_etsi13_srd_chan = false;
 	bool is_vendor_acs_support = false;
 	bool is_external_acs_policy = false;
 	bool sap_force_11n_for_11ac = 0;
 	bool go_force_11n_for_11ac = 0;
-	bool etsi13_srd_chan;
 	bool go_11ac_override = 0;
 	bool sap_11ac_override = 0;
 	uint8_t conc_channel;
@@ -2893,25 +2891,6 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 		hdd_err("acs config chan count 0");
 		ret = -EINVAL;
 		goto out;
-	}
-
-	ucfg_mlme_get_etsi13_srd_chan_in_master_mode(hdd_ctx->psoc,
-						     &etsi13_srd_chan);
-	skip_etsi13_srd_chan =
-		!etsi13_srd_chan &&
-		wlan_reg_is_etsi13_regdmn(hdd_ctx->pdev);
-
-	if (skip_etsi13_srd_chan) {
-		for (i = 0; i < sap_config->acs_cfg.ch_list_count; i++) {
-			if (wlan_reg_is_etsi13_srd_chan(hdd_ctx->pdev,
-							sap_config->acs_cfg.
-							ch_list[i]))
-				sap_config->acs_cfg.ch_list[i] = 0;
-			else
-				sap_config->acs_cfg.ch_list[ch_cnt++] =
-						sap_config->acs_cfg.ch_list[i];
-		}
-		sap_config->acs_cfg.ch_list_count = ch_cnt;
 	}
 
 	hdd_avoid_acs_channels(hdd_ctx, sap_config);
