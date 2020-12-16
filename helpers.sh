@@ -149,6 +149,27 @@ function mkimg() {
 	"$kroot/flasher/pack-img.sh" "$fn"
 }
 
+# Create a bootable v2 image with the current kernel image at the specified path
+function mkimg2() {
+	local fn="${1:-boot.img}"
+
+	cat "$kroot/out/arch/$arch/boot/dts/google/"*.dtb > "$kroot/flasher/rd/payload/dtb"
+	python flasher/mkbootimg.py \
+		--header_version 2 \
+		--os_version 11.0.0 \
+		--os_patch_level 2020-12 \
+		--ramdisk ~/code/android/devices/p5/boot/t/ramdisk.cpio \
+		--kernel out/arch/arm64/boot/Image.lz4 \
+		--dtb "$kroot/flasher/rd/payload/dtb" \
+		--cmdline 'console=ttyMSM0,115200n8 androidboot.console=ttyMSM0 printk.devkmsg=on msm_rtb.filter=0x237 ehci-hcd.park=3 service_locator.enable=1 androidboot.memcg=1 cgroup.memory=nokmem lpm_levels.sleep_disabled=1 usbcore.autosuspend=7 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 androidboot.boot_devices=soc/1d84000.ufshc loop.max_part=7 snd_soc_cs35l41_i2c.async_probe=1 i2c_qcom_geni.async_probe=1 st21nfc.async_probe=1 spmi_pmic_arb.async_probe=1 ufs_qcom.async_probe=1 buildvariant=user' \
+		--kernel_offset 0x8000 \
+		--ramdisk_offset 0x1000000 \
+		--dtb_offset 0x1f00000 \
+		--tags_offset 0x100 \
+		--pagesize 4096 \
+		--output "$fn"
+}
+
 # Create a test package of the current kernel image
 function dimg() {
 	mkimg "builds/$kernel_name-$device_name-test$(buildnum).img"
@@ -185,6 +206,11 @@ function incbuild() {
 	kmake "$@" && mkimg
 }
 
+# Build an incremental working-copy v2 boot image
+function incbuild2() {
+	kmake "$@" && mkimg2
+}
+
 # Build an incremental test package
 function dbuild() {
 	kmake "$@" && dimg
@@ -193,7 +219,7 @@ function dbuild() {
 
 #### INSTALLATION ####
 
-# Flash the given kernel package (defaults to latest) on the device via fastboot
+# Flash the given kernel package (defaults to latest) on the device using fastboot
 function ktest() {
 	local fn="${1:-flash.img}"
 
@@ -208,12 +234,33 @@ function ktest() {
 	fastboot boot "$fn"
 }
 
+# Flash the given v2 boot image (defaults to latest) on the device using fastboot
+function kflash2() {
+	local fn="${1:-boot.img}"
+
+	# If in fastbootd
+	if fastboot devices 2>&1 | grep -q fastboot && fastboot getvar is-userspace 2>&1 | grep -q 'is-userspace: yes'; then
+		fastboot reboot bootloader
+	fi
+	if adb devices 2>&1 | grep -q device; then
+		adb reboot bootloader
+	fi
+
+	fastboot flash boot "$fn" && \
+	fastboot reboot
+}
+
 
 #### BUILD & FLASH HELPERS ####
 
-# Build & flash an incremental working-copy kernel on the device via fastboot
+# Build & boot an incremental working-copy kernel on the device via fastboot
 function inc() {
-	incbuild "$@" && ktest
+	incbuild2 "$@" && ktest "${1:-boot.img}"
+}
+
+# Build & flash an incremental working-copy kernel on the device via fastboot
+function incflash() {
+	incbuild2 "$@" && kflash2
 }
 
 
