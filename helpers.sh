@@ -128,18 +128,26 @@ function mkimg() {
 
 	# Populate fields based on build type (stable release or test build)
 	if [[ $RELEASE_VER -gt 0 ]]; then
-		local ver_prefix="v"
-		local build_type="stable"
 		local version="v$RELEASE_VER"
 	else
-		local ver_prefix="test"
-		local build_type="test"
-		local version="$(buildnum)"
+		local version="test$(buildnum)"
 	fi
 
-	rm -f "$kroot/flasher/rd/payload/"*
+	rm -fr "$kroot/flasher/rd/payload"
+	mkdir "$kroot/flasher/rd/payload"
 	cp "$kroot/out/arch/$arch/boot/Image.lz4" "$kroot/flasher/rd/payload/"
 	cat "$kroot/out/arch/$arch/boot/dts/google/"*.dtb > "$kroot/flasher/rd/payload/dtb"
+
+	cat > "$kroot/flasher/rd/payload/banner" << EOF
+ ____            _
+|  _ \ _ __ ___ | |_ ___  _ __
+| |_) | '__/ _ \| __/ _ \| '_ \\
+|  __/| | | (_) | || (_) | | | |
+|_|   |_|  \___/ \__\___/|_| |_|
+
+Proton Kernel for Pixel 5 & 4a 5G
+        $version • by kdrag0n
+EOF
 
 	# Ensure that the directory containing $fn exists but $fn doesn't
 	mkdir -p "$(dirname "$fn")"
