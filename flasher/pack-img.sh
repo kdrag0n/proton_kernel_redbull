@@ -3,7 +3,6 @@
 oldwd="$PWD"
 cd "$(dirname "$0")"
 
-cat flash.sh > rd/init
 ./packrd-gz.sh
 
 python mkbootimg.py \
