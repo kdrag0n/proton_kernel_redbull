@@ -57,6 +57,8 @@
 #include <linux/input/touch_bus_negotiator.h>
 #endif
 
+#include <linux/spi/spi-geni-qcom.h>
+
 #define SEC_TS_NAME		"sec_ts"
 #define SEC_TS_DEVICE_NAME	"SEC_TS"
 
@@ -857,7 +859,8 @@ struct sec_ts_data {
 
 	struct notifier_block notifier;
 
-	struct pm_qos_request pm_qos_req;
+	struct pm_qos_request pm_spi_req;
+	struct pm_qos_request pm_touch_req;
 
 	/* Stop changing charger mode by notifier */
 	u8 ignore_charger_nb;

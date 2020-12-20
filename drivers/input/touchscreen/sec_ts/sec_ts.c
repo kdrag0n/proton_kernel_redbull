@@ -2635,7 +2635,8 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	}
 
 	/* prevent CPU from entering deep sleep */
-	pm_qos_update_request(&ts->pm_qos_req, 100);
+	pm_qos_update_request(&ts->pm_touch_req, 100);
+	pm_qos_update_request(&ts->pm_spi_req, 100);
 	pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
 
 	mutex_lock(&ts->eventlock);
@@ -2649,7 +2650,8 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	update_motion_filter(ts);
 #endif
 
-	pm_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&ts->pm_spi_req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&ts->pm_touch_req, PM_QOS_DEFAULT_VALUE);
 
 	sec_ts_set_bus_ref(ts, SEC_TS_BUS_REF_IRQ, false);
 
@@ -3857,7 +3859,15 @@ static int sec_ts_probe(struct spi_device *client)
 		}
 	}
 
-	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+	ts->pm_spi_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	ts->pm_spi_req.irq = geni_spi_get_master_irq(client);
+	irq_set_perf_affinity(ts->pm_spi_req.irq, IRQF_PERF_AFFINE);
+	pm_qos_add_request(&ts->pm_spi_req, PM_QOS_CPU_DMA_LATENCY,
+		PM_QOS_DEFAULT_VALUE);
+
+	ts->pm_touch_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	ts->pm_touch_req.irq = client->irq;
+	pm_qos_add_request(&ts->pm_touch_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
 	ts->ignore_charger_nb = 0;
@@ -4009,7 +4019,8 @@ err_heatmap:
 	heatmap_remove(&ts->v4l2);
 err_irq:
 #endif
-	pm_qos_remove_request(&ts->pm_qos_req);
+	pm_qos_remove_request(&ts->pm_touch_req);
+	pm_qos_remove_request(&ts->pm_spi_req);
 	if (ts->plat_data->support_dex) {
 		input_unregister_device(ts->input_dev_pad);
 		ts->input_dev_pad = NULL;
@@ -4584,7 +4595,8 @@ static int sec_ts_remove(struct spi_device *client)
 	heatmap_remove(&ts->v4l2);
 #endif
 
-	pm_qos_remove_request(&ts->pm_qos_req);
+	pm_qos_remove_request(&ts->pm_touch_req);
+	pm_qos_remove_request(&ts->pm_spi_req);
 
 #ifdef USE_POWER_RESET_WORK
 	cancel_delayed_work_sync(&ts->reset_work);
