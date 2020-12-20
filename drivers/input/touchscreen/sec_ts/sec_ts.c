@@ -3891,7 +3891,8 @@ static int sec_ts_probe(struct spi_device *client)
 			client->irq);
 
 	ret = request_threaded_irq(client->irq, sec_ts_isr, sec_ts_irq_thread,
-			ts->plat_data->irq_type, SEC_TS_NAME, ts);
+			ts->plat_data->irq_type | IRQF_PRIME_AFFINE,
+			SEC_TS_NAME, ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 			"%s: Unable to request threaded irq\n", __func__);
