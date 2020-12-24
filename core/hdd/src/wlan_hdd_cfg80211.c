@@ -2893,6 +2893,7 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 		goto out;
 	}
 
+	sap_dump_acs_channel(&sap_config->acs_cfg);
 	hdd_avoid_acs_channels(hdd_ctx, sap_config);
 
 	pm_mode =
@@ -2918,32 +2919,6 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 
 	conc_channel = policy_mgr_mode_specific_get_channel(hdd_ctx->psoc,
 							    PM_STA_MODE);
-	if (is_external_acs_policy && conc_channel) {
-		if ((conc_channel <= WLAN_REG_CH_NUM(CHAN_ENUM_14) &&
-		      (sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211B ||
-		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211G ||
-		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211ANY))) {
-			sap_config->acs_cfg.pri_ch = conc_channel;
-			wlan_sap_set_sap_ctx_acs_cfg(
-				WLAN_HDD_GET_SAP_CTX_PTR(adapter), sap_config);
-			mac_handle = hdd_ctx->mac_handle;
-			sap_config_acs_result(mac_handle,
-					      WLAN_HDD_GET_SAP_CTX_PTR(adapter),
-					      sap_config->acs_cfg.ht_sec_ch);
-			sap_config->ch_params.ch_width =
-					sap_config->acs_cfg.ch_width;
-			sap_config->ch_params.sec_ch_offset =
-					sap_config->acs_cfg.ht_sec_ch;
-			sap_config->ch_params.center_freq_seg0 =
-					sap_config->acs_cfg.vht_seg0_center_ch;
-			sap_config->ch_params.center_freq_seg1 =
-					sap_config->acs_cfg.vht_seg1_center_ch;
-			/*notify hostapd about channel override */
-			wlan_hdd_cfg80211_acs_ch_select_evt(adapter);
-			ret = 0;
-			goto out;
-		}
-	}
 
 	if (is_external_acs_policy &&
 	    policy_mgr_is_force_scc(hdd_ctx->psoc) &&
@@ -2978,6 +2953,33 @@ static int __wlan_hdd_cfg80211_do_acs(struct wiphy *wiphy,
 		}
 	}
 
+	if (is_external_acs_policy && conc_channel &&
+	    !sap_config->acs_cfg.ch_list_count) {
+		if ((conc_channel <= WLAN_REG_CH_NUM(CHAN_ENUM_14) &&
+		      (sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211B ||
+		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211G ||
+		       sap_config->acs_cfg.band == QCA_ACS_MODE_IEEE80211ANY))) {
+			sap_config->acs_cfg.pri_ch = conc_channel;
+			wlan_sap_set_sap_ctx_acs_cfg(
+				WLAN_HDD_GET_SAP_CTX_PTR(adapter), sap_config);
+			mac_handle = hdd_ctx->mac_handle;
+			sap_config_acs_result(mac_handle,
+					      WLAN_HDD_GET_SAP_CTX_PTR(adapter),
+					      sap_config->acs_cfg.ht_sec_ch);
+			sap_config->ch_params.ch_width =
+					sap_config->acs_cfg.ch_width;
+			sap_config->ch_params.sec_ch_offset =
+					sap_config->acs_cfg.ht_sec_ch;
+			sap_config->ch_params.center_freq_seg0 =
+					sap_config->acs_cfg.vht_seg0_center_ch;
+			sap_config->ch_params.center_freq_seg1 =
+					sap_config->acs_cfg.vht_seg1_center_ch;
+			/*notify hostapd about channel override */
+			wlan_hdd_cfg80211_acs_ch_select_evt(adapter);
+			ret = 0;
+			goto out;
+		}
+	}
 	ret = wlan_hdd_set_acs_ch_range(sap_config, hw_mode,
 					   ht_enabled, vht_enabled);
 	if (ret) {
