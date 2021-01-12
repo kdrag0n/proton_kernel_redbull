@@ -8518,7 +8518,7 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 		goto codec_aux_dev;
 	}
 	if (wsa_max_devs == 0) {
-		dev_warn(&pdev->dev,
+		dev_info(&pdev->dev,
 			 "%s: Max WSA devices is 0 for this target?\n",
 			 __func__);
 		goto codec_aux_dev;
@@ -8528,7 +8528,7 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 	wsa_dev_cnt = of_count_phandle_with_args(pdev->dev.of_node,
 						 "qcom,wsa-devs", NULL);
 	if (wsa_dev_cnt == -ENOENT) {
-		dev_warn(&pdev->dev, "%s: No wsa device defined in DT.\n",
+		dev_info(&pdev->dev, "%s: No wsa device defined in DT.\n",
 			 __func__);
 		goto err;
 	} else if (wsa_dev_cnt <= 0) {
