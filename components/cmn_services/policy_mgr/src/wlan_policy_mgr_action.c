@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -323,8 +323,9 @@ QDF_STATUS policy_mgr_update_connection_info(struct wlan_objmgr_psoc *psoc,
 		}
 		conn_index++;
 	}
-	qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
+
 	if (!found) {
+		qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
 		/* err msg */
 		policy_mgr_err("can't find vdev_id %d in pm_conc_connection_list",
 			vdev_id);
@@ -334,11 +335,13 @@ QDF_STATUS policy_mgr_update_connection_info(struct wlan_objmgr_psoc *psoc,
 		status = pm_ctx->wma_cbacks.wma_get_connection_info(
 				vdev_id, &conn_table_entry);
 		if (QDF_STATUS_SUCCESS != status) {
+			qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
 			policy_mgr_err("can't find vdev_id %d in connection table",
 			vdev_id);
 			return status;
 		}
 	} else {
+		qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
 		policy_mgr_err("wma_get_connection_info is NULL");
 		return QDF_STATUS_E_FAILURE;
 	}
@@ -369,6 +372,7 @@ QDF_STATUS policy_mgr_update_connection_info(struct wlan_objmgr_psoc *psoc,
 			chain_mask,
 			nss, vdev_id, true, true);
 
+	qdf_mutex_release(&pm_ctx->qdf_conc_list_lock);
 	/* do we need to change the HW mode */
 	policy_mgr_check_n_start_opportunistic_timer(psoc);
 
