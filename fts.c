@@ -5399,7 +5399,9 @@ static void fts_resume_work(struct work_struct *work)
 			/* The grip disable command will not take effect unless
 			 * it is delayed ~100ms.
 			 */
-			schedule_delayed_work(&info->offload_resume_work, 100);
+			queue_delayed_work(info->event_wq,
+					   &info->offload_resume_work,
+					   msecs_to_jiffies(100));
 		}
 	}
 #endif
@@ -5466,9 +5468,12 @@ static void fts_aggregate_bus_state(struct fts_ts_info *info)
 	    (info->bus_refmask != 0 && !info->sensor_sleep))
 		return;
 
-	if (info->bus_refmask == 0)
+	if (info->bus_refmask == 0) {
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		cancel_delayed_work_sync(&info->offload_resume_work);
+#endif
 		queue_work(info->event_wq, &info->suspend_work);
-	else
+	} else
 		queue_work(info->event_wq, &info->resume_work);
 }
 
