@@ -523,6 +523,8 @@ static int cam_cci_assign_fops(void)
 		sd = g_cci_subdev[i];
 		if (!sd)
 			return 0;
+		if (!(sd->flags & V4L2_SUBDEV_FL_HAS_DEVNODE))
+			continue;
 		if (!(sd->devnode)) {
 			CAM_ERR(CAM_CCI,
 			"Invalid dev node:%pK offset: %d",
