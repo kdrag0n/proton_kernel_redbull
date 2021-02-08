@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _CAM_CCI_DEV_H_
@@ -298,7 +298,7 @@ irqreturn_t cam_cci_irq(int irq_num, void *data);
 struct v4l2_subdev *cam_cci_get_subdev(int cci_dev_index);
 
 #define VIDIOC_MSM_CCI_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct cam_cci_ctrl *)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct cam_cci_ctrl)
 
 #ifdef CONFIG_SPECTRA_CAMERA_MODULE
 extern int cam_cci_late_init(void);
