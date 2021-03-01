@@ -1162,6 +1162,7 @@ static void wma_vdev_start_rsp(tp_wma_handle wma,
 		 BSS_OPERATIONAL_MODE_IBSS ? "IBSS" : "non-IBSS");
 #endif /* QCA_IBSS_SUPPORT */
 
+	add_bss->bss_idx = resp_event->vdev_id;
 	if (resp_event->status) {
 		add_bss->status = QDF_STATUS_E_FAILURE;
 		goto send_fail_resp;
@@ -1199,7 +1200,6 @@ static void wma_vdev_start_rsp(tp_wma_handle wma,
 			 __func__, bcn, bcn->buf);
 	}
 	add_bss->status = QDF_STATUS_SUCCESS;
-	add_bss->bss_idx = resp_event->vdev_id;
 	add_bss->chainMask = resp_event->chain_mask;
 	if ((2 != resp_event->cfgd_rx_streams) ||
 		(2 != resp_event->cfgd_tx_streams)) {
@@ -4058,6 +4058,7 @@ wma_handle_add_bss_req_timeout(tp_wma_handle wma, struct wma_target_req *req)
 		wma_trigger_recovery_assert_on_fw_timeout(WMA_ADD_BSS_REQ);
 
 	iface = &wma->interfaces[req->vdev_id];
+	params->bss_idx = req->vdev_id;
 	wlan_vdev_mlme_sm_deliver_evt(iface->vdev,
 				      WLAN_VDEV_SM_EV_DOWN,
 				      sizeof(*params), params);
