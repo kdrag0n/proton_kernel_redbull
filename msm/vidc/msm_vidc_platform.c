@@ -287,8 +287,8 @@ static struct msm_vidc_codec_capability lito_capabilities_v0[] = {
 	   unknown as well, which creates a problem of allowing client
 	   to set higher level than supported */
 	{CAP_H264_LEVEL, ENC, H264, V4L2_MPEG_VIDEO_H264_LEVEL_1_0,
-	                            V4L2_MPEG_VIDEO_H264_LEVEL_6_0, 1,
-	                            V4L2_MPEG_VIDEO_H264_LEVEL_6_0},
+	                            V4L2_MPEG_VIDEO_H264_LEVEL_5_2, 1,
+	                            V4L2_MPEG_VIDEO_H264_LEVEL_5_2},
 	{CAP_HEVC_LEVEL, ENC, HEVC, V4L2_MPEG_VIDEO_HEVC_LEVEL_1,
 	                            V4L2_MPEG_VIDEO_HEVC_LEVEL_6, 1,
 	                            V4L2_MPEG_VIDEO_HEVC_LEVEL_6},
@@ -389,8 +389,8 @@ static struct msm_vidc_codec_capability lito_capabilities_v1[] = {
 	   unknown as well, which creates a problem of allowing client
 	   to set higher level than supported */
 	{CAP_H264_LEVEL, ENC, H264, V4L2_MPEG_VIDEO_H264_LEVEL_1_0,
-	                            V4L2_MPEG_VIDEO_H264_LEVEL_6_0, 1,
-	                            V4L2_MPEG_VIDEO_H264_LEVEL_6_0},
+	                            V4L2_MPEG_VIDEO_H264_LEVEL_5_2, 1,
+	                            V4L2_MPEG_VIDEO_H264_LEVEL_5_2},
 	{CAP_HEVC_LEVEL, ENC, HEVC, V4L2_MPEG_VIDEO_HEVC_LEVEL_1,
 	                            V4L2_MPEG_VIDEO_HEVC_LEVEL_6, 1,
 	                            V4L2_MPEG_VIDEO_HEVC_LEVEL_6},
