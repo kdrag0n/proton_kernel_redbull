@@ -141,6 +141,10 @@
 		vddcx-supply = <&gpu_cx_gdsc>;
 		vdd-supply = <&gpu_gx_gdsc>;
 
+		/* Force these to probe first */
+		gmu-supply = <&gmu>;
+		smmu-supply = <&kgsl_smmu>;
+
 		nvmem-cells = <&gpu_speed_bin>, <&gpu_gaming_bin>, <&gpu_lm_efuse>;
 		nvmem-cell-names = "speed_bin", "gaming_bin", "isense_slope";
 
