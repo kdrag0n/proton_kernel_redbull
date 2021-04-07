@@ -431,8 +431,7 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 		sizeof(new_cci_dev->device_name));
 	new_cci_dev->v4l2_dev_str.name =
 		new_cci_dev->device_name;
-	new_cci_dev->v4l2_dev_str.sd_flags =
-		(V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS);
+	new_cci_dev->v4l2_dev_str.sd_flags = V4L2_SUBDEV_FL_HAS_EVENTS;
 	new_cci_dev->v4l2_dev_str.ent_function =
 		CAM_CCI_DEVICE_TYPE;
 	new_cci_dev->v4l2_dev_str.token =
@@ -524,6 +523,8 @@ static int cam_cci_assign_fops(void)
 		sd = g_cci_subdev[i];
 		if (!sd)
 			return 0;
+		if (!(sd->flags & V4L2_SUBDEV_FL_HAS_DEVNODE))
+			continue;
 		if (!(sd->devnode)) {
 			CAM_ERR(CAM_CCI,
 			"Invalid dev node:%pK offset: %d",
