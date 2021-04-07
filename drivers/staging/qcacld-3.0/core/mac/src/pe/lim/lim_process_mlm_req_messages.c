@@ -1075,6 +1075,27 @@ end:
 			     (uint32_t *) &mlm_auth_cnf);
 }
 
+#ifdef WLAN_FEATURE_11W
+static void lim_store_pmfcomeback_timerinfo(struct pe_session *session_entry)
+{
+	if (session_entry->opmode != QDF_STA_MODE ||
+	    !session_entry->limRmfEnabled)
+		return;
+	/*
+	 * Store current MLM state in case ASSOC response returns with
+	 * TRY_AGAIN_LATER return code.
+	 */
+	session_entry->pmf_retry_timer_info.lim_prev_mlm_state =
+		session_entry->limPrevMlmState;
+	session_entry->pmf_retry_timer_info.lim_mlm_state =
+		session_entry->limMlmState;
+}
+#else
+static void lim_store_pmfcomeback_timerinfo(struct pe_session *session_entry)
+{
+}
+#endif /* WLAN_FEATURE_11W */
+
 /**
  * lim_process_mlm_assoc_req() - This function is called to process
  * MLM_ASSOC_REQ message from SME
@@ -1135,6 +1156,7 @@ static void lim_process_mlm_assoc_req(struct mac_context *mac_ctx, uint32_t *msg
 	/* map the session entry pointer to the AssocFailureTimer */
 	mac_ctx->lim.limTimers.gLimAssocFailureTimer.sessionId =
 		mlm_assoc_req->sessionId;
+	lim_store_pmfcomeback_timerinfo(session_entry);
 	session_entry->limPrevMlmState = session_entry->limMlmState;
 	session_entry->limMlmState = eLIM_MLM_WT_ASSOC_RSP_STATE;
 	MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
@@ -2356,6 +2378,7 @@ void lim_process_assoc_failure_timeout(struct mac_context *mac_ctx,
 			session->peSessionId, session->limMlmState));
 		/* Change timer for future activations */
 		lim_deactivate_and_change_timer(mac_ctx, eLIM_ASSOC_FAIL_TIMER);
+		lim_stop_pmfcomeback_timer(session);
 		/*
 		 * Free up buffer allocated for JoinReq held by
 		 * MLM state machine

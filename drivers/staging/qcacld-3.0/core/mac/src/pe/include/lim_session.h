@@ -37,7 +37,8 @@ typedef struct sPowersaveoffloadInfo {
 #ifdef WLAN_FEATURE_11W
 struct comeback_timer_info {
 	struct mac_context *mac;
-	uint8_t session_id;
+	uint8_t vdev_id;
+	uint8_t retried;
 	tLimMlmStates lim_prev_mlm_state;  /* Previous MLM State */
 	tLimMlmStates lim_mlm_state;       /* MLM State */
 };
@@ -135,6 +136,9 @@ struct obss_detection_cfg {
  * @ap_ecsa_wakelock: wakelock to complete CSA operation.
  * @ap_ecsa_runtime_lock: runtime lock to complete SAP CSA operation.
  * to Adaptive 11R network
+ * @prev_auth_seq_num: Sequence number of previously received auth frame to
+ * detect duplicate frames.
+ * @prev_auth_mac_addr: mac_addr of the sta correspond to @prev_auth_seq_num
  */
 struct pe_session {
 	/* To check session table is in use or free */
@@ -489,6 +493,10 @@ struct pe_session {
 	/* Fast Transition (FT) */
 	tftPEContext ftPEContext;
 	bool isNonRoamReassoc;
+#ifdef WLAN_FEATURE_11W
+	qdf_mc_timer_t pmf_retry_timer;
+	struct comeback_timer_info pmf_retry_timer_info;
+#endif /* WLAN_FEATURE_11W */
 	uint8_t  is_key_installed;
 	/* timer for resetting protection fileds at regular intervals */
 	qdf_mc_timer_t protection_fields_reset_timer;
@@ -556,6 +564,7 @@ struct pe_session {
 #endif
 	/* previous auth frame's sequence number */
 	uint16_t prev_auth_seq_num;
+	tSirMacAddr prev_auth_mac_addr;
 	struct obss_detection_cfg obss_offload_cfg;
 	struct obss_detection_cfg current_obss_detection;
 	bool is_session_obss_offload_enabled;

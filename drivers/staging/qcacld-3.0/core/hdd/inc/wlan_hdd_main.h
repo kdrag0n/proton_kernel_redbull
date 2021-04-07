@@ -2024,6 +2024,7 @@ struct hdd_context {
 #ifdef FW_THERMAL_THROTTLE_SUPPORT
 	uint8_t dutycycle_off_percent;
 #endif
+	bool ll_stats_per_chan_rx_tx_time;
 };
 
 /**

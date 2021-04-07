@@ -471,47 +471,6 @@ static void lim_stop_reassoc_retry_timer(struct mac_context *mac_ctx)
 	lim_deactivate_and_change_timer(mac_ctx, eLIM_REASSOC_FAIL_TIMER);
 }
 
-#ifdef WLAN_FEATURE_11W
-static void
-lim_handle_assoc_reject_status(struct mac_context *mac_ctx,
-				struct pe_session *session_entry,
-				tpSirAssocRsp assoc_rsp,
-				tSirMacAddr source_addr)
-{
-	struct sir_rssi_disallow_lst ap_info = {{0}};
-	uint32_t timeout_value =
-		assoc_rsp->TimeoutInterval.timeoutValue;
-
-	if (!(session_entry->limRmfEnabled &&
-		    assoc_rsp->status_code == eSIR_MAC_TRY_AGAIN_LATER &&
-		   (assoc_rsp->TimeoutInterval.present &&
-			(assoc_rsp->TimeoutInterval.timeoutType ==
-				SIR_MAC_TI_TYPE_ASSOC_COMEBACK))))
-		return;
-
-	/*
-	 * Add to rssi reject list, which takes care of retry
-	 * delay too. Fill the RSSI as 0, so the only param
-	 * which will allow the bssid to connect is retry delay.
-	 */
-	ap_info.retry_delay = timeout_value;
-	qdf_mem_copy(ap_info.bssid.bytes, source_addr, QDF_MAC_ADDR_SIZE);
-	ap_info.expected_rssi = LIM_MIN_RSSI;
-	lim_add_bssid_to_reject_list(mac_ctx->pdev, &ap_info);
-
-	pe_debug("ASSOC res with eSIR_MAC_TRY_AGAIN_LATER recvd. Add to time reject list(rssi reject in mac_ctx %d",
-		timeout_value);
-}
-#else
-static void
-lim_handle_assoc_reject_status(struct mac_context *mac_ctx,
-				struct pe_session *session_entry,
-				tpSirAssocRsp assoc_rsp,
-				tSirMacAddr source_addr)
-{
-}
-#endif
-
 /**
  * lim_get_nss_supported_by_ap() - finds out nss from AP's beacons
  * @vht_caps: VHT capabilities
@@ -544,6 +503,68 @@ static uint8_t lim_get_nss_supported_by_ap(tDot11fIEVHTCaps *vht_caps,
 
 	return NSS_1x1_MODE;
 }
+
+#ifdef WLAN_FEATURE_11W
+
+#define MAX_RETRY_TIMER 1500
+static QDF_STATUS
+lim_handle_pmfcomeback_timer(struct pe_session *session_entry,
+			     tpSirAssocRsp assoc_rsp)
+{
+	uint16_t timeout_value;
+
+	if (session_entry->opmode != QDF_STA_MODE)
+		return QDF_STATUS_E_FAILURE;
+
+	if (session_entry->limRmfEnabled &&
+	    session_entry->pmf_retry_timer_info.retried &&
+	    assoc_rsp->status_code == eSIR_MAC_TRY_AGAIN_LATER) {
+		pe_debug("Already retry in progress");
+		return QDF_STATUS_SUCCESS;
+	}
+
+	/*
+	 * Handle association Response for sta mode with RMF enabled and TRY
+	 * again later with timeout interval and Assoc comeback type
+	 */
+	if (!session_entry->limRmfEnabled || assoc_rsp->status_code !=
+	    eSIR_MAC_TRY_AGAIN_LATER || !assoc_rsp->TimeoutInterval.present ||
+	    assoc_rsp->TimeoutInterval.timeoutType !=
+	    SIR_MAC_TI_TYPE_ASSOC_COMEBACK ||
+	    session_entry->pmf_retry_timer_info.retried)
+		return QDF_STATUS_E_FAILURE;
+
+	timeout_value = assoc_rsp->TimeoutInterval.timeoutValue;
+	if (timeout_value < 10) {
+		/*
+		 * if this value is less than 10 then our timer
+		 * will fail to start and due to this we will
+		 * never re-attempt. Better modify the timer
+		 * value here.
+		 */
+		timeout_value = 10;
+	}
+	timeout_value = QDF_MIN(MAX_RETRY_TIMER, timeout_value);
+	pe_debug("ASSOC res with eSIR_MAC_TRY_AGAIN_LATER recvd.Starting timer to wait timeout: %d",
+		 timeout_value);
+	if (QDF_STATUS_SUCCESS !=
+	    qdf_mc_timer_start(&session_entry->pmf_retry_timer,
+			       timeout_value)) {
+		pe_err("Failed to start comeback timer");
+		return QDF_STATUS_E_FAILURE;
+	}
+	session_entry->pmf_retry_timer_info.retried = true;
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static QDF_STATUS
+lim_handle_pmfcomeback_timer(struct pe_session *session_entry,
+			     tpSirAssocRsp assoc_rsp)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+#endif
 
 /**
  * lim_process_assoc_rsp_frame() - Processes assoc response
@@ -578,6 +599,7 @@ lim_process_assoc_rsp_frame(struct mac_context *mac_ctx,
 #endif
 	uint8_t ap_nss;
 	int8_t rssi;
+	QDF_STATUS status;
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	sme_sessionid = session_entry->smeSessionId;
@@ -773,15 +795,6 @@ lim_process_assoc_rsp_frame(struct mac_context *mac_ctx,
 	}
 	lim_copy_u16((uint8_t *) &mac_capab, caps);
 
-	/* Stop Association failure timer */
-	if (subtype == LIM_ASSOC)
-		lim_deactivate_and_change_timer(mac_ctx, eLIM_ASSOC_FAIL_TIMER);
-	else
-		lim_stop_reassoc_retry_timer(mac_ctx);
-
-	lim_handle_assoc_reject_status(mac_ctx, session_entry, assoc_rsp,
-				       hdr->sa);
-
 	if (eSIR_MAC_XS_FRAME_LOSS_POOR_CHANNEL_RSSI_STATUS ==
 	   assoc_rsp->status_code &&
 	    assoc_rsp->rssi_assoc_rej.present) {
@@ -798,6 +811,21 @@ lim_process_assoc_rsp_frame(struct mac_context *mac_ctx,
 		qdf_mem_copy(ap_info.bssid.bytes, hdr->sa, QDF_MAC_ADDR_SIZE);
 		lim_add_bssid_to_reject_list(mac_ctx->pdev, &ap_info);
 	}
+
+	status = lim_handle_pmfcomeback_timer(session_entry, assoc_rsp);
+	/* return if retry again timer is started and ignore this assoc resp */
+	if (QDF_IS_STATUS_SUCCESS(status)) {
+		qdf_mem_free(beacon);
+		qdf_mem_free(assoc_rsp);
+		return;
+	}
+
+	/* Stop Association failure timer */
+	if (subtype == LIM_ASSOC)
+		lim_deactivate_and_change_timer(mac_ctx, eLIM_ASSOC_FAIL_TIMER);
+	else
+		lim_stop_reassoc_retry_timer(mac_ctx);
+
 	if (assoc_rsp->status_code != eSIR_MAC_SUCCESS_STATUS) {
 		/*
 		 *Re/Association response was received

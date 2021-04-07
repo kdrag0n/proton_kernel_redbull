@@ -1857,6 +1857,14 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 	policy_mgr_check_concurrent_intf_and_restart_sap(hdd_ctx->psoc);
 	adapter->hdd_stats.tx_rx_stats.cont_txtimeout_cnt = 0;
 
+	/*
+	 * Reset hdd_reassoc_scenario to false here. After roaming in
+	 * 802.1x or WPA3 security, EAPOL is handled at supplicant and
+	 * the hdd_reassoc_scenario flag will not be reset if disconnection
+	 * happens before EAP/EAPOL at supplicant is complete.
+	 */
+	sta_ctx->hdd_reassoc_scenario = false;
+
 	/* Unblock anyone waiting for disconnect to complete */
 	complete(&adapter->disconnect_comp_var);
 
@@ -2956,12 +2964,6 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 			u8 *assoc_req = NULL;
 			unsigned int assoc_req_len = 0;
 			struct ieee80211_channel *chan;
-			uint32_t rsp_rsn_lemgth = DOT11F_IE_RSN_MAX_LEN;
-			uint8_t *rsp_rsn_ie =
-				qdf_mem_malloc(sizeof(uint8_t) *
-					       DOT11F_IE_RSN_MAX_LEN);
-			if (!rsp_rsn_ie)
-				return QDF_STATUS_E_NOMEM;
 
 			/* add bss_id to cfg80211 data base */
 			bss =
@@ -2990,7 +2992,6 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 					eSIR_MAC_UNSPEC_FAILURE_REASON);
 				}
 				qdf_mem_free(reqRsnIe);
-				qdf_mem_free(rsp_rsn_ie);
 				return QDF_STATUS_E_FAILURE;
 			}
 
@@ -3172,10 +3173,6 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 							    &reqRsnLength,
 							    reqRsnIe);
 
-				sme_roam_get_wpa_rsn_rsp_ie(mac_handle,
-							    adapter->vdev_id,
-							    &rsp_rsn_lemgth,
-							    rsp_rsn_ie);
 				if (!hddDisconInProgress) {
 					if (ft_carrier_on)
 						hdd_send_re_assoc_event(dev,
@@ -3231,7 +3228,6 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 						WLAN_CONTROL_PATH);
 
 			}
-			qdf_mem_free(rsp_rsn_ie);
 		} else {
 			/*
 			 * wpa supplicant expecting WPA/RSN IE in connect result
