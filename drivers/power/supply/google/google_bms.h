@@ -226,6 +226,8 @@ struct batt_ttf_stats {
  *	CHG_HEALTH_ACTIVE   -> CHG_HEALTH_DONE
  */
 enum chg_health_state {
+	CHG_HEALTH_CCLVL_DISABLED = -6,
+	CHG_HEALTH_BD_DISABLED = -5,
 	CHG_HEALTH_USER_DISABLED = -3,
 	CHG_HEALTH_DISABLED = -2,
 	CHG_HEALTH_DONE = -1,
@@ -235,17 +237,28 @@ enum chg_health_state {
 };
 
 /* tier index used to log the session */
-enum gbms_stats_ac_tier_idx_t {
+enum gbms_stats_tier_idx_t {
+	GBMS_STATS_AC_TI_DEFENDER = -5,
 	GBMS_STATS_AC_TI_DISABLE_SETTING_STOP = -4,
 	GBMS_STATS_AC_TI_DISABLE_MISC = -3,
 	GBMS_STATS_AC_TI_DISABLE_SETTING = -2,
 	GBMS_STATS_AC_TI_INVALID = -1,
+
+	/* Regular charge tiers 0 -> 9 */
 	GBMS_STATS_AC_TI_VALID = 10,
 	GBMS_STATS_AC_TI_DISABLED,
 	GBMS_STATS_AC_TI_ENABLED,
 	GBMS_STATS_AC_TI_ACTIVE,
 	GBMS_STATS_AC_TI_ENABLED_AON,
 	GBMS_STATS_AC_TI_ACTIVE_AON,
+
+	/* TODO: rename, these are not really related to AC */
+	GBMS_STATS_AC_TI_FULL_CHARGE = 100,
+	GBMS_STATS_AC_TI_HIGH_SOC = 101,
+
+	/* Defender TEMP or DWELL */
+	GBMS_STATS_BD_TI_OVERHEAT_TEMP = 110,
+	GBMS_STATS_BD_TI_CUSTOM_LEVELS = 111,
 };
 
 /* health state */
@@ -268,6 +281,7 @@ struct batt_chg_health {
 #define CHG_HEALTH_REST_SOC(rest) (((rest)->always_on_soc != -1) ? \
 			(rest)->always_on_soc : (rest)->rest_soc)
 
+/* reset on every charge session */
 struct gbms_charging_event {
 	union gbms_ce_adapter_details	adapter_details;
 
@@ -289,20 +303,25 @@ struct gbms_charging_event {
 	/* health based charging */
 	struct batt_chg_health		ce_health;	/* updated on close */
 	struct gbms_ce_tier_stats	health_stats;	/* updated in HC */
+
+	/* other stats */
+	struct gbms_ce_tier_stats full_charge_stats;
+	struct gbms_ce_tier_stats high_soc_stats;
+
+	struct gbms_ce_tier_stats overheat_stats;
+	struct gbms_ce_tier_stats cc_lvl_stats;
 };
 
 #define GBMS_CCCM_LIMITS(profile, ti, vi) \
 	profile->cccm_limits[(ti * profile->volt_nb_limits) + vi]
 
 /* newgen charging */
-#define GBMS_CS_FLAG_BUCK_EN    (1 << 0)
-#define GBMS_CS_FLAG_DONE       (1 << 1)
-#define GBMS_CS_FLAG_CC       	(1 << 2)
-#define GBMS_CS_FLAG_CV       	(1 << 3)
-#define GBMS_CS_FLAG_ILIM       (1 << 4)
-
-// This value must be greater than the threshold set in individual chargers
-#define GBMS_ICL_MIN 100000 // 100 mA
+#define GBMS_CS_FLAG_BUCK_EN	BIT(0)
+#define GBMS_CS_FLAG_DONE	BIT(1)
+#define GBMS_CS_FLAG_CC		BIT(2)
+#define GBMS_CS_FLAG_CV		BIT(3)
+#define GBMS_CS_FLAG_ILIM	BIT(4)
+#define GBMS_CS_FLAG_CCLVL	BIT(5)
 
 union gbms_charger_state {
 	uint64_t v;
@@ -535,6 +554,8 @@ extern struct gbms_storage_device *gbms_storage_create_device(const char *name,
 							      gbms_tag_t tag);
 extern void gbms_storage_cleanup_device(struct gbms_storage_device *gdev);
 
+extern bool gbms_temp_defend_dry_run(bool update, bool dry_run);
+
 #else
 
 int gbms_storage_register(struct gbms_storage_desc *desc, const char *name,
@@ -575,6 +596,10 @@ struct gbms_storage_device *gbms_storage_create_device(const char *name,
 void gbms_storage_cleanup_device(struct gbms_storage_device *gdev)
 {
 	return;
+}
+bool gbms_temp_defend_dry_run(bool update, bool dry_run)
+{
+	return false;
 }
 
 #endif /* CONFIG_GOOGLE_BMS */
