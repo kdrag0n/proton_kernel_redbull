@@ -554,6 +554,16 @@ CONFIG_CRYPTO_POLY1305_NEON=y
 # CONFIG_CRYPTO_AES_ARM64_BS is not set
 
 #
+# Tech packages
+#
+
+#
+# RmNet extensions
+#
+CONFIG_RMNET_PERF=y
+CONFIG_RMNET_SHS=y
+
+#
 # General architecture-dependent options
 #
 CONFIG_JUMP_LABEL=y
