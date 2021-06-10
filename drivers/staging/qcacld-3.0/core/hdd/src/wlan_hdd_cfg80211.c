@@ -16498,6 +16498,10 @@ static int __wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 
 	mac_handle = hdd_ctx->mac_handle;
 
+	cdp_peer_flush_frags(cds_get_context(QDF_MODULE_ID_SOC),
+			     cds_get_context(QDF_MODULE_ID_TXRX),
+			     adapter->vdev_id, set_key.peerMac.bytes);
+
 	switch (params->cipher) {
 	case WLAN_CIPHER_SUITE_WEP40:
 		set_key.encType = eCSR_ENCRYPT_TYPE_WEP40_STATICKEY;
@@ -19948,6 +19952,8 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 		bssid = req->bssid;
 	else if (bssid_hint)
 		bssid = bssid_hint;
+
+	ucfg_blm_dump_black_list_ap(hdd_ctx->pdev);
 
 	if (bssid && hdd_get_adapter_by_macaddr(hdd_ctx, (uint8_t *)bssid)) {
 		hdd_err("adapter exist with same mac address " QDF_MAC_ADDR_STR,
