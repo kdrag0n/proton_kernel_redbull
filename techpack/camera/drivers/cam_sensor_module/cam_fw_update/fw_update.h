@@ -17,3 +17,5 @@ int GyroReCalibrate(struct camera_io_master *io_master_info,
 int WrGyroOffsetData(struct camera_io_master *io_master_info,
 	stReCalib *cal_result);
 int getFWVersion(struct cam_sensor_ctrl_t *s_ctrl);
+int GyroOffsetCorrect(struct camera_io_master *io_master_info,
+	uint32_t gyro_correct_index);

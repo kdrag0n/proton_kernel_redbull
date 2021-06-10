@@ -41,6 +41,24 @@ static int cam_ois_get_dt_data(struct cam_ois_ctrl_t *o_ctrl)
 		return rc;
 	}
 
+	if (of_property_read_u32(of_node, "gyro-correct-enable",
+		&o_ctrl->gyro_correct_enable) < 0) {
+		/* Set default gyro-correct-enable */
+		CAM_INFO(CAM_OIS,
+			"failed to parse gyro-correct-enable, set to default");
+		o_ctrl->gyro_correct_enable = 0;
+	}
+	CAM_INFO(CAM_OIS, "gyro-correct-enable %d", o_ctrl->gyro_correct_enable);
+
+	if (of_property_read_u32(of_node, "gyro-correct-index",
+		&o_ctrl->gyro_correct_index) < 0) {
+		/* Set default gyro-correct-index */
+		CAM_INFO(CAM_OIS,
+			"failed to parse gyro-correct-index, set to default");
+		o_ctrl->gyro_correct_index = 0;
+	}
+	CAM_INFO(CAM_OIS, "gyro-correct-index %d", o_ctrl->gyro_correct_index);
+
 	if (!soc_info->gpio_data) {
 		CAM_INFO(CAM_OIS, "No GPIO found");
 		return 0;
