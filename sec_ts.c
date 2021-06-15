@@ -2419,7 +2419,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				switch (status_data_1) {
 				case 0x20:
 					/* watchdog reset !? */
-					sec_ts_unlocked_release_all_finger(ts);
+					sec_ts_locked_release_all_finger(ts);
 					ret = sec_ts_write(ts,
 						SEC_TS_CMD_SENSE_ON, NULL, 0);
 					if (ret < 0)
@@ -2433,14 +2433,14 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 					input_info(true, &ts->client->dev,
 						"%s: sw_reset done\n",
 						__func__);
-					sec_ts_unlocked_release_all_finger(ts);
+					sec_ts_locked_release_all_finger(ts);
 					complete_all(&ts->boot_completed);
 					break;
 				case 0x10:
 					input_info(true, &ts->client->dev,
 						"%s: hw_reset done\n",
 						__func__);
-					sec_ts_unlocked_release_all_finger(ts);
+					sec_ts_locked_release_all_finger(ts);
 					complete_all(&ts->boot_completed);
 					break;
 				default:
@@ -2456,7 +2456,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				input_err(true, &ts->client->dev,
 					"%s: IC Event Queue is full\n",
 					__func__);
-				sec_ts_unlocked_release_all_finger(ts);
+				sec_ts_locked_release_all_finger(ts);
 			}
 
 			if ((p_event_status->stype ==
@@ -2485,21 +2485,27 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				}
 
 #ifdef SEC_TS_SUPPORT_CUSTOMLIB
+			mutex_lock(&ts->eventlock);
 			sec_ts_handle_lib_status_event(ts, p_event_status);
+			mutex_unlock(&ts->eventlock);
 #endif
 			break;
 
 		case SEC_TS_COORDINATE_EVENT:
 			processed_pointer_event = true;
+			mutex_lock(&ts->eventlock);
 			sec_ts_handle_coord_event(ts,
 				(struct sec_ts_event_coordinate *)event_buff);
+			mutex_unlock(&ts->eventlock);
 			break;
 
 		case SEC_TS_GESTURE_EVENT:
 			p_gesture_status =
 				(struct sec_ts_gesture_status *)event_buff;
 #ifdef SEC_TS_SUPPORT_CUSTOMLIB
+			mutex_lock(&ts->eventlock);
 			sec_ts_handle_gesture_event(ts, p_gesture_status);
+			mutex_unlock(&ts->eventlock);
 #endif
 			break;
 
@@ -2518,8 +2524,9 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	if (!ts->offload.offload_running) {
 #endif
-
+	mutex_lock(&ts->eventlock);
 	input_sync(ts->input_dev);
+	mutex_unlock(&ts->eventlock);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	}
@@ -2628,11 +2635,7 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	pm_qos_update_request(&ts->pm_qos_req, 100);
 	pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
 
-	mutex_lock(&ts->eventlock);
-
 	sec_ts_read_event(ts);
-
-	mutex_unlock(&ts->eventlock);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	/* Disable the firmware motion filter during single touch */
@@ -2653,6 +2656,8 @@ static void sec_ts_offload_report(void *handle,
 	struct sec_ts_data *ts = (struct sec_ts_data *)handle;
 	bool touch_down = 0;
 	int i;
+
+	mutex_lock(&ts->eventlock);
 
 	input_set_timestamp(ts->input_dev, report->timestamp);
 
@@ -2697,6 +2702,8 @@ static void sec_ts_offload_report(void *handle,
 	input_report_key(ts->input_dev, BTN_TOUCH, touch_down);
 
 	input_sync(ts->input_dev);
+
+	mutex_unlock(&ts->eventlock);
 }
 #endif /* CONFIG_TOUCHSCREEN_OFFLOAD */
 
@@ -4144,7 +4151,6 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 #endif
 	input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
 	input_sync(ts->input_dev);
-
 }
 
 void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
