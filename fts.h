@@ -474,7 +474,7 @@ struct fts_ts_info {
 	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 
 	/* input lock */
-	struct mutex input_report_mutex;	/* Mutex for pressure report */
+	struct mutex input_report_mutex;	/* Mutex for input report */
 
 	/* switches for features */
 	int gesture_enabled;	/* Gesture during suspend */
