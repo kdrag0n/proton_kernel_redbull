@@ -1652,7 +1652,7 @@ int __init socinfo_init(void)
 
 	return 0;
 }
-subsys_initcall(socinfo_init);
+device_initcall(socinfo_init);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Qualcomm Socinfo driver");
