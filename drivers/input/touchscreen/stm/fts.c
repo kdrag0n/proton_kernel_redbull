@@ -4418,13 +4418,21 @@ static void fts_offload_report(void *handle,
 	input_set_timestamp(info->input_dev, report->timestamp);
 
 	for (i = 0; i < MAX_COORDS; i++) {
-		if (report->coords[i].status == COORD_STATUS_FINGER) {
+		if (report->coords[i].status != COORD_STATUS_INACTIVE) {
+			int mt_tool = MT_TOOL_FINGER;
+
 			input_mt_slot(info->input_dev, i);
 			touch_down = 1;
 			input_report_key(info->input_dev, BTN_TOUCH,
 					 touch_down);
+
+			if (report->coords[i].status == COORD_STATUS_EDGE ||
+			    report->coords[i].status == COORD_STATUS_PALM ||
+			    report->coords[i].status == COORD_STATUS_CANCEL)
+				mt_tool = MT_TOOL_PALM;
+
 			input_mt_report_slot_state(info->input_dev,
-						   MT_TOOL_FINGER, 1);
+						   mt_tool, 1);
 			input_report_abs(info->input_dev, ABS_MT_POSITION_X,
 					 report->coords[i].x);
 			input_report_abs(info->input_dev, ABS_MT_POSITION_Y,
@@ -5920,6 +5928,7 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	const char *name;
 	struct device_node *np = dev->of_node;
 	u32 coords[2];
+	u8 offload_id[4];
 
 	if (of_property_read_bool(np, "st,panel_map")) {
 		for (index = 0 ;; index++) {
@@ -6016,6 +6025,19 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	if (of_property_read_bool(np, "st,sensor_inverted_y"))
 		bdata->sensor_inverted_y = 1;
 	pr_info("Sensor inverted y = %u\n", bdata->sensor_inverted_y);
+
+	bdata->offload_id = 0;
+	retval = of_property_read_u8_array(np, "st,touch_offload_id",
+					    offload_id, 4);
+	if (retval == -EINVAL)
+		pr_err("Failed to read st,touch_offload_id with error = %d\n",
+		       retval);
+	else {
+		bdata->offload_id = *(u32 *)offload_id;
+		pr_info("Offload device ID = \"%c%c%c%c\" / 0x%08X\n",
+		    offload_id[0], offload_id[1], offload_id[2], offload_id[3],
+		    bdata->offload_id);
+	}
 
 	return OK;
 }
@@ -6359,9 +6381,7 @@ static int fts_probe(struct spi_device *client)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	info->offload.caps.touch_offload_major_version = 1;
 	info->offload.caps.touch_offload_minor_version = 0;
-	/* ID equivalent to the 4-byte, little-endian string: '00b5' */
-	info->offload.caps.device_id =
-	    '5' << 24 | 'b' << 16 | '0' << 8 | '0' << 0;
+	info->offload.caps.device_id = info->board->offload_id;
 	info->offload.caps.display_width = info->board->x_axis_max;
 	info->offload.caps.display_height = info->board->y_axis_max;
 	info->offload.caps.tx_size = getForceLen();
