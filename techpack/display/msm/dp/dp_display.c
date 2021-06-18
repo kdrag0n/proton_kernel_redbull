@@ -712,7 +712,7 @@ static void dp_display_send_hpd_event(struct dp_display_private *dp)
 	snprintf(pattern, HPD_STRING_SIZE, "pattern=%d",
 		dp->link->test_video.test_video_pattern);
 
-	DP_DEBUG("[%s]:[%s] [%s] [%s]\n", name, status, bpp, pattern);
+	DP_INFO("[%s]:[%s] [%s] [%s]\n", name, status, bpp, pattern);
 	envp[0] = name;
 	envp[1] = status;
 	envp[2] = bpp;
@@ -1164,6 +1164,12 @@ static void dp_display_stream_disable(struct dp_display_private *dp,
 	if (!dp->active_stream_cnt) {
 		DP_ERR("invalid active_stream_cnt (%d)\n",
 				dp->active_stream_cnt);
+		return;
+	}
+
+	if (dp_panel->stream_id == DP_STREAM_MAX ||
+			!dp->active_panels[dp_panel->stream_id]) {
+		DP_ERR("panel is already disabled\n");
 		return;
 	}
 
@@ -1893,7 +1899,7 @@ end:
 	mutex_unlock(&dp->session_lock);
 
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, dp->state);
-	return 0;
+	return rc;
 }
 
 static int dp_display_set_stream_info(struct dp_display *dp_display,
@@ -2309,7 +2315,6 @@ static enum drm_mode_status dp_display_validate_mode(
 		const struct msm_resource_caps_info *avail_res)
 {
 	struct dp_display_private *dp;
-	struct drm_dp_link *link_info;
 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
 	struct dp_panel *dp_panel;
 	struct dp_debug *debug;
@@ -2338,8 +2343,6 @@ static enum drm_mode_status dp_display_validate_mode(
 		goto end;
 	}
 
-	link_info = &dp->panel->link_info;
-
 	debug = dp->debug;
 	if (!debug)
 		goto end;
@@ -2352,7 +2355,7 @@ static enum drm_mode_status dp_display_validate_mode(
 
 	mode_rate_khz = mode->clock * mode_bpp;
 	rate = drm_dp_bw_code_to_link_rate(dp->link->link_params.bw_code);
-	supported_rate_khz = link_info->num_lanes * rate * 8;
+	supported_rate_khz = dp->link->link_params.lane_count * rate * 8;
 	tmds_max_clock = dp_panel->connector->display_info.max_tmds_clock;
 
 	if (mode_rate_khz > supported_rate_khz) {
@@ -2539,6 +2542,11 @@ static int dp_display_config_hdr(struct dp_display *dp_display, void *panel,
 		return -EINVAL;
 	}
 
+	if (!dp_display_state_is(DP_STATE_ENABLED)) {
+		dp_display_state_show("[not enabled]");
+		return 0;
+	}
+
 	/*
 	 * In rare cases where HDR metadata is updated independently
 	 * flush the HDR metadata immediately instead of relying on
@@ -2560,10 +2568,18 @@ static int dp_display_setup_colospace(struct dp_display *dp_display,
 		u32 colorspace)
 {
 	struct dp_panel *dp_panel;
+	struct dp_display_private *dp;
 
 	if (!dp_display || !panel) {
 		pr_err("invalid input\n");
 		return -EINVAL;
+	}
+
+	dp = container_of(dp_display, struct dp_display_private, dp_display);
+
+	if (!dp_display_state_is(DP_STATE_ENABLED)) {
+		dp_display_state_show("[not enabled]");
+		return 0;
 	}
 
 	dp_panel = panel;
@@ -2896,6 +2912,11 @@ static int dp_display_update_pps(struct dp_display *dp_display,
 	if (!sde_conn->drv_panel) {
 		DP_ERR("invalid panel for connector:%d\n", connector->base.id);
 		return -EINVAL;
+	}
+
+	if (!dp_display_state_is(DP_STATE_ENABLED)) {
+		dp_display_state_show("[not enabled]");
+		return 0;
 	}
 
 	dp_panel = sde_conn->drv_panel;

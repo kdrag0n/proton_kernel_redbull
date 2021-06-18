@@ -3209,11 +3209,22 @@ static int _sde_parse_prop_check(struct sde_mdss_cfg *cfg,
 			of_fdt_get_ddrtype() == LP_DDR4_TYPE)
 		cfg->mdp[0].highest_bank_bit = 0x02;
 
+	cfg->mdp[0].ubwc_static = PROP_VALUE_ACCESS(prop_value, UBWC_STATIC, 0);
+	if (!prop_exists[UBWC_STATIC])
+		cfg->mdp[0].ubwc_static = DEFAULT_SDE_UBWC_STATIC;
+
 	if (IS_SDE_MAJOR_MINOR_SAME(cfg->hwversion, SDE_HW_VER_630)) {
 		ret = _sde_get_ubwc_hbb(prop_exists, prop_value);
 
-		if (ret >= 0)
+		if (ret >= 0) {
+			u32 ubwc_static, hbb;
+
 			cfg->mdp[0].highest_bank_bit = ret;
+			ubwc_static = cfg->mdp[0].ubwc_static;
+			hbb = ((cfg->mdp[0].highest_bank_bit & 0x7) << 4);
+			ubwc_static = ((ubwc_static & 0xff8f) | hbb);
+			cfg->mdp[0].ubwc_static = ubwc_static;
+		}
 	}
 
 	cfg->macrotile_mode = PROP_VALUE_ACCESS(prop_value, MACROTILE_MODE, 0);
@@ -3222,10 +3233,6 @@ static int _sde_parse_prop_check(struct sde_mdss_cfg *cfg,
 
 	cfg->ubwc_bw_calc_version =
 		PROP_VALUE_ACCESS(prop_value, UBWC_BW_CALC_VERSION, 0);
-
-	cfg->mdp[0].ubwc_static = PROP_VALUE_ACCESS(prop_value, UBWC_STATIC, 0);
-	if (!prop_exists[UBWC_STATIC])
-		cfg->mdp[0].ubwc_static = DEFAULT_SDE_UBWC_STATIC;
 
 	cfg->mdp[0].ubwc_swizzle = PROP_VALUE_ACCESS(prop_value,
 			UBWC_SWIZZLE, 0);
@@ -4295,7 +4302,7 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 		sde_cfg->has_cwb_support = true;
 		sde_cfg->has_wb_ubwc = true;
 		sde_cfg->has_qsync = true;
-		sde_cfg->perf.min_prefill_lines = 24;
+		sde_cfg->perf.min_prefill_lines = 35;
 		sde_cfg->vbif_qos_nlvl = 8;
 		sde_cfg->ts_prefill_rev = 2;
 		sde_cfg->ctl_rev = SDE_CTL_CFG_VERSION_1_0_0;
@@ -4345,7 +4352,7 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 	} else if (IS_LAGOON_TARGET(hw_rev)) {
 		sde_cfg->has_cwb_support = true;
 		sde_cfg->has_qsync = true;
-		sde_cfg->perf.min_prefill_lines = 24;
+		sde_cfg->perf.min_prefill_lines = 35;
 		sde_cfg->vbif_qos_nlvl = 8;
 		sde_cfg->ts_prefill_rev = 2;
 		sde_cfg->ctl_rev = SDE_CTL_CFG_VERSION_1_0_0;
@@ -4359,6 +4366,7 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 		sde_cfg->has_hdr = true;
 		sde_cfg->has_vig_p010 = true;
 		sde_cfg->true_inline_rot_rev = SDE_INLINE_ROT_VERSION_2_0_0;
+		sde_cfg->has_3d_merge_reset = true;
 	} else if (IS_SCUBA_TARGET(hw_rev)) {
 		sde_cfg->has_cwb_support = false;
 		sde_cfg->has_qsync = true;
@@ -4372,6 +4380,7 @@ static int _sde_hardware_pre_caps(struct sde_mdss_cfg *sde_cfg, uint32_t hw_rev)
 		sde_cfg->sui_block_xin_mask = 0x1;
 		sde_cfg->has_hdr = false;
 		sde_cfg->has_sui_blendstage = true;
+		sde_cfg->allow_gdsc_toggle = true;
 		clear_bit(MDSS_INTR_AD4_0_INTR, sde_cfg->mdss_irqs);
 		clear_bit(MDSS_INTR_AD4_1_INTR, sde_cfg->mdss_irqs);
 	} else {
