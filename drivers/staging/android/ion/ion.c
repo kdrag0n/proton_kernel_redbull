@@ -553,6 +553,7 @@ void ion_device_add_heap(struct ion_device *idev, struct ion_heap *heap)
 
 	down_write(&idev->heap_rwsem);
 	plist_add(&heap->node, &idev->heaps);
+	idev->heap_count++;
 	up_write(&idev->heap_rwsem);
 }
 
@@ -575,13 +576,61 @@ static int ion_walk_heaps(int heap_id, int type, void *data,
 	return ret;
 }
 
+static int ion_query_heaps(struct ion_heap_query *query)
+{
+	struct ion_device *idev = &ion_dev;
+	struct ion_heap_data __user *info_buf = u64_to_user_ptr(query->heaps);
+	int ret = 0, count = 0;
+	struct ion_heap *heap;
+	struct ion_heap_data hdata;
+
+	memset(&hdata, 0, sizeof(hdata));
+
+	down_read(&idev->heap_rwsem);
+	if (!info_buf) {
+		query->cnt = idev->heap_count;
+		goto out;
+	}
+
+	if (query->cnt <= 0) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	plist_for_each_entry(heap, &idev->heaps, node) {
+		strlcpy(hdata.name, heap->name, sizeof(hdata.name));
+		hdata.name[sizeof(hdata.name) - 1] = '\0';
+		hdata.type = heap->type;
+		hdata.heap_id = heap->id;
+
+		if (copy_to_user(&info_buf[count], &hdata, sizeof(hdata))) {
+			ret = -EFAULT;
+			goto out;
+		}
+
+		count++;
+		if (count >= query->cnt)
+			break;
+	}
+
+	query->cnt = count;
+
+out:
+	up_read(&idev->heap_rwsem);
+	return ret;
+}
+
 static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	union {
 		struct ion_allocation_data allocation;
 		struct ion_prefetch_data prefetch_data;
+		struct ion_heap_query query;
 	} data;
-	int fd, *output;
+	size_t output_size;
+	void *output;
+	int ret = 0;
+	int fd;
 
 	if (_IOC_SIZE(cmd) > sizeof(data))
 		return -EINVAL;
@@ -596,7 +645,13 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return fd;
 
 		output = &fd;
+		output_size = sizeof(fd);
 		arg += offsetof(struct ion_allocation_data, fd);
+		break;
+	case ION_IOC_HEAP_QUERY:
+		ret = ion_query_heaps(&data.query);
+		output = &data.query;
+		output_size = sizeof(data.query);
 		break;
 	case ION_IOC_PREFETCH:
 		return ion_walk_heaps(data.prefetch_data.heap_id,
@@ -612,10 +667,10 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return -ENOTTY;
 	}
 
-	if (copy_to_user((void __user *)arg, output, sizeof(*output)))
+	if (copy_to_user((void __user *)arg, output, output_size))
 		return -EFAULT;
 
-	return 0;
+	return ret;
 }
 
 struct ion_device *ion_device_create(void)
