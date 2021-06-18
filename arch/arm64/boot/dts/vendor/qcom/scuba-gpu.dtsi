@@ -121,17 +121,17 @@
 			<&gpucc GPU_CC_AHB_CLK>,
 			<&gcc GCC_GPU_MEMNOC_GFX_CLK>,
 			<&gpucc GPU_CC_CX_GMU_CLK>,
-			<&gpucc GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK>;
+			<&gpucc GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK>,
+			<&rpmcc RPM_SMD_BIMC_GPU_CLK>;
 
 		clock-names = "core_clk", "rbbmtimer_clk", "mem_clk",
 				"iface_clk", "mem_iface_clk", "gmu_clk",
-				"smmu_vote";
+				"smmu_vote", "bimc_gpu_clk";
 
 		/* Bus Scale Settings */
 		qcom,gpubw-dev = <&gpubw>;
 		qcom,bus-control;
 		qcom,msm-bus,name = "grp3d";
-		qcom,bus-width = <32>;
 		qcom,msm-bus,num-cases = <12>;
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
@@ -167,6 +167,17 @@
 
 		nvmem-cells = <&gpu_speed_bin>;
 		nvmem-cell-names = "speed_bin";
+
+		qcom,gpu-cx-ipeak {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			compatible = "qcom,gpu-cx-ipeak";
+
+			qcom,gpu-cx-ipeak@0 {
+				qcom,gpu-cx-ipeak = <&cx_ipeak_lm 4>;
+				qcom,gpu-cx-ipeak-freq = <1017600000>;
+			};
+		};
 
 		/* GPU Mempools */
 		qcom,gpu-mempools {
@@ -256,6 +267,8 @@
 
 				qcom,initial-pwrlevel = <6>;
 				qcom,ca-target-pwrlevel = <5>;
+				qcom,gpu-bimc-interface-clk-freq = <768000000>;
+
 				/* TURBO_L1 */
 				qcom,gpu-pwrlevel@0 {
 					reg = <0>;
@@ -337,6 +350,7 @@
 
 				qcom,initial-pwrlevel = <6>;
 				qcom,ca-target-pwrlevel = <5>;
+				qcom,gpu-bimc-interface-clk-freq = <768000000>;
 
 				/* TURBO_L1 */
 				qcom,gpu-pwrlevel@0 {

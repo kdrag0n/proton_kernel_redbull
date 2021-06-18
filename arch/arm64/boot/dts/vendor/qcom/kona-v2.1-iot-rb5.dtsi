@@ -27,6 +27,18 @@
 	};
 };
 
+&mdss_mdp {
+	connectors = <&sde_dp &sde_dsi &sde_dsi1 &sde_rscc>;
+};
+
+&mdss_dsi0_pll {
+	/delete-property/ qcom,dsi-pll-ssc-en;
+};
+
+&mdss_dsi1_pll {
+	/delete-property/ qcom,dsi-pll-ssc-en;
+};
+
 &lt9611_pins {
 	mux {
 		pins = "gpio63";
@@ -58,6 +70,21 @@
 
 		lt,preferred-mode = "1920x1080";
 
+		totalVoltage-supply = <&pm8150a_l11>;
+		lt,supply-entries {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			lt,supply-entry@0 {
+				reg = <0>;
+				lt,supply-name = "totalVoltage";
+				lt,supply-min-voltage = <3300000>;
+				lt,supply-max-voltage = <3300000>;
+				lt,supply-enable-load = <200000>;
+				lt,supply-post-on-sleep = <50>;
+			};
+		};
+
 		lt,customize-modes {
 			lt,customize-mode-id@0 {
 				lt,mode-h-active = <1920>;
@@ -73,6 +100,21 @@
 				lt,mode-refresh-rate = <60>;
 				lt,mode-clock-in-khz = <148500>;
 			};
+
+			lt,customize-mode-id@1 {
+				lt,mode-h-active = <3840>;
+				lt,mode-h-front-porch = <176>;
+				lt,mode-h-pulse-width = <88>;
+				lt,mode-h-back-porch = <400>;
+				lt,mode-h-active-high;
+				lt,mode-v-active = <2160>;
+				lt,mode-v-front-porch = <8>;
+				lt,mode-v-pulse-width = <10>;
+				lt,mode-v-back-porch = <72>;
+				lt,mode-v-active-high;
+				lt,mode-refresh-rate = <60>;
+				lt,mode-clock-in-khz = <608040>;
+			};
 		};
 
 		ports {
@@ -81,8 +123,15 @@
 
 			port@0 {
 				reg = <0>;
-				lt9611_in: endpoint {
-					remote-endpoint = <&ext_dsi_out>;
+				lt9611_in_0: endpoint {
+					remote-endpoint = <&ext_dsi_0_out>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				lt9611_in_1: endpoint {
+					remote-endpoint = <&ext_dsi_1_out>;
 				};
 			};
 
@@ -99,8 +148,22 @@
 
 		port@0 {
 			reg = <0>;
-			ext_dsi_out: endpoint {
-				remote-endpoint = <&lt9611_in>;
+			ext_dsi_0_out: endpoint {
+				remote-endpoint = <&lt9611_in_0>;
+			};
+		};
+	};
+};
+
+&sde_dsi1 {
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+			ext_dsi_1_out: endpoint {
+				remote-endpoint = <&lt9611_in_1>;
 			};
 		};
 	};
@@ -119,6 +182,18 @@
 		#clock-cells = <0>;
 		clock-frequency = <40000000>;
 	};
+};
+
+&usb0 {
+	qcom,charging-disabled;
+};
+
+&usb2_phy0 {
+	qcom,param-override-seq = <0x43 0x70>;
+};
+
+&pm8150b_charger {
+	qcom,batteryless-platform;
 };
 
 &qupv3_se0_spi {
