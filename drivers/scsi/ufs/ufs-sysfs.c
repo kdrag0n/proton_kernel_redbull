@@ -131,6 +131,7 @@ static void ufshcd_auto_hibern8_update(struct ufs_hba *hba, u32 ahit)
 		goto out_unlock;
 	if (!pm_runtime_suspended(hba->dev)) {
 		spin_unlock_irqrestore(hba->host->host_lock, flags);
+		pm_runtime_get_sync(hba->dev);
 		ufshcd_hold(hba, false);
 		down_write(&hba->lock);
 		ufshcd_scsi_block_requests(hba);
@@ -145,6 +146,7 @@ static void ufshcd_auto_hibern8_update(struct ufs_hba *hba, u32 ahit)
 		up_write(&hba->lock);
 		ufshcd_scsi_unblock_requests(hba);
 		ufshcd_release(hba, false);
+		pm_runtime_put(hba->dev);
 		return;
 	}
 	hba->ahit = ahit;
@@ -1264,6 +1266,7 @@ UFS_ERR_STATS_ATTR(err_suspend, UFS_ERR_SUSPEND);
 UFS_ERR_STATS_ATTR(err_linkstartup, UFS_ERR_LINKSTARTUP);
 UFS_ERR_STATS_ATTR(err_power_mode_change, UFS_ERR_POWER_MODE_CHANGE);
 UFS_ERR_STATS_ATTR(err_task_abort, UFS_ERR_TASK_ABORT);
+UFS_ERR_STATS_ATTR(err_host_reset, UFS_ERR_HOST_RESET);
 DEVICE_ATTR_RW(reset_err_status);
 
 static struct attribute *ufs_sysfs_err_stats[] = {
@@ -1279,6 +1282,7 @@ static struct attribute *ufs_sysfs_err_stats[] = {
 	&dev_attr_err_linkstartup.attr,
 	&dev_attr_err_power_mode_change.attr,
 	&dev_attr_err_task_abort.attr,
+	&dev_attr_err_host_reset.attr,
 	&dev_attr_reset_err_status.attr,
 	NULL,
 };

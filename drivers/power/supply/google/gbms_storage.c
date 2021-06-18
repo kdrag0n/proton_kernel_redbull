@@ -33,6 +33,7 @@
 struct gbms_storage_provider {
 	const char *name;
 	struct gbms_storage_desc *dsc;
+	bool offline;
 	void *ptr;
 };
 
@@ -43,6 +44,8 @@ struct gbms_cache_entry {
 	size_t count;
 	size_t addr;
 };
+
+#define GBMS_PROVIDER_NAME_MAX	32
 
 #define GBMS_PROVIDERS_MAX	4
 static spinlock_t providers_lock;
@@ -74,6 +77,18 @@ static char *tag2cstr(gbms_tag_cstr_t buff, gbms_tag_t tag)
 	return buff;
 }
 
+static gbms_tag_t cstr2tag(gbms_tag_cstr_t buff)
+{
+	gbms_tag_t tag;
+
+	tag = (u8)buff[0];
+	tag = (tag << 8) + (u8)buff[1];
+	tag = (tag << 8) + (u8)buff[2];
+	tag = (tag << 8) + (u8)buff[3];
+
+	return tag;
+}
+
 /* ------------------------------------------------------------------------- */
 
 static inline u64 gbms_cache_hash(gbms_tag_t tag)
@@ -102,7 +117,8 @@ static struct gbms_cache_entry *gbms_cache_lookup(gbms_tag_t tag, size_t *addr)
 }
 
 /* call only on a cache miss */
-static int gbms_cache_add(gbms_tag_t tag, struct gbms_storage_provider *slot)
+static struct gbms_cache_entry *gbms_cache_add(gbms_tag_t tag,
+					struct gbms_storage_provider *slot)
 {
 	unsigned long flags;
 	struct gbms_cache_entry *entry;
@@ -113,7 +129,7 @@ static int gbms_cache_add(gbms_tag_t tag, struct gbms_storage_provider *slot)
 	entry = (struct gbms_cache_entry *)
 		gen_pool_alloc(gbms_cache_pool, sizeof(*entry));
 	if (!entry)
-		return -ENOMEM;
+		return NULL;
 
 	/* cache provider */
 	memset(entry, 0, sizeof(*entry));
@@ -137,7 +153,7 @@ static int gbms_cache_add(gbms_tag_t tag, struct gbms_storage_provider *slot)
 	hash_add(gbms_cache, &entry->hnode, gbms_cache_hash(tag));
 	spin_unlock_irqrestore(&providers_lock, flags);
 
-	return 0;
+	return entry;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -189,7 +205,7 @@ int gbms_storage_register_internal(struct gbms_storage_desc *desc,
 	int refs = 0, dupes = 0;
 	struct gbms_storage_provider *slot;
 
-	if (!name)
+	if (!name || strlen(name) >= GBMS_PROVIDER_NAME_MAX)
 		return -EINVAL;
 
 	spin_lock_irqsave(&providers_lock, flags);
@@ -257,6 +273,9 @@ static int gbms_cache_read(gbms_tag_t tag, void *data, size_t count)
 		return -ENOENT;
 
 	slot = (struct gbms_storage_provider *)ce->provider;
+	if (slot->offline)
+		return -ENODEV;
+
 	if (slot->dsc->fetch && addr != GBMS_STORAGE_ADDR_INVALID)
 		ret = slot->dsc->fetch(data, addr, count, slot->ptr);
 	else if (!slot->dsc->read)
@@ -267,6 +286,7 @@ static int gbms_cache_read(gbms_tag_t tag, void *data, size_t count)
 	return ret;
 }
 
+/* needs a lock on the provider */
 int gbms_storage_read(gbms_tag_t tag, void *data, size_t count)
 {
 	int ret;
@@ -306,6 +326,7 @@ int gbms_storage_read(gbms_tag_t tag, void *data, size_t count)
 }
 EXPORT_SYMBOL_GPL(gbms_storage_read);
 
+/* needs a lock on the provider */
 int gbms_storage_read_data(gbms_tag_t tag, void *data, size_t count, int idx)
 {
 	struct gbms_storage_desc *dsc;
@@ -319,6 +340,8 @@ int gbms_storage_read_data(gbms_tag_t tag, void *data, size_t count, int idx)
 		return -EINVAL;
 
 	for (i = 0, ret = -ENOENT; ret == -ENOENT && i < max_count; i++) {
+		if (gbms_providers[i].offline)
+			continue;
 
 		dsc = gbms_providers[i].dsc;
 		if (!dsc) {
@@ -351,6 +374,9 @@ static int gbms_cache_write(gbms_tag_t tag, const void *data, size_t count)
 		return -ENOENT;
 
 	slot = (struct gbms_storage_provider *)ce->provider;
+	if (slot->offline)
+		return -ENODEV;
+
 	if (slot->dsc->store && addr != GBMS_STORAGE_ADDR_INVALID)
 		ret = slot->dsc->store(data, addr, count, slot->ptr);
 	else if (!slot->dsc->write)
@@ -361,6 +387,7 @@ static int gbms_cache_write(gbms_tag_t tag, const void *data, size_t count)
 	return ret;
 }
 
+/* needs a lock on the provider */
 int gbms_storage_write(gbms_tag_t tag, const void *data, size_t count)
 {
 	int ret;
@@ -378,6 +405,8 @@ int gbms_storage_write(gbms_tag_t tag, const void *data, size_t count)
 		int i;
 
 		for (i = 0, ret = -ENOENT; ret == -ENOENT && i < max; i++) {
+			if (gbms_providers[i].offline)
+				continue;
 
 			dsc = gbms_providers[i].dsc;
 			if (!dsc) {
@@ -400,6 +429,7 @@ int gbms_storage_write(gbms_tag_t tag, const void *data, size_t count)
 }
 EXPORT_SYMBOL_GPL(gbms_storage_write);
 
+/* needs a lock on the provider */
 int gbms_storage_write_data(gbms_tag_t tag, const void *data, size_t count,
 			    int idx)
 {
@@ -414,6 +444,8 @@ int gbms_storage_write_data(gbms_tag_t tag, const void *data, size_t count,
 		return -EINVAL;
 
 	for (i = 0, ret = -ENOENT; ret == -ENOENT && i < max_count; i++) {
+		if (gbms_providers[i].offline)
+			continue;
 
 		dsc = gbms_providers[i].dsc;
 		if (!dsc) {
@@ -435,6 +467,18 @@ int gbms_storage_write_data(gbms_tag_t tag, const void *data, size_t count,
 }
 EXPORT_SYMBOL_GPL(gbms_storage_write_data);
 
+static int gbms_storage_flush_provider(struct gbms_storage_provider *slot,
+				       bool force)
+{
+	if (slot->offline)
+		return 0;
+
+	if (!slot->dsc || !slot->dsc->flush)
+		return 0;
+
+	return slot->dsc->flush(force, slot->ptr);
+}
+
 static int gbms_storage_flush_all_internal(bool force)
 {
 	int ret, i;
@@ -444,13 +488,10 @@ static int gbms_storage_flush_all_internal(bool force)
 	for (i = 0; i < gbms_providers_count ; i++) {
 		slot = &gbms_providers[i];
 
-		if (!slot->dsc || !slot->dsc->flush)
-			continue;
-
-		ret = slot->dsc->flush(force, slot->ptr);
+		ret = gbms_storage_flush_provider(slot, force);
 		if (ret < 0) {
-			success = false;
 			pr_err("flush of %s failed (%d)\n", slot->name, ret);
+			success = false;
 		}
 	}
 
@@ -492,6 +533,31 @@ int gbms_storage_flush_all(void)
 }
 EXPORT_SYMBOL_GPL(gbms_storage_flush_all);
 
+int gbms_storage_offline(const char *name, bool flush)
+{
+	unsigned long flags;
+	int ret = 0, index;
+
+	if (!gbms_storage_init_done)
+		return -EPROBE_DEFER;
+
+	spin_lock_irqsave(&providers_lock, flags);
+	index = gbms_storage_find_slot(name);
+	if (index < 0) {
+		spin_unlock_irqrestore(&providers_lock, flags);
+		return index;
+	}
+
+	if (flush)
+		ret = gbms_storage_flush_provider(&gbms_providers[index],
+						  false);
+	if (ret == 0)
+		gbms_providers[index].offline = true;
+
+	spin_unlock_irqrestore(&providers_lock, flags);
+	return ret;
+}
+
 /* ------------------------------------------------------------------------ */
 
 static int gbms_storage_show_cache(struct seq_file *m, void *data)
@@ -507,7 +573,9 @@ static int gbms_storage_show_cache(struct seq_file *m, void *data)
 	hash_for_each(gbms_cache, bucket, ce, hnode) {
 
 		slot = (struct gbms_storage_provider *)ce->provider;
-		seq_printf(m, " %s: %s", slot->name, tag2cstr(tname, ce->tag));
+		seq_printf(m, slot->offline ? " (%s): %s" : " %s: %s",
+			   slot->name, tag2cstr(tname, ce->tag));
+
 		if (ce->count != 0)
 			seq_printf(m, "[%d:%d]", ce->addr, ce->count);
 		seq_printf(m, "\n");
@@ -565,10 +633,10 @@ static int gbms_show_storage_clients(struct seq_file *m, void *data)
 
 	for (i = 0; i < gbms_providers_count; i++) {
 
-		seq_printf(m, "%d %s: ", i, gbms_providers[i].name);
+		seq_printf(m, gbms_providers[i].offline ? "%d (%s):" : "%d %s:",
+			   i, gbms_providers[i].name);
 
-		if (!gbms_providers[i].dsc ||
-		    !gbms_providers[i].dsc->iter)
+		if (!gbms_providers[i].dsc || !gbms_providers[i].dsc->iter)
 			continue;
 
 		gbms_show_storage_provider(m, &gbms_providers[i], false);
@@ -593,6 +661,200 @@ static const struct file_operations gbms_providers_status_ops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
+
+#define GBMS_DEBUG_ATTRIBUTE(name, fn_read, fn_write) \
+static const struct file_operations name = {	\
+	.owner	= THIS_MODULE,			\
+	.open	= simple_open,			\
+	.llseek	= no_llseek,			\
+	.read	= fn_read,			\
+	.write	= fn_write,			\
+}
+
+static ssize_t debug_set_offline(struct file *filp,
+				 const char __user *user_buf,
+				 size_t count, loff_t *ppos)
+{
+	char name[GBMS_PROVIDER_NAME_MAX];
+	int ret;
+
+	ret = simple_write_to_buffer(name, sizeof(name), ppos, user_buf, count);
+	if (!ret)
+		return -EFAULT;
+
+	ret = gbms_storage_offline(name, true);
+	if (ret == 0)
+		ret = count;
+
+	return 0;
+
+}
+
+GBMS_DEBUG_ATTRIBUTE(gbms_providers_offline_ops, NULL, debug_set_offline);
+
+static int debug_set_tag_size(void *data, u64 val)
+{
+	struct gbms_cache_entry *ce = data;
+
+	ce->count = val;
+	return 0;
+}
+
+static int debug_show_tag_size(void *data, u64 *val)
+{
+	struct gbms_cache_entry *ce = data;
+
+	*val = ce->count;
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(debug_tag_size_ops, debug_show_tag_size,
+			debug_set_tag_size, "%llu\n");
+
+static ssize_t debug_read_tag_data(struct file *filp,
+				   char __user *user_buf,
+				   size_t count, loff_t *ppos)
+{
+	struct gbms_cache_entry *ce = filp->private_data;
+	char *buf;
+	int ret;
+
+	if (!ce->count)
+		return -ENODATA;
+
+	buf = kzalloc(sizeof(char) * ce->count, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = gbms_storage_read(ce->tag, buf, ce->count);
+	if (ret < 0)
+		goto rtag_free_mem;
+
+	ret = simple_read_from_buffer(user_buf, count, ppos, buf, ce->count);
+
+rtag_free_mem:
+	kfree(buf);
+
+	return ret;
+}
+
+static ssize_t debug_write_tag_data(struct file *filp,
+				    const char __user *user_buf,
+				    size_t count, loff_t *ppos)
+{
+	struct gbms_cache_entry *ce = filp->private_data;
+	char *buf;
+	int ret;
+
+	if (!ce->count)
+		return -ENODATA;
+
+	buf = kzalloc(sizeof(char) * ce->count, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, ce->count, ppos, user_buf, count);
+	if (!ret) {
+		ret = -EFAULT;
+		goto wtag_free_mem;
+	}
+
+	ret = gbms_storage_write(ce->tag, buf, ce->count);
+
+wtag_free_mem:
+	kfree(buf);
+
+	return (ret < 0) ? ret : count;
+}
+
+GBMS_DEBUG_ATTRIBUTE(debug_tag_data_ops, debug_read_tag_data,
+		     debug_write_tag_data);
+
+static int gbms_find(struct gbms_storage_provider *slot, gbms_tag_t tag)
+{
+	int ret = 0, i;
+	gbms_tag_t tmp;
+
+	for (i = 0; ret == 0; i++) {
+		ret = slot->dsc->iter(i, &tmp, slot->ptr);
+		if (ret < 0)
+			break;
+		if (tag == tmp)
+			return 1;
+	}
+
+	return 0;
+}
+
+static struct gbms_cache_entry *gbms_cache_preload_tag(gbms_tag_t tag)
+{
+	struct gbms_storage_provider *slot = NULL;
+	int ret, i;
+
+	for (i = 0; !slot && i < gbms_providers_count; i++) {
+		struct gbms_storage_desc *dsc;
+
+		dsc = gbms_providers[i].dsc;
+		if (!dsc || !dsc->iter)
+			continue;
+
+		ret = gbms_find(&gbms_providers[i], tag);
+		if (ret == 1)
+			slot = &gbms_providers[i];
+	}
+
+	return gbms_cache_add(tag, slot);
+}
+
+
+/* [ugo]+TAG_NAME | -TAG_NAME | TAG_NAME */
+static ssize_t debug_export_tag(struct file *filp,
+				const char __user *user_buf,
+				size_t count, loff_t *ppos)
+{
+	size_t addr = GBMS_STORAGE_ADDR_INVALID;
+	struct gbms_cache_entry *ce;
+	gbms_tag_cstr_t name = { 0 };
+	struct dentry *de;
+	gbms_tag_t tag;
+	char temp[32];
+	int ret;
+
+	if (!rootdir)
+		return -ENODEV;
+
+	ret = simple_write_to_buffer(temp, sizeof(temp), ppos, user_buf, count);
+	if (!ret)
+		return -EFAULT;
+
+	if (temp[0] == '-') {
+		/* remove tag */
+		return -EINVAL;
+	}
+
+	memcpy(name, temp + (temp[0] == '+'), 4);
+	tag = cstr2tag(name);
+
+	ce = gbms_cache_lookup(tag, &addr);
+	if (!ce) {
+		ce = gbms_cache_preload_tag(tag);
+		if (!ce)
+			return -ENOMEM;
+	}
+
+	de = debugfs_create_dir(name, rootdir);
+	if (!de) {
+		pr_err("cannot create debufsentry for %s\n", name);
+		return -ENODEV;
+	}
+
+	debugfs_create_file("size", 0400, de, ce, &debug_tag_size_ops);
+	debugfs_create_file("data", 0600, de, ce, &debug_tag_data_ops);
+
+	return count;
+}
+
+GBMS_DEBUG_ATTRIBUTE(gbms_providers_export_ops, NULL, debug_export_tag);
 
 /* ------------------------------------------------------------------------ */
 
@@ -871,6 +1133,8 @@ static int __init gbms_storage_init(void)
 	struct device_node *node;
 	const int pe_size = entry_size(sizeof(struct gbms_cache_entry));
 
+	pr_info("initialize gbms_storage\n");
+
 	spin_lock_init(&providers_lock);
 
 	gbms_cache_pool = gen_pool_create(pe_size, -1);
@@ -911,6 +1175,10 @@ static int __init gbms_storage_init(void)
 				    NULL, &gbms_cache_status_ops);
 		debugfs_create_file("providers", S_IFREG | 0444, rootdir,
 				    NULL, &gbms_providers_status_ops);
+		debugfs_create_file("offline", S_IFREG | 0200, rootdir,
+				    NULL, &gbms_providers_offline_ops);
+		debugfs_create_file("export", S_IFREG | 0200, rootdir,
+				    NULL, &gbms_providers_export_ops);
 	}
 
 	return 0;

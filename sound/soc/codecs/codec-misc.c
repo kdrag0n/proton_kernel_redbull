@@ -325,12 +325,9 @@ static ssize_t resistance_left_right_show(struct device *dev,
 
 	mutex_lock(&amp_priv->lock);
 
-	scnprintf(resistance,
-		sizeof(resistance), "%d.%d,%d.%d",
-		amp_priv->imp_l/scale,
-		amp_priv->imp_l%scale,
-		amp_priv->imp_r/scale,
-		amp_priv->imp_r%scale);
+	scnprintf(resistance, sizeof(resistance), "%d.%05ld,%d.%05ld",
+		  amp_priv->imp_l / scale, amp_priv->imp_l % scale,
+		  amp_priv->imp_r / scale, amp_priv->imp_r % scale);
 
 	dev_info(dev, "%s: %s (%ld, %ld, %ld)\n",
 		__func__, resistance, amp_priv->imp_l, amp_priv->imp_r, scale);
@@ -412,7 +409,7 @@ static int misc_probe(struct platform_device *pdev)
 	mutex_init(&misc_priv->amp_stat_priv.lock);
 
 	dev_set_drvdata(&codec_pdev->dev, misc_priv);
-	dev_info(&codec_pdev->dev, "%s: create codec_success\n");
+	dev_info(&codec_pdev->dev, "created codec_detect\n");
 	return ret;
 
 err_notifier_reg:

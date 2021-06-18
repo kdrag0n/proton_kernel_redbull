@@ -113,10 +113,9 @@ enum print_reason {
 #define USBIN_150MA     150000
 #define USBIN_500MA     500000
 #define USBIN_900MA     900000
+#define USBIN_1000MA	1000000
 
 #define USBIN_OFFSET	50000
-
-#define SUSPEND_ICL_MAX USBIN_25MA
 
 enum smb_mode {
 	PARALLEL_MASTER = 0,
@@ -825,6 +824,8 @@ int smblib_get_die_health(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_smb_health(struct smb_charger *chg);
 int smblib_get_prop_connector_health(struct smb_charger *chg);
+int smblib_get_prop_input_current_max(struct smb_charger *chg,
+				  union power_supply_propval *val);
 int smblib_set_prop_thermal_overheat(struct smb_charger *chg,
 			       int therm_overheat);
 int smblib_get_skin_temp_status(struct smb_charger *chg);

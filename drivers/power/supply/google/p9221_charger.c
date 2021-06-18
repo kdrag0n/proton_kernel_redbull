@@ -1414,6 +1414,12 @@ static int p9221_get_property(struct power_supply *psy,
 			return -ENODATA;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
+		/* Zero may be returned on transition to wireless "online", as
+		 * last_capacity is reset to -1 until capacity is re-written
+		 * from userspace, leading to a new csp packet being sent.
+		 *
+		 * b/80435107 for additional context
+		 */
 		if (charger->last_capacity > 0)
 			val->intval = charger->last_capacity;
 		else
@@ -1502,8 +1508,7 @@ static int p9221_set_property(struct power_supply *psy,
 		ret = p9221_send_csp(charger, charger->last_capacity);
 		if (ret)
 			dev_err(&charger->client->dev,
-				"Couldn't send csp: %d\n", ret);
-		changed = true;
+				"Could not send csp: %d\n", ret);
 
 		threshold = (charger->mitigate_threshold > 0) ?
 			    charger->mitigate_threshold :
@@ -3821,8 +3826,8 @@ static void p9221_irq_handler(struct p9221_charger_data *charger, u16 irq_src)
 
 	/* Proprietary packet */
 	if (irq_src & P9221R5_STAT_PPRCVD) {
-		const size_t maxsz = sizeof(charger->pp_buf) * 3 + 1;
-		char s[maxsz];
+		char s[sizeof(charger->pp_buf) * 3 + 1];
+
 		u8 tmp, buff[sizeof(charger->pp_buf)], crc;
 
 		res = p9221_reg_read_n(charger,
@@ -3854,7 +3859,7 @@ static void p9221_irq_handler(struct p9221_charger_data *charger, u16 irq_src)
 			charger->pp_buf_valid = (charger->pp_buf[0] == 0x4F);
 
 			p9221_hex_str(charger->pp_buf, sizeof(charger->pp_buf),
-				      s, maxsz, false);
+				      s, ARRAY_SIZE(s), false);
 			dev_info(&charger->client->dev, "Received PP: %s\n", s);
 
 			/* Check if charging on a Tx phone */

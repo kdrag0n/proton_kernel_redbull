@@ -1047,66 +1047,6 @@ static void chg_eval_chg_termination(struct chg_termination *chg_term)
 	chg_term->retry_cnt = 0;
 }
 
-static int chg_work_gen_state(union gbms_charger_state *chg_state,
-			       struct power_supply *chg_psy)
-{
-	int vchrg, chg_type, chg_status, ioerr;
-
-	/* TODO: if (chg_drv->chg_mode == CHG_DRV_MODE_NOIRDROP) vchrg = 0; */
-	/* Battery needs to know charger voltage and state to run the irdrop
-	 * compensation code, can disable here sending a 0 vchgr
-	 */
-	vchrg = GPSY_GET_PROP(chg_psy, POWER_SUPPLY_PROP_VOLTAGE_NOW);
-	chg_type = GPSY_GET_PROP(chg_psy, POWER_SUPPLY_PROP_CHARGE_TYPE);
-	chg_status = GPSY_GET_INT_PROP(chg_psy, POWER_SUPPLY_PROP_STATUS,
-						&ioerr);
-	if (vchrg < 0 || chg_type < 0 || ioerr < 0) {
-		pr_err("MSC_CHG error vchrg=%d chg_type=%d chg_status=%d\n",
-			vchrg, chg_type, chg_status);
-		return -EINVAL;
-	}
-
-	chg_state->f.chg_status = chg_status;
-	chg_state->f.chg_type = chg_type;
-	chg_state->f.flags = gbms_gen_chg_flags(chg_state->f.chg_status,
-						chg_state->f.chg_type);
-	chg_state->f.vchrg = vchrg / 1000; /* vchrg is in uA, f.vchrg us mA */
-
-	return 0;
-}
-
-static int chg_work_read_state(union gbms_charger_state *chg_state,
-			       struct power_supply *chg_psy)
-{
-	union power_supply_propval val;
-	int ret = 0;
-
-	ret = power_supply_get_property(chg_psy,
-					POWER_SUPPLY_PROP_CHARGE_CHARGER_STATE,
-					&val);
-	if (ret == 0) {
-		chg_state->v = val.int64val;
-	} else {
-		int ichg;
-
-		ret = chg_work_gen_state(chg_state, chg_psy);
-		if (ret < 0)
-			return ret;
-
-		ichg = GPSY_GET_PROP(chg_psy, POWER_SUPPLY_PROP_CURRENT_NOW);
-
-		pr_info("MSC_CHG chg_state=%lx [0x%x:%d:%d:%d] ichg=%d\n",
-			(unsigned long)chg_state->v,
-			chg_state->f.flags,
-			chg_state->f.chg_type,
-			chg_state->f.chg_status,
-			chg_state->f.vchrg,
-			ichg);
-	}
-
-	return 0;
-}
-
 static int chg_work_batt_roundtrip(const union gbms_charger_state *chg_state,
 				   struct power_supply *bat_psy,
 				   int *fv_uv, int *cc_max)
@@ -1191,7 +1131,7 @@ static int chg_work_roundtrip(struct chg_drv *chg_drv,
 {
 	int fv_uv = -1, cc_max = -1, update_interval, rc;
 
-	rc = chg_work_read_state(chg_state, chg_drv->chg_psy);
+	rc = gbms_read_charger_state(chg_state, chg_drv->chg_psy);
 	if (rc < 0)
 		return rc;
 
@@ -1464,11 +1404,11 @@ static int bd_update_stats(struct bd_data *bd_state,
 	/* exit and entry criteria on temperature while connected */
 	temp_avg = bd_state->temp_sum / bd_state->time_sum;
 	if (triggered && temp <= bd_state->bd_resume_abs_temp) {
-		pr_info("MSC_BD: resume time_sum=%lld, temp_sum=%lld, temp_avg=%d\n",
+		pr_info("MSC_BD: resume time_sum=%ld, temp_sum=%lld, temp_avg=%lld\n",
 			bd_state->time_sum, bd_state->temp_sum, temp_avg);
 		bd_reset(bd_state);
 	} else if (!triggered && temp_avg >= bd_state->bd_trigger_temp) {
-		pr_info("MSC_BD: trigger time_sum=%lld, temp_sum=%lld, temp_avg=%d\n",
+		pr_info("MSC_BD: trigger time_sum=%ld, temp_sum=%lld, temp_avg=%lld\n",
 			bd_state->time_sum, bd_state->temp_sum, temp_avg);
 		bd_state->triggered = 1;
 	}
@@ -1522,7 +1462,7 @@ static int bd_recharge_logic(struct bd_data *bd_state, int val)
 }
 
 /* ignore the failure to set CAPACITY: it might not be implemented */
-static int bd_batt_set_soc(struct chg_drv *chg_drv, int soc)
+static int bd_batt_set_soc(struct chg_drv *chg_drv , int soc)
 {
 	const bool freeze = soc >= 0;
 	int rc;
@@ -2058,7 +1998,7 @@ update_charger:
 
 rerun_error:
 	success = schedule_delayed_work(&chg_drv->chg_work,
-					CHG_WORK_ERROR_RETRY_MS);
+				msecs_to_jiffies(CHG_WORK_ERROR_RETRY_MS));
 
 	/* no need to reschedule the pending after an error
 	 * NOTE: rc is the return code from battery properties
@@ -2139,7 +2079,7 @@ static int chg_init_chg_profile(struct chg_drv *chg_drv)
 		chg_drv->cc_update_interval = DRV_DEFAULTCC_UPDATE_INTERVAL;
 
 	/* when set will reduce cc_max by
-	 * cc_max = cc_max * (1000 - chg_cc_tolerance) / 1000;
+	 * 	cc_max = cc_max * (1000 - chg_cc_tolerance) / 1000;
 	 *
 	 * this adds a "safety" margin for C rates if the charger doesn't do it.
 	 */
@@ -2248,7 +2188,7 @@ static int chg_init_chg_profile(struct chg_drv *chg_drv)
 	return 0;
 }
 
-static ssize_t charge_stop_level_show(struct device *dev,
+static ssize_t show_charge_stop_level(struct device *dev,
 				      struct device_attribute *attr, char *buf)
 {
 	struct chg_drv *chg_drv = dev_get_drvdata(dev);
@@ -2256,7 +2196,7 @@ static ssize_t charge_stop_level_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", chg_drv->charge_stop_level);
 }
 
-static ssize_t charge_stop_level_store(struct device *dev,
+static ssize_t set_charge_stop_level(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t count)
 {
@@ -2284,9 +2224,11 @@ static ssize_t charge_stop_level_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR_RW(charge_stop_level);
+static DEVICE_ATTR(charge_stop_level, 0660, show_charge_stop_level,
+					    set_charge_stop_level);
 
-static ssize_t charge_start_level_show(struct device *dev,
+static ssize_t
+show_charge_start_level(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
 	struct chg_drv *chg_drv = dev_get_drvdata(dev);
@@ -2294,7 +2236,7 @@ static ssize_t charge_start_level_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", chg_drv->charge_start_level);
 }
 
-static ssize_t charge_start_level_store(struct device *dev,
+static ssize_t set_charge_start_level(struct device *dev,
 				      struct device_attribute *attr,
 				      const char *buf, size_t count)
 {
@@ -2322,7 +2264,8 @@ static ssize_t charge_start_level_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR_RW(charge_start_level);
+static DEVICE_ATTR(charge_start_level, 0660,
+		   show_charge_start_level, set_charge_start_level);
 
 static ssize_t
 charge_disable_show(struct device *dev,
@@ -3234,7 +3177,7 @@ static int chg_init_fs(struct chg_drv *chg_drv)
 	debugfs_create_file("pps_cc_tolerance", 0600, de,
 				chg_drv, &debug_pps_cc_tolerance_fops);
 
-	debugfs_create_u32("bd_triggered", 0644, de,
+	debugfs_create_u32("bd_triggered", S_IRUGO | S_IWUSR, de,
 			   &chg_drv->bd_state.triggered);
 	debugfs_create_file("bd_enabled", 0600, de, chg_drv, &bd_enabled_fops);
 

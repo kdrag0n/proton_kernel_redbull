@@ -553,6 +553,20 @@ static int hlosvmperm[1] = {PERM_READ | PERM_WRITE | PERM_EXEC};
 
 static void fastrpc_pm_awake(struct fastrpc_file *fl, int channel_type);
 
+static void track_buffer_alloc(int cid, size_t size)
+{
+	long total = atomic_long_add_return(size, &total_dma_bytes);
+
+	trace_fastrpc_dma_stat(cid, size, total);
+}
+
+static void track_buffer_free(int cid, size_t size)
+{
+	long total = atomic_long_sub_return(size, &total_dma_bytes);
+
+	trace_fastrpc_dma_stat(cid, -size, total);
+}
+
 static inline int64_t getnstimediff(struct timespec64 *start)
 {
 	int64_t ns;
@@ -680,7 +694,7 @@ static void fastrpc_buf_free(struct fastrpc_buf *buf, int cache)
 				srcVM, 2, destVM, destVMperm, 1);
 		}
 		trace_fastrpc_dma_free(fl->cid, buf->phys, buf->size);
-		atomic_long_sub(buf->size, &total_dma_bytes);
+		track_buffer_free(fl->cid, buf->size);
 		dma_free_attrs(fl->sctx->smmu.dev, buf->size, buf->virt,
 					buf->phys, buf->dma_attr);
 	}
@@ -796,11 +810,19 @@ static int fastrpc_mmap_find(struct fastrpc_file *fl, int fd,
 static int dma_alloc_memory(dma_addr_t *region_phys, void **vaddr, size_t size,
 					unsigned long dma_attr)
 {
+	int err = 0;
 	struct fastrpc_apps *me = &gfa;
 
 	if (me->dev == NULL) {
 		pr_err("device adsprpc-mem is not initialized\n");
 		return -ENODEV;
+	}
+	VERIFY(err, size > 0 && size < me->max_size_limit);
+	if (err) {
+		err = -EFAULT;
+		pr_err("adsprpc: %s: invalid allocation size 0x%zx\n",
+			__func__, size);
+		return err;
 	}
 	*vaddr = dma_alloc_attrs(me->dev, size, region_phys,
 					GFP_KERNEL, dma_attr);
@@ -896,7 +918,8 @@ static void fastrpc_mmap_free(struct fastrpc_mmap *map, uint32_t flags)
 			return;
 		}
 		trace_fastrpc_dma_free(-1, map->phys, map->size);
-		atomic_long_sub(map->size, &total_dma_bytes);
+
+		track_buffer_free(cid, map->size);
 		if (map->phys) {
 			dma_free_attrs(me->dev, map->size, (void *)map->va,
 			(dma_addr_t)map->phys, (unsigned long)map->attr);
@@ -985,7 +1008,7 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 			goto bail;
 		trace_fastrpc_dma_alloc(fl->cid, (uint64_t)region_phys, len,
 			(unsigned long)map->attr, mflags);
-		atomic_long_add(len, &total_dma_bytes);
+		track_buffer_alloc(fl->cid, len);
 		map->phys = (uintptr_t)region_phys;
 		map->size = len;
 		map->va = (uintptr_t)region_vaddr;
@@ -1096,10 +1119,6 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 		}
 		trace_fastrpc_dma_map(fl->cid, fd, map->phys, map->size,
 			len, mflags, map->attach->dma_map_attrs);
-		if (map->size < len) {
-			err = -EFAULT;
-			goto bail;
-		}
 
 		VERIFY(err, map->size >= len && map->size < me->max_size_limit);
 		if (err) {
@@ -1212,8 +1231,7 @@ static int fastrpc_buf_alloc(struct fastrpc_file *fl, size_t size,
 		buf->phys += ((uint64_t)fl->sctx->smmu.cb << 32);
 	trace_fastrpc_dma_alloc(fl->cid, buf->phys, size,
 		dma_attr, (int)rflags);
-
-	atomic_long_add(size, &total_dma_bytes);
+	track_buffer_alloc(fl->cid, size);
 	vmid = fl->apps->channel[fl->cid].vmid;
 	if (vmid) {
 		int srcVM[1] = {VMID_HLOS};
@@ -1838,9 +1856,10 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 	PERF_END);
 	for (i = bufs; i < bufs + handles; ++i) {
 		struct fastrpc_mmap *map = ctx->maps[i];
-
-		pages[i].addr = map->phys;
-		pages[i].size = map->size;
+		if (map) {
+			pages[i].addr = map->phys;
+			pages[i].size = map->size;
+		}
 	}
 	fdlist = (uint64_t *)&pages[bufs + handles];
 	crclist = (uint32_t *)&fdlist[M_FDLIST];
@@ -2425,13 +2444,13 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	inv_args(ctx);
 	PERF_END);
 
-	VERIFY(err, 0 == (err = ctx->retval));
+	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_PUTARGS),
+	VERIFY(err, 0 == (err = put_args(kernel, ctx, invoke->pra)));
+	PERF_END);
 	if (err)
 		goto bail;
 
-	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_PUTARGS),
-	VERIFY(err, 0 == put_args(kernel, ctx, invoke->pra));
-	PERF_END);
+	VERIFY(err, 0 == (err = ctx->retval));
 	if (err)
 		goto bail;
  bail:
@@ -3196,8 +3215,7 @@ static int fastrpc_mmap_remove_pdr(struct fastrpc_file *fl)
 	VERIFY(err, cid == fl->cid);
 	if (err)
 		goto bail;
-	if (!me->channel[fl->cid].spd[session].ispdup &&
-		me->channel[fl->cid].spd[session].pdrhandle) {
+	if (!me->channel[fl->cid].spd[session].ispdup) {
 		err = -ENOTCONN;
 		goto bail;
 	}
@@ -4073,24 +4091,27 @@ static int fastrpc_set_process_info(struct fastrpc_file *fl)
 {
 	int err = 0, buf_size = 0;
 	char strpid[PID_SIZE];
+	char cur_comm[TASK_COMM_LEN];
 
+	memcpy(cur_comm, current->comm, TASK_COMM_LEN);
+	cur_comm[TASK_COMM_LEN-1] = '\0';
 	fl->tgid = current->tgid;
 	snprintf(strpid, PID_SIZE, "%d", current->pid);
 	if (debugfs_root) {
-		buf_size = strlen(current->comm) + strlen("_")
+		buf_size = strlen(cur_comm) + strlen("_")
 			+ strlen(strpid) + 1;
 		fl->debug_buf = kzalloc(buf_size, GFP_KERNEL);
 		if (!fl->debug_buf) {
 			err = -ENOMEM;
 			return err;
 		}
-		snprintf(fl->debug_buf, UL_SIZE, "%.10s%s%d",
-			current->comm, "_", current->pid);
+		snprintf(fl->debug_buf, buf_size, "%.10s%s%d",
+			cur_comm, "_", current->pid);
 		fl->debugfs_file = debugfs_create_file(fl->debug_buf, 0644,
 			debugfs_root, fl, &debugfs_fops);
 		if (IS_ERR_OR_NULL(fl->debugfs_file)) {
 			pr_warn("Error: %s: %s: failed to create debugfs file %s\n",
-				current->comm, __func__, fl->debug_buf);
+				cur_comm, __func__, fl->debug_buf);
 			fl->debugfs_file = NULL;
 			kfree(fl->debug_buf);
 			fl->debug_buf = NULL;
@@ -4543,8 +4564,6 @@ static int fastrpc_restart_notifier_cb(struct notifier_block *nb,
 		ctx->ssrcount++;
 		ctx->issubsystemup = 0;
 		mutex_unlock(&me->channel[cid].smd_mutex);
-		if (cid == RH_CID)
-			me->staticpd_flags = 0;
 	} else if (code == SUBSYS_RAMDUMP_NOTIFICATION) {
 		if (cid == RH_CID) {
 			if (me->channel[RH_CID].rh_dump_dev &&
@@ -5029,7 +5048,7 @@ bail:
 }
 
 static ssize_t total_dma_kb_show(struct kobject *kobj,
-	struct kobj_attribute *attr, char *buf)
+		struct kobj_attribute *attr, char *buf)
 {
 	u64 size_in_bytes = atomic_long_read(&total_dma_bytes);
 
@@ -5048,6 +5067,7 @@ ATTRIBUTE_GROUPS(fastrpc_device);
 
 static int fastrpc_init_sysfs(void)
 {
+	struct kobject *fastrpc_kobj;
 	int ret;
 
 	fastrpc_kobj = kobject_create_and_add("fastrpc", kernel_kobj);
@@ -5057,6 +5077,7 @@ static int fastrpc_init_sysfs(void)
 	ret = sysfs_create_groups(fastrpc_kobj, fastrpc_device_groups);
 	if (ret) {
 		kobject_put(fastrpc_kobj);
+		fastrpc_kobj = NULL;
 		return ret;
 	}
 
@@ -5270,6 +5291,7 @@ static void __exit fastrpc_device_exit(void)
 	if (fastrpc_kobj) {
 		sysfs_remove_groups(fastrpc_kobj, fastrpc_device_groups);
 		kobject_put(fastrpc_kobj);
+		fastrpc_kobj = NULL;
 	}
 }
 

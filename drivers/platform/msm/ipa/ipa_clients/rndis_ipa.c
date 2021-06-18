@@ -55,7 +55,7 @@
 
 #define IPA_RNDIS_IPC_LOG_PAGES 50
 
-#ifdef CONFIG_IPA_IPC_LOGGING
+#ifdef CONFIG_ENABLE_IPC_LOGGING
 #define IPA_RNDIS_IPC_LOGGING(buf, fmt, args...) \
 	do { \
 		if (buf) \
@@ -64,7 +64,7 @@
 	} while (0)
 #else
 #define IPA_RNDIS_IPC_LOGGING(buf, fmt, args...)
-#endif /* CONFIG_IPA_IPC_LOGGING */
+#endif /* CONFIG_ENABLE_IPC_LOGGING */
 
 static void *ipa_rndis_logbuf;
 
@@ -1124,6 +1124,12 @@ static void rndis_ipa_packet_receive_notify(
 		("packet Rx, len=%d\n",
 		skb->len);
 
+	if (unlikely(rndis_ipa_ctx == NULL)) {
+		RNDIS_IPA_DEBUG("Private context is NULL. Drop SKB.\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
 	if (unlikely(rndis_ipa_ctx->rx_dump_enable))
 		rndis_ipa_dump_skb(skb);
 
@@ -1131,11 +1137,15 @@ static void rndis_ipa_packet_receive_notify(
 		RNDIS_IPA_DEBUG("use connect()/up() before receive()\n");
 		RNDIS_IPA_DEBUG("packet dropped (length=%d)\n",
 				skb->len);
+		rndis_ipa_ctx->rx_dropped++;
+		dev_kfree_skb_any(skb);
 		return;
 	}
 
 	if (unlikely(evt != IPA_RECEIVE)) {
 		RNDIS_IPA_ERROR("a none IPA_RECEIVE event in driver RX\n");
+		rndis_ipa_ctx->rx_dropped++;
+		dev_kfree_skb_any(skb);
 		return;
 	}
 
