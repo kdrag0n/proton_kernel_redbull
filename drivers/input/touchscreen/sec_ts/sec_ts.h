@@ -1130,6 +1130,7 @@ int execute_selftest(struct sec_ts_data *ts, u32 option);
 int execute_p2ptest(struct sec_ts_data *ts);
 int sec_ts_read_raw_data(struct sec_ts_data *ts,
 		struct sec_cmd_data *sec, struct sec_ts_test_mode *mode);
+u8 sec_ts_run_cal_check(struct sec_ts_data *ts);
 
 #if (1)//!defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 int sec_ts_raw_device_init(struct sec_ts_data *ts);
