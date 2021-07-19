@@ -6308,15 +6308,16 @@ unsigned long
 stune_util(int cpu, unsigned long other_util,
 		 struct sched_walt_cpu_load *walt_load)
 {
-	unsigned long util =
-		min_t(unsigned long, SCHED_CAPACITY_SCALE,
-		      cpu_util_freq_walt(cpu, walt_load) + other_util);
+	unsigned long util = min_t(unsigned long, SCHED_CAPACITY_SCALE,
+				   cpu_util_freq_walt(cpu, walt_load) + other_util);
 	long margin = schedtune_cpu_margin_with(util, cpu, NULL);
+
+	trace_sched_boost_cpu(cpu, util, margin);
 
 	return util + margin;
 }
-
 #endif
+
 #else /* CONFIG_SCHED_TUNE */
 
 inline long
@@ -8129,8 +8130,6 @@ static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu,
 		}
 	}
 unlock:
-	rcu_read_unlock();
-
 	/*
 	 * Pick the prev CPU, if best energy CPU can't saves at least 6% of
 	 * the energy used by prev_cpu.
@@ -8140,6 +8139,8 @@ unlock:
 	    (prev_energy != ULONG_MAX) && (best_energy_cpu != prev_cpu) &&
 	    ((prev_energy - best_energy) <= prev_energy >> 4))
 		best_energy_cpu = prev_cpu;
+
+	rcu_read_unlock();
 
 done:
 

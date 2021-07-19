@@ -1503,7 +1503,12 @@ struct task_struct {
 	struct mutex			futex_exit_mutex;
 #endif
 
+	/* bca62a0ae565 ("sched/tune: Fix improper accounting of tasks") */
+#ifdef CONFIG_SCHED_TUNE
+	ANDROID_KABI_USE(7, int stune_idx);
+#else
 	ANDROID_KABI_RESERVE(7);
+#endif
 	ANDROID_KABI_RESERVE(8);
 
 	/*
