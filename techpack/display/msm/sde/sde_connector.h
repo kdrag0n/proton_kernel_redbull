@@ -336,6 +336,14 @@ struct sde_connector_ops {
 	 * @is_idle: true if display is idle, false otherwise
 	 */
 	void (*set_idle_hint)(void *display, bool is_idle);
+
+	/**
+	 * get_qsync_min_fps - Get qsync min fps from qsync-min-fps-list
+	 * @display: Pointer to private display structure
+	 * @mode_fps: Fps value in dfps list
+	 * Returns: Qsync min fps value on success
+	 */
+	int (*get_qsync_min_fps)(void *display, u32 mode_fps);
 };
 
 /**
