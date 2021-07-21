@@ -629,7 +629,7 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	} data;
 	size_t output_size;
 	void *output;
-	int ret = 0;
+	int ret;
 	int fd;
 
 	if (_IOC_SIZE(cmd) > sizeof(data))
@@ -650,6 +650,9 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case ION_IOC_HEAP_QUERY:
 		ret = ion_query_heaps(&data.query);
+		if (ret)
+			return ret;
+
 		output = &data.query;
 		output_size = sizeof(data.query);
 		break;
@@ -670,7 +673,7 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (copy_to_user((void __user *)arg, output, output_size))
 		return -EFAULT;
 
-	return ret;
+	return 0;
 }
 
 struct ion_device *ion_device_create(void)
